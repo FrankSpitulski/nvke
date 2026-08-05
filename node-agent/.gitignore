@@ -41,3 +41,6 @@ report.xml
 go.work
 go.work.sum
 /agent
+
+# Local consumer overrides (copy from config.env.example)
+config.env

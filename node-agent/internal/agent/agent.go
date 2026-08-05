@@ -65,8 +65,6 @@ const (
 	// TODO: May need to adjust the following settings, but for now let's start here and expand as needed
 	ScriptStatusLimit       = 3
 	maxScriptLogOutputBytes = 4096
-	default_ubuntu_22_index = "https://nke-dev.s3.us-west-2.amazonaws.com/nke_bundles/ubuntu_22_index.json"
-	default_ubuntu_24_index = "https://nke-dev.s3.us-west-2.amazonaws.com/nke_bundles/ubuntu_24_index.json"
 	kubeletConfigPath       = "/var/lib/kubelet/config.yaml"
 )
 
@@ -269,20 +267,16 @@ func (s *NodeAgentServer) setIndexURL(indexFileURL string) error {
 		return nil
 	}
 
-	ubuntuVersion, err := nkeutils.GetOSVersion()
+	if s.BundleServerURL == "" {
+		return fmt.Errorf("bundle server URL is required to derive the default index path")
+	}
+
+	rel, err := nkeutils.GetBundleIndexPath()
 	if err != nil {
-		return fmt.Errorf("failed GetOSVersion, can't set bundle index")
+		return fmt.Errorf("failed GetBundleIndexPath, can't set bundle index: %w", err)
 	}
 
-	switch ubuntuVersion {
-	case nkeutils.OSVersionUbuntu22:
-		s.BundleIndexFile = default_ubuntu_22_index
-	case nkeutils.OSVersionUbuntu24:
-		s.BundleIndexFile = default_ubuntu_24_index
-	default:
-		return fmt.Errorf("invalid ubuntu version detected, support only 22.04 or 24.04, use indexOverride?")
-	}
-
+	s.BundleIndexFile = nkeutils.JoinBundleURL(s.BundleServerURL, rel)
 	return nil
 }
 

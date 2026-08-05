@@ -189,7 +189,7 @@ VERSION="22.04.5 LTS (Jammy Jellyfish)"`
 
 		url, err := GetBundleURL()
 		assert.NoError(t, err)
-		assert.Equal(t, NKE_UBUNTU_22_INDEX, url)
+		assert.Equal(t, DefaultBundleIndexUbuntu22, url)
 	})
 
 	t.Run("Ubuntu 24.04 returns correct URL", func(t *testing.T) {
@@ -204,7 +204,7 @@ VERSION="24.04 LTS (Noble Numbat)"`
 
 		url, err := GetBundleURL()
 		assert.NoError(t, err)
-		assert.Equal(t, NKE_UBUNTU_24_INDEX, url)
+		assert.Equal(t, DefaultBundleIndexUbuntu24, url)
 	})
 
 	t.Run("Unsupported OS returns error", func(t *testing.T) {
@@ -475,12 +475,10 @@ func TestArchLabels(t *testing.T) {
 }
 
 func TestConstants(t *testing.T) {
-	// Verify important constants are set
-	assert.NotEmpty(t, DEFAULT_BUNDLE_SERVER_URL)
-	assert.NotEmpty(t, NKE_UBUNTU_22_INDEX)
-	assert.NotEmpty(t, NKE_UBUNTU_24_INDEX)
-	assert.Contains(t, NKE_UBUNTU_22_INDEX, "22")
-	assert.Contains(t, NKE_UBUNTU_24_INDEX, "24")
+	assert.Equal(t, "nke_bundles/ubuntu_22_index.json", DefaultBundleIndexUbuntu22)
+	assert.Equal(t, "nke_bundles/ubuntu_24_index.json", DefaultBundleIndexUbuntu24)
+	assert.Equal(t, "https://artifacts.example.com/nke_bundles/ubuntu_22_index.json",
+		JoinBundleURL("https://artifacts.example.com/", DefaultBundleIndexUbuntu22))
 }
 
 func TestParseBundleSourceURI(t *testing.T) {
@@ -493,21 +491,21 @@ func TestParseBundleSourceURI(t *testing.T) {
 	}{
 		{
 			name:         "OCI registry with oci:// prefix",
-			uri:          "oci://nvcr.io/j7sbcjl3qgta/development",
+			uri:          "oci://registry.example.com/nke/bundles",
 			expectedType: BundleSourceOCI,
-			expectedURL:  "nvcr.io/j7sbcjl3qgta/development",
+			expectedURL:  "registry.example.com/nke/bundles",
 		},
 		{
 			name:         "OCI registry with trailing slash",
-			uri:          "oci://nvcr.io/j7sbcjl3qgta/development/",
+			uri:          "oci://registry.example.com/nke/bundles/",
 			expectedType: BundleSourceOCI,
-			expectedURL:  "nvcr.io/j7sbcjl3qgta/development",
+			expectedURL:  "registry.example.com/nke/bundles",
 		},
 		{
 			name:         "HTTPS URL",
-			uri:          "https://nke-dev.s3.us-west-2.amazonaws.com/",
+			uri:          "https://artifacts.example.com/",
 			expectedType: BundleSourceHTTP,
-			expectedURL:  "https://nke-dev.s3.us-west-2.amazonaws.com/",
+			expectedURL:  "https://artifacts.example.com/",
 		},
 		{
 			name:         "HTTP URL",
@@ -523,9 +521,9 @@ func TestParseBundleSourceURI(t *testing.T) {
 		},
 		{
 			name:         "Bare domain defaults to HTTPS",
-			uri:          "nke-dev.s3.us-west-2.amazonaws.com/",
+			uri:          "artifacts.example.com/",
 			expectedType: BundleSourceHTTP,
-			expectedURL:  "https://nke-dev.s3.us-west-2.amazonaws.com/",
+			expectedURL:  "https://artifacts.example.com/",
 		},
 		{
 			name:        "Empty URI returns error",
