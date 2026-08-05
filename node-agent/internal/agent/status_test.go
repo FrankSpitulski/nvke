@@ -426,7 +426,7 @@ func TestConcurrentStatusUpdates(t *testing.T) {
 	var wg sync.WaitGroup
 	numGoroutines := 10
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -571,7 +571,7 @@ func TestConcurrentUpdateBundleStatus(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			requestID := "req-" + string(rune('0'+idx))
-			for j := 0; j < 10; j++ {
+			for range 10 {
 				bundle := &Bundle{
 					RequestID: requestID,
 					Status:    "success",
@@ -598,7 +598,7 @@ func TestConcurrentGetBundleStatus(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

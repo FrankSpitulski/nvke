@@ -22,14 +22,11 @@ linters:
     - bidichk
     - bodyclose
     - containedctx
-    - contextcheck
     - decorder
     - depguard
     - dogsled
     - durationcheck
-    - errchkjson
     - errname
-    - errorlint
     - exhaustive
     - forcetypeassert
     - funlen
@@ -38,13 +35,10 @@ linters:
     - gochecknoinits
     - gochecksumtype
     - goconst
-    - gocritic
-    - godot
     - gomoddirectives
     - gomodguard
     - goprintffuncname
     - gosmopolitan
-    - grouper
     - importas
     - inamedparam
     - interfacebloat
@@ -63,11 +57,8 @@ linters:
     - sloglint
     - spancheck
     - sqlclosecheck
-    - staticcheck
-    - tagliatelle
     - testableexamples
     - unconvert
-    - unparam
     - usestdlibvars
     - varnamelen
     - zerologlint
@@ -80,35 +71,25 @@ linters:
     - revive      # TODO: fix and re-enable - various style issues (naming, unused params, etc.)
     - testpackage
     - wrapcheck
-    # TODO: fix and re-enable the following linters (384 issues total)
-    - contextcheck   # 11 issues - context propagation
+    # TODO: fix and re-enable the following linters
+    - contextcheck   # 20 issues - context propagation
     - dupl           # 3 issues - duplicate code blocks
     - dupword        # 3 issues - duplicate words in comments
-    - errchkjson     # 1 issue - json error checking
-    - errname        # 1 issue - error naming convention
-    - errorlint      # 43 issues - error wrapping
-    - exhaustive     # 2 issues - exhaustive switch/map
-    - forcetypeassert # 6 issues - unchecked type assertions
-    - goconst        # 7 issues - repeated strings to constants
-    - gocritic       # 76 issues - various code style
-    - godot          # 32 issues - comment punctuation
+    - errchkjson     # 2 issues - json error checking (unsafe type in test code)
+    - errorlint      # 34 issues - error wrapping
+    - gocritic       # 73 issues - various code style
+    - godot          # 45 issues - comment punctuation
     - gosec          # 18 issues - security issues
-    - grouper        # 2 issues - declaration grouping
-    - inamedparam    # 1 issue - interface param naming
-    - intrange       # 1 issue - integer range loops
+    - govet          # 41 issues - mostly shadow declarations
+    - grouper        # 18 issues - declaration grouping
     - misspell       # 10 issues - spelling errors
     - musttag        # 1 issue - struct tag requirements
-    - nilerr         # 1 issue - nil error returns
-    - nolintlint     # 2 issues - nolint directive issues
     - protogetter    # 124 issues - proto field access
-    - tagliatelle    # 4 issues - struct tag naming
-    - unconvert      # 7 issues - unnecessary conversions
-    - unparam        # 2 issues - unused parameters
-    - usestdlibvars  # 1 issue - stdlib variable usage
+    - staticcheck    # 16 issues - deprecated proto fields + style
+    - tagliatelle    # 5 issues - would change public JSON field names
+    - unparam        # 12 issues - unused parameters
     - wastedassign   # 1 issue - wasted assignments
     - whitespace     # 6 issues - whitespace issues
-    - govet          # 8 issues - go vet checks
-    - staticcheck    # 1 issue - static analysis
   settings:
     depguard:
       rules:

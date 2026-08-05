@@ -284,6 +284,8 @@ func GetOSVersionString() (string, error) {
 		return "22.04", nil
 	case OSVersionUbuntu24:
 		return "24.04", nil
+	case OSVersionUnsupported:
+		return "", fmt.Errorf("unsupported OS version for OCI")
 	default:
 		return "", fmt.Errorf("unsupported OS version for OCI")
 	}

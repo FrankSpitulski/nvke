@@ -37,7 +37,7 @@ const (
 var (
 	dynOnce          sync.Once
 	dynamicClient    dynamic.Interface
-	dynamicClientErr error
+	errDynamicClient error
 
 	// overrideDynamicClient, if non-nil, is returned by getDynamicClient (tests).
 	overrideDynamicClient dynamic.Interface
@@ -61,16 +61,16 @@ func getDynamicClient() (dynamic.Interface, error) {
 	dynOnce.Do(func() {
 		kubeconfig, err := os.ReadFile(AdminKubeconfigPath)
 		if err != nil {
-			dynamicClientErr = err
+			errDynamicClient = err
 			return
 		}
 		cfg, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
 		if err != nil {
-			dynamicClientErr = err
+			errDynamicClient = err
 			return
 		}
 		configureDynamicClientRESTConfig(cfg)
-		dynamicClient, dynamicClientErr = dynamic.NewForConfig(cfg)
+		dynamicClient, errDynamicClient = dynamic.NewForConfig(cfg)
 	})
-	return dynamicClient, dynamicClientErr
+	return dynamicClient, errDynamicClient
 }

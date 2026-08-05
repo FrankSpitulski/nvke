@@ -55,7 +55,7 @@ func (s *NodeAgentServer) processInstallPackages(ctx context.Context, req *pb.In
 	if req.GetUpdate() {
 		if err := deb.Update(ctx); err != nil {
 			slog.ErrorContext(ctx, "apt-get update failed", "error", err)
-			pkgStatus.Status = "error"
+			pkgStatus.Status = ErrorStatus
 			pkgStatus.Error = fmt.Sprintf("update error: %v", err)
 			return status.Errorf(codes.Internal, "update error: %v", err)
 		}
@@ -63,13 +63,13 @@ func (s *NodeAgentServer) processInstallPackages(ctx context.Context, req *pb.In
 
 	if err := deb.Install(ctx, req.GetPackages()...); err != nil {
 		slog.ErrorContext(ctx, "package installation failed", "packages", req.GetPackages(), "error", err)
-		pkgStatus.Status = "error"
+		pkgStatus.Status = ErrorStatus
 		pkgStatus.Error = err.Error()
 		return status.Errorf(codes.Internal, "install error: %v", err)
 	}
 
 	s.refreshNodeStatusInstalledPackages(ctx)
-	pkgStatus.Status = "success"
+	pkgStatus.Status = SuccessStatus
 	slog.InfoContext(ctx, "packages installed successfully", "packages", req.GetPackages(), "request_id", pkgStatus.RequestID)
 	return nil
 }

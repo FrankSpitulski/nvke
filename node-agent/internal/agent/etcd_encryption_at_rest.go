@@ -547,11 +547,11 @@ func (n *NodeAgentServer) RemovePlainTextSecondaryEncryptionEntry(
 			"node %s does not have required labels to remove plain text secondary entry from encryption-config.yaml",
 			hostname,
 		)
-		response.Status = "error"
+		response.Status = ErrorStatus
 		return response, err
 	}
 
-	defer os.Remove("/tmp/encyrption-cfg-update.yaml") //nolint:errcheck
+	defer os.Remove("/tmp/encyrption-cfg-update.yaml")
 
 	if n.clientRegistry == nil {
 		slog.Error(
@@ -862,7 +862,7 @@ func (n *NodeAgentServer) createAPIEncryptionConfig(encryptionKey string, identi
 	if err != nil {
 		return err
 	}
-	defer f.Close() //nolint:errcheck
+	defer f.Close()
 
 	tmplStr := encryptionConfigTemplate
 	if identityFirst {

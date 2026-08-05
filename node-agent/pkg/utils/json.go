@@ -16,7 +16,7 @@ func FetchText(ctx context.Context, url string) (string, error) {
 		Timeout: 30 * time.Second,
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("unable to create GET request: %w", err)
 	}
@@ -28,7 +28,7 @@ func FetchText(ctx context.Context, url string) (string, error) {
 		return "", fmt.Errorf("unable to perform GET request: %w", err)
 	}
 
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
@@ -48,7 +48,7 @@ func FetchJSON(ctx context.Context, url string, target interface{}) error {
 		Timeout: 30 * time.Second,
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("unable to create GET request: %w", err)
 	}
@@ -60,7 +60,7 @@ func FetchJSON(ctx context.Context, url string, target interface{}) error {
 		return fmt.Errorf("unable to perform GET request: %w", err)
 	}
 
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)

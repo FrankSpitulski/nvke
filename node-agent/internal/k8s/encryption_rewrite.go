@@ -215,7 +215,7 @@ func rewriteEncryptableObjectRefs(
 func startEncryptRewriteWorkers(workerCount int, worker func()) *sync.WaitGroup {
 	wg := &sync.WaitGroup{}
 	wg.Add(workerCount)
-	for i := 0; i < workerCount; i++ {
+	for range workerCount {
 		go func() {
 			defer wg.Done()
 			worker()

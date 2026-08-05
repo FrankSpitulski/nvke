@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -15,7 +16,7 @@ import (
 var (
 	clientset         kubernetes.Interface
 	clientsetOnce     sync.Once
-	clientsetErr      error
+	errClientset      error
 	overrideClientset kubernetes.Interface // set via SetClientsetForTest in tests
 )
 
@@ -32,17 +33,17 @@ func getK8sClientSet() (kubernetes.Interface, error) {
 	clientsetOnce.Do(func() {
 		kubeconfig, err := os.ReadFile(AdminKubeconfigPath)
 		if err != nil {
-			clientsetErr = err
+			errClientset = err
 			return
 		}
 		config, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
 		if err != nil {
-			clientsetErr = err
+			errClientset = err
 			return
 		}
-		clientset, clientsetErr = kubernetes.NewForConfig(config)
+		clientset, errClientset = kubernetes.NewForConfig(config)
 	})
-	return clientset, clientsetErr
+	return clientset, errClientset
 }
 
 func updateObjectMetadata(getObj func() (metav1.Object, error), updateObj func(metav1.Object) error, kvStr string, isLabel bool, remove bool) error {
@@ -98,7 +99,10 @@ func AnnotatePod(ctx context.Context, namespace, name, annotation string) error 
 			return client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
 		},
 		func(obj metav1.Object) error {
-			pod := obj.(*v1.Pod)
+			pod, ok := obj.(*v1.Pod)
+			if !ok {
+				return fmt.Errorf("unexpected object type %T, want *v1.Pod", obj)
+			}
 			_, err := client.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{})
 			return err
 		},
@@ -116,7 +120,10 @@ func AnnotateNode(ctx context.Context, nodeName, annotation string) error {
 			return client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 		},
 		func(obj metav1.Object) error {
-			node := obj.(*v1.Node)
+			node, ok := obj.(*v1.Node)
+			if !ok {
+				return fmt.Errorf("unexpected object type %T, want *v1.Node", obj)
+			}
 			_, err := client.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
 			return err
 		},
@@ -154,7 +161,10 @@ func LabelPod(ctx context.Context, namespace, name, label string) error {
 			return client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
 		},
 		func(obj metav1.Object) error {
-			pod := obj.(*v1.Pod)
+			pod, ok := obj.(*v1.Pod)
+			if !ok {
+				return fmt.Errorf("unexpected object type %T, want *v1.Pod", obj)
+			}
 			_, err := client.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{})
 			return err
 		},
@@ -172,7 +182,10 @@ func LabelNode(ctx context.Context, nodeName, label string) error {
 			return client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 		},
 		func(obj metav1.Object) error {
-			node := obj.(*v1.Node)
+			node, ok := obj.(*v1.Node)
+			if !ok {
+				return fmt.Errorf("unexpected object type %T, want *v1.Node", obj)
+			}
 			_, err := client.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
 			return err
 		},
@@ -190,7 +203,10 @@ func RemovePodLabel(ctx context.Context, namespace, name, label string) error {
 			return client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
 		},
 		func(obj metav1.Object) error {
-			pod := obj.(*v1.Pod)
+			pod, ok := obj.(*v1.Pod)
+			if !ok {
+				return fmt.Errorf("unexpected object type %T, want *v1.Pod", obj)
+			}
 			_, err := client.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{})
 			return err
 		},
@@ -208,7 +224,10 @@ func RemoveNodeLabel(ctx context.Context, name, label string) error {
 			return client.CoreV1().Nodes().Get(ctx, name, metav1.GetOptions{})
 		},
 		func(obj metav1.Object) error {
-			node := obj.(*v1.Node)
+			node, ok := obj.(*v1.Node)
+			if !ok {
+				return fmt.Errorf("unexpected object type %T, want *v1.Node", obj)
+			}
 			_, err := client.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
 			return err
 		},

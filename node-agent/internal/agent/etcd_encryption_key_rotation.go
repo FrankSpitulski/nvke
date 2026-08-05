@@ -924,12 +924,3 @@ func k8sAPIRewriteTerminal(state K8sAPIRewriteState) bool {
 	return state == K8sAPIRewriteStateSucceeded || state == K8sAPIRewriteStateFailed
 }
 
-func (n *NodeAgentServer) executeRewriteEncryptedObjects(
-	ctx context.Context,
-	resources []string,
-) error {
-	if n.NodeStatus.Role != ControlPlaneRole {
-		return errors.New("RewriteEncryptedObjects can only be run on controlplane nodes")
-	}
-	return n.rewriteEncryptedObjects(ctx, resources)
-}

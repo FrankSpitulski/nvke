@@ -207,7 +207,7 @@ func (r *blockingRewriteResource) Namespace(namespace string) dynamic.ResourceIn
 
 func (r *blockingRewriteResource) List(_ context.Context, _ metav1.ListOptions) (*unstructured.UnstructuredList, error) {
 	list := &unstructured.UnstructuredList{}
-	for i := 0; i < r.client.totalObjects; i++ {
+	for i := range r.client.totalObjects {
 		list.Items = append(list.Items, *secretObject(fmt.Sprintf("secret-%03d", i), "ns1"))
 	}
 	return list, nil
