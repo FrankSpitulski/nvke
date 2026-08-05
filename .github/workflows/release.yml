@@ -5,7 +5,7 @@ on:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
-      - 'cloud-workflow-engine/v[0-9]*'
+      - '*/v[0-9]*'
   workflow_dispatch:
 
 permissions:
@@ -44,12 +44,12 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-rc.') }}
           generate_release_notes: false
 
-  publish-image:
-    name: Publish image to NVCR
+  publish:
+    name: Publish
     needs: [license-checks]
     if: ${{ contains(github.ref_name, '/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # TODO: port image build and NVCR push from cloud-workflow-engine GitLab CI
-      - run: echo "Image publish placeholder — implement as part of NKX-14116"
+      # TODO: add component-specific publish steps (NKX-14116)
+      - run: echo "Publish placeholder — implement per component as part of NKX-14116"
