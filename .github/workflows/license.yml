@@ -1,0 +1,74 @@
+---
+# License enforcement for the cloud-workflow-engine component.
+#
+# Source-header check: `make file-license-check` (addlicense) verifies every
+# source file under cloud-workflow-engine/ carries the required copyright header.
+#
+# Dependency license check: `go-licenses` (github.com/google/go-licenses)
+# scans all transitive Go dependencies and fails on any that carry a
+# restricted, reciprocal, forbidden, or unknown license.  This is the same
+# underlying tool used in the GitLab CI pipeline; no proprietary wrapper is
+# required in GitHub Actions.
+#
+# Both jobs are path-scoped to cloud-workflow-engine/ so they only run when
+# that component changes.  The workflow also exposes a workflow_call trigger
+# so the release workflow can gate publishing on passing license checks.
+#
+# Release gate: the release workflow calls this workflow and gates publish
+# jobs on it via `needs`.  See .github/workflows/release.yml.
+name: License Checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloud-workflow-engine/**'
+      - '.github/workflows/license.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cloud-workflow-engine/**'
+      - '.github/workflows/license.yml'
+  workflow_call:
+
+jobs:
+  file-license-check:
+    name: Source header check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'cloud-workflow-engine/go.mod'
+          cache: true
+          cache-dependency-path: 'cloud-workflow-engine/go.sum'
+
+      # addlicense (github.com/google/addlicense) is fetched by `make
+      # file-license-check`.  It writes headers to any file missing one,
+      # then the Makefile checks `git diff --exit-code` to catch additions.
+      - name: Verify license headers
+        working-directory: cloud-workflow-engine
+        run: make file-license-check
+
+  go-license-check:
+    name: Dependency license check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'cloud-workflow-engine/go.mod'
+          cache: true
+          cache-dependency-path: 'cloud-workflow-engine/go.sum'
+
+      # go-licenses inspects the license of every transitive dependency.
+      # Fails on restricted (GPL family), reciprocal (MPL family),
+      # forbidden, or unknown license types.
+      - name: Check dependency licenses
+        working-directory: cloud-workflow-engine
+        run: |
+          go install github.com/google/go-licenses/v2@latest
+          go-licenses check ./... \
+            --disallowed_types=restricted,reciprocal,forbidden,unknown
