@@ -1,11 +1,13 @@
 version: 2
 updates:
-  # Go modules across every top-level component (node-agent, cloud-workflow-engine, ...).
-  # `directories` globbing means new components with their own go.mod are picked up
-  # automatically without editing this file.
+  # Go modules anywhere in the tree. This is a nested multi-module monorepo
+  # (node-agent, controller, controller/api, controller/forge-vms,
+  # controller/test/e2e, controller/hack/*, ...), so the recursive "/**/*" glob
+  # is required — "/*" only matches depth-1 dirs and would miss the nested modules.
+  # New components with their own go.mod are picked up automatically.
   - package-ecosystem: gomod
     directories:
-      - "/*"
+      - "/**/*"
     schedule:
       interval: weekly
     groups:
@@ -13,11 +15,10 @@ updates:
         patterns:
           - "*"
 
-  # Dockerfiles across every component.
+  # Dockerfiles anywhere in the tree (controller/, controller/hack/*, node-agent/, ...).
   - package-ecosystem: docker
     directories:
-      - "/*"
-      - "/*/**"
+      - "/**/*"
     schedule:
       interval: weekly
 
