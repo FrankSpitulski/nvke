@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # Go modules across every top-level component (node-agent, cloud-workflow-engine, ...).
+  # `directories` globbing means new components with their own go.mod are picked up
+  # automatically without editing this file.
+  - package-ecosystem: gomod
+    directories:
+      - "/*"
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+
+  # Dockerfiles across every component.
+  - package-ecosystem: docker
+    directories:
+      - "/*"
+      - "/*/**"
+    schedule:
+      interval: weekly
+
+  # Shared GitHub Actions workflows (repo root).
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
