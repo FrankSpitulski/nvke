@@ -2,14 +2,18 @@ package auth
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type TokenAuthenticator struct {
@@ -45,7 +49,9 @@ func (a *TokenAuthenticator) watchToken() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
-		a.loadToken() // nolint:errcheck
+		if err := a.loadToken(); err != nil {
+			slog.Error("failed to reload auth token", "err", err)
+		}
 	}
 }
 
@@ -53,18 +59,18 @@ func (a *TokenAuthenticator) UnaryInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		md, ok := metadata.FromIncomingContext(ctx)
 		if !ok {
-			return nil, fmt.Errorf("no metadata")
+			return nil, status.Error(codes.Unauthenticated, "missing request metadata")
 		}
 		ah := md.Get("authorization")
 		if len(ah) == 0 {
-			return nil, fmt.Errorf("missing authorization header")
+			return nil, status.Error(codes.Unauthenticated, "missing authorization header")
 		}
 		token := strings.TrimPrefix(ah[0], "Bearer ")
 		a.mu.RLock()
 		expected := a.token
 		a.mu.RUnlock()
-		if token != expected {
-			return nil, fmt.Errorf("unauthorized")
+		if subtle.ConstantTimeCompare([]byte(token), []byte(expected)) != 1 {
+			return nil, status.Error(codes.Unauthenticated, "unauthorized")
 		}
 		return handler(ctx, req)
 	}
