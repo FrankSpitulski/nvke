@@ -708,7 +708,7 @@ func TestPatchAPIServerManifest_PrunesOldBackups(t *testing.T) {
 	srv.apiServerReadyMaxAttempts = 2
 	srv.apiServerReadyPollInterval = 5 * time.Millisecond
 
-	for i := 0; i < maxAPIServerManifestBackups+3; i++ {
+	for i := range maxAPIServerManifestBackups + 3 {
 		req := &pb.PatchAPIServerManifestRequest{
 			FlagOps: []*pb.FlagOp{{Op: &pb.FlagOp_Set{Set: &pb.SetFlag{
 				Name:  "authentication-config",

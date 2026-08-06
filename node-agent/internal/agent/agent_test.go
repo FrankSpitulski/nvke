@@ -856,7 +856,7 @@ func TestStreamExecuteScript_ExitCodeRace(t *testing.T) {
 
 	for _, st := range subtests {
 		t.Run(st.name, func(t *testing.T) {
-			for i := 0; i < st.iters; i++ {
+			for i := range st.iters {
 				scriptPath := filepath.Join(tmpDir, fmt.Sprintf("race-%s-%d.sh", st.name, i))
 				require.NoError(t, os.WriteFile(scriptPath, []byte(st.script), 0o755))
 

@@ -184,7 +184,10 @@ func isAllowedNKERBACName(name string) bool {
 
 func validateNKERBACRoleRef(obj *unstructured.Unstructured) error {
 	roleRefName, found, err := unstructured.NestedString(obj.Object, "roleRef", "name")
-	if err != nil || !found || roleRefName == "" {
+	if err != nil {
+		return fmt.Errorf("reading roleRef.name: %w", err)
+	}
+	if !found || roleRefName == "" {
 		return nil
 	}
 	if !isAllowedNKERBACName(roleRefName) {

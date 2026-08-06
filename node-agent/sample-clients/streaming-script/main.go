@@ -32,7 +32,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
-	defer conn.Close() //nolint:errcheck
+	defer conn.Close()
 	c := pb.NewNodeAgentClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

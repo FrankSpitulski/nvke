@@ -20,7 +20,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not connect: %v", err)
 	}
-	defer cc.Close() //nolint:errcheck
+	defer cc.Close()
 
 	c := pb.NewNodeAgentClient(cc)
 
@@ -29,7 +29,7 @@ func main() {
 		log.Printf("failed to open test-bundle.tgz: %v", err)
 		log.Fatal(err)
 	}
-	defer file.Close() //nolint:errcheck
+	defer file.Close()
 
 	stream, err := c.UploadFileBundle(context.Background())
 	if err != nil {

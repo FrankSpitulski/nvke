@@ -130,14 +130,14 @@ func (s *NodeAgentServer) installCalico(version *semver.Version, operatorManifes
 
 	path, err := nkeutils.DownloadAndExtractArchive(calicoBundle, s.BundleSource)
 	if err != nil {
-		bundleStatus.Status = "error"
+		bundleStatus.Status = ErrorStatus
 		bundleStatus.Error = fmt.Sprintf("failed to download calico bundle: %v", err.Error())
 		return err
 	}
 
 	if err := s.applyTigeraManifestOverrides(path, operatorManifest, resourceManifest); err != nil {
 		bundleStatus.Error = err.Error()
-		bundleStatus.Status = "error"
+		bundleStatus.Status = ErrorStatus
 		return err
 	}
 
@@ -153,7 +153,7 @@ func (s *NodeAgentServer) installCalico(version *semver.Version, operatorManifes
 	if err != nil {
 		slog.Error("calico bundle install failed", "error", err, "output", string(out))
 		bundleStatus.Error = fmt.Sprintf("failed to install calico bundle: %v", err.Error())
-		bundleStatus.Status = "error"
+		bundleStatus.Status = ErrorStatus
 		bundleStatus.Output = string(out)
 		return err
 	}
@@ -163,7 +163,7 @@ func (s *NodeAgentServer) installCalico(version *semver.Version, operatorManifes
 	s.mu.Lock()
 	s.NodeStatus.CalicoInstallLog = string(logContents)
 	s.mu.Unlock()
-	bundleStatus.Status = "success"
+	bundleStatus.Status = SuccessStatus
 	bundleStatus.Output = string(logContents)
 
 	return nil
@@ -326,16 +326,16 @@ func (s *NodeAgentServer) installOvnK8sCNIPlugin(req *pb.InstallCNIPluginRequest
 	if err != nil {
 		slog.Error("ovn-kubernetes bundle install failed", "error", err, "path", path, "output", string(out))
 		bundleStatus.Error = fmt.Sprintf("failed to install ovn-kubernetes bundle: %v, path: %s", err.Error(), path)
-		bundleStatus.Status = "error"
+		bundleStatus.Status = ErrorStatus
 		return err
 	}
 
 	if err := s.runOvnKubernetesHelmInstallFromDir(ovnKubernetesHelmChartDir, req.GetPodNetworkCidr(), req.GetServiceCidr(), req.GetCniConfig()); err != nil {
-		bundleStatus.Status = "error"
+		bundleStatus.Status = ErrorStatus
 		bundleStatus.Error = err.Error()
 		return err
 	}
-	bundleStatus.Status = "success"
+	bundleStatus.Status = SuccessStatus
 	return nil
 }
 
@@ -379,6 +379,8 @@ func nkeCniAptSpec(variant pb.CniVariant, role pb.CniAptRole, version string) (s
 
 	var pkg string
 	switch variant {
+	case pb.CniVariant_CNI_VARIANT_UNSPECIFIED:
+		return "", errors.New("cni_variant must be OVN or CALICO")
 	case pb.CniVariant_CNI_VARIANT_OVN:
 		stream := pin
 		if stream == "" {
@@ -641,22 +643,27 @@ func (s *NodeAgentServer) runCalicoKubectlApplyFromDir(root string, podNetworkCi
 
 func (s *NodeAgentServer) runCniChartsDeploy(ctx context.Context, req *pb.InstallCNIRequest, binPkg string, bundleStatus *Bundle) error {
 	switch effectiveCniVariant(req.GetCniVariant()) {
+	case pb.CniVariant_CNI_VARIANT_UNSPECIFIED:
+		err := errors.New("cni_variant must be OVN or CALICO")
+		bundleStatus.Status = ErrorStatus
+		bundleStatus.Error = err.Error()
+		return err
 	case pb.CniVariant_CNI_VARIANT_OVN:
 		chartDir, err := ovnHelmChartDir(ctx, binPkg)
 		if err != nil {
-			bundleStatus.Status = "error"
+			bundleStatus.Status = ErrorStatus
 			bundleStatus.Error = err.Error()
 			return err
 		}
 		if err := s.runOvnKubernetesHelmInstallFromDir(chartDir, req.GetPodNetworkCidr(), req.GetServiceCidr(), req.GetCniConfig()); err != nil {
-			bundleStatus.Status = "error"
+			bundleStatus.Status = ErrorStatus
 			bundleStatus.Error = err.Error()
 			return err
 		}
 	case pb.CniVariant_CNI_VARIANT_CALICO:
 		root, err := calicoInstallRoot(ctx, binPkg)
 		if err != nil {
-			bundleStatus.Status = "error"
+			bundleStatus.Status = ErrorStatus
 			bundleStatus.Error = err.Error()
 			return err
 		}
@@ -664,12 +671,12 @@ func (s *NodeAgentServer) runCniChartsDeploy(ctx context.Context, req *pb.Instal
 		if req.GetTigeraOperatorManifest() != "" || req.GetTigeraCustomResourceManifest() != "" {
 			if _, statErr := os.Stat(tigeraOpPath); statErr != nil {
 				err := fmt.Errorf("tigera manifest overrides requested but %s not found: %w", tigeraOpPath, statErr)
-				bundleStatus.Status = "error"
+				bundleStatus.Status = ErrorStatus
 				bundleStatus.Error = err.Error()
 				return err
 			}
 			if err := s.applyTigeraManifestOverrides(root, req.GetTigeraOperatorManifest(), req.GetTigeraCustomResourceManifest()); err != nil {
-				bundleStatus.Status = "error"
+				bundleStatus.Status = ErrorStatus
 				bundleStatus.Error = err.Error()
 				return err
 			}
@@ -681,7 +688,7 @@ func (s *NodeAgentServer) runCniChartsDeploy(ctx context.Context, req *pb.Instal
 			deployErr = s.runCalicoKubectlApplyFromDir(root, req.GetPodNetworkCidr())
 		}
 		if deployErr != nil {
-			bundleStatus.Status = "error"
+			bundleStatus.Status = ErrorStatus
 			bundleStatus.Error = deployErr.Error()
 			return deployErr
 		}
@@ -694,11 +701,11 @@ func (s *NodeAgentServer) runCniChartsDeploy(ctx context.Context, req *pb.Instal
 		}
 	default:
 		err := errors.New("cni_variant must be OVN or CALICO")
-		bundleStatus.Status = "error"
+		bundleStatus.Status = ErrorStatus
 		bundleStatus.Error = err.Error()
 		return err
 	}
-	bundleStatus.Status = "success"
+	bundleStatus.Status = SuccessStatus
 	return nil
 }
 

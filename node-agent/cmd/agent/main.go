@@ -193,7 +193,7 @@ func startSecureServer(ctx context.Context, cfg AgentConfig, agentServer *server
 
 	agentServer.NodeStatus.ListenStatus = "listening on port " + cfg.NodeServerListenPort
 	slog.Info("persisting status with listenStatus update")
-	agentServer.Persister.Persist(agentServer.NodeStatus) //nolint errcheck
+	agentServer.Persister.Persist(agentServer.NodeStatus) //nolint:errcheck
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
@@ -300,7 +300,7 @@ func main() {
 	if err != nil {
 		slog.Error("failed to run node startup", "err", err)
 	} else {
-		agentServer.Persister.Persist(agentServer.NodeStatus) // nolint errcheck
+		agentServer.Persister.Persist(agentServer.NodeStatus) //nolint:errcheck
 	}
 	go func() {
 		slog.Info("starting server")
