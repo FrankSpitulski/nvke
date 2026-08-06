@@ -52,6 +52,7 @@ const (
 	ReadyStatus          = "ready"
 	PendingStatus        = "pending"
 	ErrorStatus          = "error"
+	SuccessStatus        = "success"
 	NotReadyStatus       = "notready"
 	UninitializedStatus  = "uninitialized"
 	WorkerRole           = "worker"
@@ -972,8 +973,8 @@ func (s *NodeAgentServer) ExecuteKubeadmReset(
 
 	cmdArgs := []string{"reset", "-f"}
 
-	// Append --skip-phases=<name> for each entry in the request. Used by the SWE
-	// CP-teardown path to skip remove-etcd-member, which would otherwise hang in
+	// Append --skip-phases=<name> for each entry in the request. Used by the
+	// controller CP-teardown path to skip remove-etcd-member, which would otherwise hang in
 	// kubeadm's etcd MemberRemove retry loop (~2 min budget) when the local etcd
 	// has already been kicked out of the cluster's raft quorum.
 	for _, phase := range req.SkipPhases {

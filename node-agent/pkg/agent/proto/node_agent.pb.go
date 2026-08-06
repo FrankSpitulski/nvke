@@ -1153,7 +1153,7 @@ type KubeadmInitRequest struct {
 	// Kubernetes control-plane version for kubeadm static-pod images (e.g. v1.31.9).
 	// Used only when init_config is empty (CLI kubeadm init path): implies --kubernetes-version.
 	// Canonical form uses a leading v. When empty, the agent tries kubeadm version -o short from the binary on PATH.
-	// When init_config is non-empty, set kubernetesVersion inside ClusterConfiguration instead (SWE kubeadm templates already do).
+	// When init_config is non-empty, set kubernetesVersion inside ClusterConfiguration instead (NKE controller kubeadm templates already do).
 	KubernetesVersion string `protobuf:"bytes,22,opt,name=kubernetes_version,json=kubernetesVersion,proto3" json:"kubernetes_version,omitempty"`
 }
 
@@ -2803,7 +2803,8 @@ type ResourceApplyResult struct {
 
 	// Kubernetes kind of the resource (e.g. "ClusterRole").
 	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
-	// metadata.name of the resource (e.g. "nke:cwe").
+	// metadata.name of the resource (e.g. "nke:cwe", the ClusterRole name still
+	// used by the NKE controller RBAC charts).
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	// metadata.namespace for namespaced resources; empty for cluster-scoped
 	// resources.

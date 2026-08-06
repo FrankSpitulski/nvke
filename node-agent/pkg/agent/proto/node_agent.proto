@@ -333,7 +333,7 @@ message KubeadmInitRequest {
   // Kubernetes control-plane version for kubeadm static-pod images (e.g. v1.31.9).
   // Used only when init_config is empty (CLI kubeadm init path): implies --kubernetes-version.
   // Canonical form uses a leading v. When empty, the agent tries kubeadm version -o short from the binary on PATH.
-  // When init_config is non-empty, set kubernetesVersion inside ClusterConfiguration instead (SWE kubeadm templates already do).
+  // When init_config is non-empty, set kubernetesVersion inside ClusterConfiguration instead (NKE controller kubeadm templates already do).
   string kubernetes_version = 22;
 }
 
@@ -537,7 +537,8 @@ message UpdateNKERBACResponse {
 message ResourceApplyResult {
   // Kubernetes kind of the resource (e.g. "ClusterRole").
   string kind = 1;
-  // metadata.name of the resource (e.g. "nke:cwe").
+  // metadata.name of the resource (e.g. "nke:cwe", the ClusterRole name still
+  // used by the NKE controller RBAC charts).
   string name = 2;
   // metadata.namespace for namespaced resources; empty for cluster-scoped
   // resources.

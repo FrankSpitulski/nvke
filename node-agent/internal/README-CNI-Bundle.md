@@ -2,7 +2,7 @@
 
 This note describes **node-agent** behavior for cluster networking: how CNI moved to
 `InstallCNI` for **new** orchestration, how **`noCniInstall`** preserves **backward
-compatibility with older SWE (orchestrator) versions**, and how that relates to the
+compatibility with older controller/orchestrator versions**, and how that relates to the
 legacy in-init CNI path (stand-alone `InstallCNIPlugin` RPC removed).
 
 ## `ExecuteKubeadmInit` and `noCniInstall`
@@ -11,12 +11,13 @@ legacy in-init CNI path (stand-alone `InstallCNIPlugin` RPC removed).
 that flow depends on **`noCniInstall`** on `KubeadmInitRequest` (default **`false`**
 when the field is omitted, matching older clients):
 
-- **`noCniInstall` omitted or `false` (legacy / old SWE):** After a successful init,
-  the agent may run the **legacy in-init** path: it maps Tigera/Calico/OVN fields on
+- **`noCniInstall` omitted or `false` (legacy / older controller):** After a successful
+  init, the agent may run the **legacy in-init** path: it maps Tigera/Calico/OVN fields on
   `KubeadmInitRequest` into `InstallCNIPlugin` and calls the same install logic
-  (unless `skipCniPluginInstall` is set). This exists so **older NKE / SWE versions**
-  that never passed `noCniInstall` continue to work without code changes.
-- **`noCniInstall: true` (new SWE / recommended):** No CNI during init. Install
+  (unless `skipCniPluginInstall` is set). This exists so **older NKE controller /
+  orchestrator versions** that never passed `noCniInstall` continue to work without code
+  changes.
+- **`noCniInstall: true` (current controller / recommended):** No CNI during init. Install
   cluster networking afterward via **`InstallCNI`**.
 
 The CNI-related fields on `KubeadmInitRequest` (manifests, `cni_config`, `ovn_version`,
@@ -49,14 +50,15 @@ The RPC sets **`resolvedAptPackage`** to the charts/manifest logical package spe
 
 `InstallCNIPluginRequest` remains as the internal request shape for in-init CNI; the stand-alone RPC was removed. Prefer `InstallCNI` for stand-alone
 calls from **new** code. It remains the implementation behind **legacy in-init CNI**
-when `noCniInstall` is not set, for **backward compatibility with old SWE versions**.
-**New** orchestration should use **`noCniInstall: true`** on `ExecuteKubeadmInit`,
-**`InstallPackages`** for CNI Debian packages where needed (images and/or charts debs),
-and **`InstallCNI`** once on a control-plane to apply charts/manifests.
+when `noCniInstall` is not set, for **backward compatibility with older controller
+versions**. **New** orchestration should use **`noCniInstall: true`** on
+`ExecuteKubeadmInit`, **`InstallPackages`** for CNI Debian packages where needed
+(images and/or charts debs), and **`InstallCNI`** once on a control-plane to apply
+charts/manifests.
 
 ## Summary sequence (orchestrator view)
 
-**New SWE (recommended):**
+**Current NKE controller (recommended):**
 
 1. **`ExecuteKubeadmInit`** with **`noCniInstall: true`** on the bootstrap control-plane node.
 2. **`InstallPackages`** (**or apt**) for **`nke-cni-*-images-<stream>`** on nodes that must pre-load images (skip if registry-pull-only tenant policy applies).
@@ -64,6 +66,6 @@ and **`InstallCNI`** once on a control-plane to apply charts/manifests.
 4. **`InstallCNI`** once on **that control-plane**.
 5. **Join workflow:** continue using **`ExecuteKubeadmJoin`**; repeat **step 2** on join-only nodes where offline image bundles are needed (no **`InstallCNI`** on workers).
 
-**Older SWE (compatibility):** may omit `noCniInstall` and rely on the default in-init
-CNI (same effective behavior as pre–`InstallCNI` agents for callers that still populate
-the legacy `KubeadmInitRequest` CNI fields).
+**Older controller/orchestrator (compatibility):** may omit `noCniInstall` and rely on the
+default in-init CNI (same effective behavior as pre–`InstallCNI` agents for callers that
+still populate the legacy `KubeadmInitRequest` CNI fields).
