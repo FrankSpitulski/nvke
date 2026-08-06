@@ -77,7 +77,9 @@ jobs:
         run: |
           go install github.com/google/go-licenses/v2@latest
           go-licenses check ./... \
-            --disallowed_types=restricted,reciprocal,forbidden,unknown
+            --disallowed_types=restricted,reciprocal,forbidden,unknown \
+            --ignore github.com/NVIDIA/nke \
+            --ignore gitlab-master.nvidia.com
 
       # Runs `make file-license-check` when the target exists in this module.
       # Modules that do not expose the target (e.g. node-agent at present) are
