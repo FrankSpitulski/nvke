@@ -177,8 +177,8 @@ func validateUpdateEncryptionConfigRequest(req *pb.UpdateEncryptionConfigRequest
 }
 
 // validateEncryptionKey checks that key is non-empty, valid standard base64
-// (with padding, as produced by site-workflow-engine's etcdkey.CreateKey),
-// and decodes to exactly 32 bytes (secretbox requirement).
+// (with padding, as produced by the NKE controller when generating etcd
+// encryption keys), and decodes to exactly 32 bytes (secretbox requirement).
 func validateEncryptionKey(key string) error {
 	if key == "" {
 		return errors.New("encryption key must not be empty")

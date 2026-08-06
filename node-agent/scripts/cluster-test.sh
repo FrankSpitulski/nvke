@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end manual cluster test against node-agent VMs over grpcurl (plaintext by default).
 #
-# Orchestrates the recommended SWE-style flow:
+# Orchestrates the recommended NKE controller-style flow:
 #   1. Wait for agents (optional preflight / package install)
 #   2. kubeadm init on the first control-plane node (noCniInstall=true)
 #   3. Join additional control-plane nodes, then workers

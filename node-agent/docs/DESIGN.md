@@ -12,9 +12,10 @@
 
 The **NKE node-agent** (`nke-agent`) is a Go gRPC server that runs as a systemd
 service on every node of an NKE (NVIDIA Kubernetes Engine) cluster. It is the
-**on-node execution surface** for cluster orchestration: an external orchestrator
-(site-workflow-engine, "SWE") drives cluster lifecycle by issuing gRPC calls to
-the agent on each node rather than SSH-ing in and running commands ad hoc.
+**on-node execution surface** for cluster orchestration: the NKE controller
+(the consolidated orchestrator under `controller/` in this monorepo) drives
+cluster lifecycle by issuing gRPC calls to the agent on each node rather than
+SSH-ing in and running commands ad hoc.
 
 In one sentence: **the node-agent turns privileged, node-local imperative
 operations (kubeadm, apt, disk encryption, static-pod manipulation, script
@@ -45,7 +46,8 @@ API.**
   and reports status. (A few operations are "convergent/idempotent" in the sense
   that re-issuing them is safe — see §7 — but there is no background control loop.)
 - It is **not** the orchestrator. Sequencing across nodes (e.g. "init one CP, then
-  join the rest, then install CNI on one node") lives in SWE, not the agent.
+  join the rest, then install CNI on one node") lives in the NKE controller, not
+  the agent.
 - It is **not** cloud/infra specific. It targets Ubuntu-based NKE OS images and is
   otherwise infrastructure-agnostic.
 
@@ -92,7 +94,7 @@ Design implication: **prefer the newer patterns (§7)** for all new work.
 
 ### Non-goals
 
-- Cross-node coordination / cluster-wide state (owned by SWE).
+- Cross-node coordination / cluster-wide state (owned by the NKE controller).
 - General-purpose remote shell (script execution exists but is audited and scoped).
 - Multi-tenancy on a single node — one agent owns the node.
 
@@ -101,7 +103,7 @@ Design implication: **prefer the newer patterns (§7)** for all new work.
 ## 4. System context
 
                         ┌─────────────────────────────┐
-                        │  site-workflow-engine (SWE)  │
+                        │      NKE controller         │
                         │        (orchestrator)        │
                         └───────────────┬──────────────┘
                                         │ gRPC (SPIFFE mTLS), per-node
@@ -127,8 +129,8 @@ External sources:
   - CNI charts/manifests + images: NKE Debian packages (nke-cni-ovn-*, nke-cni-calico-*)
 ```
 
-- **Caller:** SWE is the primary caller. `grpcurl` is used for dev/debug and is
-  first-class thanks to reflection.
+- **Caller:** The NKE controller is the primary caller. `grpcurl` is used for
+  dev/debug and is first-class thanks to reflection.
 - **Identity:** SPIRE issues X.509 SVIDs; the agent authorizes clients by trust
   domain and a `/nke-service/` SPIFFE path prefix.
 - **Artifact sources:** bundles/packages come from S3 or an OCI registry; CNI
@@ -386,7 +388,8 @@ Defined in `pkg/agent/proto/node_agent.proto`. Grouped conceptually:
   installed separately via `InstallPackages`. `--cni-image-registry` redirects image
   pulls to a mirror for air-gap.
 - **Legacy in-init CNI:** still chained from `kubeadm init`
-  when `no_cni_install` is false, purely for older SWE compatibility.
+  when `no_cni_install` is false, purely for older controller/orchestrator
+  compatibility.
 
 ### 9.3 K8s API/etcd encryption — see §7.4, §7.5.
 Provider: secretbox (XSalsa20-Poly1305). Object rewrite (persist under current
@@ -495,7 +498,9 @@ the VIP back on `lo`. Manifest moves are the control mechanism (kubelet reacts t
 ## 15. Glossary
 
 - **NKE** — NVIDIA Kubernetes Engine.
-- **SWE** — site-workflow-engine, the external orchestrator that drives the agent.
+- **NKE controller** — the consolidated orchestrator in this monorepo
+  (`controller/`; formerly site-workflow-engine / cloud-workflow-engine) that
+  drives the agent.
 - **SPIFFE/SPIRE** — workload-identity framework issuing the X.509 SVIDs used for mTLS.
 - **kube-vip** — control-plane VIP provider running as a static pod.
 - **static pod** — pod defined by a manifest in `/etc/kubernetes/manifests`, managed

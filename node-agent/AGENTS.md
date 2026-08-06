@@ -242,7 +242,7 @@ grpcurl -plaintext localhost:15005 list proto.NodeAgent
 grpcurl -plaintext localhost:15005 list
 ```
 
-Orchestrators (site-workflow-engine) probe for RPC availability via reflection before calling
+Orchestrators (the NKE controller) probe for RPC availability via reflection before calling
 apt or InstallCNI workflows. Semver in `GetKubeadmStatus` remains useful for logging only.
 
 ## Security Notes

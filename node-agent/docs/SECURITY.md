@@ -7,7 +7,7 @@ Vulnerability reporting for this monorepo lives in the repository-root [SECURITY
 ### Purpose and software class
 
 NKE node-agent (`nke-agent`) is a privileged Go gRPC service installed as a
-systemd unit on NVIDIA Kubernetes Engine nodes. Site Workflow Engine (SWE)
+systemd unit on NVIDIA Kubernetes Engine nodes. The NKE controller
 calls it to perform node-local Kubernetes lifecycle and administration tasks
 that would otherwise require root shell access.
 
@@ -37,7 +37,7 @@ RPC implementations are under `internal/agent/`.
 
 ### Trust boundaries and data flows
 
-1. **SWE to node-agent:** SWE connects to TCP port `15005`. Production
+1. **Controller to node-agent:** The NKE controller connects to TCP port `15005`. Production
    connections use SPIFFE mTLS. `cmd/agent/main.go` requires the client's SVID
    to share the agent's trust domain and have a path beginning with
    `/nke-service/`.
@@ -69,8 +69,8 @@ Individual RPCs add validation where applicable, such as control-plane role
 checks, file path and size constraints, and the fixed resource allowlist in
 `UpdateNKERBAC`.
 
-This broad authority is intentional because SWE is the trusted cluster
-orchestrator. Compromise of an authorized SWE identity must therefore be
+This broad authority is intentional because the NKE controller is the trusted
+cluster orchestrator. Compromise of an authorized controller identity must therefore be
 treated as potential root compromise of every node reachable by that identity.
 
 ## Threat Model
@@ -84,7 +84,7 @@ operations, or package installation as root.
 
 Controls include SPIFFE mTLS in `cmd/agent/main.go`, same-trust-domain and path
 prefix checks, network segmentation, unary RPC audit logging, and
-operation-specific validation. The SPIRE control plane and authorized SWE
+operation-specific validation. The SPIRE control plane and authorized controller
 identities are therefore critical security dependencies.
 
 ### 2. Plaintext gRPC enabled outside development
@@ -146,7 +146,7 @@ cluster data unavailable.
 
 The newer implementations use operation IDs, persisted status, serialized
 mutation, write-ahead state, readiness checks, snapshots, rollback, and
-explicit terminal outcomes. SWE remains responsible for cross-node sequencing
+explicit terminal outcomes. The NKE controller remains responsible for cross-node sequencing
 and for applying identical encryption configuration to every control-plane
 node.
 
@@ -171,7 +171,7 @@ repository.
   NKE services.
 - Network policy, host firewalls, and site routing limit TCP port `15005` to
   authorized orchestration paths.
-- SWE authenticates its operators, authorizes requested workflows, validates
+- The NKE controller authenticates its operators, authorizes requested workflows, validates
   tenant and node ownership, protects sensitive RPC responses, and safely
   sequences multi-node operations.
 - The node OS, systemd unit, root filesystem, SPIRE agent, and executables
@@ -216,8 +216,8 @@ repository.
 - Vulnerabilities in Kubernetes, kubeadm, SPIRE, container runtimes, the host
   operating system, or third-party packages that are not caused by node-agent
   integration remain owned by their respective upstream projects.
-- Authentication and authorization of human operators are implemented by SWE
-  and the surrounding NKE platform, not by node-agent.
+- Authentication and authorization of human operators are implemented by the NKE
+  controller and the surrounding NKE platform, not by node-agent.
 - Cross-node orchestration, tenant ownership decisions, backup, disaster
   recovery, network segmentation, log retention, and artifact publication
   infrastructure are external controls.

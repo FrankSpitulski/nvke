@@ -26,6 +26,9 @@ import (
 	pb "github.com/NVIDIA/nke/node-agent/pkg/agent/proto"
 )
 
+// Fixture names match the ClusterRole / Role object names still deployed by
+// the NKE controller RBAC charts (historical "cwe"/"swe" suffixes). Rename
+// these only when the controller charts rename the live resources.
 const (
 	defaultNKERBACName           = "nke:cwe"
 	secondaryNKERBACName         = "nke:swe"

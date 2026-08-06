@@ -7,11 +7,11 @@ Design for the `ExecuteNodePreflight` gRPC RPC added to the NKE node-agent (May 
 Cluster provisioning workflows need to know when a node is actually ready for kubeadm
 and package operations—not just when the node-agent process is listening.
 
-Site-workflow-engine gates first on `NodeAgentReadinessProbe`, which only confirms
-the agent is reachable. That is necessary but insufficient: cloud-init may still be
-running `runcmd` steps (package installs, sysctl, service restarts) after the agent
-starts. Proceeding too early produces flaky kubeadm preflight failures or half-configured
-nodes.
+The NKE controller gates first on agent reachability (for example via
+`GetAgentVersion` / NodeAgentReady conditions). That is necessary but
+insufficient: cloud-init may still be running `runcmd` steps (package installs,
+sysctl, service restarts) after the agent starts. Proceeding too early produces
+flaky kubeadm preflight failures or half-configured nodes.
 
 We need a remote way to assert bootstrap completion (and optionally run kubeadm
 preflight) in a single agent call.
@@ -95,7 +95,7 @@ Only unexpected agent failures propagate as RPC errors.
 ## Execution flow
 
 ```
-Caller (SWE activity)
+Caller (controller activity)
         │
         ▼
 ExecuteNodePreflight
@@ -127,7 +127,7 @@ Production agents leave `RootPath` empty and stat the real filesystem.
 
 ## Example usage
 
-**Default (what site-workflow-engine sends):**
+**Default (what the NKE controller sends for typical nodes):**
 
 ```json
 {
@@ -162,25 +162,24 @@ Production agents leave `RootPath` empty and stat the real filesystem.
 
 See the main [README](../README.md#executenodepreflight-grpcurl) for `grpcurl` examples.
 
-## site-workflow-engine integration
+## NKE controller integration
 
-SWE calls this RPC from the `node_agent_preflight_status` activity, orchestrated by
-`PreflightNodesWorkflow` in `pkg/workflows/children/preflight_nodes.go`.
+The controller calls this RPC from the `NodePreflight` Temporal activity in
+`controller/internal/temporal/activities/node_preflight.go`.
 
 **Sequence per node**
 
-1. **`NodeAgentReadinessProbe`** — agent process is up.
-2. **Reflection gate** — skip when `ExecuteNodePreflight` is not exposed (legacy agents).
-3. **`ExecuteNodePreflight`** with `checkCloudInitStatus: {}` — poll until ready.
+1. **`GetAgentVersion`** — confirms the agent process is reachable and returns
+   its version.
+2. **Version gate** — agents older than `v0.1.24` skip strict preflight (no
+   `CheckCloudInitStatus` support) and treat reachability as sufficient.
+3. **`ExecuteNodePreflight`** — typically with `check_cloud_init_status: {}`
+   (CAPD/docker-machine nodes may use a sentinel `file_exists` check instead;
+   see `nodePreflightRequestForNode` in that activity).
 
-**Polling:** 5s interval, 10 minute activity timeout (11 minute Temporal timeout).
-
-**Timeout behavior:** If cloud-init is still `status: running` after 10 minutes, SWE
-logs a warning and **continues provisioning**. **`status: error` is a hard failure.**
-
-Callers can override via `PreflightNodeOptions`:
-- `check_cloud_init_status: false` with `preflight_status_checks` for sentinel files only.
-- Optional file checks in addition to cloud-init when both are configured.
+Polling, timeouts, and whether a prolonged `status: running` cloud-init outcome
+is treated as soft vs hard failure are owned by the controller activity /
+workflow layer, not by the agent.
 
 ## Files
 
@@ -190,6 +189,7 @@ Callers can override via `PreflightNodeOptions`:
 | `internal/agent/preflight.go` | `ExecuteNodePreflight` and check implementations |
 | `internal/agent/agent.go` | Shared `runKubeadmPreflight` |
 | `internal/agent/preflight_test.go` | Unit tests |
+| `controller/internal/temporal/activities/node_preflight.go` | Controller caller |
 
 ## Out of scope (follow-ups)
 
