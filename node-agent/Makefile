@@ -20,8 +20,12 @@ endif
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-VERSION ?= $(shell git describe --tags --always --dirty)
-DEB_VERSION := $(shell echo $(VERSION) | sed 's/^v//')
+# Component versioning follows the Kubernetes/Go multi-module monorepo pattern:
+# release tags are namespaced as node-agent/vX.Y.Z (not a bare vX.Y.Z).
+# Override with VERSION=... when building outside of a tagged checkout.
+VERSION_RAW ?= $(shell git describe --match 'node-agent/v*' --tags --always --dirty 2>/dev/null || git rev-parse --short HEAD)
+VERSION ?= $(shell echo '$(VERSION_RAW)' | sed 's|^node-agent/||')
+DEB_VERSION := $(shell echo '$(VERSION)' | sed 's/^v//')
 $(info $$VERSION is [${VERSION}])
 $(info $$DEB_VERSION is [${DEB_VERSION}])
 
@@ -62,8 +66,8 @@ setup-hooks: ## Install or update Git pre-commit hook (monorepo-aware)
 ##@ Docker images
 .PHONY: build-builder-image push-builder-image setup-buildx
 
-BUILDER_IMAGE := ghcr.io/nvidia/nke/nke-builder
-BUILDER_TAG := latest
+BUILDER_IMAGE := $(or $(BUILDER_IMAGE),$(if $(NKE_CONTAINER_REGISTRY),$(NKE_CONTAINER_REGISTRY)/$(or $(NKE_BUILDER_IMAGE_NAME),nke-builder),ghcr.io/example/nke/nke-builder))
+BUILDER_TAG := $(or $(BUILDER_TAG),$(or $(NKE_BUILDER_IMAGE_TAG),latest))
 BUILDX_PLATFORMS := linux/amd64,linux/arm64
 BUILDX_BUILDER := nke-multiarch-builder
 

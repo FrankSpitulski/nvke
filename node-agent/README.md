@@ -1,15 +1,16 @@
 # node-agent
 
 gRPC agent that runs as a systemd service on each NKE node. An orchestrator
-calls it to drive kubeadm lifecycle, package/CNI install, disk and API
-encryption, and related node-local operations — without interactive SSH.
+calls it to drive kubeadm lifecycle, package/CNI install, API encryption, and
+related node-local operations — without interactive SSH.
 
 | Doc | Purpose |
 |-----|---------|
-| [AGENTS.md](AGENTS.md) | Build, test, proto, and contributor conventions |
+| [AGENTS.md](AGENTS.md) | Build, test, proto, versioning, and contributor conventions |
 | [docs/DESIGN.md](docs/DESIGN.md) | Architecture and API surface |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security context (reporting: repo-root `SECURITY.md`) |
 | [pkg/agent/proto/node_agent.proto](pkg/agent/proto/node_agent.proto) | Canonical RPC definitions |
+| [config.env.example](config.env.example) | Build/runtime artifact endpoint knobs |
 
 **Module:** `github.com/NVIDIA/nke/node-agent`
 
@@ -33,13 +34,16 @@ Install a release tarball on a node (as root):
 
 ## Configuration
 
-Important flags (also settable via env; see `AGENT_ARGS` in `/etc/default/nke-agent`):
+Copy `config.env.example` → `config.env` (gitignored) for local build/publish
+overrides. On nodes, set flags via `/etc/default/nke-agent`.
+
+Important flags (also settable via env; see `AGENT_ARGS`):
 
 | Flag | Notes |
 |------|--------|
-| `--bundle-server-url` | Bundle source (`https://`, `http://`, `file://`, or `oci://`). Default in this tree still points at a legacy host; prefer an explicit value for your environment. |
-| `--index-file-url` | Optional absolute index URL; otherwise derived from the bundle server + OS |
-| `--cni-image-registry` | Optional OCI prefix for CNI helm `global.registry` |
+| `--bundle-server-url` | **Required.** Bundle source (`https://`, `http://`, `file://`, or `oci://`). Also `NKE_BUNDLE_SERVER_URL`. |
+| `--index-file-url` | Optional absolute index URL (`NKE_BUNDLE_INDEX_URL`); otherwise derived from the bundle server + OS |
+| `--cni-image-registry` | Optional OCI prefix for CNI helm `global.registry` (`NKE_CNI_IMAGE_REGISTRY`) |
 | `--disable-mtls` | Plaintext gRPC (**development only**) |
 | `--spiffe-socket-path` | SPIFFE workload API socket (ignored with `--disable-mtls`) |
 | `--secure-server-port` | gRPC listen port (default `15005`) |
@@ -49,7 +53,13 @@ Example:
 
 ```bash
 AGENT_ARGS="--bundle-server-url https://artifacts.example.com/ --disable-mtls"
+# OCI bundles:
+# AGENT_ARGS="--bundle-server-url oci://registry.example.com/nke/bundles --disable-mtls"
 ```
+
+There is no built-in artifact host; consumers must point the agent at their own
+S3/HTTP or OCI layout. Index entries use paths relative to the bundle server URL
+(for example `nke_bundles/Ubuntu_24.04/kubeadm_v1.30.0.tgz`).
 
 gRPC reflection is enabled on the same port (useful with `grpcurl`).
 
@@ -134,4 +144,5 @@ make protos         # regenerate *.pb.go via buf
 make setup-hooks    # monorepo-aware proto pre-commit hook
 ```
 
-Version string comes from `git describe` (see Makefile).
+Version comes from `git describe --match 'node-agent/v*'` (component-scoped tags;
+see [AGENTS.md](AGENTS.md)). Override with `VERSION=...` when needed.

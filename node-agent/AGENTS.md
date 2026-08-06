@@ -13,6 +13,37 @@ It is a Go-based gRPC server (systemd service) that runs on Kubernetes nodes and
 
 **Module path:** `github.com/NVIDIA/nke/node-agent`
 
+## Consumer configuration
+
+Copy `config.env.example` → `config.env` (gitignored) to point builds and the agent
+at **your** artifact hosts. See that file for `NKE_BUNDLE_SERVER_URL`, apt intake,
+and container registry knobs. Runtime still accepts the same values as CLI flags
+(`--bundle-server-url`, etc.); env vars populate flag defaults.
+
+## Versioning
+
+Agent releases use **component-scoped git tags** (Kubernetes/Go multi-module monorepo style):
+
+```bash
+git tag -a node-agent/v0.1.30 -m "node-agent v0.1.30"
+git push origin node-agent/v0.1.30
+```
+
+`make` / `./build/node-agent.sh` derive `VERSION` from:
+
+```bash
+git describe --match 'node-agent/v*' --tags --always --dirty
+```
+
+The `node-agent/` prefix is stripped for the binary ldflag and `.deb` version
+(`nke-agent_0.1.30_amd64.deb`). Override with `VERSION=v0.1.30` when needed.
+
+Go module consumers pin the same tag shape:
+
+```bash
+go get github.com/NVIDIA/nke/node-agent@node-agent/v0.1.30
+```
+
 ## Build Commands
 
 From the monorepo root:

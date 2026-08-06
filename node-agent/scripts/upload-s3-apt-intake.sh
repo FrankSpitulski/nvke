@@ -13,7 +13,7 @@
 # parsed from the filename.
 #
 # Required env:
-#   APT_INTAKE_S3_URI   e.g. s3://nke-dev/nke-packages
+#   APT_INTAKE_S3_URI   e.g. s3://example-bucket/nke-packages
 #   APT_INTAKE_PROJECT  e.g. nke-agent
 #   APT_INTAKE_RELEASE  e.g. v0.1.26 (release tag or short SHA)
 # Optional env:
@@ -27,7 +27,7 @@
 
 set -euo pipefail
 
-: "${APT_INTAKE_S3_URI:?APT_INTAKE_S3_URI must be set (e.g. s3://nke-dev/nke-packages)}"
+: "${APT_INTAKE_S3_URI:?APT_INTAKE_S3_URI must be set (e.g. s3://example-bucket/nke-packages)}"
 : "${APT_INTAKE_PROJECT:?APT_INTAKE_PROJECT must be set (e.g. nke-agent)}"
 : "${APT_INTAKE_RELEASE:?APT_INTAKE_RELEASE must be set (e.g. v0.1.26)}"
 

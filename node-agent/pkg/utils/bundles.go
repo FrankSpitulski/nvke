@@ -39,7 +39,7 @@ type BundleSource struct {
 
 // ParseBundleSourceURI parses a bundle source URI and determines its type.
 // Supported schemes:
-//   - oci://  - OCI registry (e.g., oci://nvcr.io/j7sbcjl3qgta/development)
+//   - oci://  - OCI registry (e.g., oci://registry.example.com/nke/bundles)
 //   - http:// or https:// - HTTP/S3 bundle server
 //   - file:// - Local file system
 //
@@ -113,12 +113,10 @@ func (t BundleSourceType) String() string {
 }
 
 const (
-	DEFAULT_BUNDLE_SERVER_URL = "https://nke-dev.s3.us-west-2.amazonaws.com/nke_bundles/"
-
-	NKE_UBUNTU_22_INDEX             = "https://nke-dev.s3.us-west-2.amazonaws.com/nke_bundles/ubuntu_22_index.json"
-	NKE_UBUNTU_24_INDEX             = "https://nke-dev.s3.us-west-2.amazonaws.com/nke_bundles/ubuntu_24_index.json"
-	DEFAULT_BUNDLE_SERVER_UBUNTU_22 = "https://nke-dev.s3.us-west-2.amazonaws.com/nke_bundles/Ubuntu_22.04/"
-	DEFAULT_BUNDLE_SERVER_UBUNTU_24 = "https://nke-dev.s3.us-west-2.amazonaws.com/nke_bundles/Ubuntu_24.04/"
+	// Relative paths under NKE_BUNDLE_SERVER_URL / --bundle-server-url.
+	// Consumers host their own indexes at these paths, or pass --index-file-url.
+	DefaultBundleIndexUbuntu22 = "nke_bundles/ubuntu_22_index.json"
+	DefaultBundleIndexUbuntu24 = "nke_bundles/ubuntu_24_index.json"
 )
 
 var (
@@ -144,7 +142,7 @@ type Bundle struct {
 	UseStaging     bool
 	Path           string
 	URL            string
-	OCIReference   string // OCI registry reference (e.g., nvcr.io/j7sbcjl3qgta/development/bundles-longhorn-prereqs:v1.0.0)
+	OCIReference   string // OCI registry reference (e.g., registry.example.com/nke/bundles/bundles-kubeadm:v1.30.0)
 }
 
 // Entry represents a single component entry
@@ -240,8 +238,9 @@ func GetOSVersion() (OSVersion, error) {
 	return 0, fmt.Errorf("unsupported OS version: Ubuntu 22 or Ubuntu 24 required")
 }
 
-// GetBundleURL returns the URL of the bundle index file based on the OS version
-func GetBundleURL() (string, error) {
+// GetBundleIndexPath returns the relative bundle index path for the host OS.
+// Join with the configured bundle server base URL (see JoinBundleURL).
+func GetBundleIndexPath() (string, error) {
 	osVersion, err := GetOSVersion()
 	if err != nil {
 		return "", err
@@ -249,12 +248,25 @@ func GetBundleURL() (string, error) {
 
 	switch osVersion {
 	case OSVersionUbuntu22:
-		return NKE_UBUNTU_22_INDEX, nil
+		return DefaultBundleIndexUbuntu22, nil
 	case OSVersionUbuntu24:
-		return NKE_UBUNTU_24_INDEX, nil
+		return DefaultBundleIndexUbuntu24, nil
 	default:
 		return "", fmt.Errorf("unsupported OS version")
 	}
+}
+
+// JoinBundleURL joins a bundle server base URL with a relative path.
+func JoinBundleURL(base, rel string) string {
+	base = strings.TrimRight(base, "/") + "/"
+	rel = strings.TrimLeft(rel, "/")
+	return base + rel
+}
+
+// GetBundleURL is retained for compatibility; prefer GetBundleIndexPath + JoinBundleURL.
+// Deprecated: returns a relative index path, not an absolute URL.
+func GetBundleURL() (string, error) {
+	return GetBundleIndexPath()
 }
 
 func DropLastURLDir(raw string) (string, error) {

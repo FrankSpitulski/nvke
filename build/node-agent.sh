@@ -1,16 +1,35 @@
 #!/usr/bin/env bash
 # Build / package the nke node-agent from the monorepo.
+#
+# Versioning (Kubernetes/Go monorepo style):
+#   Release tags are namespaced: node-agent/vX.Y.Z
+#   make derives VERSION via: git describe --match 'node-agent/v*'
+#   Override with VERSION=vX.Y.Z when needed.
+#
+# Consumer config:
+#   cp node-agent/config.env.example node-agent/config.env
+#   Edit endpoints/registries, then run this script (config.env is sourced).
+#
 # Usage:
 #   ./build/node-agent.sh              # build all arches
 #   ./build/node-agent.sh test         # run unit tests
 #   ./build/node-agent.sh package      # build + package release tarballs
 #   ./build/node-agent.sh protos       # regenerate protobuf stubs
-#   REGISTRY=ghcr.io/nvidia/nke ./build/node-agent.sh builder-image
+#   REGISTRY=ghcr.io/my-org/nke ./build/node-agent.sh builder-image
+#   VERSION=v0.1.30 ./build/node-agent.sh package
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AGENT_DIR="${ROOT}/node-agent"
 TARGET="${1:-build}"
+
+if [[ -f "${AGENT_DIR}/config.env" ]]; then
+  # shellcheck disable=SC1091
+  set -a
+  # shellcheck disable=SC1091
+  source "${AGENT_DIR}/config.env"
+  set +a
+fi
 
 cd "${AGENT_DIR}"
 
@@ -19,9 +38,12 @@ case "${TARGET}" in
     exec make "${TARGET}"
     ;;
   builder-image)
-    # Optional override: REGISTRY=ghcr.io/nvidia/nke TAG=latest
-    export BUILDER_IMAGE="${BUILDER_IMAGE:-${REGISTRY:-ghcr.io/nvidia/nke}/nke-builder}"
-    export BUILDER_TAG="${TAG:-latest}"
+    if [[ -n "${NKE_CONTAINER_REGISTRY:-}" ]]; then
+      export BUILDER_IMAGE="${BUILDER_IMAGE:-${NKE_CONTAINER_REGISTRY}/${NKE_BUILDER_IMAGE_NAME:-nke-builder}}"
+    else
+      export BUILDER_IMAGE="${BUILDER_IMAGE:-${REGISTRY:-ghcr.io/example/nke}/nke-builder}"
+    fi
+    export BUILDER_TAG="${BUILDER_TAG:-${TAG:-${NKE_BUILDER_IMAGE_TAG:-latest}}}"
     exec make push-builder-image
     ;;
   *)

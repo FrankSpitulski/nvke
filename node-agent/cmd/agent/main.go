@@ -36,6 +36,14 @@ const (
 // Keep it as variable or things are going to break
 var VERSION string
 
+// envOr returns the value of the named environment variable, or fallback when unset/empty.
+func envOr(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
 // AgentConfig centralizes configuration previously stored in globals.
 // It is passed explicitly to functions instead of relying on package-level state.
 // TODO:  May want to move this and define it in the agent package, and just
@@ -230,14 +238,30 @@ func main() {
 		"The audit log file name",
 	)
 	secureServerPort := flag.String("secure-server-port", DefaultNodeServerListenPort, "The port for the gRPC server")
-	bundleServerURL := flag.String("bundle-server-url", "https://nke-dev.s3.us-west-2.amazonaws.com/", "Bundle source URL. Supports http://, https://, file://, or oci:// schemes. Use oci:// prefix for OCI registry (e.g., oci://nvcr.io/j7sbcjl3qgta/development)")
-	indexFileURL := flag.String("index-file-url", "", "Full URL to custom index file, by default will use <bundleServeruRL>/nke_bundles/ubntu_<version>_index.json")
-	cniImageRegistry := flag.String("cni-image-registry", "", "OCI registry prefix for CNI component images (e.g. my-mirror.example.com). When set, passed to the CNI helm chart as --set global.registry=<value>. Leave empty to use chart defaults.")
+	bundleServerURL := flag.String(
+		"bundle-server-url",
+		envOr("NKE_BUNDLE_SERVER_URL", ""),
+		"Bundle source URL (required). Supports http://, https://, file://, or oci://. Also set via NKE_BUNDLE_SERVER_URL. Example: https://artifacts.example.com/ or oci://registry.example.com/nke/bundles",
+	)
+	indexFileURL := flag.String(
+		"index-file-url",
+		envOr("NKE_BUNDLE_INDEX_URL", ""),
+		"Full URL to a custom index file. When empty, derived as <bundle-server-url>/nke_bundles/ubuntu_<version>_index.json. Also set via NKE_BUNDLE_INDEX_URL",
+	)
+	cniImageRegistry := flag.String(
+		"cni-image-registry",
+		envOr("NKE_CNI_IMAGE_REGISTRY", ""),
+		"OCI registry prefix for CNI component images (e.g. registry.example.com/nke). When set, passed to the CNI helm chart as --set global.registry=<value>. Also set via NKE_CNI_IMAGE_REGISTRY",
+	)
 	flag.Parse()
 
 	if *versionFlag {
 		fmt.Printf("NKE Agent Version: %s\n", VERSION)
 		os.Exit(0)
+	}
+
+	if strings.TrimSpace(*bundleServerURL) == "" {
+		log.Fatal("bundle-server-url is required (flag --bundle-server-url or env NKE_BUNDLE_SERVER_URL); see config.env.example")
 	}
 
 	auditFile, err := os.OpenFile(*auditLogFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
