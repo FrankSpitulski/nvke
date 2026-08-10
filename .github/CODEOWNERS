@@ -1,0 +1,18 @@
+# CODEOWNERS — every PR requires review from at least one member of
+# the nke-developers team. Module owners listed below override the
+# default for their subtree and are requested automatically by GitHub.
+
+# Default owner for everything not matched below
+* @nke/nke-developers
+
+# Cloud Workflow Engine (controller module)
+/controller/ @nke/nke-developers
+
+# Node Agent module
+/node-agent/ @nke/nke-developers
+
+# CI/CD and automation
+/.github/ @nke/nke-developers
+
+# Security-sensitive files — require explicit maintainer sign-off
+/SECURITY.md @nke/nke-developers
