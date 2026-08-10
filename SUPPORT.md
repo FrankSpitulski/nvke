@@ -1,0 +1,31 @@
+# Support
+
+## How to get help
+
+| Channel | When to use |
+|---|---|
+| [GitHub Issues](https://github.com/NVIDIA/nke/issues) | Bug reports, feature requests, and documentation gaps |
+| [GitHub Discussions](https://github.com/NVIDIA/nke/discussions) | Questions, design proposals, and general Q&A |
+
+## Before opening an issue
+
+1. Search [existing issues](https://github.com/NVIDIA/nke/issues) to avoid duplicates.
+2. Check the [documentation](docs/) and the module-level `README.md` files under `controller/` and `node-agent/`.
+3. Reproduce the problem on the latest commit of `main`.
+
+## Security vulnerabilities
+
+Do **not** open a public issue for security vulnerabilities. Follow the
+process described in [SECURITY.md](SECURITY.md).
+
+## Community
+
+We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+full guide, including how to set up your development environment and
+submit a pull request.
+
+## NVIDIA enterprise support
+
+For users running nke as part of a supported NVIDIA product, contact your
+NVIDIA support representative or visit the
+[NVIDIA Support Portal](https://www.nvidia.com/en-us/support/).
