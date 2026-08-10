@@ -17,14 +17,13 @@ import (
 
 	"github.com/NVIDIA/nke/controller/internal/rollout"
 	"github.com/NVIDIA/nke/controller/internal/rollout/nodeagent"
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 type nodeAgentKubeVipClient interface {
 	StartK8SControlPlaneNodeGracefulShutdown(ctx context.Context, req *nkeproto.StartK8SControlPlaneNodeGracefulShutdownRequest, opts ...grpc.CallOption) (*nkeproto.StartK8SControlPlaneNodeGracefulShutdownResponse, error)
 	GetK8SControlPlaneNodeGracefulShutdownStatus(ctx context.Context, req *nkeproto.GetK8SControlPlaneNodeGracefulShutdownStatusRequest, opts ...grpc.CallOption) (*nkeproto.GetK8SControlPlaneNodeGracefulShutdownStatusResponse, error)
 	StartKubeVipRestore(ctx context.Context, req *nkeproto.StartKubeVipRestoreRequest, opts ...grpc.CallOption) (*nkeproto.StartKubeVipRestoreResponse, error)
-	GetNodeInfo(ctx context.Context, req *nkeproto.NodeInfoRequest, opts ...grpc.CallOption) (*nkeproto.NodeInfoResponse, error)
 }
 
 type nodeAgentKubeVipDialer func(ctx context.Context, node rollout.Node) (nodeAgentKubeVipClient, func(), error)

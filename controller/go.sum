@@ -372,8 +372,6 @@ github.com/yuin/goldmark v1.3.5/go.mod h1:mwnBkeHKe2W/ZEtQ+71ViKU8L12m81fl3OWwC1
 github.com/yuin/goldmark v1.4.1/go.mod h1:mwnBkeHKe2W/ZEtQ+71ViKU8L12m81fl3OWwC1Zlc8k=
 gitlab-master.nvidia.com/nke/cluster-api-provider-nico v0.0.28 h1:NcpYz6BvrHOWbp7taxiTyT726yk3h8KCXn8tUljJreI=
 gitlab-master.nvidia.com/nke/cluster-api-provider-nico v0.0.28/go.mod h1:Jqpf2AWlJwm7pu52ATH0d6q1cB98vol1oS+zbvVssn8=
-gitlab-master.nvidia.com/nke/node-agent v0.1.29 h1:lRyshgwa9RHWVL348VLUKERR1i0Qv9x6lIp1diWYjxE=
-gitlab-master.nvidia.com/nke/node-agent v0.1.29/go.mod h1:R8iYcfi3oohDynyhsrJZGBbOP0ay9DYg9uznYRNuwPc=
 gitlab-master.nvidia.com/nvmetal/carbide-rest-ngc-sdk-go v0.0.14 h1:oZcyfi4clhTi342a1l7pIhts3wXQaijpRZoHzAASr0A=
 gitlab-master.nvidia.com/nvmetal/carbide-rest-ngc-sdk-go v0.0.14/go.mod h1:5cjosrrCaF+kKQFp02tab8YPGsqKDDUvF3bPol1I/0s=
 go.etcd.io/gofail v0.2.0 h1:p19drv16FKK345a09a1iubchlw/vmRuksmRzgBIGjcA=

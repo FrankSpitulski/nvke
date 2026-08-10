@@ -22,9 +22,9 @@ require (
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18
 	github.com/uptrace/bun/driver/pgdriver v1.2.18
 	github.com/uptrace/bun/extra/bunslog v1.2.18
+	github.com/NVIDIA/nke/agent v0.0.0-00010101000000-000000000000
 	github.com/NVIDIA/nke/controller/api v0.0.0-00010101000000-000000000000
 	gitlab-master.nvidia.com/nke/cluster-api-provider-nico v0.0.28
-	gitlab-master.nvidia.com/nke/node-agent v0.1.29
 	gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go v0.0.14
 	go.etcd.io/gofail v0.2.0
 	go.temporal.io/api v1.51.0
@@ -171,6 +171,7 @@ require (
 )
 
 replace (
+	github.com/NVIDIA/nke/agent => ../agent
 	github.com/NVIDIA/nke/controller/api => ./api
 	gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go => gitlab-master.nvidia.com/nvmetal/carbide-rest-ngc-sdk-go v0.0.14
 	// Controller-runtime v0.23.0 introduced a breaking change in the NewWebhookManagedBy signature.

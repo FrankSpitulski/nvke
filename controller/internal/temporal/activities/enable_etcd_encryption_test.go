@@ -17,13 +17,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/NVIDIA/nke/controller/internal/agent/agenttest"
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/temporal/activities"
 	"github.com/NVIDIA/nke/controller/internal/testutil"
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 func TestPrepareEtcdEncryption_ReturnsStableNodeOrderAndHealthyExecutor(t *testing.T) {
@@ -201,8 +203,11 @@ func TestStartEtcdEncryptionRewrite_ResumesRunningOperation(t *testing.T) {
 	mockDB := &testutil.MockDB{}
 	mockDB.On("GetNode", mock.Anything, node.ID).Return(node, nil).Once()
 	nodeAgent := &agenttest.FakeClient{
-		GetNodeInfoResp: &nkeproto.NodeInfoResponse{
-			JsonResponse: `{"k8sAPIRewriteOperation":{"id":"existing-op","state":"running"}}`,
+		GetEncryptedObjectsRewriteHook: func(_ db.Node, operationID string) (*nkeproto.EtcdEncryptionAtRestObjectsRewriteOperation, error) {
+			return &nkeproto.EtcdEncryptionAtRestObjectsRewriteOperation{
+				OperationId: operationID,
+				State:       nkeproto.EtcdEncryptionAtRestObjectsRewriteState_ETCD_ENCRYPTION_AT_REST_OBJECTS_REWRITE_STATE_RUNNING,
+			}, nil
 		},
 		StartEncryptedObjectsRewriteHook: func(_ db.Node, operationID string) (*nkeproto.EtcdEncryptionAtRestObjectsRewriteOperation, error) {
 			return &nkeproto.EtcdEncryptionAtRestObjectsRewriteOperation{
@@ -214,7 +219,7 @@ func TestStartEtcdEncryptionRewrite_ResumesRunningOperation(t *testing.T) {
 	a := activities.NewActivities(config.Config{}, mockDB, nil, nodeAgent, nil, "", nil)
 
 	operation, err := a.StartEtcdEncryptionRewrite(context.Background(), activities.EtcdEncryptionRewriteInput{
-		NodeID: node.ID, OperationID: "new-op",
+		NodeID: node.ID, OperationID: "existing-op",
 	})
 
 	require.NoError(t, err)
@@ -229,8 +234,8 @@ func TestStartEtcdEncryptionRewrite_StartsFreshOperationAfterFailure(t *testing.
 	mockDB := &testutil.MockDB{}
 	mockDB.On("GetNode", mock.Anything, node.ID).Return(node, nil).Once()
 	nodeAgent := &agenttest.FakeClient{
-		GetNodeInfoResp: &nkeproto.NodeInfoResponse{
-			JsonResponse: `{"k8sAPIRewriteOperation":{"id":"failed-op","state":"failed","errorMessage":"conflict"}}`,
+		GetEncryptedObjectsRewriteHook: func(_ db.Node, operationID string) (*nkeproto.EtcdEncryptionAtRestObjectsRewriteOperation, error) {
+			return nil, status.Errorf(codes.NotFound, "rewrite operation %s not found", operationID)
 		},
 		StartEncryptedObjectsRewriteHook: func(_ db.Node, operationID string) (*nkeproto.EtcdEncryptionAtRestObjectsRewriteOperation, error) {
 			return &nkeproto.EtcdEncryptionAtRestObjectsRewriteOperation{

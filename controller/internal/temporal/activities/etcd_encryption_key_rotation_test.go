@@ -17,13 +17,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/NVIDIA/nke/controller/internal/agent/agenttest"
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/temporal/activities"
 	"github.com/NVIDIA/nke/controller/internal/testutil"
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 func TestBeginEtcdEncryptionKeyRotation_AcquiresClusterMutationLock(t *testing.T) {
@@ -131,8 +133,8 @@ func TestStartEtcdEncryptionRewrite_StartsFreshOperationAfterPriorSuccess(t *tes
 	mockDB := &testutil.MockDB{}
 	mockDB.On("GetNode", mock.Anything, node.ID).Return(node, nil).Once()
 	nodeAgent := &agenttest.FakeClient{
-		GetNodeInfoResp: &nkeproto.NodeInfoResponse{
-			JsonResponse: `{"k8sAPIRewriteOperation":{"id":"enablement-op","state":"succeeded"}}`,
+		GetEncryptedObjectsRewriteHook: func(_ db.Node, operationID string) (*nkeproto.EtcdEncryptionAtRestObjectsRewriteOperation, error) {
+			return nil, status.Errorf(codes.NotFound, "rewrite operation %s not found", operationID)
 		},
 		StartEncryptedObjectsRewriteHook: func(_ db.Node, operationID string) (*nkeproto.EtcdEncryptionAtRestObjectsRewriteOperation, error) {
 			return &nkeproto.EtcdEncryptionAtRestObjectsRewriteOperation{

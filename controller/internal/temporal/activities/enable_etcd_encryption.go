@@ -12,7 +12,6 @@ package activities
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -23,7 +22,7 @@ import (
 
 	"github.com/NVIDIA/nke/controller/internal/db"
 	nodeutil "github.com/NVIDIA/nke/controller/internal/nodes"
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 const (
@@ -173,39 +172,29 @@ func (a *Activities) StartEtcdEncryptionRewrite(
 	}
 
 	// A Temporal retry may arrive after agent accepted Start but before CWE
-	// received the response. A later workflow run may also find that operation
-	// still running. Resume the operation already recorded by agent instead
-	// of submitting a different ID that agent must reject.
-	current, err := a.currentEtcdEncryptionRewrite(ctx, node)
-	if err != nil {
-		return EtcdEncryptionRewriteOperation{}, err
-	}
-	if current.OperationID != "" {
-		switch current.Phase {
-		case EtcdEncryptionOperationPhaseRunning:
-			// Start with the same ID is a no-op while the rewrite goroutine is
-			// active and restarts it when only the persisted running state remains
-			// after an agent restart.
-			operation, startErr := a.nodeAgentClient.StartEncryptedObjectsRewrite(ctx, node, current.OperationID)
-			if startErr != nil {
-				return EtcdEncryptionRewriteOperation{}, startErr
+	// received the response. Probe the intended operation ID first and resume it
+	// when it is already recorded, instead of treating a missing response as a
+	// fresh start that the agent would reject.
+	current, err := a.nodeAgentClient.GetEncryptedObjectsRewriteStatus(ctx, node, input.OperationID)
+	if err == nil {
+		op := etcdEncryptionRewriteOperationFromProto(current)
+		if op.OperationID == input.OperationID {
+			switch op.Phase {
+			case EtcdEncryptionOperationPhaseRunning:
+				operation, startErr := a.nodeAgentClient.StartEncryptedObjectsRewrite(ctx, node, input.OperationID)
+				if startErr != nil {
+					return EtcdEncryptionRewriteOperation{}, startErr
+				}
+				return etcdEncryptionRewriteOperationFromProto(operation), nil
+			case EtcdEncryptionOperationPhaseSucceeded, EtcdEncryptionOperationPhaseFailed:
+				return op, nil
+			default:
+				return EtcdEncryptionRewriteOperation{}, fmt.Errorf(
+					"encrypted-object rewrite %s has unknown phase %q",
+					op.OperationID,
+					op.Phase,
+				)
 			}
-			return etcdEncryptionRewriteOperationFromProto(operation), nil
-		case EtcdEncryptionOperationPhaseSucceeded:
-			if current.OperationID == input.OperationID {
-				return current, nil
-			}
-			// A prior enablement or rotation completed. Start the new logical
-			// rewrite below; rotation must rewrite objects again under its new key.
-		case EtcdEncryptionOperationPhaseFailed:
-			// A failed operation is terminal. Start a fresh operation below so an
-			// operator retry can make progress instead of replaying the old failure.
-		default:
-			return EtcdEncryptionRewriteOperation{}, fmt.Errorf(
-				"encrypted-object rewrite %s has unknown phase %q",
-				current.OperationID,
-				current.Phase,
-			)
 		}
 	}
 
@@ -214,38 +203,6 @@ func (a *Activities) StartEtcdEncryptionRewrite(
 		return EtcdEncryptionRewriteOperation{}, err
 	}
 	return etcdEncryptionRewriteOperationFromProto(operation), nil
-}
-
-func (a *Activities) currentEtcdEncryptionRewrite(
-	ctx context.Context,
-	node db.Node,
-) (EtcdEncryptionRewriteOperation, error) {
-	response, err := a.nodeAgentClient.GetNodeInfo(ctx, node)
-	if err != nil {
-		return EtcdEncryptionRewriteOperation{}, fmt.Errorf("get rewrite state from node %s: %w", node.Name, err)
-	}
-	if response == nil || response.GetJsonResponse() == "" {
-		return EtcdEncryptionRewriteOperation{}, nil
-	}
-
-	var status struct {
-		Rewrite struct {
-			ID           string `json:"id"`
-			State        string `json:"state"`
-			ErrorMessage string `json:"errorMessage"`
-		} `json:"k8sAPIRewriteOperation"`
-	}
-	if err := json.Unmarshal([]byte(response.GetJsonResponse()), &status); err != nil {
-		return EtcdEncryptionRewriteOperation{}, fmt.Errorf("parse rewrite state from node %s: %w", node.Name, err)
-	}
-	if status.Rewrite.ID == "" {
-		return EtcdEncryptionRewriteOperation{}, nil
-	}
-	return EtcdEncryptionRewriteOperation{
-		OperationID:  status.Rewrite.ID,
-		Phase:        status.Rewrite.State,
-		ErrorMessage: status.Rewrite.ErrorMessage,
-	}, nil
 }
 
 func (a *Activities) GetEtcdEncryptionRewriteStatus(
