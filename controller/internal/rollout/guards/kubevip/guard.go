@@ -18,7 +18,7 @@ import (
 
 	"github.com/NVIDIA/nke/controller/internal/rollout"
 	"github.com/NVIDIA/nke/controller/internal/rollout/nodeagent"
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 const (
@@ -168,15 +168,13 @@ func (g *KubeVipDrainRestoreGuard) CheckPostApply(
 	if cleanup != nil {
 		defer cleanup()
 	}
-	resp, err := client.GetNodeInfo(ctx, &nkeproto.NodeInfoRequest{})
+	resp, err := client.StartKubeVipRestore(ctx, &nkeproto.StartKubeVipRestoreRequest{
+		OperationId: state.RestoreOperationID,
+	})
 	if err != nil {
 		return false, fmt.Errorf("get kube-vip restore status on node %s: %w", node.Name(), err)
 	}
-	operation, err := restoreOperationFromNodeInfo(resp, state.RestoreOperationID)
-	if err != nil {
-		return false, fmt.Errorf("get kube-vip restore status on node %s: %w", node.Name(), err)
-	}
-	done, err := nodeAgentOperationDone(operation)
+	done, err := nodeAgentOperationDone(resp.GetOperation())
 	if err != nil {
 		return false, fmt.Errorf("wait for kube-vip restore on node %s: %w", node.Name(), err)
 	}

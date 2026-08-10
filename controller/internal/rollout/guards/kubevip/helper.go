@@ -14,7 +14,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -22,11 +21,7 @@ import (
 	"go.temporal.io/sdk/activity"
 
 	"github.com/NVIDIA/nke/controller/internal/rollout"
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
-)
-
-const (
-	nodeAgentOperationTypeKubeVipRestore = "kube_vip_restore"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 func nodeAgentOperationDone(current *nkeproto.NodeAgentOperationStatus) (bool, error) {
@@ -45,71 +40,6 @@ func nodeAgentOperationDone(current *nkeproto.NodeAgentOperationStatus) (bool, e
 	default:
 		return false, fmt.Errorf("operation %s returned unexpected phase %s",
 			current.GetOperationId(), current.GetPhase())
-	}
-}
-
-func restoreOperationFromNodeInfo(
-	resp *nkeproto.NodeInfoResponse,
-	operationID string,
-) (*nkeproto.NodeAgentOperationStatus, error) {
-	if resp == nil {
-		return nil, errors.New("node info response is nil")
-	}
-	if resp.GetJsonResponse() == "" {
-		return nil, errors.New("node info json_response is empty")
-	}
-
-	var status nodeAgentStatus
-	if err := json.Unmarshal([]byte(resp.GetJsonResponse()), &status); err != nil {
-		return nil, fmt.Errorf("parse node info json_response: %w", err)
-	}
-	operation, ok := status.NodeAgentOperations[operationID]
-	if !ok {
-		return nil, fmt.Errorf("operation %s not found in agent status", operationID)
-	}
-	if operation.Type != nodeAgentOperationTypeKubeVipRestore {
-		return nil, fmt.Errorf("operation %s has type %q, want %q",
-			operationID, operation.Type, nodeAgentOperationTypeKubeVipRestore)
-	}
-	phase, err := nodeAgentOperationPhaseFromStatus(operation.Phase)
-	if err != nil {
-		return nil, fmt.Errorf("operation %s: %w", operationID, err)
-	}
-	if operation.ID == "" {
-		operation.ID = operationID
-	}
-
-	return &nkeproto.NodeAgentOperationStatus{
-		OperationId:  operation.ID,
-		Phase:        phase,
-		Step:         operation.Step,
-		ErrorMessage: operation.ErrorMessage,
-	}, nil
-}
-
-type nodeAgentStatus struct {
-	NodeAgentOperations map[string]nodeAgentOperation `json:"nodeAgentOperations"`
-}
-
-type nodeAgentOperation struct {
-	ID           string `json:"id"`
-	Type         string `json:"type"`
-	Phase        string `json:"phase"`
-	Step         string `json:"step"`
-	ErrorMessage string `json:"errorMessage"`
-}
-
-func nodeAgentOperationPhaseFromStatus(phase string) (nkeproto.NodeAgentOperationPhase, error) {
-	switch phase {
-	case "running":
-		return nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_RUNNING, nil
-	case "succeeded":
-		return nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_SUCCEEDED, nil
-	case "failed":
-		return nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_FAILED, nil
-	default:
-		return nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_UNSPECIFIED,
-			fmt.Errorf("unexpected phase %q", phase)
 	}
 }
 

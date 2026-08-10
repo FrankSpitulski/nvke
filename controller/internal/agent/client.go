@@ -24,7 +24,7 @@ import (
 
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/db"
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 //nolint:interfacebloat // This mirrors the agent RPC surface used by controllers and activities.
@@ -35,7 +35,6 @@ type Client interface {
 	ExecuteKubeadmInit(ctx context.Context, node db.Node, req *nkeproto.KubeadmInitRequest) (*nkeproto.KubeadmInitStatusResponse, error)
 	ExecuteKubeadmJoin(ctx context.Context, node db.Node, req *nkeproto.KubeadmJoinRequest) (*nkeproto.KubeadmJoinStatusResponse, error)
 	ExecuteKubeadmReset(ctx context.Context, node db.Node, req *nkeproto.KubeadmResetRequest) (*nkeproto.KubeadmResetStatusResponse, error)
-	InstallCNIPlugin(ctx context.Context, node db.Node, req *nkeproto.InstallCNIPluginRequest) (*nkeproto.CNIPluginStatusResponse, error) //nolint:staticcheck // Legacy RPC is required for pre-v0.1.15 agent compatibility.
 	ExecuteNodePreflight(ctx context.Context, node db.Node, req *nkeproto.ExecuteNodePreflightRequest) (*nkeproto.ExecuteNodePreflightResponse, error)
 	GetKubeadmJoinString(ctx context.Context, node db.Node, req *nkeproto.KubeadmJoinStringRequest) (*nkeproto.KubeadmJoinStringResponse, error)
 	UpdateAndFetchKubeAdmJoinStrings(ctx context.Context, node db.Node, req *nkeproto.KubeadmJoinStringRequest) (*nkeproto.KubeadmJoinStringResponse, error)
@@ -49,7 +48,6 @@ type Client interface {
 	GetEncryptedObjectsRewriteStatus(ctx context.Context, node db.Node, operationID string) (*nkeproto.EtcdEncryptionAtRestObjectsRewriteOperation, error)
 	RemovePlainTextSecondaryEncryptionEntry(ctx context.Context, node db.Node) error
 	StartKubeVIPRestore(ctx context.Context, node db.Node, operationID string) (*nkeproto.NodeAgentOperationStatus, error)
-	GetNodeInfo(ctx context.Context, node db.Node) (*nkeproto.NodeInfoResponse, error)
 }
 
 type NodeAgentClient struct {
@@ -237,21 +235,6 @@ func (c *NodeAgentClient) ExecuteKubeadmReset(ctx context.Context, node db.Node,
 	resp, err := nkeproto.NewNodeAgentClient(conn).ExecuteKubeadmReset(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute kubeadm reset on node %s: %w", node.Name, err)
-	}
-	return resp, nil
-}
-
-//nolint:staticcheck // Legacy RPC is required for pre-v0.1.15 agent compatibility.
-func (c *NodeAgentClient) InstallCNIPlugin(ctx context.Context, node db.Node, req *nkeproto.InstallCNIPluginRequest) (*nkeproto.CNIPluginStatusResponse, error) {
-	conn, cleanup, err := c.getGRPCConnection(ctx, node)
-	if err != nil {
-		return nil, fmt.Errorf("failed to install CNI plugin on node %s: %w", node.Name, err)
-	}
-	defer cleanup()
-
-	resp, err := nkeproto.NewNodeAgentClient(conn).InstallCNIPlugin(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to install CNI plugin on node %s: %w", node.Name, err)
 	}
 	return resp, nil
 }
@@ -451,18 +434,4 @@ func (c *NodeAgentClient) StartKubeVIPRestore(ctx context.Context, node db.Node,
 		return nil, fmt.Errorf("failed to start kube-vip restore on %s: %w", node.Name, err)
 	}
 	return resp.GetOperation(), nil
-}
-
-func (c *NodeAgentClient) GetNodeInfo(ctx context.Context, node db.Node) (*nkeproto.NodeInfoResponse, error) {
-	conn, cleanup, err := c.getGRPCConnection(ctx, node)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to node agent on %s: %w", node.Name, err)
-	}
-	defer cleanup()
-
-	resp, err := nkeproto.NewNodeAgentClient(conn).GetNodeInfo(ctx, &nkeproto.NodeInfoRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get node info on %s: %w", node.Name, err)
-	}
-	return resp, nil
 }

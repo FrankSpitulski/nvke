@@ -16,7 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/NVIDIA/nke/controller/internal/db"
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 type FakeClient struct {
@@ -51,12 +51,6 @@ type FakeClient struct {
 	// ExecuteScriptHook, when set, produces the response for ExecuteScript calls,
 	// letting tests drive per-node script output (e.g. /readyz probes).
 	ExecuteScriptHook func(node db.Node, scriptName, scriptContents string) (*nkeproto.ExecuteScriptResponse, error)
-
-	// GetNodeInfoHook, when set, produces the response for GetNodeInfo calls, letting
-	// tests drive agent operation status (e.g. kube-vip restore polling).
-	GetNodeInfoHook func(node db.Node) (*nkeproto.NodeInfoResponse, error)
-	GetNodeInfoResp *nkeproto.NodeInfoResponse
-	GetNodeInfoErr  error
 
 	StartEncryptedObjectsRewriteHook func(node db.Node, operationID string) (*nkeproto.EtcdEncryptionAtRestObjectsRewriteOperation, error)
 	GetEncryptedObjectsRewriteHook   func(node db.Node, operationID string) (*nkeproto.EtcdEncryptionAtRestObjectsRewriteOperation, error)
@@ -123,16 +117,6 @@ func (f *FakeClient) StartKubeVIPRestore(_ context.Context, node db.Node, operat
 	return &nkeproto.NodeAgentOperationStatus{}, nil
 }
 
-func (f *FakeClient) GetNodeInfo(_ context.Context, node db.Node) (*nkeproto.NodeInfoResponse, error) {
-	if f.GetNodeInfoHook != nil {
-		return f.GetNodeInfoHook(node)
-	}
-	if f.GetNodeInfoResp != nil || f.GetNodeInfoErr != nil {
-		return f.GetNodeInfoResp, f.GetNodeInfoErr
-	}
-	return &nkeproto.NodeInfoResponse{}, nil
-}
-
 func (f *FakeClient) ExecuteKubeadmInit(context.Context, db.Node, *nkeproto.KubeadmInitRequest) (*nkeproto.KubeadmInitStatusResponse, error) {
 	return &nkeproto.KubeadmInitStatusResponse{}, nil
 }
@@ -143,11 +127,6 @@ func (f *FakeClient) ExecuteKubeadmJoin(context.Context, db.Node, *nkeproto.Kube
 
 func (f *FakeClient) ExecuteKubeadmReset(context.Context, db.Node, *nkeproto.KubeadmResetRequest) (*nkeproto.KubeadmResetStatusResponse, error) {
 	return &nkeproto.KubeadmResetStatusResponse{}, nil
-}
-
-//nolint:staticcheck // Legacy RPC is required for pre-v0.1.15 agent compatibility.
-func (f *FakeClient) InstallCNIPlugin(context.Context, db.Node, *nkeproto.InstallCNIPluginRequest) (*nkeproto.CNIPluginStatusResponse, error) {
-	return &nkeproto.CNIPluginStatusResponse{}, nil
 }
 
 func (f *FakeClient) ExecuteNodePreflight(_ context.Context, _ db.Node, req *nkeproto.ExecuteNodePreflightRequest) (*nkeproto.ExecuteNodePreflightResponse, error) {

@@ -19,7 +19,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/NVIDIA/nke/controller/internal/rollout"
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 const (
