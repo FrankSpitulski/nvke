@@ -77,7 +77,7 @@ FWE_API_KEY=<your-NGC-api-key> make run
 # Swagger: http://localhost:8080/api/docs
 ```
 
-## node-agent
+## nke-agent
 
 ```bash
 cd node-agent
@@ -85,10 +85,12 @@ go build ./cmd/...
 go test ./...
 ```
 
-The node-agent is typically deployed via the site controller and not run
-directly on a laptop. For integration testing, see the internal test
-harness in `node-agent/integration-test/` (requires a running site
-controller and Forge environment).
+`nke-agent` and `spire-agent` must be present on each managed node before
+the NKE controller can communicate with it. The binaries are typically
+pre-built into the OS image or added via cloud-init — the controller does
+not install them. For integration testing, see the internal test harness
+in `node-agent/integration-test/` (requires a running site controller and
+Forge environment).
 
 ## Next steps
 

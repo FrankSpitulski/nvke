@@ -9,7 +9,7 @@ clusters on NVIDIA infrastructure.
 │                     nke monorepo                    │
 │                                                     │
 │  ┌──────────────────┐   ┌────────────────────────┐  │
-│  │   controller/    │   │     node-agent/        │  │
+│  │   controller/    │   │     agent/             │  │
 │  │                  │   │                        │  │
 │  │  Cloud Workflow  │   │  Runs on each node;    │  │
 │  │  Engine (CWE)    │   │  registers w/ control  │  │
@@ -44,10 +44,10 @@ Key data flows:
 
 1. Client calls `POST /api/clusters` → CWE starts a `ProvisionCluster` Temporal workflow.
 2. Workflow orchestrates Forge API calls to provision bare-metal nodes, then bootstraps Kubernetes via kubeadm.
-3. `node-agent` on each provisioned node registers itself with CWE over mTLS (SPIFFE/SPIRE).
+3. `nke-agent` on each provisioned node registers itself with CWE over mTLS (SPIFFE/SPIRE).
 4. CWE marks the cluster `Ready` and returns the kubeconfig.
 
-## node-agent
+## nke-agent
 
 Runs as a systemd service on each managed node. Responsibilities:
 
