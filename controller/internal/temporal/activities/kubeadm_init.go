@@ -22,7 +22,7 @@ import (
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/kubeadmconfig"
 	"github.com/NVIDIA/nke/controller/internal/nodes"
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 type KubeadmInitInput struct {
@@ -80,7 +80,6 @@ func (a *Activities) kubeadmInit(ctx context.Context, input KubeadmInitInput) er
 	}
 	kubeadmPhase := strings.ToLower(status.GetKubeadmPhase())
 	kubeadmStatus := strings.ToLower(status.GetKubeadmStatus())
-	agentVersion := status.GetAgentVersion()
 
 	kubeadmInitAlreadyStarted := kubeadmPhase == kubeadmPhaseInit && (kubeadmStatus == kubeadmStatusReady || kubeadmStatus == kubeadmStatusPending)
 
@@ -159,13 +158,6 @@ func (a *Activities) kubeadmInit(ctx context.Context, input KubeadmInitInput) er
 		return fmt.Errorf("failed to execute kubeadm init on node %s: %w", node.Name, err)
 	}
 
-	// Legacy CNI install is required for agent versions before v0.1.15.
-	if needsLegacyCNIInstall(agentVersion) {
-		if err := a.installLegacyCNIAfterKubeadmInitReady(ctx, node, req); err != nil {
-			return err
-		}
-	}
-
 	return a.waitForKubeadmInitReady(ctx, node)
 }
 
@@ -191,70 +183,6 @@ func (a *Activities) waitForKubeadmInitReady(ctx context.Context, node db.Node) 
 		}
 
 		if kubeadmStatus == kubeadmStatusReady && kubeadmPhase == kubeadmPhaseInit && cniStatus == cniStatusReady {
-			return nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
-}
-
-// agent version v0.1.15 is the first version with in-init CNI install. Older agents need the
-// separate InstallCNIPlugin call after kubeadm init reports ready.
-func needsLegacyCNIInstall(agentVersion string) bool {
-	return !nodeAgentVersionAtLeast(agentVersion, "v0.1.15", true)
-}
-
-// installLegacyCNIAfterKubeadmInitReady installs the CNI plugin through the legacy agent RPC after
-// kubeadm init reports ready. This is required for agent versions before v0.1.15.
-//
-//nolint:staticcheck // Deprecated fields and RPC are required for pre-v0.1.15 agent compatibility.
-func (a *Activities) installLegacyCNIAfterKubeadmInitReady(ctx context.Context, node db.Node, initRequest *nkeproto.KubeadmInitRequest) error {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		status, err := a.nodeAgentClient.GetKubeadmStatus(ctx, node)
-		if err != nil {
-			return fmt.Errorf("failed to get kubeadm status: %w", err)
-		}
-		kubeadmStatus := strings.ToLower(status.GetKubeadmStatus())
-		kubeadmPhase := strings.ToLower(status.GetKubeadmPhase())
-		cniStatus := strings.ToLower(status.GetCniInstallStatus())
-
-		if kubeadmStatus == kubeadmStatusError {
-			return fmt.Errorf("kubeadm init failed: %s", status.GetKubeadmCurrentMessage())
-		}
-
-		if cniStatus == cniStatusError {
-			return fmt.Errorf("CNI install failed: %s", status.GetKubeadmCurrentMessage())
-		}
-
-		if kubeadmStatus == kubeadmStatusReady && kubeadmPhase == kubeadmPhaseInit {
-			if cniStatus == "" {
-				pluginName := strings.ToLower(strings.TrimSpace(initRequest.GetCniPluginName()))
-				cniReq := &nkeproto.InstallCNIPluginRequest{
-					PluginName:                   pluginName,
-					TigeraOperatorManifest:       initRequest.GetTigeraOperatorManifest(),
-					TigeraCustomResourceManifest: initRequest.GetTigeraCustomResourceManifest(),
-					PodNetworkCidr:               initRequest.GetPodNetworkCidr(),
-					ServiceCidr:                  initRequest.GetServiceCidr(),
-					CniConfig:                    initRequest.GetCniConfig(),
-				}
-				switch pluginName {
-				case "ovn":
-					cniReq.PluginVersion = initRequest.GetOvnVersion()
-				case "tigera", "calico":
-					cniReq.PluginVersion = initRequest.GetTigeraVersion()
-				}
-
-				if _, err := a.nodeAgentClient.InstallCNIPlugin(ctx, node, cniReq); err != nil {
-					return fmt.Errorf("failed to install CNI plugin through legacy agent RPC on node %s: %w", node.Name, err)
-				}
-			}
 			return nil
 		}
 

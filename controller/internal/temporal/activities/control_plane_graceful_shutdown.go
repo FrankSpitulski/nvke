@@ -20,7 +20,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 const (

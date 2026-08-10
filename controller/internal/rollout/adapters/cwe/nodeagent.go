@@ -29,7 +29,7 @@ import (
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/rollout"
 	"github.com/NVIDIA/nke/controller/internal/rollout/nodeagent"
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 // ErrNodeNotFound reports that a rollout node is absent from CWE inventory.

@@ -12,7 +12,6 @@ package kubevip
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -23,7 +22,7 @@ import (
 
 	"github.com/NVIDIA/nke/controller/internal/rollout"
 	"github.com/NVIDIA/nke/controller/internal/rollout/nodeagent"
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 type fakeNode struct {
@@ -96,33 +95,20 @@ func (c *fakeKubeVipClient) StartKubeVipRestore(
 	req *nkeproto.StartKubeVipRestoreRequest,
 	_ ...grpc.CallOption,
 ) (*nkeproto.StartKubeVipRestoreResponse, error) {
-	c.restoreStartReq = req
-	return &nkeproto.StartKubeVipRestoreResponse{
-		Operation: running(req.GetOperationId(), "queued"),
-	}, nil
-}
-
-func (c *fakeKubeVipClient) GetNodeInfo(
-	_ context.Context,
-	_ *nkeproto.NodeInfoRequest,
-	_ ...grpc.CallOption,
-) (*nkeproto.NodeInfoResponse, error) {
-	operationID := c.restoreStartReq.GetOperationId()
+	if c.restoreStartReq == nil {
+		c.restoreStartReq = req
+		return &nkeproto.StartKubeVipRestoreResponse{
+			Operation: running(req.GetOperationId(), "queued"),
+		}, nil
+	}
+	// Subsequent StartKubeVipRestore calls are idempotent status polls.
+	operationID := req.GetOperationId()
 	op := succeeded(operationID)
 	if c.restorePolls < len(c.restoreStatus) {
 		op = c.restoreStatus[c.restorePolls]
 	}
 	c.restorePolls++
-	status := nodeAgentStatus{
-		NodeAgentOperations: map[string]nodeAgentOperation{
-			operationID: operationFromProto(operationID, op),
-		},
-	}
-	payload, err := json.Marshal(status)
-	if err != nil {
-		return nil, err
-	}
-	return &nkeproto.NodeInfoResponse{JsonResponse: string(payload)}, nil
+	return &nkeproto.StartKubeVipRestoreResponse{Operation: op}, nil
 }
 
 func TestKubeVipDrainRestoreGuard_DrainsAndRestores(t *testing.T) {
@@ -276,26 +262,6 @@ func failed(operationID, step, msg string) *nkeproto.NodeAgentOperationStatus {
 		Phase:        nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_FAILED,
 		Step:         step,
 		ErrorMessage: msg,
-	}
-}
-
-func operationFromProto(operationID string, op *nkeproto.NodeAgentOperationStatus) nodeAgentOperation {
-	phase := ""
-	switch op.GetPhase() {
-	case nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_RUNNING:
-		phase = "running"
-	case nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_SUCCEEDED:
-		phase = "succeeded"
-	case nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_FAILED:
-		phase = "failed"
-	case nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_UNSPECIFIED:
-	}
-	return nodeAgentOperation{
-		ID:           operationID,
-		Type:         nodeAgentOperationTypeKubeVipRestore,
-		Phase:        phase,
-		Step:         op.GetStep(),
-		ErrorMessage: op.GetErrorMessage(),
 	}
 }
 

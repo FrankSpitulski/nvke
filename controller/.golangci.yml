@@ -124,7 +124,6 @@ linters:
     gomoddirectives:
       replace-local: true
       replace-allow-list:
-        - gitlab-master.nvidia.com/nke/node-agent
         - gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go
         - sigs.k8s.io/controller-runtime
     cyclop:

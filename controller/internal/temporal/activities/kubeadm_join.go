@@ -23,7 +23,7 @@ import (
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/kubeadmconfig"
 	"github.com/NVIDIA/nke/controller/internal/nodes"
-	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 type cachedJoinStrings struct {
