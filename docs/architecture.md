@@ -13,7 +13,7 @@ clusters on NVIDIA infrastructure.
 │  │                  │   │                        │  │
 │  │  Cloud Workflow  │   │  Runs on each node;    │  │
 │  │  Engine (CWE)    │   │  registers w/ control  │  │
-│  │                  │   │  plane, handles kubelet │  │
+│  │                  │   │  plane, handles kubelet│  │
 │  │  - REST API      │   │  bootstrap & SPIFFE    │  │
 │  │  - Temporal WFs  │   │  attestation           │  │
 │  │  - PostgreSQL DB │   │                        │  │
