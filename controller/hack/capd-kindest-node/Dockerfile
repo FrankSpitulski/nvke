@@ -79,15 +79,15 @@ RUN set -eux; \
 # but may exit non-zero when enabling services. Enable/disable is done in a final RUN
 # with SYSTEMD_OFFLINE=1 (see below). The build helper resolves the selected
 # bundle into the Docker context before this build starts.
-COPY node-agent.tgz /tmp/node-agent-src/
+COPY agent.tgz /tmp/agent-src/
 RUN set -eux; \
     NODE_AGENT_DIR="agent_${NODE_AGENT_VERSION}_${NODE_AGENT_DIR_ARCH}"; \
-    cd /tmp/node-agent-src; \
+    cd /tmp/agent-src; \
     if ls ./*.tgz >/dev/null 2>&1; then tar xf ./*.tgz; fi; \
     cd "${NODE_AGENT_DIR}"; \
     ./agent-installer.sh || true; \
     test -f /etc/systemd/system/nke-agent.service; \
-    cd /tmp && rm -rf /tmp/node-agent-src
+    cd /tmp && rm -rf /tmp/agent-src
 
 # Install the SPIRE agent bundle, including the TPM attestor plugin.
 COPY spire-agent.tgz /tmp/spire-agent-src/

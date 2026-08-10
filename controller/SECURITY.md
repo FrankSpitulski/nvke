@@ -56,11 +56,11 @@ The principal security boundaries are:
 
 1. **Unauthorized Lifecycle Operations Through the REST API:** The API registered in `internal/server/server.go` has no built-in authentication or authorization. A caller able to reach port 8080 can invoke mutating cluster, node-pool, node, site, and allocation operations that change PostgreSQL state and start privileged Temporal workflows. `managedByMiddleware` only checks a caller-supplied coordination header, is disabled by default, exempts node mutations, and does not establish caller identity.
 
-2. **Execution of Malicious Provisioning Content:** Cluster and node-pool requests can influence CAPI infrastructure manifests, bootstrap files, cloud-init content, image registries, OIDC configuration, and selected profiles. Activities under `internal/temporal/activities` turn these values into Kubernetes Secrets, machine specifications, kubeadm inputs, or node-agent operations. An unauthorized or compromised caller can therefore cause attacker-controlled configuration or commands to execute with node-level privileges.
+2. **Execution of Malicious Provisioning Content:** Cluster and node-pool requests can influence CAPI infrastructure manifests, bootstrap files, cloud-init content, image registries, OIDC configuration, and selected profiles. Activities under `internal/temporal/activities` turn these values into Kubernetes Secrets, machine specifications, kubeadm inputs, or agent operations. An unauthorized or compromised caller can therefore cause attacker-controlled configuration or commands to execute with node-level privileges.
 
 3. **Credential, Kubeconfig, or Encryption-Key Disclosure:** CWE handles the Forge API key and bearer tokens, PostgreSQL passwords, DGXC tenant credentials, Temporal client keys, Teleport identity, SPIFFE material, tenant kubeconfigs, bootstrap Secrets, and Kubernetes API encryption keys. Compromise of the pod, service account, database, mounted Secrets, diagnostic output, or logs can expose credentials that authorize infrastructure or tenant-cluster access. Query and error logging must not reveal secret-bearing values.
 
-4. **Transport Downgrade or Service Impersonation:** The primary REST API serves HTTP directly, PostgreSQL TLS depends on the configured `sslmode`, Temporal mTLS is optional, and node-agent clients use insecure gRPC when a node is not marked SPIFFE-enabled. Misconfiguration or excessive network reachability can permit interception, credential disclosure, response tampering, or invocation of privileged RPCs by an impersonated service.
+4. **Transport Downgrade or Service Impersonation:** The primary REST API serves HTTP directly, PostgreSQL TLS depends on the configured `sslmode`, Temporal mTLS is optional, and agent clients use insecure gRPC when a node is not marked SPIFFE-enabled. Misconfiguration or excessive network reachability can permit interception, credential disclosure, response tampering, or invocation of privileged RPCs by an impersonated service.
 
 5. **Cross-Site, Cross-Cluster, or Cross-Tenant Resource Confusion:** CWE maps database identifiers, Forge organization and tenant context, Cluster API objects, kubeconfig Secrets, node addresses, and Temporal workflow identifiers across multiple systems. Stale, malicious, or incorrectly associated state can cause lifecycle operations, credentials, network allocations, or identity records to be applied to the wrong cluster, site, tenant, or node.
 
@@ -72,9 +72,9 @@ The principal security boundaries are:
 
 - Network policy, ingress, service-mesh, or API-gateway controls restrict the CWE REST API to authenticated and authorized management clients; CWE itself does not authenticate API callers.
 - The `X-Managed-By` header is used only for synchronization ownership and is never treated as proof of identity or authorization.
-- Forge, Temporal, SWE, Kubernetes, SPIRE, Teleport, PostgreSQL, and node-agent endpoints authenticate CWE and independently enforce the permissions intended for its service identity.
+- Forge, Temporal, SWE, Kubernetes, SPIRE, Teleport, PostgreSQL, and agent endpoints authenticate CWE and independently enforce the permissions intended for its service identity.
 - The management-cluster service account, mounted workload identities, Kubernetes control plane, and nodes running the CWE pod are trusted and protected against unauthorized access.
-- Production deployments use protected network paths and appropriate TLS or mTLS for PostgreSQL, Temporal, node-agent, Forge, Kubernetes, SPIRE, and Teleport traffic; plaintext compatibility paths are confined to trusted networks.
+- Production deployments use protected network paths and appropriate TLS or mTLS for PostgreSQL, Temporal, agent, Forge, Kubernetes, SPIRE, and Teleport traffic; plaintext compatibility paths are confined to trusted networks.
 - Kubernetes Secrets, external secret managers, database backups, and persistent volumes are encrypted, access-controlled, audited, and included in credential-rotation procedures.
 - Database records, owner references, cluster and node identifiers, Forge tenant context, kubeconfig Secrets, and Temporal workflow identifiers accurately describe the resources CWE is authorized to manage.
 - Profiles, runbooks, CAPI manifests, cloud-init files, container registries, and other provisioning inputs are maintained by trusted contributors and protected from unauthorized modification.
@@ -108,7 +108,7 @@ Operators should:
 - Treat `X-Managed-By` as coordination metadata only; do not use it as an authentication mechanism.
 - Restrict ingress to port 8080 and keep the metrics NetworkPolicy enabled with only approved scraper namespaces.
 - Enable Temporal mTLS and PostgreSQL certificate verification where supported by the environment.
-- Enable SPIFFE for production node-agent communication and prevent network access to legacy plaintext node-agent ports.
+- Enable SPIFFE for production agent communication and prevent network access to legacy plaintext agent ports.
 - Use per-environment service identities and narrowly scoped Kubernetes RBAC, Forge credentials, database roles, and Teleport permissions.
 - Source secrets from an approved secret manager, rotate them after suspected disclosure, and avoid placing credentials directly in Helm values or environment files.
 - Protect tenant kubeconfigs, bootstrap Secrets, encryption keys, and cloud-init content with the same controls used for other cluster-administrator credentials.
@@ -123,7 +123,7 @@ The following patterns are expected and are not vulnerabilities by themselves:
 - Placeholder PostgreSQL passwords, Forge tokens, diagnostic credentials, endpoints, certificates, and kubeconfigs in local-development configuration, documentation, or test fixtures are not production credentials.
 - Test-mode self-signed JWT generation in `internal/providers/forge/sdk/tokenhelper.go` is restricted to the explicit Forge test environment.
 - Support for custom CA bundles and optional mTLS is intentional. A report should demonstrate an unauthorized downgrade, validation bypass, or concrete exposure rather than only note that configuration is optional.
-- Kubernetes Secret access, tenant kubeconfig handling, node-agent script execution, and infrastructure lifecycle calls are required for CWE's documented role. Reports should demonstrate an authorization bypass, unintended disclosure, cross-scope operation, or avoidable privilege expansion.
+- Kubernetes Secret access, tenant kubeconfig handling, agent script execution, and infrastructure lifecycle calls are required for CWE's documented role. Reports should demonstrate an authorization bypass, unintended disclosure, cross-scope operation, or avoidable privilege expansion.
 - `forge-vms` deliberately includes weaker local-development controls. Reports should demonstrate impact outside its documented isolated development trust boundary.
 
 The following remain valid security concerns and should not be dismissed as expected behavior:
@@ -132,6 +132,6 @@ The following remain valid security concerns and should not be dismissed as expe
 - Unauthorized production lifecycle actions or execution of provisioning content
 - Disclosure of production credentials, tenant kubeconfigs, bootstrap data, or encryption keys
 - Cross-cluster, cross-site, cross-tenant, or cross-namespace authorization bypass
-- Production use of insecure node-agent or service transport contrary to deployment policy
+- Production use of insecure agent or service transport contrary to deployment policy
 - Release artifact tampering or CI/CD credential leakage
 - Exposure of `forge-vms` privileged development interfaces beyond an isolated test environment

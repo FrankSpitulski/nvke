@@ -380,7 +380,7 @@ Use typed subdirectories under the file root:
 var/files/
   images/
     custom-image.qcow2
-  node-agent/
+  agent/
     nke-agent
 ```
 
@@ -388,34 +388,34 @@ Example URLs:
 
 ```text
 http://localhost:18080/files/images/custom-image.qcow2
-http://localhost:18080/files/node-agent/nke-agent
+http://localhost:18080/files/agent/nke-agent
 ```
 
 The forge-vms dev OS profile uses `carbide-pxe.forge` inside the VM, so the
-same node-agent URL becomes:
+same agent URL becomes:
 
 ```text
-http://carbide-pxe.forge:18080/files/node-agent/nke-agent
+http://carbide-pxe.forge:18080/files/agent/nke-agent
 ```
 
 To try a local `nke-agent` build without rebuilding the full node image, build
-the agent and copy it into the file root. From the sibling `node-agent` repo:
+the agent and copy it into the file root. From the sibling `agent` repo:
 
 ```bash
-cd node-agent
+cd agent
 make build-amd64
 
-mkdir -p ../cloud-workflow-engine/forge-vms/var/files/node-agent
-cp bin/linux_amd64/nke-agent ../cloud-workflow-engine/forge-vms/var/files/node-agent/nke-agent
+mkdir -p ../cloud-workflow-engine/forge-vms/var/files/agent
+cp bin/linux_amd64/nke-agent ../cloud-workflow-engine/forge-vms/var/files/agent/nke-agent
 ```
 
 The cloud-init pickup command used by `nke-forge-vms-24.04-amd64-fde` is:
 
 ```bash
-sh -c 'u=http://carbide-pxe.forge:18080/files/node-agent/nke-agent; if curl -fsSL "$u" -o /tmp/nke-agent; then install -m 0755 /tmp/nke-agent /usr/local/bin/nke-agent && echo "downloaded local nke-agent" && /usr/local/bin/nke-agent -version; else echo "local nke-agent not available at $u; using image agent"; fi'
+sh -c 'u=http://carbide-pxe.forge:18080/files/agent/nke-agent; if curl -fsSL "$u" -o /tmp/nke-agent; then install -m 0755 /tmp/nke-agent /usr/local/bin/nke-agent && echo "downloaded local nke-agent" && /usr/local/bin/nke-agent -version; else echo "local nke-agent not available at $u; using image agent"; fi'
 ```
 
-Remove or omit `files/node-agent/nke-agent` to fall back to the
+Remove or omit `files/agent/nke-agent` to fall back to the
 image-provided agent.
 
 

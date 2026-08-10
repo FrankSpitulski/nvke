@@ -45,9 +45,9 @@ sync:
   cluster-api-provider-nico:
     alpha: "__LOCAL_NKE_ROOT__/cluster-api-provider-nico"
     beta: "__REMOTE_SSH_ALIAS__:__REMOTE_NKE_ROOT__/cluster-api-provider-nico"
-  node-agent:
-    alpha: "__LOCAL_NKE_ROOT__/node-agent"
-    beta: "__REMOTE_SSH_ALIAS__:__REMOTE_NKE_ROOT__/node-agent"
+  agent:
+    alpha: "__LOCAL_NKE_ROOT__/agent"
+    beta: "__REMOTE_SSH_ALIAS__:__REMOTE_NKE_ROOT__/agent"
 
 forward:
   tilt:

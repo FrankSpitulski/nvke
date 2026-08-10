@@ -241,7 +241,7 @@ func TestRollback_DialFailureReturnsError(t *testing.T) {
 	}
 	err := op.Rollback(context.Background(), cpNode(), validArtifact(t))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "dial node-agent")
+	assert.Contains(t, err.Error(), "dial agent")
 }
 
 func TestRollback_FailedOutcomeReturnsError(t *testing.T) {

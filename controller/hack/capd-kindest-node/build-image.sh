@@ -6,7 +6,7 @@
 # and NICo flows. The Dockerfile remains the source of truth for image-content
 # defaults like KINDEST_NODE_TAG and NODE_AGENT_VERSION. This helper selects the
 # image platform and matching NKE bundle architecture for the Docker daemon, and
-# can package a sibling node-agent checkout into the image for local CAPD tests.
+# can package a sibling agent checkout into the image for local CAPD tests.
 
 set -euo pipefail
 
@@ -17,7 +17,7 @@ repo_root="$(cd "${script_dir}/../.." && pwd)"
 : "${CAPD_KINDEST_NODE_TAG:=v1.34.8}"
 : "${CAPD_NODE_AGENT_LOCAL_BUILD:=auto}"
 : "${CAPD_SPIRE_ATTESTATION_METHOD:=tpm}"
-: "${NODE_AGENT_REPO_PATH:=${repo_root}/../node-agent}"
+: "${NODE_AGENT_REPO_PATH:=${repo_root}/../agent}"
 : "${BUNDLE_SERVER_URL:=https://d3mq564cn7sth7.cloudfront.net/}"
 : "${INDEX_FILE_URL:=${BUNDLE_SERVER_URL%/}/nke_bundles/Ubuntu_24.04/index.json}"
 
@@ -104,31 +104,31 @@ should_build_local_node_agent() {
 effective_node_agent_version="${NODE_AGENT_VERSION:-v0.1.16}"
 if should_build_local_node_agent; then
   if [[ ! -f "${NODE_AGENT_REPO_PATH}/Makefile" ]]; then
-    echo "NODE_AGENT_REPO_PATH=${NODE_AGENT_REPO_PATH} does not look like a node-agent checkout." >&2
+    echo "NODE_AGENT_REPO_PATH=${NODE_AGENT_REPO_PATH} does not look like an agent checkout." >&2
     exit 1
   fi
 
   effective_node_agent_version="${NODE_AGENT_VERSION:-$(git -C "${NODE_AGENT_REPO_PATH}" describe --tags --always --dirty)}"
   node_agent_cgo_enabled="${CGO_ENABLED:-0}"
-  echo "Building local node-agent ${effective_node_agent_version} for ${NODE_AGENT_DIR_ARCH} from ${NODE_AGENT_REPO_PATH} with CGO_ENABLED=${node_agent_cgo_enabled}..."
+  echo "Building local agent ${effective_node_agent_version} for ${NODE_AGENT_DIR_ARCH} from ${NODE_AGENT_REPO_PATH} with CGO_ENABLED=${node_agent_cgo_enabled}..."
   CGO_ENABLED="${node_agent_cgo_enabled}" make -C "${NODE_AGENT_REPO_PATH}" "package-${NODE_AGENT_DIR_ARCH}" VERSION="${effective_node_agent_version}"
 
   local_node_agent_tgz="${NODE_AGENT_REPO_PATH}/release/agent_${effective_node_agent_version}_${NODE_AGENT_DIR_ARCH}.tgz"
   if [[ ! -f "${local_node_agent_tgz}" ]]; then
-    echo "Expected local node-agent bundle was not produced: ${local_node_agent_tgz}" >&2
+    echo "Expected local agent bundle was not produced: ${local_node_agent_tgz}" >&2
     exit 1
   fi
-  cp "${local_node_agent_tgz}" "${build_context}/node-agent.tgz"
+  cp "${local_node_agent_tgz}" "${build_context}/agent.tgz"
 elif [[ -n "${NODE_AGENT_BUNDLE_PATH:-}" ]]; then
   if [[ ! -f "${NODE_AGENT_BUNDLE_PATH}" ]]; then
     echo "NODE_AGENT_BUNDLE_PATH does not exist: ${NODE_AGENT_BUNDLE_PATH}" >&2
     exit 1
   fi
-  cp "${NODE_AGENT_BUNDLE_PATH}" "${build_context}/node-agent.tgz"
+  cp "${NODE_AGENT_BUNDLE_PATH}" "${build_context}/agent.tgz"
 else
-  node_agent_url="${NODE_AGENT_BASE_URL}/node-agent_${effective_node_agent_version}_${NODE_AGENT_BUNDLE_ARCH}.tgz"
-  echo "Downloading published node-agent bundle ${node_agent_url}"
-  curl -fsSL "${node_agent_url}" -o "${build_context}/node-agent.tgz"
+  node_agent_url="${NODE_AGENT_BASE_URL}/agent_${effective_node_agent_version}_${NODE_AGENT_BUNDLE_ARCH}.tgz"
+  echo "Downloading published agent bundle ${node_agent_url}"
+  curl -fsSL "${node_agent_url}" -o "${build_context}/agent.tgz"
 fi
 
 if [[ -n "${SPIRE_AGENT_BUNDLE_PATH:-}" ]]; then

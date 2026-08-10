@@ -11,7 +11,7 @@
 // Package oidc implements the rollout.Operation that enables OIDC
 // authentication on an existing tenant cluster's control plane: it delivers a
 // kube-apiserver AuthenticationConfiguration to each control-plane node, one at
-// a time, via the node-agent's PatchAPIServerManifest RPC.
+// a time, via the agent's PatchAPIServerManifest RPC.
 package oidc
 
 import (
@@ -38,7 +38,7 @@ import (
 
 const (
 	// OperationName is the rollout registry key and Temporal activity name. It
-	// names the logical operation (enable OIDC), independent of the node-agent RPC
+	// names the logical operation (enable OIDC), independent of the agent RPC
 	// it rides on, so it is unchanged by the move to PatchAPIServerManifest.
 	OperationName = "oidc.enable-apiserver-authentication-config"
 )
@@ -52,9 +52,9 @@ type EnableOIDCOperation struct {
 	nodeAgentClientDialer nodeAgentClientDialer
 	k8sClient             client.Client
 	oidcConfig            *config.NkeOIDCAuth
-	// methodChecker verifies each control-plane node-agent implements the OIDC
+	// methodChecker verifies each control-plane agent implements the OIDC
 	// RPCs (gRPC reflection) before any node is touched — the reusable capability
-	// gate in place of a node-agent version floor.
+	// gate in place of an agent version floor.
 	methodChecker nodeagent.MethodSupportChecker
 }
 
@@ -71,7 +71,7 @@ var (
 func minK8sVersionForOIDC() *version.Version { return version.MustParseGeneric("1.30.0") }
 
 // NewEnableOIDCOperation constructs the operation. Runtime dependencies (the
-// node-agent dialer, the client, and the OIDC config) are injected via options
+// agent dialer, the client, and the OIDC config) are injected via options
 // and validated by Validate before any node is touched.
 func NewEnableOIDCOperation(opts ...Option) *EnableOIDCOperation {
 	op := &EnableOIDCOperation{}
@@ -103,7 +103,7 @@ func (op *EnableOIDCOperation) Validate(ctx context.Context, cluster rollout.Clu
 		return errors.New("enable-oidc operation OIDC config is not configured")
 	}
 	if op.methodChecker == nil {
-		return errors.New("enable-oidc operation node-agent method-support checker is not configured")
+		return errors.New("enable-oidc operation agent method-support checker is not configured")
 	}
 
 	parsed, err := version.ParseGeneric(cluster.KubernetesVersion())
@@ -124,18 +124,18 @@ func (op *EnableOIDCOperation) Validate(ctx context.Context, cluster rollout.Clu
 		return fmt.Errorf("cluster name %q is not a valid DNS name: %s", cluster.Name(), strings.Join(errs, "; "))
 	}
 
-	// Verify every control-plane node-agent implements the PatchAPIServerManifest
+	// Verify every control-plane agent implements the PatchAPIServerManifest
 	// RPC before touching any node — a gRPC-reflection capability check (the
-	// reusable nodeagent.MethodSupportChecker) rather than a brittle node-agent
+	// reusable nodeagent.MethodSupportChecker) rather than a brittle agent
 	// version floor. An agent that predates the RPC fails here, cleanly, with
 	// nothing mutated; ApplyToNode additionally maps a live Unimplemented as a
 	// clean failure, covering agents that do not serve reflection.
 	for _, node := range cpNodes {
 		if err := op.methodChecker(ctx, node, nkeproto.NodeAgent_PatchAPIServerManifest_FullMethodName); err != nil {
 			if nodeagent.IsMethodUnsupported(err) {
-				return fmt.Errorf("node %s node-agent does not implement PatchAPIServerManifest (upgrade the node-agent): %w", node.Name(), err)
+				return fmt.Errorf("node %s agent does not implement PatchAPIServerManifest (upgrade the agent): %w", node.Name(), err)
 			}
-			return fmt.Errorf("verify node %s node-agent supports OIDC enablement: %w", node.Name(), err)
+			return fmt.Errorf("verify node %s agent supports OIDC enablement: %w", node.Name(), err)
 		}
 	}
 
@@ -236,7 +236,7 @@ func (op *EnableOIDCOperation) ApplyToNode(ctx context.Context, node rollout.Nod
 	if err != nil {
 		// No business Outcome was returned. These codes are raised before the
 		// manifest is touched, so the node is left clean:
-		//   - Unimplemented: the node-agent predates the RPC — nothing ran.
+		//   - Unimplemented: the agent predates the RPC — nothing ran.
 		//     Validate's reflection check should catch this up front; this is the
 		//     belt-and-suspenders signal for agents that do not serve reflection.
 		//   - InvalidArgument/FailedPrecondition: rejected before any mutation.
@@ -247,7 +247,7 @@ func (op *EnableOIDCOperation) ApplyToNode(ctx context.Context, node rollout.Nod
 		return rollout.OutcomeFailedNotRestored, fmt.Errorf("enable OIDC on node %s: %w", node.Name(), err)
 	}
 
-	// The node-agent reports its own success/restore status via the Outcome enum
+	// The agent reports its own success/restore status via the Outcome enum
 	// (it must return these with a nil error, per the two-lane contract, or the
 	// FAILED_RESTORED/NOT_RESTORED distinction is lost over the wire).
 	switch resp.GetOutcome() {
@@ -298,7 +298,7 @@ func (op *EnableOIDCOperation) Rollback(ctx context.Context, node rollout.Node, 
 	return outcomeError("disable", node.Name(), resp)
 }
 
-// dialNode resolves the dialer and opens a node-agent connection for node,
+// dialNode resolves the dialer and opens an agent connection for node,
 // returning the client and a cleanup func the caller must defer. A missing
 // dialer, a dial error, or a nil client is returned as an error so the caller
 // maps it to the right outcome; the returned cleanup is always non-nil.
@@ -313,11 +313,11 @@ func (op *EnableOIDCOperation) dialNode(ctx context.Context, node rollout.Node) 
 	}
 	if err != nil {
 		cleanup()
-		return nil, nil, fmt.Errorf("dial node-agent on node %s: %w", node.Name(), err)
+		return nil, nil, fmt.Errorf("dial agent on node %s: %w", node.Name(), err)
 	}
 	if client == nil {
 		cleanup()
-		return nil, nil, fmt.Errorf("dial node-agent on node %s returned nil client", node.Name())
+		return nil, nil, fmt.Errorf("dial agent on node %s returned nil client", node.Name())
 	}
 	return client, cleanup, nil
 }
@@ -360,7 +360,7 @@ func buildEnablePatchRequest(a authConfigArtifact) (*nkeproto.PatchAPIServerMani
 	}, nil
 }
 
-// filesToProto converts the payload's staged files to node-agent File messages.
+// filesToProto converts the payload's staged files to agent File messages.
 func filesToProto(files []fileArtifact) []*nkeproto.File {
 	out := make([]*nkeproto.File, len(files))
 	for i, f := range files {
@@ -425,7 +425,7 @@ func (op *EnableOIDCOperation) resolveNodeAgentClientDialer() (nodeAgentClientDi
 	if op.nodeAgentClientDialer != nil {
 		return op.nodeAgentClientDialer, nil
 	}
-	return nil, errors.New("enable-oidc operation node-agent dialer is not configured")
+	return nil, errors.New("enable-oidc operation agent dialer is not configured")
 }
 
 func parsePayload(payload rollout.ApplyToNodePayload) (authConfigArtifact, error) {

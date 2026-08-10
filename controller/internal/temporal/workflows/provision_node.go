@@ -446,7 +446,7 @@ func waitForNodePreflight(ctx workflow.Context, nodeID uuid.UUID) error {
 	var a *activities.Activities
 
 	waitOptions := workflow.ActivityOptions{
-		// The preflight runs node-agent readiness checks and optional file/cloud-init checks.
+		// The preflight runs agent readiness checks and optional file/cloud-init checks.
 		// 7 minutes is sufficient for a single attempt.
 		StartToCloseTimeout: 7 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{

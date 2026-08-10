@@ -62,8 +62,8 @@ func (a *Activities) nodePreflight(ctx context.Context, nodeID uuid.UUID, logger
 		return fmt.Errorf("node agent is not ready on node %s: %w", node.Name, err)
 	}
 
-	// node-agent versions before v0.1.24 do not have nkeproto.CheckCloudInitStatus.
-	// So the only preflight gate was on node-agent connectivity.
+	// agent versions before v0.1.24 do not have nkeproto.CheckCloudInitStatus.
+	// So the only preflight gate was on agent connectivity.
 	if !nodeAgentVersionAtLeast(agentVersion, minCloudInitStatusPreflightVersion, false) {
 		logger.Info("node agent version predates strict node preflight checks", "nodeID", node.ID, "nodeName", node.Name, "agentVersion", agentVersion)
 		return nil

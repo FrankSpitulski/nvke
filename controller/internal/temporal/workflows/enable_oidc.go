@@ -152,7 +152,7 @@ func executeOIDCRolloutPhase(
 // ANY node failure (not only unrecoverable ones) so a half-migrated control plane
 // behind the shared VIP is never left behind. The per-node Enable/Disable RPC
 // capability is gated in the operation's Validate via gRPC reflection, so no
-// node-agent version preflight is added.
+// agent version preflight is added.
 func oidcRolloutSpec(controlPlaneCount int, options etcdRolloutPhaseOptions) rollout.RolloutSpec {
 	spec := rollout.RolloutSpec{
 		Strategy:           rollout.StrategySerial,
@@ -170,7 +170,7 @@ func oidcRolloutSpec(controlPlaneCount int, options etcdRolloutPhaseOptions) rol
 }
 
 // withOIDCWriteBackOptions sizes the kubeadm-config write-back activity: it
-// dials a control-plane node-agent for the tenant admin.conf and talks to the
+// dials a control-plane agent for the tenant admin.conf and talks to the
 // tenant apiserver, so it needs more than the fast DB budget.
 func withOIDCWriteBackOptions(ctx workflow.Context) workflow.Context {
 	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{

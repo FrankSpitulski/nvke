@@ -61,7 +61,7 @@ func TestHealthyRequired(t *testing.T) {
 func TestKubectlRawLocalTargetsLocalApiserver(t *testing.T) {
 	t.Parallel()
 	script := kubectlRawLocal(kubeReadyzPath)
-	require.True(t, strings.HasPrefix(script, "#!/bin/sh\n"), "must carry a shebang for node-agent direct exec")
+	require.True(t, strings.HasPrefix(script, "#!/bin/sh\n"), "must carry a shebang for agent direct exec")
 	require.Contains(t, script, "--server https://localhost:6443")
 	require.Contains(t, script, "get --raw '/readyz?verbose'")
 }

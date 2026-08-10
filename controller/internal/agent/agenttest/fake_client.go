@@ -53,7 +53,7 @@ type FakeClient struct {
 	ExecuteScriptHook func(node db.Node, scriptName, scriptContents string) (*nkeproto.ExecuteScriptResponse, error)
 
 	// GetNodeInfoHook, when set, produces the response for GetNodeInfo calls, letting
-	// tests drive node-agent operation status (e.g. kube-vip restore polling).
+	// tests drive agent operation status (e.g. kube-vip restore polling).
 	GetNodeInfoHook func(node db.Node) (*nkeproto.NodeInfoResponse, error)
 	GetNodeInfoResp *nkeproto.NodeInfoResponse
 	GetNodeInfoErr  error
@@ -145,7 +145,7 @@ func (f *FakeClient) ExecuteKubeadmReset(context.Context, db.Node, *nkeproto.Kub
 	return &nkeproto.KubeadmResetStatusResponse{}, nil
 }
 
-//nolint:staticcheck // Legacy RPC is required for pre-v0.1.15 node-agent compatibility.
+//nolint:staticcheck // Legacy RPC is required for pre-v0.1.15 agent compatibility.
 func (f *FakeClient) InstallCNIPlugin(context.Context, db.Node, *nkeproto.InstallCNIPluginRequest) (*nkeproto.CNIPluginStatusResponse, error) {
 	return &nkeproto.CNIPluginStatusResponse{}, nil
 }

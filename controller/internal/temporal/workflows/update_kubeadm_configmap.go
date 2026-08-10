@@ -36,7 +36,7 @@ type UpdateKubeadmConfigMapResult struct {
 }
 
 // UpdateKubeadmConfigMap runs the embedded update-kubeadm-k8s-version runbook
-// on a healthy control plane node via node-agent ExecuteScript.
+// on a healthy control plane node vian agent ExecuteScript.
 func UpdateKubeadmConfigMap(ctx workflow.Context, input UpdateKubeadmConfigMapInput) (UpdateKubeadmConfigMapResult, error) {
 	logger := workflow.GetLogger(ctx)
 	logger.Info("Updating kubeadm ConfigMap",

@@ -29,7 +29,7 @@ import (
 func (c *Controller) upsertSecret(ctx context.Context, cluster db.Cluster, secretName, dataKey string, value []byte) error {
 	// Re-read the cluster immediately before writing. Reconcile decides what to
 	// publish from a ListClusters snapshot taken at the top of the pass, and a
-	// pass can span minutes (a node-agent probe per cluster, plus a tenant apply
+	// pass can span minutes (an agent probe per cluster, plus a tenant apply
 	// on the OIDC path). Without this, a cluster that started deleting mid-pass
 	// would be published from the stale snapshot — re-creating Secrets teardown
 	// had already removed, and orphaning them for good once the row is gone.

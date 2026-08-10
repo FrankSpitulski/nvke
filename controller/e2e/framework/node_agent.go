@@ -28,7 +28,7 @@ type NodeAgentCall struct {
 	ScriptName string
 }
 
-// NodeAgentServer is a test fixture reached through CWE's production node-agent client.
+// NodeAgentServer is a test fixture reached through CWE's production agent client.
 type NodeAgentServer struct {
 	nkeproto.UnimplementedNodeAgentServer
 	address string
@@ -69,7 +69,7 @@ func (s *NodeAgentServer) WaitForScript(ctx context.Context, scriptName string) 
 				return call, nil
 			}
 		case <-ctx.Done():
-			return NodeAgentCall{}, fmt.Errorf("wait for node-agent script %q: %w", scriptName, ctx.Err())
+			return NodeAgentCall{}, fmt.Errorf("wait for agent script %q: %w", scriptName, ctx.Err())
 		}
 	}
 }
@@ -77,7 +77,7 @@ func (s *NodeAgentServer) WaitForScript(ctx context.Context, scriptName string) 
 func (s *NodeAgentServer) ExecuteScript(_ context.Context, req *nkeproto.ExecuteScriptRequest) (*nkeproto.ExecuteScriptResponse, error) {
 	s.calls <- NodeAgentCall{ScriptName: req.GetScriptName()}
 	return &nkeproto.ExecuteScriptResponse{
-		Output:   "gofail e2e node-agent response",
+		Output:   "gofail e2e agent response",
 		Status:   "succeeded",
 		ExitCode: 0,
 	}, nil

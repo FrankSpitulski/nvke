@@ -224,8 +224,8 @@ var _ = DescribeTableSubtree("NKE with backend",
 			cniPlugin:         CNIPluginCalico, // Simply to make this test run faster (520s vs 1011s).
 			controlPlanePools: []nke.NodePoolSpec{{DesiredNodeCount: 1}},
 			workerPools: []nke.NodePoolSpec{
-				// Old agent image pins the node-agent version to 0.1.22, which is before the new nkeproto.CheckCloudInitStatus was introduced in version 0.1.24.
-				// So this osProfile test exists to prove that CWE can still provision nodePools that may still be pointed at older node-agent versions.
+				// Old agent image pins the agent version to 0.1.22, which is before the new nkeproto.CheckCloudInitStatus was introduced in version 0.1.24.
+				// So this osProfile test exists to prove that CWE can still provision nodePools that may still be pointed at older agent versions.
 				{Name: "worker-old-agent", NodeNamePrefix: "wold", DesiredNodeCount: 1, OSProfile: "nke-forge-vms-24.04-amd64-fde-old-agent"},
 				// FIXME: Remove the larger instance type ID back to the default when the KubeReservedMem is also plumbed as an api parameter.
 				// https://jirasw.nvidia.com/browse/NKX-12957

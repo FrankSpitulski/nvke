@@ -69,7 +69,7 @@ func (g *KubeVipDrainRestoreGuard) PreApply(
 	}
 	// Persist the operation IDs in workflow history before dispatching the
 	// drain. CheckPreApply owns the idempotent Start RPC. If that activity is
-	// canceled or loses its response after node-agent accepted the request, the
+	// canceled or loses its response after agent accepted the request, the
 	// executor already has guardState and can run PostApply on its disconnected
 	// cleanup context.
 	return guardState, nil
@@ -192,13 +192,13 @@ func (g *KubeVipDrainRestoreGuard) dialNode(ctx context.Context, node rollout.No
 	}
 	client, cleanup, err := g.dialer(ctx, node)
 	if err != nil {
-		return nil, nil, fmt.Errorf("dial node-agent on node %s: %w", node.Name(), err)
+		return nil, nil, fmt.Errorf("dial agent on node %s: %w", node.Name(), err)
 	}
 	if client == nil {
 		if cleanup != nil {
 			cleanup()
 		}
-		return nil, nil, fmt.Errorf("dial node-agent on node %s returned nil client", node.Name())
+		return nil, nil, fmt.Errorf("dial agent on node %s returned nil client", node.Name())
 	}
 	return client, cleanup, nil
 }

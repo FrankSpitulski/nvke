@@ -172,10 +172,10 @@ func (a *Activities) StartEtcdEncryptionRewrite(
 		return EtcdEncryptionRewriteOperation{}, fmt.Errorf("failed to get rewrite node %s: %w", input.NodeID, err)
 	}
 
-	// A Temporal retry may arrive after node-agent accepted Start but before CWE
+	// A Temporal retry may arrive after agent accepted Start but before CWE
 	// received the response. A later workflow run may also find that operation
-	// still running. Resume the operation already recorded by node-agent instead
-	// of submitting a different ID that node-agent must reject.
+	// still running. Resume the operation already recorded by agent instead
+	// of submitting a different ID that agent must reject.
 	current, err := a.currentEtcdEncryptionRewrite(ctx, node)
 	if err != nil {
 		return EtcdEncryptionRewriteOperation{}, err
@@ -185,7 +185,7 @@ func (a *Activities) StartEtcdEncryptionRewrite(
 		case EtcdEncryptionOperationPhaseRunning:
 			// Start with the same ID is a no-op while the rewrite goroutine is
 			// active and restarts it when only the persisted running state remains
-			// after a node-agent restart.
+			// after an agent restart.
 			operation, startErr := a.nodeAgentClient.StartEncryptedObjectsRewrite(ctx, node, current.OperationID)
 			if startErr != nil {
 				return EtcdEncryptionRewriteOperation{}, startErr

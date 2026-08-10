@@ -36,7 +36,7 @@ type UpgradeControlPlaneAddonsResult struct {
 }
 
 // UpgradeControlPlaneAddons runs the embedded upgrade-kubelet-kubeadm runbook on a
-// healthy control plane node via node-agent ExecuteScript to upgrade cluster add-ons
+// healthy control plane node vian agent ExecuteScript to upgrade cluster add-ons
 // (kube-proxy, CoreDNS) to the target Kubernetes version.
 //
 // It runs kubeadm in KUBEADM_UPGRADE_ONLY mode: only `kubeadm upgrade apply` is

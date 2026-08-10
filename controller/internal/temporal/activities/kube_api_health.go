@@ -20,7 +20,7 @@ import (
 
 // This is a faithful port of SWE's KubeAPIHealthy cluster preflight
 // (site-workflow-engine internal/rollout/preflights/kube_api.go + lib.go). It probes
-// kube-apiserver /readyz?verbose on every control-plane node — via node-agent's
+// kube-apiserver /readyz?verbose on every control-plane node — vian agent's
 // ExecuteScript RPC running `kubectl --raw` against that node's OWN apiserver
 // (--server https://localhost:6443) — and gates on healthyRequired(N) nodes being
 // healthy. Running the probe on each node (rather than a single network call to the
@@ -86,7 +86,7 @@ func (a *Activities) probeKubeReadyz(ctx context.Context, node db.Node) (string,
 
 // kubectlRawLocal returns a `kubectl --raw <path>` script pinned to localhost so the
 // probe targets this node's own apiserver, not a peer. The script carries its own
-// shebang so the node-agent's direct-exec path actually runs it (a bare script
+// shebang so the agent's direct-exec path actually runs it (a bare script
 // ENOEXECs); the path is shell-quoted so metacharacters like '?' aren't glob-expanded.
 func kubectlRawLocal(path string) string {
 	return "#!/bin/sh\n" +

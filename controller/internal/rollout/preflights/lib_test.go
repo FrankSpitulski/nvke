@@ -136,7 +136,7 @@ func TestKubectlRawLocal(t *testing.T) {
 
 	got := kubectlRawLocal("/readyz?verbose")
 	assert.True(t, strings.HasPrefix(got, "#!/bin/sh\n"),
-		"script must carry its own shebang so the node-agent direct-exec path runs it instead of ENOEXEC-ing to a silent exit 0")
+		"script must carry its own shebang so the agent direct-exec path runs it instead of ENOEXEC-ing to a silent exit 0")
 	assert.Contains(t, got, "--server https://localhost:6443",
 		"must pin to local apiserver to avoid healthy-peer masking local breakage")
 	assert.Contains(t, got, "--kubeconfig /etc/kubernetes/admin.conf")

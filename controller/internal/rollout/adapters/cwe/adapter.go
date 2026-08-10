@@ -30,7 +30,7 @@ var (
 	_ rollout.Cluster = (*ClusterAdapter)(nil)
 )
 
-// NodeAdapter wraps a db.Node. nodeAgentPort is the port the node-agent
+// NodeAdapter wraps a db.Node. nodeAgentPort is the port the agent
 // listens on (config.Config.NodeAgentPort); it is combined with the node IP
 // to form the gRPC endpoint, exactly as internal/agent/client.go does.
 type NodeAdapter struct {
@@ -38,7 +38,7 @@ type NodeAdapter struct {
 	nodeAgentPort string
 }
 
-// NewNode wraps a db.Node with the node-agent port used for its endpoint.
+// NewNode wraps a db.Node with the agent port used for its endpoint.
 func NewNode(node db.Node, nodeAgentPort string) *NodeAdapter {
 	return &NodeAdapter{node: node, nodeAgentPort: nodeAgentPort}
 }
@@ -57,7 +57,7 @@ func (a *NodeAdapter) Role() rollout.NodeRole {
 	return rollout.NodeRoleWorker
 }
 
-// AgentEndpoint returns "ip:port" for the node-agent gRPC connection, built
+// AgentEndpoint returns "ip:port" for the agent gRPC connection, built
 // the same way internal/agent/client.go builds it.
 func (a *NodeAdapter) AgentEndpoint() string {
 	return net.JoinHostPort(a.node.IP, a.nodeAgentPort)

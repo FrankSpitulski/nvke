@@ -128,7 +128,7 @@ test-e2e-capd: ## Run CAPD happy-path e2e tests
 	make test-e2e ARGS='--label-filter="capd && happy-path && (lifecycle || readiness) && !scale && !upgrade && !reboot"'
 
 .PHONY: test-e2e-capd-local
-test-e2e-capd-local: ## Bootstrap Colima and run all CAPD e2e tests with local CWE and node-agent source
+test-e2e-capd-local: ## Bootstrap Colima and run all CAPD e2e tests with local CWE and agent source
 	./hack/local-capd-e2e.sh
 
 .PHONY: test-e2e-forge-vms

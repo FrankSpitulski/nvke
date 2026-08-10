@@ -40,7 +40,7 @@ type MergeOIDCKubeadmConfigResult struct {
 // apiserver settings into its ClusterConfiguration, and writes it back only when
 // the merge changed something. It is idempotent: a cluster already carrying the
 // settings is a no-op (Changed=false). The tenant client is built from the
-// admin.conf fetched from a control-plane node-agent (GetKubeconfig), which is
+// admin.conf fetched from a control-plane agent (GetKubeconfig), which is
 // the reliable source; the cluster row's own Kubeconfig field is often empty.
 func (a *Activities) MergeOIDCKubeadmConfig(ctx context.Context, input MergeOIDCKubeadmConfigInput) (MergeOIDCKubeadmConfigResult, error) {
 	cluster, err := a.db.GetCluster(ctx, input.ClusterID)

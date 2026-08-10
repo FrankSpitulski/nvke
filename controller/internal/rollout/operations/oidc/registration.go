@@ -19,7 +19,7 @@ import (
 )
 
 // RegisterDefaults wires the enable-OIDC operation into reg with its runtime
-// dependencies: the node-agent dialer, the reflection-based capability checker
+// dependencies: the agent dialer, the reflection-based capability checker
 // (verifies PatchAPIServerManifest support before any node is touched), the
 // management-cluster client (reads the issuer CA bundle), and the site OIDC
 // config.

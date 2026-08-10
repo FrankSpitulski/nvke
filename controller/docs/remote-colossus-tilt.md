@@ -27,7 +27,7 @@ On the Mac you need:
 - `yq` (for `fetch-kubeconfig.sh --update-mutagen`)
 - An SSH config Host alias that reaches the box (e.g. `colossus`)
 - Local checkouts of at least: `cloud-workflow-engine`,
-  `cluster-api-provider-nico`, `node-agent` (sibling layout under one parent
+  `cluster-api-provider-nico`, `agent` (sibling layout under one parent
   dir is assumed)
 
 ## Mental model
@@ -91,7 +91,7 @@ Default template syncs:
 
 - `cloud-workflow-engine`
 - `cluster-api-provider-nico`
-- `node-agent`
+- `agent`
 
 Ignored on both sides (built/managed on the target): `bin/`, `var/`, `.dev/`,
 `logs/`, `release/`, `images/`, `.gocache/`, `.gomodcache/`, `.cache/`,

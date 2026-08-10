@@ -169,7 +169,7 @@ func removeNodeFromKubernetes(ctx workflow.Context, input TeardownNodeInput) err
 // There is no surviving Kubernetes or etcd cluster to update in this path, so it
 // skips drain, kube Node deletion, and explicit etcd member removal. It still
 // performs kubeadm reset to clear local kubeadm/kubelet state and reduce zombie-node
-// risk if the machine, disk, or repair workflow survives long enough for node-agent.
+// risk if the machine, disk, or repair workflow survives long enough for agent.
 func resetNodeForClusterTeardown(ctx workflow.Context, input TeardownNodeInput) error {
 	isControlPlane, err := isControlPlaneNode(ctx, input.NodeID)
 	if err != nil {
@@ -379,8 +379,8 @@ func removeEtcdMemberForControlPlaneNode(ctx workflow.Context, input TeardownNod
 	}
 	logger.Info("Etcd member removal dry-run completed successfully", "nodeID", input.NodeID, "nodeName", node.Name, "exitCode", dryRunResult.ExitCode, "output", dryRunResult.Output, "errorOutput", dryRunResult.ErrorMessage)
 
-	// Then start and wait for the control-plane graceful shutdown through the node-agent.
-	// If the node-agent version supports graceful shutdown (>= v0.1.22).
+	// Then start and wait for the control-plane graceful shutdown through the agent.
+	// If the agent version supports graceful shutdown (>= v0.1.22).
 	logger.Info("Start and wait for control-plane graceful shutdown", "nodeID", input.NodeID, "nodeName", node.Name)
 	if err := waitForControlPlaneGracefulShutdown(ctx, input); err != nil {
 		if input.ForceUnreachable {

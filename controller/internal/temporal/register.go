@@ -192,11 +192,11 @@ func NewWorker(
 	}
 	rolloutDialer, err := rolloutcwe.NewSPIFFEDialer(cfg, trustDomain, rolloutResolver)
 	if err != nil {
-		return nil, fmt.Errorf("construct rollout node-agent dialer: %w", err)
+		return nil, fmt.Errorf("construct rollout agent dialer: %w", err)
 	}
 	rolloutMethodChecker, err := rolloutcwe.NewMethodSupportChecker(cfg, trustDomain, rolloutResolver)
 	if err != nil {
-		return nil, fmt.Errorf("construct rollout node-agent method-support checker: %w", err)
+		return nil, fmt.Errorf("construct rollout agent method-support checker: %w", err)
 	}
 	preflights.RegisterDefaults(rolloutRegistry, rolloutDialer)
 	rolloutkubevip.RegisterDefaults(rolloutRegistry, rolloutDialer)

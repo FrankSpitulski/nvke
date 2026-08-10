@@ -10,7 +10,7 @@
 
 // Package preflights provides the reusable safety floor every CWE-driven
 // rollout operation should run before mutating a cluster. The checks are
-// node-agent-flavored — they reach the cluster over a nodeagent.Dialer
+// agent-flavored — they reach the cluster over a nodeagent.Dialer
 // (the CWE binding is adapters/cwe.NewSPIFFEDialer) and run kubectl locally
 // on each CP rather than from the worker directly. They depend only on the
 // rollout core and the nodeagent transport contract, not on the CWE data
@@ -67,7 +67,7 @@
 // CWE has no direct TLS material for tenant apiservers. Existing
 // activities either talk to the Site Controller's OWN apiserver via the
 // worker's in-cluster ServiceAccount, or fetch the tenant kubeconfig via
-// the node-agent (GetKubeconfig) and use it for narrow CA extraction.
+// the agent (GetKubeconfig) and use it for narrow CA extraction.
 // None of them dial a tenant apiserver directly from the worker.
 //
 // The /readyz family is local-only ("localhost:6443") which makes it

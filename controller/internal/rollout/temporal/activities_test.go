@@ -791,7 +791,7 @@ func TestActivities_NodePreflight(t *testing.T) {
 	t.Run("registered preflight that fails is non-retryable", func(t *testing.T) {
 		reg := rollout.NewRegistry()
 		registerNodePreflight(t, reg, "act-npf-fail", func(_ context.Context, _ rollout.Cluster, _ rollout.Node, _ map[string]string) error {
-			return errors.New("node-agent unreachable")
+			return errors.New("agent unreachable")
 		})
 		cl, nid := clusterWithNode()
 		a := temporal.NewActivities(&fixedLoader{cluster: cl}, reg)
@@ -799,7 +799,7 @@ func TestActivities_NodePreflight(t *testing.T) {
 			PreflightName: "act-npf-fail", ClusterID: cl.id, NodeID: nid,
 		})
 		requireNonRetryable(t, err)
-		assert.Contains(t, err.Error(), "node-agent unreachable")
+		assert.Contains(t, err.Error(), "agent unreachable")
 	})
 }
 

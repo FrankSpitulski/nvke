@@ -65,7 +65,7 @@ func restoreOperationFromNodeInfo(
 	}
 	operation, ok := status.NodeAgentOperations[operationID]
 	if !ok {
-		return nil, fmt.Errorf("operation %s not found in node-agent status", operationID)
+		return nil, fmt.Errorf("operation %s not found in agent status", operationID)
 	}
 	if operation.Type != nodeAgentOperationTypeKubeVipRestore {
 		return nil, fmt.Errorf("operation %s has type %q, want %q",
@@ -120,7 +120,7 @@ func operationIDSeed(ctx context.Context, cluster rollout.Cluster, node rollout.
 			info.WorkflowExecution.ID, info.WorkflowExecution.RunID, info.ActivityID)
 	}
 	// Direct, non-Temporal callers do not have a workflow/run/activity identity.
-	// Use a fresh nonce so a later execution cannot reuse a completed node-agent
+	// Use a fresh nonce so a later execution cannot reuse a completed agent
 	// operation. The derived operation IDs are persisted in GuardState before
 	// either Start RPC is dispatched.
 	return fmt.Sprintf("%s/%s/%s/%s", cluster.ID(), node.ID(), GuardNameKubeVipDrainRestore, uuid.NewString())

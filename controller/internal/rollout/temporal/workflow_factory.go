@@ -48,7 +48,7 @@ type WorkflowConfig struct {
 
 	// ActivityOptions, when non-nil, selects the activity-option context the
 	// executor runs every activity under — most importantly ApplyToNode, which
-	// drives the node-agent RPC. The default (nil) uses withRolloutOptions (a
+	// drives the agent RPC. The default (nil) uses withRolloutOptions (a
 	// 2m ScheduleToClose budget); that is too short for operations whose
 	// per-node RPC blocks on apiserver readiness, so such operations MUST supply
 	// WithRolloutNodeAgentApplyOptions (an 8m/20m budget with heartbeat). It is
@@ -208,18 +208,18 @@ func withRolloutOptions(ctx workflow.Context) workflow.Context {
 }
 
 // WithRolloutNodeAgentApplyOptions sizes a rollout operation's activities
-// (notably ApplyToNode / RollbackNode) for a per-node node-agent RPC that
+// (notably ApplyToNode / RollbackNode) for a per-node agent RPC that
 // blocks on kube-apiserver readiness — e.g. EnableAPIServerAuthenticationConfig.
 // That RPC gates on a mutation-aware readiness wait: ~200s for the forward
 // apply, and on failure re-runs the same wait for the restore, ~400s worst
 // case before the business Outcome can ride the response back. StartToCloseTimeout
 // must exceed that, or a slow-but-healthy apiserver restart times the activity
-// out, cancels the node-agent ctx mid-wait, and is misclassified as an apply
-// failure that cascade-rolls-back the whole control plane. Layering: node-agent
+// out, cancels the agent ctx mid-wait, and is misclassified as an apply
+// failure that cascade-rolls-back the whole control plane. Layering: agent
 // internal (~400s worst) < StartToClose (8m) < ScheduleToClose (20m). Applied to
 // every activity the rollout dispatches; fast activities (preflights, guards)
 // finish well inside the larger cap. HeartbeatTimeout bounds crash recovery: the
-// long node-agent activities emit heartbeats, so a lost worker is detected within
+// long agent activities emit heartbeats, so a lost worker is detected within
 // ~2m and the node retried on a fresh worker; the Enable/Disable RPCs are
 // idempotent, so that retry is safe.
 func WithRolloutNodeAgentApplyOptions(ctx workflow.Context) workflow.Context {
@@ -373,7 +373,7 @@ type ClusterLoaderActivity struct {
 }
 
 // NewClusterLoaderActivity builds the load activity over a clusterDataLoader
-// (the CWE adapters/cwe.Loader) and the node-agent port applied to every
+// (the CWE adapters/cwe.Loader) and the agent port applied to every
 // node's endpoint.
 func NewClusterLoaderActivity(loader clusterDataLoader, nodeAgentPort string) *ClusterLoaderActivity {
 	return &ClusterLoaderActivity{loader: loader, nodeAgentPort: nodeAgentPort}

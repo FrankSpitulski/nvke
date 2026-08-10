@@ -89,7 +89,7 @@ func TestCAPIClusterScaffoldController_Reconcile(t *testing.T) {
 			clusters:         []db.Cluster{activeCluster},
 			nodes:            []db.Node{firstNode, secondNode},
 			kubeconfigs:      map[uuid.UUID]string{secondNodeID: testKubeconfig},
-			kubeconfigErrors: map[uuid.UUID]error{firstNodeID: errors.New("temporary node-agent failure")},
+			kubeconfigErrors: map[uuid.UUID]error{firstNodeID: errors.New("temporary agent failure")},
 			expectListNodes:  true,
 
 			wantKubeconfigSecret:   true,
@@ -98,7 +98,7 @@ func TestCAPIClusterScaffoldController_Reconcile(t *testing.T) {
 		"returns error when kubeconfig extraction fails": {
 			clusters:          []db.Cluster{activeCluster},
 			nodes:             []db.Node{firstNode},
-			kubeconfigErrors:  map[uuid.UUID]error{firstNodeID: errors.New("node-agent unavailable")},
+			kubeconfigErrors:  map[uuid.UUID]error{firstNodeID: errors.New("agent unavailable")},
 			expectListNodes:   true,
 			wantErrorContains: "failed to extract kubeconfig",
 

@@ -448,10 +448,10 @@ func TestDefaultSets_HaveExpectedNames(t *testing.T) {
 	cluster := preflights.DefaultClusterPreflights()
 	require.Len(t, cluster, 2)
 	assert.Equal(t, preflights.PreflightNameNodeAgentReachable, cluster[0].Name,
-		"node-agent-reachable must run first — it's the cheapest physical-layer check, so an unreachable agent surfaces as itself rather than as a misleading apiserver-health failure on the next check's CP walk")
+		"agent-reachable must run first — it's the cheapest physical-layer check, so an unreachable agent surfaces as itself rather than as a misleading apiserver-health failure on the next check's CP walk")
 	assert.Equal(t, preflights.PreflightNameKubeAPIHealthy, cluster[1].Name,
 		"kube-api-healthy runs after the reachability check so a broken agent is reported before the apiserver probe tries to use it")
 
 	node := preflights.DefaultNodePreflights()
-	assert.Empty(t, node, "node-level defaults are intentionally empty; node-agent-ready and -version are opt-in only")
+	assert.Empty(t, node, "node-level defaults are intentionally empty; agent-ready and -version are opt-in only")
 }

@@ -35,7 +35,7 @@ type Node interface {
 	ID() uuid.UUID
 	Name() string
 	Role() NodeRole
-	// AgentEndpoint returns "ip:port" for the node-agent gRPC connection.
+	// AgentEndpoint returns "ip:port" for the agent gRPC connection.
 	AgentEndpoint() string
 }
 

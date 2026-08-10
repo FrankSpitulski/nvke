@@ -124,7 +124,7 @@ func NewClientFromRESTConfig(restConfig *rest.Config, addToSchemes ...AddToSchem
 
 // DBClusterTenantClientProvider returns shared tenant-cluster Kubernetes clients
 // for CWE DB clusters. Site-managed clusters use the kubeconfig published by the
-// tenant-access controller when enabled, with the existing node-agent path kept
+// tenant-access controller when enabled, with the existing agent path kept
 // as the disabled-state rollout fallback. CAPI clusters use the standard CAPI
 // Secret plane.
 type DBClusterTenantClientProvider struct {
@@ -282,7 +282,7 @@ func (p *DBClusterTenantClientProvider) clientFromSecretVersion(
 }
 
 // clientFromControlPlaneNodeAgent gets kubeconfigs from joined control-plane
-// node-agents and returns the first one whose apiserver endpoint is reachable
+// agents and returns the first one whose apiserver endpoint is reachable
 // from the CWE process. This path remains available while tenant access is
 // disabled so the producer and consumer can be enabled with one rollout flag.
 func (p *DBClusterTenantClientProvider) clientFromControlPlaneNodeAgent(ctx context.Context, cluster db.Cluster, nodes []db.Node) (client.Client, error) {

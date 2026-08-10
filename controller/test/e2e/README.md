@@ -185,7 +185,7 @@ apiserver.
 Full local run (Colima + kind + Tilt + CAPD), only this spec:
 
 ```bash
-# from the repo root, with a node-agent checkout at ../node-agent
+# from the repo root, with an agent checkout at ../agent
 LOCAL_CAPD_E2E_LABEL_FILTER="oidc-enable" make test-e2e-capd-local
 ```
 
@@ -210,7 +210,7 @@ mirrors a real brownfield cluster: one created before its site turned OIDC on. T
 flag is restored in the entry's `AfterAll`; the CAPD suite runs serially so this does
 not race other entries.
 
-**Prerequisites.** The control-plane node-agent must be `>= v0.1.29`
+**Prerequisites.** The control-plane agent must be `>= v0.1.29`
 (`PatchAPIServerManifest`; `EnableOIDC.Validate` fails closed below it — the CAPD
 node image is pinned accordingly). The CAPD deploy stands up the OIDC substrate
 (config env + SPIRE discovery provider + tenant-access controller) by default

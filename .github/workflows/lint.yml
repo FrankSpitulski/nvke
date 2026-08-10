@@ -35,10 +35,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: node-agent/go.mod
+          go-version-file: agent/go.mod
           cache: true
 
-      # node-agent is the only module that builds from public dependencies.
+      # agent is the only module that builds from public dependencies.
       - name: Run golangci-lint
-        working-directory: node-agent
+        working-directory: agent
         run: make lint

@@ -44,7 +44,7 @@ const (
 // the enablement (API trigger + kubeadm-config write-back + secret publish),
 // which is the brownfield feature itself; the second asserts a SPIRE identity
 // authenticates on the tenant apiserver (the full SPIRE->apiserver JWT trust
-// chain). Requires the control-plane node-agent at >= v0.1.29
+// chain). Requires the control-plane agent at >= v0.1.29
 // (PatchAPIServerManifest); the operation's Validate fails closed otherwise.
 //
 // The "creates the cluster" step turned the CWE OIDC create-default off so this
