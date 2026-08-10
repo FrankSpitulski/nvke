@@ -9,7 +9,7 @@ clusters on NVIDIA infrastructure.
 │                     nke monorepo                    │
 │                                                     │
 │  ┌──────────────────┐   ┌────────────────────────┐  │
-│  │   controller/    │   │     agent/             │  │
+│  │   controller/    │   │       agent/           │  │
 │  │                  │   │                        │  │
 │  │  Cloud Workflow  │   │  Runs on each node;    │  │
 │  │  Engine (CWE)    │   │  registers w/ control  │  │
