@@ -33,7 +33,7 @@ const (
 
 	// clusterReconcileConcurrency bounds how many clusters in a single site are
 	// reconciled in parallel. Each cluster reconcile can itself fan out up to
-	// nodeAgentProbeConcurrency node-agent probes, so this is kept small to cap
+	// nodeAgentProbeConcurrency agent probes, so this is kept small to cap
 	// the multiplicative load on the CWE process, the DB, and tenant apiservers.
 	clusterReconcileConcurrency = 8
 )
@@ -190,7 +190,7 @@ func (c *Controller) probeNodeAgents(ctx context.Context, nodes []db.Node) map[s
 }
 
 // updateNodeConditions records the live health gathered for the cluster: each
-// node's conditions are derived from its Kubernetes Node object and node-agent
+// node's conditions are derived from its Kubernetes Node object and agent
 // probe. Each node is updated in its own transaction so a failure on one node
 // doesn't roll back the others and each row lock is held only briefly. Nodes
 // deleted between listing and updating are skipped.

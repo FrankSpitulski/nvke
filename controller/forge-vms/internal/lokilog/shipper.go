@@ -66,7 +66,7 @@ var knownLogTypes = []logType{
 		Type: "console",
 	},
 	// Future examples:
-	// {Names: []string{"node-agent.log"}, Type: "node-agent"},
+	// {Names: []string{"agent.log"}, Type: "agent"},
 	// {Names: []string{"kubelet.log"}, Type: "kubelet"},
 }
 

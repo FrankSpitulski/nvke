@@ -145,11 +145,11 @@ func (a *Activities) kubeadmInit(ctx context.Context, input KubeadmInitInput) er
 	cniVersion := db.EffectiveCNIVersion(cluster.CniPlugin, strings.TrimSpace(cluster.CniVersion))
 	switch cluster.CniPlugin {
 	case db.CNIOvnKubernetes:
-		req.UseOvnK8SCni = true     //nolint:staticcheck // Deprecated node-agent in-init CNI path still consumes legacy fields.
-		req.CniPluginName = "ovn"   //nolint:staticcheck // Legacy in-init CNI install still switches on this deprecated node-agent field.
+		req.UseOvnK8SCni = true     //nolint:staticcheck // Deprecated agent in-init CNI path still consumes legacy fields.
+		req.CniPluginName = "ovn"   //nolint:staticcheck // Legacy in-init CNI install still switches on this deprecated agent field.
 		req.OvnVersion = cniVersion //nolint:staticcheck // Legacy in-init CNI install still consumes deprecated version fields.
 	case db.CNICalico:
-		req.CniPluginName = "calico"   //nolint:staticcheck // Legacy in-init CNI install still switches on this deprecated node-agent field.
+		req.CniPluginName = "calico"   //nolint:staticcheck // Legacy in-init CNI install still switches on this deprecated agent field.
 		req.TigeraVersion = cniVersion //nolint:staticcheck // Legacy in-init CNI install still consumes deprecated version fields.
 	default:
 		return fmt.Errorf("unsupported CNI plugin: %s", cluster.CniPlugin)
@@ -159,7 +159,7 @@ func (a *Activities) kubeadmInit(ctx context.Context, input KubeadmInitInput) er
 		return fmt.Errorf("failed to execute kubeadm init on node %s: %w", node.Name, err)
 	}
 
-	// Legacy CNI install is required for node-agent versions before v0.1.15.
+	// Legacy CNI install is required for agent versions before v0.1.15.
 	if needsLegacyCNIInstall(agentVersion) {
 		if err := a.installLegacyCNIAfterKubeadmInitReady(ctx, node, req); err != nil {
 			return err
@@ -202,16 +202,16 @@ func (a *Activities) waitForKubeadmInitReady(ctx context.Context, node db.Node) 
 	}
 }
 
-// node-agent version v0.1.15 is the first version with in-init CNI install. Older agents need the
+// agent version v0.1.15 is the first version with in-init CNI install. Older agents need the
 // separate InstallCNIPlugin call after kubeadm init reports ready.
 func needsLegacyCNIInstall(agentVersion string) bool {
 	return !nodeAgentVersionAtLeast(agentVersion, "v0.1.15", true)
 }
 
-// installLegacyCNIAfterKubeadmInitReady installs the CNI plugin through the legacy node-agent RPC after
-// kubeadm init reports ready. This is required for node-agent versions before v0.1.15.
+// installLegacyCNIAfterKubeadmInitReady installs the CNI plugin through the legacy agent RPC after
+// kubeadm init reports ready. This is required for agent versions before v0.1.15.
 //
-//nolint:staticcheck // Deprecated fields and RPC are required for pre-v0.1.15 node-agent compatibility.
+//nolint:staticcheck // Deprecated fields and RPC are required for pre-v0.1.15 agent compatibility.
 func (a *Activities) installLegacyCNIAfterKubeadmInitReady(ctx context.Context, node db.Node, initRequest *nkeproto.KubeadmInitRequest) error {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -252,7 +252,7 @@ func (a *Activities) installLegacyCNIAfterKubeadmInitReady(ctx context.Context, 
 				}
 
 				if _, err := a.nodeAgentClient.InstallCNIPlugin(ctx, node, cniReq); err != nil {
-					return fmt.Errorf("failed to install CNI plugin through legacy node-agent RPC on node %s: %w", node.Name, err)
+					return fmt.Errorf("failed to install CNI plugin through legacy agent RPC on node %s: %w", node.Name, err)
 				}
 			}
 			return nil

@@ -22,7 +22,7 @@ import (
 	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
 )
 
-// execScriptOnNode dials the node-agent and runs script via the raw
+// execScriptOnNode dials the agent and runs script via the raw
 // ExecuteScript RPC. err = gRPC failure; exitCode=0 = script success.
 func execScriptOnNode(
 	ctx context.Context,
@@ -76,7 +76,7 @@ func dialAndStatus(
 
 // kubectlRawLocal returns a `kubectl --raw <path>` script pinned to
 // localhost so the probe targets this CP's own apiserver, not a peer.
-// The script carries its own shebang so the node-agent's direct-exec
+// The script carries its own shebang so the agent's direct-exec
 // path actually runs it (a bare script ENOEXECs); the path is
 // shell-quoted so metacharacters like '?' aren't glob-expanded.
 func kubectlRawLocal(path string) string {
@@ -122,7 +122,7 @@ func parseReadyzVerbose(stdout string) ([]string, bool) {
 // "+meta" trailer is stripped (so "v0.1.17-3-gf5bc014" == "v0.1.17").
 // Malformed input returns false (fail-closed).
 //
-// The suffix-strip is deliberate: the node-agent build pipeline emits
+// The suffix-strip is deliberate: the agent build pipeline emits
 // git-describe tags like "v0.1.17-3-gf5bc014" for every CI build past
 // a tag, and strict semver would reject all of them. Cost: rc tags
 // like "v0.1.21-rc.1" are also treated as >= "v0.1.21" — pin to the

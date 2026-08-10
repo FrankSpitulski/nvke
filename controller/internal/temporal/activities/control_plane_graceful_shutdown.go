@@ -141,7 +141,7 @@ func IsUnsupportedControlPlaneGracefulShutdownRPC(err error) bool {
 
 func newUnsupportedControlPlaneGracefulShutdownRPCError(nodeName string, err error) error {
 	return temporal.NewNonRetryableApplicationError(
-		fmt.Sprintf("node-agent on node %s does not support control-plane graceful shutdown RPCs", nodeName),
+		fmt.Sprintf("agent on node %s does not support control-plane graceful shutdown RPCs", nodeName),
 		UnsupportedControlPlaneGracefulShutdownRPCErrorType,
 		err,
 	)

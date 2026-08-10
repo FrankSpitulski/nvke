@@ -157,7 +157,7 @@ profiles:
     architecture: arm64
     build_date: "2026-06-25"
     ubuntu_version: "24.04"
-  # Same 2026-06-25 image as nke-260625-24.04-*-fde, but pins node-agent 0.1.29
+  # Same 2026-06-25 image as nke-260625-24.04-*-fde, but pins agent 0.1.29
   # (vs 0.1.25 on the base) so nodes get PatchAPIServerManifest — the floor for
   # the OIDC apiserver-flip rollout. Opt-in via variant: na-0.1.29.
   nke-260625-24.04-x86-fde-na-0.1.29:

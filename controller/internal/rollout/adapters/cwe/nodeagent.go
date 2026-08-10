@@ -84,11 +84,11 @@ func isNilDatabase(database db.DB) bool {
 }
 
 // NewSPIFFEDialer returns a nodeagent.Dialer that resolves the rollout node ID
-// to its current db.Node and dials its node-agent over SPIFFE x509 mTLS, mirroring
+// to its current db.Node and dials its agent over SPIFFE x509 mTLS, mirroring
 // internal/agent.NodeAgentClient. Nodes with SpiffeEnabled=false fall back to an
 // insecure connection (tier-0 self-bootstrap). resolve is required; trustDomain
 // is required only for SPIFFE-enabled nodes. The returned client is the raw
-// node-agent gRPC client; callers invoke its RPCs directly.
+// agent gRPC client; callers invoke its RPCs directly.
 func NewSPIFFEDialer(cfg config.Config, trustDomain string, resolve NodeResolver) (nodeagent.Dialer, error) {
 	if resolve == nil {
 		return nil, errors.New("rollout cwe NewSPIFFEDialer: resolve must be non-nil")
@@ -103,14 +103,14 @@ func NewSPIFFEDialer(cfg config.Config, trustDomain string, resolve NodeResolver
 		}
 		conn, cleanup, err := dialNodeAgent(ctx, cfg, trustDomain, node)
 		if err != nil {
-			return nil, nil, fmt.Errorf("dial node-agent on node %s: %w", rolloutNode.Name(), err)
+			return nil, nil, fmt.Errorf("dial agent on node %s: %w", rolloutNode.Name(), err)
 		}
 		return nkeproto.NewNodeAgentClient(conn), cleanup, nil
 	}, nil
 }
 
 // NewMethodSupportChecker returns a nodeagent.MethodSupportChecker that dials a
-// node-agent (over the same transport a rollout will use) and verifies method
+// agent (over the same transport a rollout will use) and verifies method
 // support via gRPC server reflection. It translates an unsupported-method
 // reflection result into nodeagent.ErrMethodUnsupported so rollout consumers
 // branch on capability without importing the transport layer. resolve is
@@ -129,7 +129,7 @@ func NewMethodSupportChecker(cfg config.Config, trustDomain string, resolve Node
 		}
 		conn, cleanup, err := dialNodeAgent(ctx, cfg, trustDomain, node)
 		if err != nil {
-			return fmt.Errorf("dial node-agent on node %s: %w", rolloutNode.Name(), err)
+			return fmt.Errorf("dial agent on node %s: %w", rolloutNode.Name(), err)
 		}
 		defer cleanup()
 

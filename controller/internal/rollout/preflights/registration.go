@@ -35,7 +35,7 @@ func DefaultClusterPreflights() []rollout.ClusterPreflightRef {
 }
 
 // DefaultNodePreflights returns the node-scope safety floor; currently
-// empty (the node-agent checks are either cluster-scope or opt-in).
+// empty (the agent checks are either cluster-scope or opt-in).
 func DefaultNodePreflights() []rollout.NodePreflightRef {
 	return nil
 }

@@ -32,7 +32,7 @@ const (
 	//
 	// The controller-manager hands every controller the long-lived loop context and
 	// runs them sequentially, one site at a time, so an unbounded probe against an
-	// unreachable node-agent stalls reconciliation for the whole fleet until the
+	// unreachable agent stalls reconciliation for the whole fleet until the
 	// process exits.
 	probeTimeout = 10 * time.Second
 
@@ -58,7 +58,7 @@ func TrustBundleSecretName(clusterName string) string {
 }
 
 // fetchAdminKubeconfig retrieves the verbatim admin.conf from a healthy
-// control-plane node via the node-agent GetKubeconfig RPC. The second return
+// control-plane node via the agent GetKubeconfig RPC. The second return
 // value reports whether a ready control-plane node served a kubeconfig; when
 // false with a nil error, the cluster's control plane is not yet reachable and
 // the caller should skip this reconcile pass.

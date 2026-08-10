@@ -27,7 +27,7 @@ type KubeadmResetInput struct {
 	NodeDeletingConditionMessage string
 }
 
-// KubeadmResetResult is intentionally empty. node-agent runs kubeadm reset
+// KubeadmResetResult is intentionally empty. agent runs kubeadm reset
 // synchronously and always returns an empty KubeadmResetStatusResponse; outcome
 // is written to local NodeStatus, not the RPC body. SWE's node_agent_reset used
 // an empty Response struct for the same reason. Success is nil error; failure is

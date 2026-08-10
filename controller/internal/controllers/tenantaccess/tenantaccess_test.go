@@ -322,7 +322,7 @@ func TestFetchAdminKubeconfig(t *testing.T) {
 
 // Each probe must carry its own deadline: the controller-manager passes the
 // long-lived loop context and runs sites sequentially, so an unbounded probe
-// against an unreachable node-agent would stall reconciliation fleet-wide.
+// against an unreachable agent would stall reconciliation fleet-wide.
 func TestFetchAdminKubeconfigBoundsEachProbe(t *testing.T) {
 	clusterID := uuid.New()
 	nodeID := uuid.New()
@@ -393,7 +393,7 @@ func TestController_ReconcileOIDC(t *testing.T) {
 
 	require.NoError(t, c.Reconcile(ctx, db.Site{ID: siteID}))
 
-	// The tenant client is built from the node-agent admin.conf.
+	// The tenant client is built from the agent admin.conf.
 	assert.Equal(t, []byte(testAdminConf), gotAdminConf)
 
 	// RBAC-first: the ClusterRole is server-side-applied into the tenant cluster.

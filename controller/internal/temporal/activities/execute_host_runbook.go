@@ -89,7 +89,7 @@ func (a *Activities) executeHostRunbook(ctx context.Context, input ExecuteHostRu
 	}
 
 	// Preserve SWE behavior by default: SWE RunbookExecution.Finish translated any
-	// non-zero node-agent ExecuteScript exit code into ExecutionStatusFailed, which
+	// non-zero agent ExecuteScript exit code into ExecutionStatusFailed, which
 	// CWE surfaced as RunbookError.
 	if !isExpectedRunbookExitCode(int(result.GetExitCode()), input) {
 		output := result.GetOutput()

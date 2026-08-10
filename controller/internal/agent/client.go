@@ -27,7 +27,7 @@ import (
 	nkeproto "gitlab-master.nvidia.com/nke/node-agent/pkg/agent/proto"
 )
 
-//nolint:interfacebloat // This mirrors the node-agent RPC surface used by controllers and activities.
+//nolint:interfacebloat // This mirrors the agent RPC surface used by controllers and activities.
 type Client interface {
 	GetKubeconfig(ctx context.Context, node db.Node) (string, error)
 	GetAgentVersion(ctx context.Context, node db.Node) (string, error)
@@ -35,7 +35,7 @@ type Client interface {
 	ExecuteKubeadmInit(ctx context.Context, node db.Node, req *nkeproto.KubeadmInitRequest) (*nkeproto.KubeadmInitStatusResponse, error)
 	ExecuteKubeadmJoin(ctx context.Context, node db.Node, req *nkeproto.KubeadmJoinRequest) (*nkeproto.KubeadmJoinStatusResponse, error)
 	ExecuteKubeadmReset(ctx context.Context, node db.Node, req *nkeproto.KubeadmResetRequest) (*nkeproto.KubeadmResetStatusResponse, error)
-	InstallCNIPlugin(ctx context.Context, node db.Node, req *nkeproto.InstallCNIPluginRequest) (*nkeproto.CNIPluginStatusResponse, error) //nolint:staticcheck // Legacy RPC is required for pre-v0.1.15 node-agent compatibility.
+	InstallCNIPlugin(ctx context.Context, node db.Node, req *nkeproto.InstallCNIPluginRequest) (*nkeproto.CNIPluginStatusResponse, error) //nolint:staticcheck // Legacy RPC is required for pre-v0.1.15 agent compatibility.
 	ExecuteNodePreflight(ctx context.Context, node db.Node, req *nkeproto.ExecuteNodePreflightRequest) (*nkeproto.ExecuteNodePreflightResponse, error)
 	GetKubeadmJoinString(ctx context.Context, node db.Node, req *nkeproto.KubeadmJoinStringRequest) (*nkeproto.KubeadmJoinStringResponse, error)
 	UpdateAndFetchKubeAdmJoinStrings(ctx context.Context, node db.Node, req *nkeproto.KubeadmJoinStringRequest) (*nkeproto.KubeadmJoinStringResponse, error)
@@ -151,11 +151,11 @@ func (c *NodeAgentClient) GetKubeconfig(ctx context.Context, node db.Node) (stri
 }
 
 func (c *NodeAgentClient) GetAgentVersion(ctx context.Context, node db.Node) (string, error) {
-	// node-agent doesn't actually expose a GetAgentVersion RPC, so we use GetKubeadmStatus as a proxy.
+	// agent doesn't actually expose a GetAgentVersion RPC, so we use GetKubeadmStatus as a proxy.
 	//
 	// GetKubeadmStatus is used purely as a reachability probe (drives
 	// NodeAgentReady) and to read the agent version. It is the lightest
-	// read RPC the node-agent exposes that carries AgentVersion; the rest
+	// read RPC the agent exposes that carries AgentVersion; the rest
 	// of its kubeadm status payload is intentionally ignored, since node
 	// health is sourced from the workload k8s Node object.
 	status, err := c.GetKubeadmStatus(ctx, node)
@@ -241,7 +241,7 @@ func (c *NodeAgentClient) ExecuteKubeadmReset(ctx context.Context, node db.Node,
 	return resp, nil
 }
 
-//nolint:staticcheck // Legacy RPC is required for pre-v0.1.15 node-agent compatibility.
+//nolint:staticcheck // Legacy RPC is required for pre-v0.1.15 agent compatibility.
 func (c *NodeAgentClient) InstallCNIPlugin(ctx context.Context, node db.Node, req *nkeproto.InstallCNIPluginRequest) (*nkeproto.CNIPluginStatusResponse, error) {
 	conn, cleanup, err := c.getGRPCConnection(ctx, node)
 	if err != nil {

@@ -142,8 +142,8 @@ rm -f "${GITCREDS_FILE}"
 printf '%s\n' "${CWE_IMAGE}" >"${STATE_DIR}/cwe-image-ref.txt"
 docker image inspect "${CWE_IMAGE}" >"${STATE_DIR}/cwe-image.json"
 
-log "resolving latest released node-agent package"
-packages_json="$(curl_with_retry "fetching node-agent package list" \
+log "resolving latest released agent package"
+packages_json="$(curl_with_retry "fetching agent package list" \
   --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
   "${CI_API_V4_URL}/projects/120765/packages?package_type=generic&package_name=nke-agent&order_by=created_at&sort=desc&per_page=100")"
 NODE_AGENT_VERSION="${NODE_AGENT_VERSION:-$(
@@ -152,19 +152,19 @@ NODE_AGENT_VERSION="${NODE_AGENT_VERSION:-$(
     | tail -1
 )}"
 if [[ -z "${NODE_AGENT_VERSION}" ]]; then
-  log "no released node-agent semantic version was returned by the package API"
+  log "no released agent semantic version was returned by the package API"
   exit 1
 fi
-printf '%s\n' "${NODE_AGENT_VERSION}" >"${STATE_DIR}/node-agent-version.txt"
-log "using node-agent ${NODE_AGENT_VERSION}"
+printf '%s\n' "${NODE_AGENT_VERSION}" >"${STATE_DIR}/agent-version.txt"
+log "using agent ${NODE_AGENT_VERSION}"
 
 node_agent_package_id="$(jq -r --arg version "${NODE_AGENT_VERSION}" \
   'first(.[] | select(.version == $version) | .id) // empty' <<<"${packages_json}")"
 if [[ -z "${node_agent_package_id}" ]]; then
-  log "package metadata was not returned for node-agent ${NODE_AGENT_VERSION}"
+  log "package metadata was not returned for agent ${NODE_AGENT_VERSION}"
   exit 1
 fi
-node_agent_files="$(curl_with_retry "fetching node-agent package files" \
+node_agent_files="$(curl_with_retry "fetching agent package files" \
   --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
   "${CI_API_V4_URL}/projects/120765/packages/${node_agent_package_id}/package_files")"
 node_agent_filename="agent_${NODE_AGENT_VERSION}_amd64.tgz"

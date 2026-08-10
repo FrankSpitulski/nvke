@@ -35,7 +35,7 @@ func waitForControlPlaneGracefulShutdown(ctx workflow.Context, input TeardownNod
 
 	operation, err := startControlPlaneGracefulShutdown(ctx, input, operationID)
 	if err != nil {
-		// node-agent prior to v0.1.22 does not support control-plane graceful shutdown
+		// agent prior to v0.1.22 does not support control-plane graceful shutdown
 		// so we skip the wait for control-plane graceful shutdown if the error is that it's unsupported.
 		if errors.Is(err, errControlPlaneGracefulShutdownUnsupported) {
 			logger.Warn("control-plane graceful shutdown unsupported, skipping", "nodeID", input.NodeID, "error", err)
@@ -123,10 +123,10 @@ func getControlPlaneGracefulShutdownStatus(ctx workflow.Context, input TeardownN
 
 func validateControlPlaneGracefulShutdownOperation(operationID string, operation activities.ControlPlaneGracefulShutdownOperation) error {
 	if operation.ID == "" {
-		return errors.New("node-agent returned empty operation ID")
+		return errors.New("agent returned empty operation ID")
 	}
 	if operation.ID != operationID {
-		return fmt.Errorf("node-agent returned operation ID %q, expected %q", operation.ID, operationID)
+		return fmt.Errorf("agent returned operation ID %q, expected %q", operation.ID, operationID)
 	}
 
 	switch operation.Phase {
@@ -135,9 +135,9 @@ func validateControlPlaneGracefulShutdownOperation(operationID string, operation
 		activities.ControlPlaneGracefulShutdownPhaseFailed:
 		return nil
 	case "", activities.ControlPlaneGracefulShutdownPhaseUnspecified:
-		return fmt.Errorf("node-agent returned unspecified operation phase %q", operation.Phase)
+		return fmt.Errorf("agent returned unspecified operation phase %q", operation.Phase)
 	default:
-		return fmt.Errorf("node-agent returned unknown operation phase %q", operation.Phase)
+		return fmt.Errorf("agent returned unknown operation phase %q", operation.Phase)
 	}
 }
 

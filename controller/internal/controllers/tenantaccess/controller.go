@@ -81,7 +81,7 @@ func NewController(
 // newTenantClient builds a controller-runtime client for a tenant cluster from
 // its admin.conf.
 //
-// The REST timeout is set explicitly because node-agent serves admin.conf
+// The REST timeout is set explicitly because agent serves admin.conf
 // verbatim without rewriting its server URL, so the endpoint it names is not
 // guaranteed to be routable from CWE. Both client construction (which performs
 // discovery) and every subsequent apply would otherwise block on the reconcile

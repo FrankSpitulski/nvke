@@ -25,7 +25,7 @@ type nodeAgentProbe struct {
 }
 
 // applyNodeHealth derives a node's conditions from its live Kubernetes Node
-// object and node-agent probe. It is the success path: kubeNode may still be
+// object and agent probe. It is the success path: kubeNode may still be
 // nil for a CWE node that isn't registered in Kubernetes yet, and agentProbe.err
 // reflects a per-node reachability failure; both are normal per-node states.
 func applyNodeHealth(cweNode *db.Node, kubeNode *corev1.Node, agentProbe nodeAgentProbe) {

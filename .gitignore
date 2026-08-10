@@ -1,5 +1,5 @@
 # Build artifacts
-node-agent/agent
+agent/agent
 **/*.test
 **/bin/
 **/dist/

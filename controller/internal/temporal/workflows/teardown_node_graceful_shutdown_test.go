@@ -30,7 +30,7 @@ import (
 func TestWaitForControlPlaneGracefulShutdown_UnsupportedRPC_Skips(t *testing.T) {
 	nodeID := uuid.New()
 	unsupportedErr := temporal.NewNonRetryableApplicationError(
-		"node-agent on node cp-1 does not support control-plane graceful shutdown RPCs",
+		"agent on node cp-1 does not support control-plane graceful shutdown RPCs",
 		activities.UnsupportedControlPlaneGracefulShutdownRPCErrorType,
 		errors.New("rpc error: code = Unimplemented desc = unknown method"),
 	)
@@ -187,7 +187,7 @@ func TestValidateControlPlaneGracefulShutdownOperation(t *testing.T) {
 				ID:    "other-operation-id",
 				Phase: activities.ControlPlaneGracefulShutdownPhaseRunning,
 			},
-			wantErr: "node-agent returned operation ID",
+			wantErr: "agent returned operation ID",
 		},
 		{
 			name: "unspecified phase",

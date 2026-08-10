@@ -565,7 +565,7 @@ func (r *reconciler) startUpdateKubeadmConfigMapWorkflow(ctx context.Context, cl
 
 // startKubeadmAddOnUpgradeWorkflow starts the CWE-owned UpgradeControlPlaneAddons
 // workflow, which runs the embedded upgrade-kubelet-kubeadm runbook through
-// node-agent on a healthy control plane node (selected by the activity).
+// agent on a healthy control plane node (selected by the activity).
 func (r *reconciler) startKubeadmAddOnUpgradeWorkflow(ctx context.Context, cluster db.Cluster, workflowID string, logger *slog.Logger) error {
 	// Start workflow asynchronously - don't wait for completion
 	options := client.StartWorkflowOptions{

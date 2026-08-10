@@ -37,9 +37,9 @@ you can act on.
 |---|---|
 | `*.go` (this package) | Pure interfaces and value types — `Operation`, `Outcome`, `RolloutSpec`, `Result`, plus the preflight/guard/registry vocabulary. No Temporal or DB imports; this is the vocabulary. |
 | `temporal/` | The production executor. `temporal.Execute(...)` is the entry point, called from a workflow body. (Why Temporal matters for *error handling* is explained below — you don't need to understand Temporal to write an operation.) |
-| `adapters/cwe/` | Glue that makes CWE's `db.Cluster`/`db.Node` satisfy the interfaces here. `Loader` loads a cluster and its node inventory from postgres; the node adapters carry the node-agent endpoint. |
-| `nodeagent/` | The SPIFFE-mTLS `Dialer` the adapters, preflights, and operations use to reach each node's node-agent. |
-| `preflights/` | The registered default preflights: node-agent-reachable and kube-API-healthy (cluster scope), node-agent-ready and node-agent-version (node scope). |
+| `adapters/cwe/` | Glue that makes CWE's `db.Cluster`/`db.Node` satisfy the interfaces here. `Loader` loads a cluster and its node inventory from postgres; the node adapters carry the agent endpoint. |
+| `nodeagent/` | The SPIFFE-mTLS `Dialer` the adapters, preflights, and operations use to reach each node's agent. |
+| `preflights/` | The registered default preflights: agent-reachable and kube-API-healthy (cluster scope), agent-ready and agent-version (node scope). |
 | `guards/kubevip/` | The kube-vip drain/restore node guard. |
 | `operations/dryrun/` | `DryRunOperation` — a reference operation that implements *every* optional capability but mutates nothing (`ApplyToNode` returns `OutcomeUnchanged`). It exercises every code path and is the model to copy when writing a new operation. |
 | `operations/etcd/` | The etcd-encryption operations — the framework's **first live consumer**. |
@@ -194,7 +194,7 @@ know the two rules below and the decision they imply.
 
 The executor splits into two roles:
 
-- a **worker** that actually touches the world — dials the node-agent,
+- a **worker** that actually touches the world — dials the agent,
   edits the apiserver config (in Temporal terms, an *activity*); and
 - a **coordinator** that decides what to run next and reacts to results,
   but never touches the world itself (a *workflow*).

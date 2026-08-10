@@ -228,7 +228,7 @@ type Config struct {
 	// SpireJoinTokenTTL is the TTL used when creating SPIRE join tokens via the server API.
 	SpireJoinTokenTTL time.Duration `env:"SPIRE_JOIN_TOKEN_TTL" default:"1h"`
 
-	// NodeAgentPort is the "new" port that nke node-agent listens on.
+	// NodeAgentPort is the "new" port that nke agent listens on.
 	// Note: This will only be used if SpiffeEnabled is true. Eventually this will be the only port used.
 	NodeAgentPort string `env:"NODE_AGENT_PORT" default:"15005"`
 

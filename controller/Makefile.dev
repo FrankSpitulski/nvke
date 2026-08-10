@@ -43,7 +43,7 @@ export DEFAULT_VIP_RANGE ?= 172.31.0.0/24
 # CAPD KinD custom node image (see hack/capd-kindest-node/Dockerfile)
 export CAPD_KINDEST_NODE_IMAGE ?= cwe-capd-kindest-node:local
 export CAPD_NODE_AGENT_LOCAL_BUILD ?= auto
-export NODE_AGENT_REPO_PATH ?= $(abspath ../node-agent)
+export NODE_AGENT_REPO_PATH ?= $(abspath ../agent)
 
 # Detect if we need to use flox for temporal CLI
 TEMPORAL_CMD := $(shell command -v temporal 2>/dev/null)

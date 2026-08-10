@@ -97,7 +97,7 @@ done
 : "${COLIMA_DISK_GIB:=150}"
 : "${COLIMA_DOCKER_HOST:=unix://${HOME}/.colima/${COLIMA_PROFILE}/docker.sock}"
 : "${DOCKER_HOST:=${COLIMA_DOCKER_HOST}}"
-: "${NODE_AGENT_REPO_PATH:=${repo_root}/../node-agent}"
+: "${NODE_AGENT_REPO_PATH:=${repo_root}/../agent}"
 
 export COLIMA_PROFILE COLIMA_CPUS COLIMA_MEMORY_GIB COLIMA_DISK_GIB
 export COLIMA_DOCKER_HOST DOCKER_HOST NODE_AGENT_REPO_PATH
@@ -106,7 +106,7 @@ export CAPD_NODE_AGENT_LOCAL_BUILD="${CAPD_NODE_AGENT_LOCAL_BUILD:-true}"
 export CAPD_SPIRE_ATTESTATION_METHOD="${CAPD_SPIRE_ATTESTATION_METHOD:-tpm}"
 
 [[ -f "${NODE_AGENT_REPO_PATH}/Makefile" ]] || \
-  fail "NODE_AGENT_REPO_PATH=${NODE_AGENT_REPO_PATH} does not look like a node-agent checkout"
+  fail "NODE_AGENT_REPO_PATH=${NODE_AGENT_REPO_PATH} does not look like an agent checkout"
 
 mkdir -p "${state_dir}"
 
@@ -124,7 +124,7 @@ kind get kubeconfig --name "${kind_cluster_name}" >"${host_kubeconfig}"
 export KUBECONFIG="${host_kubeconfig}"
 management_ready=true
 
-log "building the local node-agent CAPD image and installing CAPI/CAPD"
+log "building the local agent CAPD image and installing CAPI/CAPD"
 make -C "${repo_root}" capd-up
 
 if [[ -f "${tilt_config}" ]]; then

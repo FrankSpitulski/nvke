@@ -34,7 +34,7 @@ type cachedJoinStrings struct {
 }
 
 // joinStringCache serializes and briefly reuses join-string refreshes per
-// control-plane node-agent endpoint. The refresh RPC runs
+// control-plane agent endpoint. The refresh RPC runs
 // `kubeadm init phase upload-certs --upload-certs`, which rewrites the
 // certificate key used by control-plane joins. If parallel joins refresh that
 // key independently, one node can try to decrypt kubeadm-certs with a key that
@@ -98,7 +98,7 @@ func (a *Activities) kubeadmJoin(ctx context.Context, node db.Node) (KubeadmJoin
 		joinString = joinStrings.GetControlplaneJoinString()
 	}
 	if joinString == "" {
-		return KubeadmJoinResult{}, fmt.Errorf("node-agent returned empty kubeadm join string")
+		return KubeadmJoinResult{}, fmt.Errorf("agent returned empty kubeadm join string")
 	}
 
 	_, nodePool, err := nodes.GetNodeContext(ctx, a.db, node)
@@ -308,7 +308,7 @@ func (a *Activities) getKubeadmJoinStrings(ctx context.Context, cpNode db.Node) 
 		return nil, err
 	}
 	if resp.GetControlplaneJoinString() == "" || resp.GetWorkerJoinString() == "" {
-		return nil, fmt.Errorf("missing join strings from node-agent response")
+		return nil, fmt.Errorf("missing join strings from agent response")
 	}
 
 	cached.controlPlaneJoin = stripJoinString(resp.GetControlplaneJoinString())

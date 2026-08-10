@@ -28,7 +28,7 @@ func TestGofailRunbookWorkerCrashRetriesAfterHeartbeatTimeout(t *testing.T) {
 	const targetRunbook = "upgrade-kubelet-kubeadm"
 
 	testStarted := time.Now()
-	t.Log("starting local Temporal, PostgreSQL, node-agent, and production CWE worker")
+	t.Log("starting local Temporal, PostgreSQL, agent, and production CWE worker")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
@@ -107,7 +107,7 @@ func TestGofailRunbookWorkerCrashRetriesAfterHeartbeatTimeout(t *testing.T) {
 	t.Logf("workflow recovered on the replacement worker with node %s", result.NodeID)
 	_, err = nodeAgent.WaitForScript(retryCtx, targetRunbook)
 	require.NoError(t, err, "recovered workflow did not call the production runbook")
-	t.Logf("node-agent observed recovered runbook %q", targetRunbook)
+	t.Logf("agent observed recovered runbook %q", targetRunbook)
 	t.Logf("replacement worker output:\n%s", recoveryWorker.Output())
 	t.Logf("gofail crash-recovery scenario completed in %s", time.Since(testStarted).Round(time.Millisecond))
 }

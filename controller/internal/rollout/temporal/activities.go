@@ -25,7 +25,7 @@ import (
 	"github.com/NVIDIA/nke/controller/internal/rollout"
 )
 
-// heartbeatInterval is how often the long node-agent activities (ApplyToNode,
+// heartbeatInterval is how often the long agent activities (ApplyToNode,
 // RollbackNode) report progress. It stays well under the HeartbeatTimeout set by
 // WithRolloutNodeAgentApplyActivityOptions (2m) so a live worker is never
 // mistaken for a dead one.
@@ -223,7 +223,7 @@ func (a *Activities) ApplyToNode(ctx context.Context, req *ApplyToNodeRequest) (
 	if err != nil {
 		return nil, toTemporalActivityError(err)
 	}
-	// This RPC blocks for minutes on the node-agent's readiness wait; heartbeat
+	// This RPC blocks for minutes on the agent's readiness wait; heartbeat
 	// so a crashed worker is retried within HeartbeatTimeout, not StartToClose.
 	stopHeartbeat := startHeartbeat(ctx, "apply-to-node in progress")
 	defer stopHeartbeat()
@@ -244,7 +244,7 @@ func (a *Activities) RollbackNode(ctx context.Context, req *RollbackRequest) err
 	if err != nil {
 		return toTemporalActivityError(err)
 	}
-	// Rollback dials the node-agent Disable RPC, which likewise blocks on the
+	// Rollback dials the agent Disable RPC, which likewise blocks on the
 	// readiness wait; heartbeat for the same fast-crash-recovery reason.
 	stopHeartbeat := startHeartbeat(ctx, "rollback-node in progress")
 	defer stopHeartbeat()

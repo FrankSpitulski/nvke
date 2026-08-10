@@ -32,7 +32,7 @@ const (
 )
 
 // DefaultObjectsToEncrypt returns the resource list used by the brownfield
-// enablement workflow. Keep this explicit so a node-agent default change cannot
+// enablement workflow. Keep this explicit so an agent default change cannot
 // silently change CWE behavior.
 func DefaultObjectsToEncrypt() []string {
 	return []string{
@@ -271,20 +271,20 @@ func (op *EncryptionOperation) dial(ctx context.Context, node rollout.Node) (nod
 	}
 	client, cleanup, err := dialer(ctx, node)
 	if err != nil {
-		return nil, nil, fmt.Errorf("dial node-agent on node %s: %w", node.Name(), err)
+		return nil, nil, fmt.Errorf("dial agent on node %s: %w", node.Name(), err)
 	}
 	if client == nil {
 		if cleanup != nil {
 			cleanup()
 		}
-		return nil, nil, fmt.Errorf("dial node-agent on node %s returned nil client", node.Name())
+		return nil, nil, fmt.Errorf("dial agent on node %s returned nil client", node.Name())
 	}
 	return client, cleanup, nil
 }
 
 func (op *EncryptionOperation) resolveDialer() (nodeAgentClientDialer, error) {
 	if op.nodeAgentClientDialer == nil {
-		return nil, errors.New("etcd encryption operation node-agent dialer is not configured")
+		return nil, errors.New("etcd encryption operation agent dialer is not configured")
 	}
 	return op.nodeAgentClientDialer, nil
 }

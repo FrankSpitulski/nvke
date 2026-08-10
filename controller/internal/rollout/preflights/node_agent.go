@@ -19,23 +19,23 @@ import (
 )
 
 const (
-	PreflightNameNodeAgentReachable = "cwe.node-agent-reachable"
-	PreflightNameNodeAgentReady     = "cwe.node-agent-ready"
-	PreflightNameNodeAgentVersion   = "cwe.node-agent-version"
+	PreflightNameNodeAgentReachable = "cwe.agent-reachable"
+	PreflightNameNodeAgentReady     = "cwe.agent-ready"
+	PreflightNameNodeAgentVersion   = "cwe.agent-version"
 
 	// ParamMinVersion is the NodeAgentVersion params key; semver-ish
 	// like "v0.1.21" ("v" optional). Required; fails closed otherwise.
 	ParamMinVersion = "min_version"
 )
 
-// NewNodeAgentReachableFunc dials the node-agent on every CP. Runs
+// NewNodeAgentReachableFunc dials the agent on every CP. Runs
 // FIRST in the default set so an unreachable agent surfaces as itself
 // rather than as a misleading apiserver-health failure later.
 func NewNodeAgentReachableFunc(dialer nodeagent.Dialer) rollout.ClusterPreflightFunc {
 	return func(ctx context.Context, cluster rollout.Cluster, _ map[string]string) error {
 		cps := cluster.ControlPlaneNodes()
 		if len(cps) == 0 {
-			return fmt.Errorf("node-agent-reachable: cluster %s has 0 CPs", cluster.Name())
+			return fmt.Errorf("agent-reachable: cluster %s has 0 CPs", cluster.Name())
 		}
 		var unreachable []string
 		var firstErr error
@@ -48,7 +48,7 @@ func NewNodeAgentReachableFunc(dialer nodeagent.Dialer) rollout.ClusterPreflight
 			}
 		}
 		if len(unreachable) > 0 {
-			return fmt.Errorf("node-agent-reachable: %d/%d CPs reachable; unreachable=%v; first err: %w",
+			return fmt.Errorf("agent-reachable: %d/%d CPs reachable; unreachable=%v; first err: %w",
 				len(cps)-len(unreachable), len(cps), unreachable, firstErr)
 		}
 		return nil
@@ -62,10 +62,10 @@ func NewNodeAgentReadyFunc(dialer nodeagent.Dialer) rollout.NodePreflightFunc {
 	return func(ctx context.Context, _ rollout.Cluster, node rollout.Node, _ map[string]string) error {
 		st, err := dialAndStatus(ctx, dialer, node)
 		if err != nil {
-			return fmt.Errorf("node-agent on %s: %w", node.Name(), err)
+			return fmt.Errorf("agent on %s: %w", node.Name(), err)
 		}
 		if st.GetKubeadmStatus() != nodeagent.KubeadmStatusReady {
-			return fmt.Errorf("node-agent on %s not ready: status=%q phase=%q message=%q",
+			return fmt.Errorf("agent on %s not ready: status=%q phase=%q message=%q",
 				node.Name(), st.GetKubeadmStatus(), st.GetKubeadmPhase(), st.GetKubeadmCurrentMessage())
 		}
 		return nil
@@ -84,10 +84,10 @@ func NewNodeAgentVersionFunc(dialer nodeagent.Dialer) rollout.NodePreflightFunc 
 		}
 		st, err := dialAndStatus(ctx, dialer, node)
 		if err != nil {
-			return fmt.Errorf("node-agent on %s: %w", node.Name(), err)
+			return fmt.Errorf("agent on %s: %w", node.Name(), err)
 		}
 		if !versionAtLeast(st.GetAgentVersion(), minimum) {
-			return fmt.Errorf("node-agent on %s is %q; operation requires >= %q",
+			return fmt.Errorf("agent on %s is %q; operation requires >= %q",
 				node.Name(), st.GetAgentVersion(), minimum)
 		}
 		return nil

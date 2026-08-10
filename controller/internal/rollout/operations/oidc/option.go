@@ -22,7 +22,7 @@ import (
 
 type Option func(*EnableOIDCOperation)
 
-// WithDialer injects the node-agent dialer. A nil dialer is recorded as unset so
+// WithDialer injects the agent dialer. A nil dialer is recorded as unset so
 // Validate fails loudly rather than letting a nil dialer masquerade as configured.
 func WithDialer(dialer nodeagent.Dialer) Option {
 	return func(op *EnableOIDCOperation) {
@@ -48,10 +48,10 @@ func WithOIDCConfig(oidc *config.NkeOIDCAuth) Option {
 	return func(op *EnableOIDCOperation) { op.oidcConfig = oidc }
 }
 
-// WithMethodSupportChecker injects the reusable node-agent capability check
-// (gRPC reflection) that Validate uses to confirm every control-plane node-agent
+// WithMethodSupportChecker injects the reusable agent capability check
+// (gRPC reflection) that Validate uses to confirm every control-plane agent
 // implements the PatchAPIServerManifest RPC before any node is touched — in place
-// of a node-agent version floor. A nil checker is recorded as unset so Validate
+// of an agent version floor. A nil checker is recorded as unset so Validate
 // fails loudly.
 func WithMethodSupportChecker(checker nodeagent.MethodSupportChecker) Option {
 	return func(op *EnableOIDCOperation) { op.methodChecker = checker }

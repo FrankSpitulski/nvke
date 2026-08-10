@@ -28,7 +28,7 @@ type DeleteOptions struct {
 
 	// ForceUnreachable treats the target node as potentially unreachable during
 	// live-cluster removal. The workflow still attempts drain and graceful cleanup, but
-	// tolerates failures that can occur when kubelet/node-agent is gone or the node is otherwise unreachable.
+	// tolerates failures that can occur when kubelet/agent is gone or the node is otherwise unreachable.
 	// Which allows a delete or TeardownNode workflow to complete even if the node is unreachable.
 	// Control-plane etcd member removal runs on a surviving control-plane node, so its failure is
 	// not tolerated even when ForceUnreachable is set: leaving a stale member would endanger etcd
@@ -62,7 +62,7 @@ func WithAllowCPNode(allow bool) DeleteOpt {
 
 // WithForceUnreachable treats the target node as potentially unreachable during
 // live-cluster removal. The workflow still attempts drain and graceful cleanup, but
-// tolerates failures that can occur when kubelet/node-agent is gone or the node is otherwise unreachable.
+// tolerates failures that can occur when kubelet/agent is gone or the node is otherwise unreachable.
 // Which allows a delete or TeardownNode workflow to complete even if the node is unreachable.
 // Control-plane etcd member removal runs on a surviving control-plane node, so its failure is
 // not tolerated even when ForceUnreachable is set: leaving a stale member would endanger etcd
