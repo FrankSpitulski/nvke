@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # Exercise ExecuteKubeadmInit / ExecuteKubeadmJoin and InstallCNI on an agent over gRPC
 # via grpcurl. Intended for manual testing when the agent runs with plaintext gRPC
 # (--disable-mtls); for TLS/mTLS, set GRPCURL_EXTRA_OPTS (e.g. -cert -key -cacert).

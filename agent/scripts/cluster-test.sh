@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # End-to-end manual cluster test against agent VMs over grpcurl (plaintext by default).
 #
 # Orchestrates the recommended NKE controller-style flow:
