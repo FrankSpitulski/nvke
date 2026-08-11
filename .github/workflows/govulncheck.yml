@@ -1,0 +1,120 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reports Go dependency vulnerabilities that this code actually calls. Results
+# go to Security -> Code scanning under the "govulncheck" category.
+#
+# This job does not gate. In SARIF mode govulncheck exits 0 whether or not it
+# finds anything, so a non-zero exit here is a real tool or module failure and
+# does fail the job. Findings are triaged in the Security tab, not by a red
+# check — three of the four NKE repositories have findings today, and a gating
+# job would bury a new regression in that backlog.
+#
+# Only the agent module is covered. controller/ requires two non-public
+# modules — the carbide SDK, reached through the Forge provider, and
+# cluster-api-provider-nico — so it cannot build on a public runner.
+# .github/workflows/lint.yml states the same thing. Widen GO_MODULE when
+# the controller builds from public dependencies.
+
+name: govulncheck
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+  schedule:
+    # Monday 06:30 UTC. New advisories land without the code changing.
+    - cron: '30 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # Go module to scan, relative to the repository root.
+  GO_MODULE: agent
+
+jobs:
+  govulncheck:
+    name: govulncheck
+    runs-on: linux-amd64-cpu16
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read          # upload-sarif reads the workflow run
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ env.GO_MODULE }}/go.mod
+          cache: true
+          cache-dependency-path: ${{ env.GO_MODULE }}/go.sum
+
+      - name: Install govulncheck
+        # setup-go pins GOTOOLCHAIN=local. golang.org/x/vuln v1.6.0 needs
+        # go >= 1.25.0, which is newer than some of our modules declare, so the
+        # install alone is allowed to fetch a toolchain. The scan below still
+        # runs under the module's own Go.
+        env:
+          GOTOOLCHAIN: auto
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+
+      - name: Run govulncheck
+        id: scan
+        shell: bash
+        working-directory: ${{ env.GO_MODULE }}
+        run: |
+          set -euo pipefail
+          raw="${RUNNER_TEMP}/govulncheck.raw.sarif"
+          out="${RUNNER_TEMP}/govulncheck.sarif"
+          govulncheck -format sarif ./... > "${raw}"
+          # Fail loudly rather than skip the upload and report a green check.
+          if [ ! -s "${raw}" ]; then
+            echo "::error::govulncheck produced no SARIF at ${raw}"
+            exit 1
+          fi
+          # GitHub validates SARIF with uniqueItems on properties.tags, and
+          # govulncheck can list the same CVE alias twice on one rule, which
+          # gets the whole upload rejected as invalid. Only reachable when
+          # there are findings, which is why the one clean repository in the
+          # fleet never hit it.
+          jq '(.runs[]?.tool?.driver?.rules[]?.properties?.tags) |= unique' \
+            "${raw}" > "${out}"
+          echo "sarif=${out}" >> "${GITHUB_OUTPUT}"
+
+      - name: Summarise
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          f="${RUNNER_TEMP}/govulncheck.sarif"
+          {
+            echo "## govulncheck — module \`${GO_MODULE}\`"
+            echo
+            if [ ! -s "${f}" ]; then
+              echo "No SARIF produced. The scan did not finish."
+            else
+              echo "$(jq '[.runs[].results[]] | length' "${f}") result(s). Details in **Security -> Code scanning**, category \`govulncheck\`."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload SARIF
+        # Guarded on a step output, not hashFiles(): hashFiles() only resolves
+        # paths under GITHUB_WORKSPACE, so against RUNNER_TEMP it silently
+        # returns '' and skips the upload while the job still reports green.
+        if: always() && steps.scan.outputs.sarif != ''
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+          checkout_path: ${{ github.workspace }}/${{ env.GO_MODULE }}
+          category: govulncheck
