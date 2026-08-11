@@ -11,7 +11,7 @@ including how maintainers are added and removed.
 
 | GitHub handle | Affiliation | Area of focus |
 |---|---|---|
-| @nke/nke-developers | NVIDIA | All modules |
+| @NVIDIA/nke-maintainer | NVIDIA | All modules |
 
 ## Project lead
 
@@ -20,7 +20,7 @@ strategic direction. Contact via a GitHub issue or discussion.
 
 | GitHub handle | Affiliation |
 |---|---|
-| @nke/nke-developers | NVIDIA |
+| @NVIDIA/nke-maintainer | NVIDIA |
 
 ## Emeritus maintainers
 
