@@ -1,0 +1,101 @@
+---
+# License enforcement for all Go modules in the monorepo.
+#
+# A discover-modules setup job finds every go.mod (excluding vendor/ and
+# testdata/), then a license-check matrix job fans out over the results so
+# new components are covered automatically without workflow edits.
+#
+# Per module, two checks run:
+#   go-licenses (github.com/google/go-licenses) — verifies all transitive
+#     dependency licenses are permissive (no restricted/reciprocal/forbidden/
+#     unknown types).  This is the same underlying tool used in the existing
+#     GitLab CI pipeline; no proprietary wrapper is required here.
+#
+#   make file-license-check — verifies every source file carries the required
+#     copyright header via addlicense.  Skipped for modules that do not expose
+#     this Makefile target.
+#
+# Release gate: the release workflow calls this workflow via workflow_call and
+# gates publish jobs on it via `needs`.  See .github/workflows/release.yml.
+name: License Checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.go'
+      - '**/go.mod'
+      - '**/go.sum'
+      - '.github/workflows/license.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.go'
+      - '**/go.mod'
+      - '**/go.sum'
+      - '.github/workflows/license.yml'
+  workflow_call:
+
+jobs:
+  discover-modules:
+    name: Discover Go modules
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.find.outputs.modules }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find Go modules
+        id: find
+        run: |
+          # Modules that import private NVIDIA packages (gitlab-master.nvidia.com)
+          # cannot be resolved from public GitHub Actions runners. Those modules are
+          # covered by the internal GitLab CI pipeline.
+          modules=$(find . -name go.mod \
+            -not -path '*/vendor/*' \
+            -not -path '*/testdata/*' \
+            -exec dirname {} \; \
+            | sort \
+            | grep -vxF -e './controller' -e './controller/forge-vms' \
+            | jq -R . | jq -sc .)
+          echo "modules=$modules" >> "$GITHUB_OUTPUT"
+
+  license-check:
+    name: License check (${{ matrix.module }})
+    needs: [discover-modules]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: ${{ fromJson(needs.discover-modules.outputs.modules) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: '${{ matrix.module }}/go.mod'
+          cache: true
+
+      - name: Check dependency licenses
+        working-directory: ${{ matrix.module }}
+        # GOTOOLCHAIN=local prevents Go from downloading a golang.org/toolchain
+        # module for stdlib, which confuses go-licenses into treating standard
+        # library packages as unrecognised external packages.
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          go install github.com/google/go-licenses/v2@latest
+          go-licenses check ./... \
+            --disallowed_types=restricted,reciprocal,forbidden,unknown \
+            --ignore github.com/NVIDIA/nke \
+            --ignore gitlab-master.nvidia.com
+
+      # Runs `make file-license-check` when the target exists in this module.
+      # Modules that do not expose the target (e.g. node-agent at present) are
+      # skipped without failing the job.
+      - name: Verify license headers
+        working-directory: ${{ matrix.module }}
+        run: |
+          if make -n file-license-check >/dev/null 2>&1; then
+            make file-license-check
+          fi
