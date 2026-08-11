@@ -23,6 +23,9 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `RELEASE.md` — release process documentation
 - `AGENTS.md` — AI agent guide for the monorepo
 - `.github/ISSUE_TEMPLATE/documentation_request.yml` — issue form for documentation requests
+- `.github/workflows/govulncheck.yml` — reports Go vulnerabilities the agent module calls
+- `.github/workflows/codeql.yml` — CodeQL static analysis of the agent module
+- `.github/workflows/security-scan.yml` — Anchore/Grype dependency scan of the tree
 
 ### Changed
 - `CONTRIBUTING.md` — replaced TODO placeholders with actual build/test commands
