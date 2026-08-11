@@ -2,18 +2,21 @@
 # License enforcement for all Go modules in the monorepo.
 #
 # A discover-modules setup job finds every go.mod (excluding vendor/ and
-# testdata/), then a license-check matrix job fans out over the results so
-# new components are covered automatically without workflow edits.
+# testdata/), then two matrix jobs fan out over its outputs so new components
+# are covered automatically without workflow edits.
 #
-# Per module, two checks run:
-#   go-licenses (github.com/google/go-licenses) — verifies all transitive
-#     dependency licenses are permissive (no restricted/reciprocal/forbidden/
-#     unknown types).  This is the same underlying tool used in the existing
-#     GitLab CI pipeline; no proprietary wrapper is required here.
+#   license-check — go-licenses (github.com/google/go-licenses) verifies all
+#     transitive dependency licenses are permissive (no restricted/reciprocal/
+#     forbidden/unknown types).  This is the same underlying tool used in the
+#     existing GitLab CI pipeline; no proprietary wrapper is required here.
+#     Modules that import private gitlab-master.nvidia.com packages are excluded
+#     because those imports cannot be resolved from public runners.
 #
-#   make file-license-check — verifies every source file carries the required
-#     copyright header via addlicense.  Skipped for modules that do not expose
-#     this Makefile target.
+#   header-check — `make file-license-check` verifies every source file carries
+#     the required copyright header via addlicense.  This runs over the *full*
+#     module list, including the modules excluded above: the target invokes
+#     addlicense as `go run <pkg>@<version>`, which ignores the current module's
+#     dependencies, so it needs no access to private imports.
 #
 # Release gate: the release workflow calls this workflow via workflow_call and
 # gates publish jobs on it via `needs`.  See .github/workflows/release.yml.
@@ -42,23 +45,41 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       modules: ${{ steps.find.outputs.modules }}
+      header_modules: ${{ steps.find.outputs.header_modules }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Find Go modules
         id: find
         run: |
-          # Modules that import private NVIDIA packages (gitlab-master.nvidia.com)
-          # cannot be resolved from public GitHub Actions runners. Those modules are
-          # covered by the internal GitLab CI pipeline.
-          modules=$(find . -name go.mod \
+          all=$(find . -name go.mod \
             -not -path '*/vendor/*' \
             -not -path '*/testdata/*' \
             -exec dirname {} \; \
-            | sort \
+            | sort)
+
+          # Dependency-license checks: modules that import private NVIDIA
+          # packages (gitlab-master.nvidia.com) cannot be resolved from public
+          # GitHub Actions runners. Those modules are covered by the internal
+          # GitLab CI pipeline.
+          modules=$(printf '%s\n' "$all" \
             | grep -vxF -e './controller' -e './controller/forge-vms' \
             | jq -R . | jq -sc .)
           echo "modules=$modules" >> "$GITHUB_OUTPUT"
+
+          # Header checks: every module that exposes the Makefile target, with
+          # no private-dependency exclusions (see the note at the top of this
+          # file). A module without the target is silently absent from the
+          # matrix, so list what was found to keep the gap visible in the log.
+          header_modules=$(printf '%s\n' "$all" | while read -r m; do
+            if [ -f "$m/Makefile" ] && grep -qE '^file-license-check:' "$m/Makefile"; then
+              echo "$m"
+            fi
+          done | jq -R . | jq -sc .)
+          echo "header_modules=$header_modules" >> "$GITHUB_OUTPUT"
+
+          echo "dependency-license modules: $modules"
+          echo "license-header modules:     $header_modules"
 
   license-check:
     name: License check (${{ matrix.module }})
@@ -90,12 +111,24 @@ jobs:
             --ignore github.com/NVIDIA/nke \
             --ignore gitlab-master.nvidia.com
 
-      # Runs `make file-license-check` when the target exists in this module.
-      # Modules that do not expose the target (e.g. node-agent at present) are
-      # skipped without failing the job.
+  header-check:
+    name: License headers (${{ matrix.module }})
+    needs: [discover-modules]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: ${{ fromJson(needs.discover-modules.outputs.header_modules) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: '${{ matrix.module }}/go.mod'
+          cache: true
+
+      # file-license-check runs addlicense in place and then fails on any
+      # resulting git diff, so it needs a clean tree — which a fresh checkout is.
       - name: Verify license headers
         working-directory: ${{ matrix.module }}
-        run: |
-          if make -n file-license-check >/dev/null 2>&1; then
-            make file-license-check
-          fi
+        run: make file-license-check
