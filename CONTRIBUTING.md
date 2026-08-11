@@ -161,6 +161,43 @@ feat!: remove deprecated v1 API endpoints
 BREAKING CHANGE: The /v1/foo endpoint has been removed. Use /v2/foo instead.
 ```
 
+### Sign your commits (DCO)
+
+Commits carry a `Signed-off-by:` trailer. Add one with `-s`:
+
+```bash
+git commit -s -m "fix(agent): handle an empty bundle list"
+```
+
+That appends a line matching the name and email in your Git configuration:
+
+```
+Signed-off-by: Jane Developer <jane@example.com>
+```
+
+The sign-off is your statement that you have the right to submit the work under
+this repository's license. It is the [Developer Certificate of
+Origin](https://developercertificate.org/), the same mechanism the Linux kernel
+and Kubernetes use. Use a real name and an address that reaches you.
+
+Forgot the `-s`? You do not have to rewrite your branch. Push a follow-up commit
+that signs off the ones before it:
+
+```bash
+git commit -s --allow-empty -m "chore: sign off previous commits"
+git push
+```
+
+To sign off every commit on a branch instead:
+
+```bash
+git rebase --signoff main
+git push --force-with-lease
+```
+
+**NVIDIA organization members are exempt.** The configuration lives in
+[`.github/dco.yml`](.github/dco.yml).
+
 ## AI-assisted contributions
 
 We welcome contributions written with the help of AI coding assistants (Claude,
