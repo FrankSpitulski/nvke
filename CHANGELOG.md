@@ -18,6 +18,7 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `MAINTAINERS.md` — current maintainers list
 - `RELEASE.md` — release process documentation
 - `AGENTS.md` — AI agent guide for the monorepo
+- `.github/ISSUE_TEMPLATE/documentation_request.yml` — issue form for documentation requests
 
 ### Changed
 - `CONTRIBUTING.md` — replaced TODO placeholders with actual build/test commands
