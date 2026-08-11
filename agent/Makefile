@@ -151,6 +151,37 @@ lint: ## Lint source files.
 test: ## Run tests
 	go test ./...
 
+# Sources in this module carry the repository's Apache-2.0 identifier, per the
+# "License headers" section of the root CONTRIBUTING.md. Ignored paths are
+# generated output (*.pb.go, rewritten by `make protos`), build tooling under
+# hack/, build artifacts, and samples/kubeadm-deploy/calico.yaml, which is an
+# upstream Calico manifest and not ours to stamp. Dockerfiles are ignored too:
+# addlicense keys off the file extension, so Dockerfile.proto gets C-style `//`
+# comments, which Docker cannot parse.
+ADDLICENSE_IGNORES := \
+	-ignore '**/Dockerfile*' \
+	-ignore 'bin/**' \
+	-ignore 'build/**' \
+	-ignore 'release/**' \
+	-ignore 'vendor/**' \
+	-ignore 'hack/**' \
+	-ignore '**/*.pb.go' \
+	-ignore 'samples/kubeadm-deploy/calico.yaml'
+
+.PHONY: license
+license: ## Ensure license headers at code.
+	go run github.com/google/addlicense@v1.1.1 -f ./hack/boilerplate.addlicense.txt $(ADDLICENSE_IGNORES) .
+
+# Expected to be run on clean working directory.
+.PHONY: file-license-check
+file-license-check: license ## Verify all files have license headers.
+	@if ! git diff --exit-code -- . > /dev/null 2>&1; then \
+		echo "License headers are missing or outdated. Please run 'make license' locally and commit the changes."; \
+		echo "Files with missing/outdated license headers:"; \
+		git diff --name-only -- .; \
+		exit 1; \
+	fi
+
 ##@ Utility
 .PHONY: clean
 clean: ## Remove all build artifacts except protos
