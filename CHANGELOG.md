@@ -9,6 +9,7 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Code of Conduct upgraded from Contributor Covenant 1.4 to 2.1, adding the four-step Community Impact enforcement ladder
+
 ### Added
 - Root-level `docs/` directory with architecture overview and getting-started guide
 - `.github/CODEOWNERS` for automatic review assignment
