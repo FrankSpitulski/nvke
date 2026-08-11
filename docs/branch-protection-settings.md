@@ -17,7 +17,7 @@ An admin must apply them once after cloning or during initial repo setup.
 | Require review from Code Owners | ✅ enabled | Enforces `.github/CODEOWNERS` |
 | Require status checks to pass before merging | ✅ enabled | CI must be green |
 | Require branches to be up to date before merging | ✅ enabled | No hidden conflicts |
-| Restrict who can push to matching branches | ✅ enabled (nke-developers team) | Prevents accidental force-push |
+| Restrict who can push to matching branches | ✅ enabled (nke-maintainer team) | Prevents accidental force-push |
 | Allow force pushes | ❌ disabled | Preserve linear history |
 | Allow deletions | ❌ disabled | `main` cannot be deleted |
 

@@ -1,18 +1,38 @@
-# CODEOWNERS — every PR requires review from at least one member of
-# the nke-maintainer team. Module owners listed below override the
-# default for their subtree and are requested automatically by GitHub.
+# CODEOWNERS — GitHub requests review from the owners listed here whenever a
+# pull request touches a matching path. The last matching rule wins, so the
+# default sits first and the per-path rules follow.
+#
+# This *requests* review; it does not require it. `require_code_owner_reviews`
+# is currently off in branch protection on `main`, so nothing here blocks a
+# merge today. See docs/branch-protection-settings.md for the admin steps.
+#
+# Every rule names the same team for now. They are kept as the seam for when a
+# module gets its own owner, and as a record of the module boundaries. Keep the
+# paths honest: the previous `/node-agent/` rule pointed at a directory renamed
+# to `agent/` in #36 and matched nothing until this was fixed.
 
 # Default owner for everything not matched below
-* @NVIDIA/nke-maintainer
+* @NVIDIA/nke-write
 
 # Cloud Workflow Engine (controller module)
-/controller/ @NVIDIA/nke-maintainer
+/controller/ @NVIDIA/nke-write
 
-# Node Agent module
-/node-agent/ @NVIDIA/nke-maintainer
+# Agent module — renamed from node-agent in #36
+/agent/ @NVIDIA/nke-write
+
+# Build scripts
+/build/ @NVIDIA/nke-write
 
 # CI/CD and automation
-/.github/ @NVIDIA/nke-maintainer
+/.github/ @NVIDIA/nke-write
 
-# Security-sensitive files — require explicit maintainer sign-off
-/SECURITY.md @NVIDIA/nke-maintainer
+# Documentation
+/docs/ @NVIDIA/nke-write
+
+# Policy files. Same owner as the default today, listed so that routing them
+# elsewhere later is a one-line change.
+/SECURITY.md @NVIDIA/nke-write
+/GOVERNANCE.md @NVIDIA/nke-write
+/MAINTAINERS.md @NVIDIA/nke-write
+/CODE_OF_CONDUCT.md @NVIDIA/nke-write
+/LICENSE @NVIDIA/nke-write
