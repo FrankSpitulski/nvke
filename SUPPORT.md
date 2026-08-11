@@ -10,7 +10,7 @@
 ## Before opening an issue
 
 1. Search [existing issues](https://github.com/NVIDIA/nke/issues) to avoid duplicates.
-2. Check the [documentation](docs/) and the module-level `README.md` files under `controller/` and `node-agent/`.
+2. Check the [documentation](docs/) and the module-level `README.md` files under `controller/` and `agent/`.
 3. Reproduce the problem on the latest commit of `main`.
 
 ## Security vulnerabilities

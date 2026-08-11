@@ -23,18 +23,34 @@ An admin must apply them once after cloning or during initial repo setup.
 
 ## Recommended status checks
 
-Add these required checks once the corresponding workflows are merged:
+A required check is named after the **job**, not the workflow. These are the
+checks the current workflows report:
 
-- `controller / build` (from `.github/workflows/ci.yml`)
-- `node-agent / build` (from `.github/workflows/ci.yml`)
-- `license / check` (from `.github/workflows/license.yml`)
+| Check | Workflow |
+|---|---|
+| `golangci-lint` | `.github/workflows/lint.yml` |
+| `Check THIRD_PARTY_NOTICES.md is up to date` | `.github/workflows/notices-check.yml` |
+| `build` | `.github/workflows/image.yml` |
+| `DCO` | the DCO GitHub App, not a workflow |
+
+Confirm the exact names before you require one. A required check that names a
+job which never reports leaves every pull request waiting forever:
+
+```bash
+gh pr view <number> --repo NVIDIA/nke \
+  --json statusCheckRollup --jq '.statusCheckRollup[] | .name // .context'
+```
+
+The command below requires the first two and `DCO`. It leaves `build` out on
+purpose: an image build is the slowest job here, and blocking every
+documentation change on it buys little. Add it if you want that guarantee.
 
 ## Setting up via GitHub CLI
 
 ```bash
 gh api repos/NVIDIA/nke/branches/main/protection \
   --method PUT \
-  --field required_status_checks='{"strict":true,"contexts":["controller / build","node-agent / build"]}' \
+  --field required_status_checks='{"strict":true,"contexts":["golangci-lint","Check THIRD_PARTY_NOTICES.md is up to date","DCO"]}' \
   --field enforce_admins=true \
   --field required_pull_request_reviews='{"dismiss_stale_reviews":true,"require_code_owner_reviews":true,"required_approving_review_count":1}' \
   --field restrictions=null

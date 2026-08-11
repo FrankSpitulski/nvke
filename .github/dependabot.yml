@@ -46,7 +46,7 @@ updates:
           - "k8s.io/*"
           - "sigs.k8s.io/*"
 
-  # Dockerfiles anywhere in the tree (controller/, controller/hack/*, node-agent/, ...).
+  # Dockerfiles anywhere in the tree (controller/, controller/hack/*, agent/, ...).
   - package-ecosystem: docker
     directories:
       - "/**/*"

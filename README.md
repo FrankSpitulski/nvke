@@ -107,8 +107,8 @@ publish OS images; it publishes the recipes for building them.
 | [docs/getting-started.md](docs/getting-started.md) | Local development setup for the controller and the agent |
 | [docs/branch-protection-settings.md](docs/branch-protection-settings.md) | Admin guide to the required GitHub branch protection rules |
 
-Module-specific documentation lives alongside the code, in `controller/docs/`
-and the `AGENTS.md` files.
+Module-specific documentation lives alongside the code, in `controller/docs/`,
+`agent/docs/` and the `AGENTS.md` files.
 
 ## Contributing
 

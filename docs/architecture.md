@@ -65,6 +65,8 @@ site. ArgoCD on the site controller keeps chart versions in sync with
 
 ## Further reading
 
-- `controller/docs/DESIGN.md` — detailed CWE design decisions
 - `controller/docs/remote-colossus-tilt.md` — local dev on remote hardware
 - `controller/AGENTS.md` — AI agent development guide for CWE
+- `agent/docs/DESIGN.md` — agent architecture and API surface
+- `agent/docs/SECURITY.md` — agent security context
+- `agent/AGENTS.md` — AI agent development guide for the node agent
