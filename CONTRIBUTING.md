@@ -166,7 +166,7 @@ BREAKING CHANGE: The /v1/foo endpoint has been removed. Use /v2/foo instead.
 Commits carry a `Signed-off-by:` trailer. Add one with `-s`:
 
 ```bash
-git commit -s -m "fix(agent): handle an empty bundle list"
+git commit -s -m "fix(controller): handle an empty bundle list"
 ```
 
 That appends a line matching the name and email in your Git configuration:
@@ -178,25 +178,40 @@ Signed-off-by: Jane Developer <jane@example.com>
 The sign-off is your statement that you have the right to submit the work under
 this repository's license. It is the [Developer Certificate of
 Origin](https://developercertificate.org/), the same mechanism the Linux kernel
-and Kubernetes use. Use a real name and an address that reaches you.
+and Kubernetes use.
 
-Forgot the `-s`? You do not have to rewrite your branch. Push a follow-up commit
-that signs off the ones before it:
+**Organization members are relaxed, not exempt.** The check skips a commit only
+when the author is an NVIDIA organization member **and** GitHub reports the
+commit as verified-signed. An unsigned commit from a member with no sign-off
+still fails, reporting "Commit by organization member is not verified". Signing
+your commits (`-S`) is what makes the exemption apply.
+
+If you forget the `-s`, the simplest fix is to add it to every commit on the
+branch:
 
 ```bash
-git commit -s --allow-empty -m "chore: sign off previous commits"
-git push
-```
-
-To sign off every commit on a branch instead:
-
-```bash
-git rebase --signoff main
+git rebase --keep-base --signoff main
 git push --force-with-lease
 ```
 
-**NVIDIA organization members are exempt.** The configuration lives in
-[`.github/dco.yml`](.github/dco.yml).
+`--keep-base` matters: without it the rebase quietly moves your branch onto
+whatever your local `main` points at, which on a fork is usually stale.
+
+Remediation without rewriting history is also allowed, but it is not simply an
+empty `-s` commit. The app looks for one exact sentence per unsigned commit,
+each naming that commit's full SHA:
+
+```
+I, Jane Developer <jane@example.com>, hereby add my Signed-off-by to this commit: 3f53ada...
+
+Signed-off-by: Jane Developer <jane@example.com>
+```
+
+The failing check prints the exact text to copy, so take it from there rather
+than typing it by hand. Note the app itself advises against `--allow-empty` for
+this, because an empty commit is dropped if anyone rebases the branch.
+
+The configuration lives in [`.github/dco.yml`](.github/dco.yml).
 
 ## AI-assisted contributions
 
