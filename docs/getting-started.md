@@ -20,6 +20,12 @@ cd nke
 
 ## controller (Cloud Workflow Engine)
 
+> **`controller/` does not build outside the NVIDIA network.** `controller/go.mod`
+> requires two modules that are not public: the carbide SDK, reached through the
+> Forge provider, and `cluster-api-provider-nico`. Every command in this section
+> needs access to `gitlab-master.nvidia.com`. The `agent` module below has no
+> such dependency and builds anywhere. See [AGENTS.md](../AGENTS.md).
+
 The controller uses [Flox](https://flox.dev/) to pin its toolchain. For
 day-to-day work, activate the Flox environment first:
 
@@ -77,20 +83,25 @@ FWE_API_KEY=<your-NGC-api-key> make run
 # Swagger: http://localhost:8080/api/docs
 ```
 
-## nke-agent
+## agent (nke-agent)
+
+The source lives in `agent/`. The binary installed on a node is called
+`nke-agent`.
 
 ```bash
-cd node-agent
+cd agent
 go build ./cmd/...
-go test ./...
+go test ./...          # or: make test
 ```
+
+> The tests assume a Linux filesystem. Several fail on macOS, where `/var` is
+> a symlink to `/private/var` and the kubeadm file checks reject it.
 
 `nke-agent` and `spire-agent` must be present on each managed node before
 the NKE controller can communicate with it. The binaries are typically
 pre-built into the OS image or added via cloud-init — the controller does
-not install them. For integration testing, see the internal test harness
-in `node-agent/integration-test/` (requires a running site controller and
-Forge environment).
+not install them. See `agent/AGENTS.md` for the full build, proto and test
+commands.
 
 ## Next steps
 
