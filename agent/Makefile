@@ -71,11 +71,21 @@ BUILDER_TAG := $(or $(BUILDER_TAG),$(or $(NKE_BUILDER_IMAGE_TAG),latest))
 BUILDX_PLATFORMS := linux/amd64,linux/arm64
 BUILDX_BUILDER := nke-multiarch-builder
 
+# The docker-container driver runs BuildKit in its own container, so it does not
+# inherit the Docker daemon's registry-mirror configuration. CI runners ship a
+# prepopulated /etc/buildkit/buildkitd.toml pointing at the local mirror; pass it
+# through when present so builds are cached and are not subject to Docker Hub
+# rate limits. Absent (developer laptops), the builder is created without it and
+# pulls directly, which is the current behaviour.
+BUILDKITD_CONFIG ?= /etc/buildkit/buildkitd.toml
+BUILDX_CONFIG_ARG = $(if $(wildcard $(BUILDKITD_CONFIG)),--config $(BUILDKITD_CONFIG),)
+
 setup-buildx: ## Create buildx builder for multi-arch builds (if not exists)
 	@docker buildx inspect $(BUILDX_BUILDER) >/dev/null 2>&1 || \
 		docker buildx create --name $(BUILDX_BUILDER) --driver docker-container \
 			--driver-opt env.GOGC=100 \
 			--buildkitd-flags '--allow-insecure-entitlement network.host' \
+			$(BUILDX_CONFIG_ARG) \
 			--bootstrap
 	docker buildx use $(BUILDX_BUILDER)
 
