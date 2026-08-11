@@ -48,11 +48,15 @@ jobs:
       - name: Find Go modules
         id: find
         run: |
+          # Modules that import private NVIDIA packages (gitlab-master.nvidia.com)
+          # cannot be resolved from public GitHub Actions runners. Those modules are
+          # covered by the internal GitLab CI pipeline.
           modules=$(find . -name go.mod \
             -not -path '*/vendor/*' \
             -not -path '*/testdata/*' \
             -exec dirname {} \; \
             | sort \
+            | grep -vxF -e './controller' -e './controller/forge-vms' \
             | jq -R . | jq -sc .)
           echo "modules=$modules" >> "$GITHUB_OUTPUT"
 
@@ -74,6 +78,11 @@ jobs:
 
       - name: Check dependency licenses
         working-directory: ${{ matrix.module }}
+        # GOTOOLCHAIN=local prevents Go from downloading a golang.org/toolchain
+        # module for stdlib, which confuses go-licenses into treating standard
+        # library packages as unrecognised external packages.
+        env:
+          GOTOOLCHAIN: local
         run: |
           go install github.com/google/go-licenses/v2@latest
           go-licenses check ./... \
