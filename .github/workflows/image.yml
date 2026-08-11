@@ -1,0 +1,99 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Image
+
+# Self-hosted runners do not pick up jobs from pull_request events, so pull
+# requests are tested through the pull-request/<number> branch instead.
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: build
+    runs-on: linux-amd64-cpu16
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The docker-container driver runs BuildKit in its own container, so it
+      # does not inherit the daemon's registry-mirror configuration. NVIDIA
+      # runners ship a prepopulated buildkitd.toml pointing at the local mirror;
+      # use it when present so base-image pulls are cached and not subject to
+      # Docker Hub rate limits. Absent, buildx is set up exactly as before.
+      - name: Detect runner BuildKit config
+        id: buildkit
+        shell: bash
+        run: |
+          if [[ -r /etc/buildkit/buildkitd.toml ]]; then
+            echo "config=/etc/buildkit/buildkitd.toml" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          buildkitd-config: ${{ steps.buildkit.outputs.config }}
+
+      # Validates every Dockerfile parses and every FROM resolves against the
+      # default BASE_REGISTRY. This is what catches a base image that external
+      # contributors cannot pull.
+      - name: Check Dockerfiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          check() {
+            echo "::group::docker build --check $1"
+            docker build --check -f "$1" "$2" || status=1
+            echo "::endgroup::"
+          }
+          check controller/Dockerfile                    controller
+          check controller/hack/nico-mock/Dockerfile     controller/hack/nico-mock
+          check agent/Dockerfile.nke-builder             agent
+          exit $status
+
+      # A real end-to-end image build. nico-mock is used because it has no
+      # private module dependencies, so it builds from public sources alone —
+      # which is exactly the property this check exists to protect.
+      - name: Build nico-mock image
+        shell: bash
+        run: |
+          docker buildx build \
+            --file controller/hack/nico-mock/Dockerfile \
+            --tag nke/nico-mock:ci \
+            --load \
+            controller/hack/nico-mock
+
+      - name: Show image
+        shell: bash
+        run: docker image inspect nke/nico-mock:ci --format 'built {{.RepoTags}} {{.Size}} bytes'
+
+# Not built here: controller/Dockerfile and controller/hack/Dockerfile.cwe.tilt.
+#
+# The controller image compiles the controller inside the build, and the
+# controller still depends on private gitlab-master.nvidia.com modules, so it
+# needs a `gitcreds` netrc secret mounted at build time (see
+# controller/Makefile DOCKER_BUILD_SECRET). Building it here would either leak
+# that requirement into a public-facing check or fail for anyone without the
+# secret. Once the controller builds from public dependencies, add it here and
+# drop this note. Dockerfile.cwe.tilt only copies a prebuilt binary, so it has
+# nothing to verify without a preceding build.
+#
+# Nothing is pushed. Publishing needs the GHCR-versus-NVCR decision settled
+# first.
