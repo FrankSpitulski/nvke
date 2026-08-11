@@ -8,10 +8,15 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+# Base image registry. Defaults to Docker Hub so the image builds for anyone
+# with no NVIDIA network access. Internal builds override it, e.g.
+#   docker build --build-arg BASE_REGISTRY=dockerhub.nvidia.com .
+ARG BASE_REGISTRY=docker.io
+
 FROM ghcr.io/spiffe/k8s-spiffe-workload-jwt-exec-auth:0.1.0@sha256:550fe75d87ed7a8a2312e27545a18ba21f93c75c68d13188baef1e7f6e77c8e8 AS spiffe-jwt-exec-auth
 
 # Set up golang build container
-FROM dockerhub.nvidia.com/golang:1.25.12 AS builder
+FROM ${BASE_REGISTRY}/golang:1.25.12 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -52,7 +57,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} BUILD_VERSION=${B
 ########################################################################
 # Multi-state-final build
 # This should be alpine for us to test & debug
-FROM dockerhub.nvidia.com/alpine:3.21.7
+FROM ${BASE_REGISTRY}/alpine:3.21.7
 # Runtime + in-container debug tooling, installed in a single --no-cache layer
 # so the apk index is not shipped. Documentation (*-doc) packages and packages
 # with no function inside this pod (binutils, pciutils, usbutils) are

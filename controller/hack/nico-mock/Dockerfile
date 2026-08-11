@@ -9,7 +9,12 @@
 # its affiliates is strictly prohibited.
 
 # syntax=docker/dockerfile:1
-FROM dockerhub.nvidia.com/golang:1.25.12 AS builder
+# Base image registry. Defaults to Docker Hub so the image builds for anyone
+# with no NVIDIA network access. Internal builds override it, e.g.
+#   docker build --build-arg BASE_REGISTRY=dockerhub.nvidia.com .
+ARG BASE_REGISTRY=docker.io
+
+FROM ${BASE_REGISTRY}/golang:1.25.12 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -23,7 +28,7 @@ COPY cmd ./cmd
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
     go build -o /workspace/bin/nico-mock ./cmd/nico-mock
 
-FROM dockerhub.nvidia.com/alpine:3.21.6
+FROM ${BASE_REGISTRY}/alpine:3.21.6
 RUN apk add --update --no-cache ca-certificates docker-cli
 
 COPY --from=builder /workspace/bin/nico-mock /usr/local/bin/nico-mock
