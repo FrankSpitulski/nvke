@@ -3531,6 +3531,8 @@ _Apache-2.0_
 
 _Apache-2.0_
 
+**LICENSE**
+
 ```
 
                                  Apache License
@@ -3737,6 +3739,25 @@ _Apache-2.0_
 
 ```
 
+**NOTICE.txt**
+
+```
+Copyright 2014 gRPC authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+```
+
 ### google.golang.org/protobuf
 
 _BSD-3-Clause_
@@ -3844,6 +3865,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ### gopkg.in/yaml.v2
 
 _Apache-2.0_
+
+**LICENSE**
 
 ```
                                  Apache License
@@ -4050,9 +4073,30 @@ _Apache-2.0_
 
 ```
 
+**NOTICE**
+
+```
+Copyright 2011-2016 Canonical Ltd.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+```
+
 ### gopkg.in/yaml.v3
 
 _MIT_
+
+**LICENSE**
 
 ```
 
@@ -4093,6 +4137,25 @@ SOFTWARE.
 All the remaining project files are covered by the Apache license:
 
 Copyright (c) 2011-2019 Canonical Ltd
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+```
+
+**NOTICE**
+
+```
+Copyright 2011-2016 Canonical Ltd.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -6131,6 +6194,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 _Apache-2.0_
 
+**LICENSE**
+
 ```
                                  Apache License
                            Version 2.0, January 2004
@@ -6334,6 +6399,36 @@ _Apache-2.0_
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+```
+
+**NOTICE**
+
+```
+When donating the randfill project to the CNCF, we could not reach all the
+gofuzz contributors to sign the CNCF CLA. As such, according to the CNCF rules
+to donate a repository, we must add a NOTICE referencing section 7 of the CLA
+with a list of developers who could not be reached.
+
+`7. Should You wish to submit work that is not Your original creation, You may
+submit it to the Foundation separately from any Contribution, identifying the
+complete details of its source and of any license or other restriction
+(including, but not limited to, related patents, trademarks, and license
+agreements) of which you are personally aware, and conspicuously marking the
+work as "Submitted on behalf of a third-party: [named here]".`
+
+Submitted on behalf of a third-party: @dnephin (Daniel Nephin)
+Submitted on behalf of a third-party: @AlekSi (Alexey Palazhchenko)
+Submitted on behalf of a third-party: @bbigras (Bruno Bigras)
+Submitted on behalf of a third-party: @samirkut (Samir)
+Submitted on behalf of a third-party: @posener (Eyal Posener)
+Submitted on behalf of a third-party: @Ashikpaul (Ashik Paul)
+Submitted on behalf of a third-party: @kwongtailau (Kwongtai)
+Submitted on behalf of a third-party: @ericcornelissen (Eric Cornelissen)
+Submitted on behalf of a third-party: @eclipseo (Robert-André Mauchin)
+Submitted on behalf of a third-party: @yanzhoupan (Andrew Pan)
+Submitted on behalf of a third-party: @STRRL (Zhiqiang ZHOU)
+Submitted on behalf of a third-party: @disconnect3d (Disconnect3d)
 
 ```
 
@@ -6864,6 +6959,8 @@ Apache license:
 
 _Apache-2.0_
 
+**LICENSE**
+
 ```
                                  Apache License
                            Version 2.0, January 2004
@@ -7066,6 +7163,25 @@ _Apache-2.0_
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+```
+
+**NOTICE**
+
+```
+Copyright 2011-2016 Canonical Ltd.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 
 ```
 
