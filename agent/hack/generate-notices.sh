@@ -53,13 +53,52 @@ command -v go >/dev/null || die "go is not on PATH."
 LOCAL_MODULE="$(go list -m)"
 [[ -n "${LOCAL_MODULE}" ]] || die "could not determine the local module path."
 
+# go-licenses resolves everything as part of the local module when a vendor/
+# directory is present, so every licence URL points back at this repository
+# instead of upstream. Every package in the closure is rewritten that way, and
+# the file then looks entirely plausible while asserting we are the licence
+# source for other people's code -- the one failure THIRD_PARTY_NOTICES.md
+# exists to prevent.
+#
+# GOFLAGS=-mod=mod makes go-licenses read the module graph instead. It has to go
+# in the environment: go-licenses is a cobra program and would parse -mod=mod as
+# short flags. Applied only when vendor/ exists, because -mod=mod is also the
+# mode that lets the go tool rewrite go.mod, and in readonly mode an untidy
+# module fails loudly here -- a signal worth keeping.
+# `|| true` because shasum exits non-zero when go.sum is absent, and under
+# `set -e` with pipefail that kills the script with no message at all. A module
+# with no go.sum still hashes its go.mod, which is what the guard needs.
+mod_digest() { shasum go.mod go.sum 2>/dev/null | shasum | cut -d" " -f1 || true; }
+
+MOD_ENV=()
+MOD_BEFORE=""
+if [[ -d vendor ]]; then
+    log "vendor/ present - reading the module graph rather than vendor/"
+    MOD_ENV=(GOFLAGS=-mod=mod)
+    MOD_BEFORE="$(mod_digest)"
+fi
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 SAVE_ROOT="${WORK}/save"
 LICENSES_DIR="${WORK}/licenses"
 CSV="${WORK}/licenses.csv"
+ERRLOG="${WORK}/go-licenses.err"
 mkdir -p "${SAVE_ROOT}" "${LICENSES_DIR}"
 : >"${CSV}"
+
+# go-licenses is noisy on stderr for benign reasons -- packages that carry no
+# licence file of their own, directories it cannot inspect -- so its diagnostics
+# are held back rather than shown. Held back, not discarded: discarding them
+# once hid a fatal argument error behind a bare non-zero exit, and the run then
+# looked like an empty dependency tree rather than a broken invocation.
+run_go_licenses() {
+    : >"${ERRLOG}"
+    env ${MOD_ENV[@]+"${MOD_ENV[@]}"} GOOS="${goos}" GOARCH="${goarch}" \
+        "${GO_LICENSES}" "$@" 2>>"${ERRLOG}" && return 0
+    cat "${ERRLOG}" >&2
+    die "go-licenses ${1} failed for ${goos}/${goarch}."
+}
 
 # Collect per platform and merge. A dependency can be reachable on one GOARCH
 # and not another, so a single-platform graph under-reports.
@@ -74,11 +113,11 @@ for platform in "${PLATFORMS[@]}"; do
     log "collecting ${goos}/${goarch}"
     save_dir="${SAVE_ROOT}/${goos}_${goarch}"
 
-    GOOS="${goos}" GOARCH="${goarch}" "${GO_LICENSES}" save "${PACKAGES[@]}" \
-        --save_path="${save_dir}" --force --ignore="${LOCAL_MODULE}" 2>/dev/null
+    run_go_licenses save "${PACKAGES[@]}" \
+        --save_path="${save_dir}" --force --ignore="${LOCAL_MODULE}"
 
-    GOOS="${goos}" GOARCH="${goarch}" "${GO_LICENSES}" csv "${PACKAGES[@]}" \
-        --ignore="${LOCAL_MODULE}" 2>/dev/null >>"${CSV}"
+    run_go_licenses csv "${PACKAGES[@]}" \
+        --ignore="${LOCAL_MODULE}" >>"${CSV}"
 
     if [[ -d "${save_dir}" ]]; then
         (cd "${save_dir}" && find . -type f -print0) | while IFS= read -r -d '' f; do
@@ -89,6 +128,38 @@ for platform in "${PLATFORMS[@]}"; do
 done
 
 [[ -s "${CSV}" ]] || die "go-licenses produced no rows for ${PACKAGES[*]}."
+
+# -mod=mod is allowed to rewrite go.mod. Generating a documentation file must
+# not quietly change the dependency set. Checked before the URL scan below, so
+# that a run which both rewrote go.mod and self-attributed reports the rewrite
+# rather than hiding it behind the other message.
+if [[ -n "${MOD_BEFORE}" ]]; then
+    [[ "$(mod_digest)" == "${MOD_BEFORE}" ]] \
+        || die "go.mod or go.sum changed while generating notices. Run 'go mod tidy' and commit that separately."
+fi
+
+# Backstop, in case go-licenses still self-attributes. Anchored on the module
+# path trimmed to its repository root, which is what go-licenses actually builds
+# URLs from -- a module in a subdirectory (github.com/NVIDIA/nke/agent) still
+# yields https://github.com/NVIDIA/nke/blob/..., so anchoring on the full module
+# path would miss every row. Not taken from the git remote either: that varies
+# by checkout (a fork remote would disable the check silently) while the URL
+# does not.
+#
+# A package that genuinely lives in this repository is allowed to have a URL
+# here: these are multi-module repositories, and a sibling module really is
+# licensed by us. What must never happen is a THIRD-PARTY package carrying our
+# URL, so the package path decides, not the URL alone.
+SELF_ROOT="$(printf '%s\n' "${LOCAL_MODULE}" | cut -d/ -f1-3)"
+SELF_REF="$(awk -F, -v root="${SELF_ROOT}" '
+    BEGIN { esc = root; gsub(/\./, "\\.", esc); re = "^https://" esc "(/|$)" }
+    $2 ~ re && $1 != root && index($1, root "/") != 1 { print $1 }
+' "${CSV}" | sort -u)"
+if [[ -n "${SELF_REF}" ]]; then
+    log "third-party packages carrying a ${SELF_ROOT} licence URL:"
+    while IFS= read -r pkg; do log "  ${pkg}"; done <<<"${SELF_REF}"
+    die "$(wc -l <<<"${SELF_REF}" | tr -d ' ') package(s) above are not ours. go-licenses is attributing upstream code to this repository."
+fi
 
 # package -> module@version, so a reader can pin what was actually linked.
 MODMAP="${WORK}/modmap"
