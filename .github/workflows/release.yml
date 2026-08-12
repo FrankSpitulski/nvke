@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ !contains(github.ref_name, '/') }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -44,7 +44,7 @@ jobs:
           echo "$NOTES" > /tmp/release-notes.md
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           body_path: /tmp/release-notes.md
           prerelease: ${{ contains(github.ref_name, '-rc.') }}
@@ -56,6 +56,6 @@ jobs:
     if: ${{ contains(github.ref_name, '/') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # TODO: add component-specific publish steps (NKX-14116)
       - run: echo "Publish placeholder — implement per component as part of NKX-14116"
