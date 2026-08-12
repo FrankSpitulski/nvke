@@ -5,7 +5,7 @@
 | Channel | When to use |
 |---|---|
 | [GitHub Issues](https://github.com/NVIDIA/nke/issues) | Bug reports, feature requests, and documentation gaps |
-| [GitHub Discussions](https://github.com/NVIDIA/nke/discussions) | Questions, design proposals, and general Q&A |
+| [GitHub Discussions](https://github.com/NVIDIA/nke/discussions/categories/q-a) | Questions, design proposals, and general Q&A |
 
 ## Before opening an issue
 

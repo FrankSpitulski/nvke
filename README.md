@@ -137,8 +137,12 @@ a public issue for a security report.**
 
 ## Support
 
-See [SUPPORT.md](SUPPORT.md) for support channels and expectations. For
-questions and discussion, use GitHub Issues on this repository.
+See [SUPPORT.md](SUPPORT.md) for support channels and expectations.
+
+Questions and discussion:
+[GitHub Discussions](https://github.com/NVIDIA/nke/discussions/categories/q-a).
+Bugs, feature requests and documentation gaps:
+[GitHub Issues](https://github.com/NVIDIA/nke/issues).
 
 ## License
 
