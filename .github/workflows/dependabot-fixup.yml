@@ -9,13 +9,13 @@
 # three more artefacts derived from those files, and Dependabot knows about none
 # of them:
 #
-#   go.work.sum                  TODO item 71 -- #82 and #83 both failed
+#   go.work.sum                  #82 and #83 both failed
 #                                `Check go.work and go.work.sum are current`
-#   vendor/                      TODO item 78 -- #84 added a root vendor tree,
+#   vendor/                      #84 added a root vendor tree,
 #                                which puts the workspace in -mod=vendor, so a
 #                                go.mod change without it stops every build.
 #                                #90 is red on exactly this today.
-#   agent/THIRD_PARTY_NOTICES.md TODO item 62 -- attribution goes stale and the
+#   agent/THIRD_PARTY_NOTICES.md attribution goes stale and the
 #                                failure surfaces on main after the merge
 #
 # `make work-sync` regenerates the first two plus every module's go.mod and
@@ -133,8 +133,8 @@ jobs:
         if: steps.dependency-only.outputs.skip != 'true'
         env:
           # setup-go pins GOTOOLCHAIN=local. A bump can raise a member module's
-          # `go` directive above the workspace's own -- that is TODO item 71,
-          # observed on #83 -- and `go work sync` then fails outright rather
+          # `go` directive above the workspace's own -- observed on #83 --
+          # and `go work sync` then fails outright rather
           # than repairing it. auto lets Go fetch the newer toolchain so the
           # repair can happen, which is the whole point of this job.
           GOTOOLCHAIN: auto

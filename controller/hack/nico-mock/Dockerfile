@@ -14,7 +14,7 @@
 #   docker build --build-arg BASE_REGISTRY=dockerhub.nvidia.com .
 ARG BASE_REGISTRY=docker.io
 
-FROM ${BASE_REGISTRY}/golang:1.25.12 AS builder
+FROM ${BASE_REGISTRY}/golang:1.26.6 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
