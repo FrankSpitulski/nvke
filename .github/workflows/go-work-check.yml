@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Fails when go.work or go.work.sum is stale.
+# Fails when go.work, go.work.sum or vendor/ is stale.
 #
-# `make work-check` asserts five things, and each one has a failure this
+# `make work-check` asserts six things, and each one has a failure this
 # repository can actually produce:
 #
 #   1. go.work and go.work.sum are tracked. `git diff` reports nothing for an
@@ -19,6 +19,10 @@
 #   5. A full refresh changes nothing. This is the ordinary staleness case: a
 #      dependency bump lands in one module, and the other modules then build
 #      against a version none of their go.mod files admits to.
+#   6. vendor/ matches the go.mod files above it, tracked files and new ones
+#      both. A root vendor tree puts the workspace in -mod=vendor, so a stale
+#      one does not degrade the build, it stops it -- and #84 added the tree
+#      with no check, so main broke exactly this way on 2026-08-13.
 #
 # This can run on a public runner only because go.work excludes the two modules
 # that need gitlab-master.nvidia.com. Add either of them and the refresh here
@@ -36,6 +40,7 @@ on:
       - '**/go.sum'
       - 'go.work'
       - 'go.work.sum'
+      - 'vendor/**'
       - 'Makefile'
       - '.github/workflows/go-work-check.yml'
   pull_request:
@@ -45,6 +50,7 @@ on:
       - '**/go.sum'
       - 'go.work'
       - 'go.work.sum'
+      - 'vendor/**'
       - 'Makefile'
       - '.github/workflows/go-work-check.yml'
   workflow_dispatch:

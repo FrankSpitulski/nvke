@@ -83,8 +83,14 @@ work-sync: work ## Refresh go.work.sum and the modules' go.mod and go.sum.
 	@# and stops being a function of the modules it describes.
 	@rm -f go.work.sum
 	@$(GO) mod download all
-	@echo "Workspace refreshed. Commit go.work, go.work.sum and every go.mod and"
-	@echo "go.sum this changed, together."
+	@# The vendor tree is a function of the go.mod files above it, so it has to
+	@# be regenerated here rather than by hand. A root vendor/ puts the whole
+	@# workspace in -mod=vendor: leave it behind and every build stops with
+	@# "is marked as explicit in vendor/modules.txt, but not explicitly
+	@# required in a go.mod". That is how main broke on 2026-08-13.
+	@$(GO) work vendor
+	@echo "Workspace refreshed. Commit go.work, go.work.sum, vendor/ and every"
+	@echo "go.mod and go.sum this changed, together."
 
 work-check: ## Verify go.work and go.work.sum are complete and current.
 	@# git diff reports nothing for an untracked path, so an uncommitted
@@ -132,13 +138,26 @@ work-check: ## Verify go.work and go.work.sum are complete and current.
 	done
 	@rm -f go.work.sum
 	@$(GO) mod download all
+	@# Regenerated, then diffed with everything else. vendor/ is derived from the
+	@# go.mod files, and a root vendor tree puts the workspace in -mod=vendor, so
+	@# a stale one does not degrade the build, it stops it. main broke this way on
+	@# 2026-08-13 and no job reported it, because this target did not look here.
+	@$(GO) work vendor
 	@# go.mod and go.sum are in the diff on purpose. The failure this catches is
 	@# a dependency bump landing in one module without the workspace being
 	@# refreshed: the other modules then build against a version none of their
 	@# go.mod files admits to.
-	@git diff --exit-code -- go.work go.work.sum '*/go.mod' '*/go.sum' \
+	@#
+	@# --exit-code alone would miss a package that vendoring ADDS, because git
+	@# does not diff an untracked path. vendor/ gains directories whenever a
+	@# dependency does, so the untracked check below is not optional here.
+	@git diff --exit-code -- go.work go.work.sum '*/go.mod' '*/go.sum' vendor \
 		|| { echo "ERROR: the workspace is stale. Run 'make work-sync' and commit every file it changes."; exit 1; }
-	@echo "go.work and go.work.sum are up to date."
+	@untracked=$$(git ls-files --others --exclude-standard -- vendor); \
+	 [ -z "$$untracked" ] \
+		|| { echo "ERROR: vendoring added files that are not tracked. Run 'make work-sync' and commit every file it changes:"; \
+		     printf '%s\n' "$$untracked" | sed 's/^/    /'; exit 1; }
+	@echo "go.work, go.work.sum and vendor/ are up to date."
 
 build: ## Build every workspace package, and the released commands into bin/.
 	@# Compile everything first. Building only ./cmd/... left controller/api and
