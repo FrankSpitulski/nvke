@@ -27,9 +27,10 @@ import (
 
 	"github.com/lmittmann/tint"
 
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+
 	"github.com/NVIDIA/nke/controller/forge-vms/internal/app"
 	"github.com/NVIDIA/nke/controller/forge-vms/internal/seed"
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
 )
 
 // TestEnv wraps a running forge-vms app and httptest server for integration testing.

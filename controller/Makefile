@@ -7,19 +7,19 @@
 # disclosure or distribution of this material and related documentation
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
-
-
-# This module is not in the repository's root go.work, because it requires
-# gitlab-master.nvidia.com and a workspace resolves one build list across every
-# member. GOWORK is on by default, so without this every `go` command run here
-# fails with "directory ... is contained in a module that is not one of the
-# workspace modules listed in go.work". See docs/go-workspace.md.
-export GOWORK := off
-
 WORKER_BIN_NAME			?= cloud-workflow-engine
 TEMPORAL_CLI_DOWNLOAD_DIR	?= $(CURDIR)/.go/temporal-cli
 CWE_GOFAIL_E2E_WORKER_BINARY	?= $(CURDIR)/.go/bin/cwe-worker-gofail
 GOFAIL				?= $(shell go env GOPATH)/bin/gofail
+
+# Go tool install location (GOPATH/bin, unless GOBIN is set); matches agent/Makefile.
+GOBIN ?= $(shell go env GOBIN)
+ifeq (,$(GOBIN))
+GOBIN = $(shell go env GOPATH)/bin
+endif
+
+GOLANGCI_LINT_REPO	?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+GOLANGCI_LINT_VERSION	?= v2.7.2
 
 # Image URL to use all building/pushing image targets
 IMG_NAME ?= nvcr.io/j7sbcjl3qgta/cloud-workflow-engine
@@ -47,14 +47,8 @@ help: ## Display this help.
 
 .PHONY: lint
 lint: ## Lint source files.
-ifdef CI
-	@if ! command -v golangci-lint >/dev/null 2>&1; then \
-		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin v2.7.2; \
-	fi
-	golangci-lint run --timeout 20m --max-same-issues 0 --max-issues-per-linter 0 ./...
-else
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.7.2 run --timeout 5m --max-same-issues 0 --max-issues-per-linter 0 ./...
-endif
+	go install $(GOLANGCI_LINT_REPO)@$(GOLANGCI_LINT_VERSION)
+	$(GOBIN)/golangci-lint run --timeout 20m --max-same-issues 0 --max-issues-per-linter 0 ./...
 
 .PHONY: license
 license: ## Ensure license headers at code.
@@ -95,7 +89,7 @@ build:
 .PHONY: fmt
 fmt: ## Format code (gofumpt + goimports; matches .golangci.yml formatters).
 	go run mvdan.cc/gofumpt@v0.9.2 -w -extra .
-	go run golang.org/x/tools/cmd/goimports@v0.36.0 -w -local github.com/NVIDIA/nke/controller,gitlab-master.nvidia.com .
+	go run golang.org/x/tools/cmd/goimports@v0.36.0 -w -local github.com/NVIDIA/nke/controller .
 
 .PHONY: test
 test: ## Execute unit tests (excludes integration tests).
@@ -163,30 +157,20 @@ e2e-gofail: ## Execute gofail e2e tests against a local Temporal dev server.
 	'
 
 
-ifdef CI
-  # To download go mods from our private gitlab repo we use a netrc file to store the git credentials
-  # See: https://www.gnu.org/software/inetutils/manual/html_node/The-_002enetrc-file.html
-  # In CI this file is created see recipe below.
-  DOCKER_BUILD_SECRET := --secret id=gitcreds,src=../netrc.txt
-else
-  # For local docker build we pass the netrc value using an ENV variable.
-  # So: export GIT_CREDENTIALS_NETRC="machine gitlab-master.nvidia.com login oathtoken password ${GITLAB_TOKEN}"
-  # Where GITLAB_TOKEN="oauthtoken:my-personal-access-token"
-  DOCKER_BUILD_SECRET := --secret id=gitcreds,env=GIT_CREDENTIALS_NETRC
-endif
-
 .PHONY: docker-build-local
 docker-build-local: ## Build the docker image for Cloud Workflow Engine
+	@# The build context is the repository root: the controller is a member of
+	@# the root Go workspace, and the image build needs go.work, the committed
+	@# vendor/ tree, and the sibling modules. Every dependency comes from
+	@# vendor/, so the build needs no git credentials.
 	DOCKER_BUILDKIT=1 docker build -f Dockerfile --platform linux/amd64 \
 	  --progress=plain \
-	  $(DOCKER_BUILD_SECRET) \
 	  --tag $(IMG_NAME):$(GIT_VERSION) \
 	  --tag $(IMG_NAME):$(BUILD_VERSION) \
 	  --tag $(IMG) \
 	  --build-arg BUILD_VERSION=${BUILD_VERSION} \
 	  --build-arg GIT_VERSION=${GIT_VERSION} \
-	  --build-arg GIT_CREDENTIALS=${GIT_CREDENTIALS} \
-	  .
+	  ..
 
 ##@ Run
 

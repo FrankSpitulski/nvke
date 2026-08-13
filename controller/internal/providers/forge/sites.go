@@ -16,10 +16,11 @@ import (
 
 	"github.com/google/uuid"
 
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+
 	"github.com/NVIDIA/nke/controller/api"
 	"github.com/NVIDIA/nke/controller/internal/config"
 	forgeapi "github.com/NVIDIA/nke/controller/internal/providers/forge/api"
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
 )
 
 // GetSites will retrieve the sites for a given org. If a healthy cache exists, it will

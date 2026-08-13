@@ -11,7 +11,7 @@
 package api
 
 import (
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
 func GetTenants(dockerTest bool) []*forgesdk.Tenant {

@@ -8,13 +8,11 @@
 # compile could merge and only fail later in a release or an image build.
 #
 # Runs on ubuntu-latest with `pull_request`, deliberately. Every module in
-# go.work builds from public dependencies, so this needs no NVIDIA runner and no
-# credentials -- which means it also runs on fork pull requests and on
-# Dependabot's, where the repository currently has almost no coverage.
-#
-# controller/ and controller/forge-vms are not built here. They require
-# gitlab-master.nvidia.com and cannot compile on a public runner. See
-# docs/go-workspace.md.
+# go.work — all seven, including controller and controller/forge-vms — resolves
+# its dependencies from the committed vendor/ tree, so this needs no NVIDIA
+# runner and no credentials -- which means it also runs on fork pull requests
+# and on Dependabot's, where the repository currently has almost no coverage.
+# See docs/go-workspace.md.
 name: Go Build
 
 # The two path lists are duplicated by hand. github.com has supported YAML

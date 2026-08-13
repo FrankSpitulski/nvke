@@ -14,7 +14,7 @@ import (
 	"context"
 	"fmt"
 
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
 func GetVpcPrefixes(ctx context.Context, apiClient *forgesdk.APIClient, orgID, siteID string) ([]*forgesdk.VpcPrefix, error) {

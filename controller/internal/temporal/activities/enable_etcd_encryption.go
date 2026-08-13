@@ -20,9 +20,10 @@ import (
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/temporal"
 
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+
 	"github.com/NVIDIA/nke/controller/internal/db"
 	nodeutil "github.com/NVIDIA/nke/controller/internal/nodes"
-	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 const (

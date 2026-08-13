@@ -16,7 +16,7 @@ import (
 	nethttp "net/http"
 	"strings"
 
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 
 	"github.com/NVIDIA/nke/controller/forge-vms/internal/state"
 )
@@ -44,7 +44,7 @@ func toSDKInstance(row state.InstanceWithInterfaces) forgesdk.Instance {
 	instance.SetLabels(labels)
 	groupIDs, _ := row.Instance.SSHKeyGroupIDs()
 	instance.SetSshKeyGroupIds(groupIDs)
-	instance.SetStatus(instanceStatus(row.Instance.Status))
+	instance.SetStatus(forgesdk.InstanceStatus(instanceStatus(row.Instance.Status)))
 	instance.SetPhoneHomeEnabled(row.Instance.PhoneHomeEnabled)
 	if row.Instance.TpmEkCertificate != "" {
 		instance.SetTpmEkCertificate(row.Instance.TpmEkCertificate)
@@ -64,7 +64,7 @@ func toSDKInstance(row state.InstanceWithInterfaces) forgesdk.Instance {
 		if ifaceRow.VPCPrefixID != "" {
 			iface.SetVpcPrefixId(ifaceRow.VPCPrefixID)
 		}
-		iface.SetStatus(titleCase(ifaceRow.Status))
+		iface.SetStatus(forgesdk.InterfaceStatus(titleCase(ifaceRow.Status)))
 		if exposeIPs {
 			ips, _ := ifaceRow.IPAddresses()
 			iface.SetIpAddresses(ips)

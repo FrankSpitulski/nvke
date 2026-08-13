@@ -29,12 +29,13 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	nicov1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
+
 	"github.com/NVIDIA/nke/controller/internal/agent/agenttest"
 	"github.com/NVIDIA/nke/controller/internal/capi"
 	"github.com/NVIDIA/nke/controller/internal/controllers"
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/testutil"
-	nicov1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
 )
 
 const (

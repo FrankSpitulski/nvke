@@ -15,11 +15,15 @@ unexport GOWORK
 GO      ?= go
 BIN_DIR ?= $(CURDIR)/bin
 
-# Modules in go.work. Every one builds from public dependencies, so `work-sync`
-# and `build` need no NVIDIA credentials and give an outside contributor the
-# same result as CI.
+# Modules in go.work — every module in the repository. Building needs no
+# NVIDIA credentials: the one still-INTERNAL dependency
+# (github.com/NVIDIA/cluster-api-provider-nico) is carried in the committed
+# vendor/ tree, so `build` gives an outside contributor the same result as CI.
+# Re-vendoring (inside `work-sync`) is the only step that needs access to it.
 WORK_MODULES := agent \
+                controller \
                 controller/api \
+                controller/forge-vms \
                 controller/hack/capd-reboot-controller \
                 controller/hack/nico-mock \
                 controller/test/e2e
@@ -27,17 +31,17 @@ WORK_MODULES := agent \
 # The subset that holds released commands, built from ./cmd. controller/api and
 # controller/test/e2e carry library and test code with no ./cmd. The agent's
 # sample clients under samples/ and sample-clients/ are package main too, and
-# are deliberately not built: they are examples, not artefacts.
+# are deliberately not built: they are examples, not artefacts. controller and
+# controller/forge-vms ship through their own Makefiles and the container
+# image, under their own binary names — the ./... loop in `build` still
+# compiles their commands.
 CMD_MODULES := agent \
                controller/hack/capd-reboot-controller \
                controller/hack/nico-mock
 
-# Kept out of go.work on purpose: both require gitlab-master.nvidia.com, and one
-# private member makes every module in the workspace unbuildable without
-# credentials. `work-full` adds them for work inside NVIDIA.
-PRIVATE_MODULES  := controller controller/forge-vms
-CARBIDE_SDK      := gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go
-CARBIDE_OVERRIDE := gitlab-master.nvidia.com/nvmetal/carbide-rest-ngc-sdk-go@v0.0.14
+# No module is excluded from the workspace any more; kept (empty) because
+# work-check accounts for every go.mod in the tree against these two lists.
+PRIVATE_MODULES :=
 
 # Every place an artefact ships LICENSE and NOTICE from.
 #
@@ -52,7 +56,7 @@ LICENSE_DESTS := controller/licenses \
                  controller/deploy/charts/cloud-workflow-engine
 
 .DEFAULT_GOAL := help
-.PHONY: help work work-sync work-check work-full build clean licenses licenses-check
+.PHONY: help work work-sync work-check work-check-offline build clean licenses licenses-check
 
 help: ## Show the available targets.
 	@echo "Usage: make <target>"
@@ -62,8 +66,8 @@ help: ## Show the available targets.
 
 work: ## Reset go.work to exactly the public modules, creating it if absent.
 	@test -f go.work || $(GO) work init
-	@# `go work use` only ever adds, so on its own this could not undo
-	@# `make work-full` -- it left seven modules listed and still reported five.
+	@# `go work use` only ever adds, so on its own this could not drop a module
+	@# that was removed from WORK_MODULES.
 	@for d in $$($(GO) work edit -json | grep -o '"DiskPath": "[^"]*"' | cut -d'"' -f4); do \
 		case " $(addprefix ./,$(WORK_MODULES)) " in \
 			*" $$d "*) ;; \
@@ -119,11 +123,12 @@ work-check: ## Verify go.work and go.work.sum are complete and current.
 	   echo "Run 'make work' and commit go.work."; exit 1; \
 	 fi
 	@echo "- Checking go.work carries no replace directive..."
-	@# `make work-full` writes one, for work inside NVIDIA. Committed, it would
-	@# silently repoint a dependency for every module in the workspace, and the
-	@# module list above would still look correct.
+	@# A replace in go.work silently repoints a dependency for every module in
+	@# the workspace while the module list above still looks correct. Module
+	@# replaces belong in the individual go.mod, where gomoddirectives audits
+	@# them.
 	@[ "$$($(GO) work edit -json | grep -c '"Old"')" = "0" ] \
-		|| { echo "ERROR: go.work carries a replace directive. That is 'make work-full' output and is local only. Undo it with 'git checkout -- go.work'."; exit 1; }
+		|| { echo "ERROR: go.work carries a replace directive. Module replaces belong in the individual go.mod. Undo it with 'git checkout -- go.work'."; exit 1; }
 	@echo "- Checking every module in the tree is accounted for..."
 	@dup=$$(printf '%s\n' $(WORK_MODULES) $(PRIVATE_MODULES) | sort | uniq -d); \
 	 [ -z "$$dup" ] || { echo "ERROR: listed in both WORK_MODULES and PRIVATE_MODULES:"; printf '%s\n' "$$dup" | sed 's/^/    /'; exit 1; }
@@ -143,33 +148,82 @@ work-check: ## Verify go.work and go.work.sum are complete and current.
 	   echo "ERROR: these modules are listed in the Makefile but no longer exist:"; \
 	   printf '%s\n' "$$gone" | sed 's/^/    /'; exit 1; \
 	 fi
-	@echo "- Checking the workspace, go.work.sum and every go.mod agree..."
-	@$(GO) work sync
-	@for m in $(WORK_MODULES); do \
-		(cd $$m && GOWORK=off $(GO) mod tidy) || exit 1; \
-	done
-	@rm -f go.work.sum
-	@$(GO) mod download all
-	@# Regenerated, then diffed with everything else. vendor/ is derived from the
-	@# go.mod files, and a root vendor tree puts the workspace in -mod=vendor, so
-	@# a stale one does not degrade the build, it stops it. main broke this way on
-	@# 2026-08-13 and no job reported it, because this target did not look here.
-	@$(GO) work vendor
-	@# go.mod and go.sum are in the diff on purpose. The failure this catches is
-	@# a dependency bump landing in one module without the workspace being
-	@# refreshed: the other modules then build against a version none of their
-	@# go.mod files admits to.
+	@# Re-deriving workspace freshness needs the module graph over the network,
+	@# which includes github.com/NVIDIA/cluster-api-provider-nico — INTERNAL
+	@# visibility until it is open-sourced, so unreachable from public runners
+	@# and outside contributors. Builds are unaffected (the dependency is in the
+	@# committed vendor/ tree); only this freshness re-derivation needs access,
+	@# so it is skipped — as one shell block, because every recipe line runs in
+	@# its own shell and an exit in one does not stop the next. Drop the guard
+	@# when the repo goes public.
 	@#
-	@# --exit-code alone would miss a package that vendoring ADDS, because git
-	@# does not diff an untracked path. vendor/ gains directories whenever a
-	@# dependency does, so the untracked check below is not optional here.
-	@git diff --exit-code -- go.work go.work.sum '*/go.mod' '*/go.sum' vendor \
-		|| { echo "ERROR: the workspace is stale. Run 'make work-sync' and commit every file it changes."; exit 1; }
-	@untracked=$$(git ls-files --others --exclude-standard -- vendor); \
-	 [ -z "$$untracked" ] \
-		|| { echo "ERROR: vendoring added files that are not tracked. Run 'make work-sync' and commit every file it changes:"; \
-		     printf '%s\n' "$$untracked" | sed 's/^/    /'; exit 1; }
-	@echo "go.work, go.work.sum and vendor/ are up to date."
+	@# Offline first: this needs no network, so it runs everywhere -- including on
+	@# a public runner and for an outside contributor's fork, where the guarded
+	@# block below cannot run at all.
+	@$(MAKE) --no-print-directory work-check-offline
+	@# Inside the guarded block: go work sync writes the workspace's selected
+	@# versions back into every go.mod; each module is tidied with the workspace
+	@# off to complete its go.sum; go.work.sum is rebuilt from scratch so it
+	@# cannot accumulate stale hashes; vendor/ is regenerated because it is
+	@# derived from the go.mod files, and a root vendor tree puts the workspace
+	@# in -mod=vendor, so a stale one does not degrade the build, it stops it
+	@# (main broke this way on 2026-08-13). The git diff then catches a bump
+	@# landing in one module without the workspace being refreshed, and the
+	@# untracked check catches a package that vendoring ADDS, which git diff
+	@# alone would miss.
+	@if (cd controller && GOWORK=off $(GO) mod download github.com/NVIDIA/cluster-api-provider-nico >/dev/null 2>&1); then \
+		echo "- Checking the workspace, go.work.sum, vendor/ and every go.mod agree..."; \
+		$(GO) work sync || exit 1; \
+		for m in $(WORK_MODULES); do \
+			(cd $$m && GOWORK=off $(GO) mod tidy) || exit 1; \
+		done; \
+		rm -f go.work.sum; \
+		$(GO) mod download all || exit 1; \
+		$(GO) work vendor || exit 1; \
+		git diff --exit-code -- go.work go.work.sum '*/go.mod' '*/go.sum' vendor \
+			|| { echo "ERROR: the workspace is stale. Run 'make work-sync' and commit every file it changes."; exit 1; }; \
+		untracked=$$(git ls-files --others --exclude-standard -- vendor); \
+		[ -z "$$untracked" ] \
+			|| { echo "ERROR: vendoring added files that are not tracked. Run 'make work-sync' and commit every file it changes:"; \
+			     printf '%s\n' "$$untracked" | sed 's/^/    /'; exit 1; }; \
+		echo "go.work, go.work.sum and vendor/ are up to date."; \
+	else \
+		echo "NOTE: skipped the workspace freshness re-derivation:"; \
+		echo "  github.com/NVIDIA/cluster-api-provider-nico is not fetchable from here"; \
+		echo "  (INTERNAL until open-sourced). The static checks above all passed."; \
+	fi
+
+# The assertions that need no network.
+#
+# Without this, a public runner reaches the guard below, finds
+# cluster-api-provider-nico unfetchable, prints the skip notice and reports
+# success -- having verified nothing about the vendor tree. That is the whole
+# check for every outside contributor and every fork pull request, and it stays
+# that way until the module is public.
+#
+# Go performs this comparison itself whenever it builds against a vendor tree:
+# it reads vendor/modules.txt, compares it with every module's go.mod, and
+# refuses to proceed on a mismatch. Asking `go list` for it makes the assertion
+# explicit, and GOPROXY=off guarantees no network is consulted -- so a pass here
+# means the tree really is self-consistent, not that a fetch quietly succeeded.
+#
+# This is the check that would have caught the 2026-08-13 breakage: main carried
+# a go.mod requiring k8s.io/api v0.36.3 while vendor/modules.txt still said
+# v0.35.3, and every build stopped.
+#
+# -mod=vendor is passed as a flag rather than through GOFLAGS, because setting
+# GOFLAGS here would discard whatever the caller already had in it. -C has to be
+# the first flag on the command line.
+work-check-offline: ## Verify vendor/ agrees with every go.mod. Needs no network.
+	@echo "- Checking vendor/ agrees with every go.mod (offline)..."
+	@for m in $(WORK_MODULES); do \
+		GOPROXY=off $(GO) list -C $$m -mod=vendor ./... >/dev/null \
+			|| { echo "ERROR: vendor/ is inconsistent with the workspace -- Go's own message is above."; \
+			     echo "  Detected from $$m; a root vendor tree is workspace-wide, so the module named"; \
+			     echo "  there is where it was noticed, not necessarily where it originates."; \
+			     echo "  Run 'make work-sync' and commit every file it changes."; exit 1; }; \
+	done
+	@echo "  vendor/ is consistent with every module."
 
 build: ## Build every workspace package, and the released commands into bin/.
 	@# Compile everything first. Building only ./cmd/... left controller/api and
@@ -186,18 +240,6 @@ build: ## Build every workspace package, and the released commands into bin/.
 	done
 	@echo "Built into $(BIN_DIR):"
 	@ls -1 $(BIN_DIR) | sed 's/^/    /'
-
-work-full: ## NVIDIA-internal only: add controller and forge-vms. Do not commit the result.
-	@$(GO) work use $(addprefix ./,$(WORK_MODULES) $(PRIVATE_MODULES))
-	@# controller pins the carbide SDK at v0.0.14 and forge-vms at v0.0.9. A
-	@# workspace holds one replacement, so without this override every module
-	@# fails with "conflicting replacements". This forces forge-vms onto v0.0.14.
-	@$(GO) work edit -replace $(CARBIDE_SDK)=$(CARBIDE_OVERRIDE)
-	@echo
-	@echo "go.work now includes $(PRIVATE_MODULES)."
-	@echo "It needs gitlab-master.nvidia.com credentials, and forge-vms is forced"
-	@echo "onto $(CARBIDE_OVERRIDE)."
-	@echo "DO NOT COMMIT go.work in this state. Restore it with:  git checkout -- go.work"
 
 licenses: ## Copy LICENSE and NOTICE everywhere an artefact ships them from.
 	@for d in $(LICENSE_DESTS); do \

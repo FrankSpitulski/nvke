@@ -18,11 +18,12 @@ import (
 	"sync"
 	"time"
 
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/providers/forge/api"
 	forgesdksupport "github.com/NVIDIA/nke/controller/internal/providers/forge/sdk"
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
 )
 
 const (

@@ -13,28 +13,52 @@ package sdk
 import (
 	"maps"
 
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+
 	"github.com/NVIDIA/nke/controller/internal/config"
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
-	forgesdkhelper "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go/helper"
+)
+
+// ngcProductionServerURL and ngcStagingServerURL are the NGC API server URLs for
+// the production and staging environments. The public SDK's NewConfiguration
+// defaults to a single in-cluster server, so NewSDKConfig sets these explicitly
+// to preserve the production/staging server-index semantics.
+const (
+	ngcProductionServerURL = "https://api.ngc.nvidia.com"
+	ngcStagingServerURL    = "https://api.stg.ngc.nvidia.com"
 )
 
 // envServerIndexMap maps a ForgeEnvironment string to the corresponding SDK server index.
-// The SDK's default server list has production at 0 and staging at 1; we append the
+// NewSDKConfig sets the server list to production at 0 and staging at 1; we append the
 // docker-test server and record its index so ContextServerIndex can select it.
 var envServerIndexMap = func() map[string]int { //nolint:gochecknoglobals // computed once at init
-	m := maps.Clone(forgesdkhelper.NGCEnvServerIndexMap)
+	m := maps.Clone(ngcEnvServerIndexMap)
 	m[config.ForgeEnvironmentTest] = len(m)
 	return m
 }()
 
-// NewSDKConfig returns a Forge SDK configuration that appends cfg.ForgeURL as an
-// additional server entry. The entry is selected at request time via ContextServerIndex.
+// NewSDKConfig returns a Forge SDK configuration whose server list is
+// production (index 0), staging (index 1), then cfg.ForgeURL as the docker-test
+// entry. The server is selected at request time via ContextServerIndex.
+//
+// The public SDK's NewConfiguration defaults to a single in-cluster server, so we
+// set the NGC production and staging servers explicitly rather than relying on the
+// defaults, preserving the historical index semantics.
 func NewSDKConfig(cfg *config.Config) *forgesdk.Configuration {
 	sdkCfg := forgesdk.NewConfiguration()
-	sdkCfg.Servers = append(sdkCfg.Servers, forgesdk.ServerConfiguration{
-		URL:         cfg.ForgeURL,
-		Description: config.ForgeEnvironmentTest,
-	})
+	sdkCfg.Servers = forgesdk.ServerConfigurations{
+		{
+			URL:         ngcProductionServerURL,
+			Description: "Production",
+		},
+		{
+			URL:         ngcStagingServerURL,
+			Description: "Staging",
+		},
+		{
+			URL:         cfg.ForgeURL,
+			Description: config.ForgeEnvironmentTest,
+		},
+	}
 	return sdkCfg
 }
 

@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
 // ProductionImageURL is the default production FDE qcow2 image used by e2e tests.

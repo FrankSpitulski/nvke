@@ -21,10 +21,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+
 	"github.com/NVIDIA/nke/controller/internal/rollout"
 	"github.com/NVIDIA/nke/controller/internal/rollout/nodeagent"
 	"github.com/NVIDIA/nke/controller/internal/rollout/preflights"
-	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 // ---- fakes ---------------------------------------------------------------

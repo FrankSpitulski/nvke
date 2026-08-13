@@ -19,7 +19,6 @@ formatters:
     goimports:
       local-prefixes:
         - github.com/NVIDIA/nke/controller
-        - gitlab-master.nvidia.com
     gofumpt:
       extra-rules: true
 
@@ -28,7 +27,11 @@ run:
   allow-parallel-runners: true
   concurrency: 8
   go: ""
-  modules-download-mode: readonly
+  # This module resolves its dependencies through the repository's committed
+  # workspace vendor/ tree (see docs/go-workspace.md); without this golangci
+  # falls back to network module resolution, which fails on the INTERNAL
+  # github.com/NVIDIA/cluster-api-provider-nico dependency.
+  modules-download-mode: vendor
 
 output:
   print-issued-lines: false
@@ -124,7 +127,10 @@ linters:
     gomoddirectives:
       replace-local: true
       replace-allow-list:
-        - gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go
+        # Pins the stub monolithic genproto so it cannot collide with the
+        # genproto/googleapis/* split modules in the workspace build list; see
+        # the comment on the replace directive in go.mod.
+        - google.golang.org/genproto
         - sigs.k8s.io/controller-runtime
     cyclop:
       max-complexity: 15
@@ -176,9 +182,6 @@ linters:
       # Might need customization per project
       local-prefixes:
         - github.com/NVIDIA/nke/controller
-        - gitlab-master.nvidia.com
-        - gitlab-master.nvidia.com/nke
-        - gitlab-master.nvidia.com/nke/nke-operator
     govet:
       enable-all: true
       disable:
@@ -230,6 +233,14 @@ linters:
       - legacy
       - std-error-handling
     rules:
+      # The Go-workspace version unification moved controller-runtime to
+      # v0.24, which deprecates the client.Apply patch type in favour of
+      # client.Client.Apply(). The ~24 call sites across the module still
+      # work; migrating them is real apply-semantics work tracked separately
+      # from the workspace change. Remove this rule with that migration.
+      - linters:
+          - staticcheck
+        text: 'client\.Apply is deprecated'
       - path: '(.+)_test\.go'
         linters:
           - gochecknoglobals

@@ -65,10 +65,10 @@ func TestNewSDKConfig_AppendsDockerTestServer(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "http://localhost:9090", url)
 
-	// Invariant: the SDK's default server list must have exactly as many entries as
-	// NGCEnvServerIndexMap. If a new SDK version adds a server without a matching
-	// map entry (or vice versa), the docker-test index computed via len(map) would
-	// be wrong and silently point to the wrong server.
+	// Invariant: the configured server list must have exactly as many entries as
+	// envServerIndexMap. If a server is added without a matching map entry (or vice
+	// versa), the docker-test index computed via len(map) would be wrong and
+	// silently point to the wrong server.
 	require.Len(t, sdkCfg.Servers, len(envServerIndexMap),
 		"SDK server list length must equal envServerIndexMap size (including docker-test entry); "+
 			"if the upstream SDK added or removed a server, update envServerIndexMap accordingly")

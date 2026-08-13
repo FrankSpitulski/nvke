@@ -20,11 +20,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
+	nicov1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
+
 	"github.com/NVIDIA/nke/controller/internal/constants"
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/kube"
 	"github.com/NVIDIA/nke/controller/internal/teleport"
-	nicov1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
 )
 
 type templateLessForgeCAPINodeConfig struct {

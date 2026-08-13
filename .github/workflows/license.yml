@@ -87,12 +87,14 @@ jobs:
             -exec dirname {} \; \
             | sort)
 
-          # Dependency-license checks: modules that import private NVIDIA
-          # packages (gitlab-master.nvidia.com) cannot be resolved from public
-          # GitHub Actions runners. Those modules are covered by the internal
-          # GitLab CI pipeline.
+          # Dependency-license checks: go-licenses loads modules one at a time
+          # (GOWORK=off, no vendor), so a module whose dependency cannot be
+          # fetched from a public runner cannot be scanned. controller requires
+          # github.com/NVIDIA/cluster-api-provider-nico, which is INTERNAL
+          # visibility until it is open-sourced; drop this exclusion when the
+          # repo goes public.
           modules=$(printf '%s\n' "$all" \
-            | grep -vxF -e './controller' -e './controller/forge-vms' \
+            | grep -vxF -e './controller' \
             | jq -R . | jq -sc .)
           echo "modules=$modules" >> "$GITHUB_OUTPUT"
 

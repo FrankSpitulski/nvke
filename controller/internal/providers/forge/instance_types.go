@@ -14,7 +14,7 @@ import (
 	"context"
 	"fmt"
 
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
 // GetInstanceTypes will retrieve the instance types for the given site. If a healthy cache exists, it will

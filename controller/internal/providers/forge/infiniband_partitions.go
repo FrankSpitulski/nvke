@@ -14,7 +14,7 @@ import (
 	"context"
 	"fmt"
 
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
 // GetInfiniBandPartitions will retrieve the InfiniBand partitions for a given site. If a healthy cache exists, it will

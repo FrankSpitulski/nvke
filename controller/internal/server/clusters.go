@@ -26,13 +26,14 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	nicov1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
+
 	"github.com/NVIDIA/nke/controller/api"
 	"github.com/NVIDIA/nke/controller/internal/capi"
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/constants"
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/naming"
-	nicov1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
 )
 
 var (

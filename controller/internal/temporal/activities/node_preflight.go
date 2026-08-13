@@ -21,8 +21,9 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 
-	"github.com/NVIDIA/nke/controller/internal/db"
 	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+
+	"github.com/NVIDIA/nke/controller/internal/db"
 )
 
 const (

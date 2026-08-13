@@ -18,8 +18,9 @@ import (
 
 	"github.com/google/uuid"
 
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+
 	"github.com/NVIDIA/nke/controller/internal/constants"
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
 )
 
 type GetInstanceTypeOutput struct {

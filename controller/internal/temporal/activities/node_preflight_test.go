@@ -22,10 +22,11 @@ import (
 	"github.com/stretchr/testify/require"
 	temporallog "go.temporal.io/sdk/log"
 
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+
 	"github.com/NVIDIA/nke/controller/internal/agent/agenttest"
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/testutil"
-	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 func TestNodePreflight(t *testing.T) {

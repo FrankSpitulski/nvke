@@ -14,7 +14,7 @@ import (
 	"context"
 	"fmt"
 
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
 // GetIPBlocks will retrieve the IP blocks for a given site. If a healthy cache exists, it will

@@ -25,9 +25,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	nicov1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
+
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/constants"
-	nicov1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
 )
 
 func TestNicoTpmSpiffeControllerReconcileAggregatesPubhashesAndAnnotatesMachine(t *testing.T) {

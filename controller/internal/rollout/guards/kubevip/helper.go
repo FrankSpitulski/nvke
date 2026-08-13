@@ -20,8 +20,9 @@ import (
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/activity"
 
-	"github.com/NVIDIA/nke/controller/internal/rollout"
 	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+
+	"github.com/NVIDIA/nke/controller/internal/rollout"
 )
 
 func nodeAgentOperationDone(current *nkeproto.NodeAgentOperationStatus) (bool, error) {

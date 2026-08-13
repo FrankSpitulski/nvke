@@ -24,14 +24,16 @@ import (
 	capiconditions "sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	forgeapi "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+
+	nicov1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
+
 	"github.com/NVIDIA/nke/controller/internal/capi"
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/providers/forge"
 	"github.com/NVIDIA/nke/controller/internal/teleport"
 	"github.com/NVIDIA/nke/controller/internal/tpm"
-	nicov1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
-	forgeapi "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
 )
 
 const (

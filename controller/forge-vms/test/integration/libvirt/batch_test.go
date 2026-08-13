@@ -13,8 +13,9 @@ import (
 	"testing"
 	"time"
 
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+
 	"github.com/NVIDIA/nke/controller/forge-vms/test/integration/testutil"
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
 )
 
 // TestBatchProductionCloudInit runs N production cloud-init instances in parallel

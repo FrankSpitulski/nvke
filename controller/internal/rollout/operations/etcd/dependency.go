@@ -20,9 +20,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+
 	"github.com/NVIDIA/nke/controller/internal/constants"
 	"github.com/NVIDIA/nke/controller/internal/rollout"
-	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 type nodeAgentEncryptionClient interface {

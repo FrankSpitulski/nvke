@@ -15,8 +15,9 @@ import (
 	"strings"
 	"testing"
 
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+
 	"github.com/NVIDIA/nke/controller/forge-vms/test/integration/testutil"
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
 )
 
 func TestCreatePollReadyAndDeleteFlow(t *testing.T) {

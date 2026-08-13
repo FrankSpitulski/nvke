@@ -17,7 +17,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/NVIDIA/nke/controller/internal/config"
-	forgesdkhelper "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go/helper"
 )
 
 // GetBearerToken returns a bearer token for orgID appropriate for cfg.ForgeEnvironment.
@@ -39,7 +38,7 @@ func GetBearerToken(cfg *config.Config, orgID string) (string, error) {
 		return signed, nil
 	}
 
-	bearerToken, err := forgesdkhelper.GetNGCBearerToken(cfg.ForgeEnvironment, cfg.FWEAPIKey, orgID)
+	bearerToken, err := getNGCBearerToken(cfg.ForgeEnvironment, cfg.FWEAPIKey, orgID)
 	if err != nil {
 		return "", fmt.Errorf("getting NGC bearer token: %w", err)
 	}

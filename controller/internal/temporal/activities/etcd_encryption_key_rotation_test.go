@@ -20,12 +20,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+
 	"github.com/NVIDIA/nke/controller/internal/agent/agenttest"
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/temporal/activities"
 	"github.com/NVIDIA/nke/controller/internal/testutil"
-	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 func TestBeginEtcdEncryptionKeyRotation_AcquiresClusterMutationLock(t *testing.T) {

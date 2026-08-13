@@ -22,9 +22,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/db"
-	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 //nolint:interfacebloat // This mirrors the agent RPC surface used by controllers and activities.

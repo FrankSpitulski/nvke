@@ -24,9 +24,10 @@ import (
 	"testing"
 	"time"
 
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+
 	fvmconfig "github.com/NVIDIA/nke/controller/forge-vms/internal/config"
 	"github.com/NVIDIA/nke/controller/forge-vms/internal/seed"
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
 )
 
 var instanceNameSeq atomic.Uint64
@@ -66,12 +67,12 @@ func WaitForInstanceState(
 			if inst.GetId() != instanceID {
 				continue
 			}
-			lastStatus = inst.GetStatus()
-			if strings.EqualFold(inst.GetStatus(), "error") && !strings.EqualFold(wantState, "error") {
+			lastStatus = string(inst.GetStatus())
+			if strings.EqualFold(string(inst.GetStatus()), "error") && !strings.EqualFold(wantState, "error") {
 				t.Fatalf("[%s] instance %s entered error while waiting for state %q: reason=%s",
 					profile.Name, instanceID, wantState, env.InstanceErrorReason(inst.GetId()))
 			}
-			if strings.EqualFold(inst.GetStatus(), wantState) {
+			if strings.EqualFold(string(inst.GetStatus()), wantState) {
 				// The API maps internal "running" to SDK "Ready" (SDK has no
 				// "Running" status). When waiting for "ready", also require IPs
 				// to be populated — IPs only appear when ObservedState is truly
@@ -150,12 +151,12 @@ func WaitForInstanceStateChange(
 			if inst.GetId() != instanceID {
 				continue
 			}
-			if strings.EqualFold(inst.GetStatus(), "error") {
+			if strings.EqualFold(string(inst.GetStatus()), "error") {
 				t.Fatalf("[%s] instance %s entered error while waiting to leave state %q: reason=%s",
 					profile.Name, instanceID, currentState, env.InstanceErrorReason(inst.GetId()))
 			}
-			if !strings.EqualFold(inst.GetStatus(), currentState) {
-				t.Logf("Instance %s transitioned from %q to %q", instanceID, currentState, inst.GetStatus())
+			if !strings.EqualFold(string(inst.GetStatus()), currentState) {
+				t.Logf("Instance %s transitioned from %q to %q", instanceID, currentState, string(inst.GetStatus()))
 				return
 			}
 		}
@@ -175,7 +176,7 @@ func WaitForInstanceError(t *testing.T, env *TestEnv, profile RuntimeProfile, in
 			if inst.GetId() != instanceID {
 				continue
 			}
-			if strings.EqualFold(inst.GetStatus(), "error") {
+			if strings.EqualFold(string(inst.GetStatus()), "error") {
 				return inst
 			}
 		}

@@ -1,10 +1,11 @@
 # The Go workspace
 
-This repository holds seven Go modules. `go.work` at the root ties together the
-five that build from public dependencies, so one `make build` covers all of
-them and one Go toolchain version applies across the tree.
+This repository holds seven Go modules. `go.work` at the root ties together all
+of them, so one `make build` covers the whole tree and one Go toolchain version
+applies across it.
 
-`go.work` and `go.work.sum` are **committed**, and CI fails when they go stale.
+`go.work`, `go.work.sum` and the `vendor/` tree are **committed**, and CI fails
+when the first two go stale.
 
 ## What is in the workspace
 
@@ -15,34 +16,28 @@ them and one Go toolchain version applies across the tree.
 | `controller/hack/capd-reboot-controller` | yes | builds from public dependencies |
 | `controller/hack/nico-mock` | yes | builds from public dependencies |
 | `controller/test/e2e` | yes | builds from public dependencies |
-| `controller` | **no** | requires `gitlab-master.nvidia.com` |
-| `controller/forge-vms` | **no** | requires `gitlab-master.nvidia.com` |
+| `controller` | yes | public dependencies + one vendored INTERNAL module |
+| `controller/forge-vms` | yes | builds from public dependencies |
 
-### Why the last two are excluded
+### The vendored dependency
 
-A workspace resolves **one** build list across every member. Adding a module
-that needs private code therefore makes *every* module in the workspace
-unbuildable without credentials — including `agent`, which anyone can build
-today. With `controller` added, building `agent` fails like this:
+`controller` depends on `github.com/NVIDIA/cluster-api-provider-nico`, which is
+INTERNAL visibility until it is open-sourced, so public CI runners and outside
+contributors cannot fetch it. The committed `vendor/` tree (from
+`go work vendor`) carries it — and every other dependency — so **building,
+testing and linting need no credentials at all**.
 
-```
-gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go@v0.0.14: unrecognized import
-path "gitlab-master.nvidia.com/nvmetal/carbide-rest-ngc-sdk-go": 401 Unauthorized
-```
+Two things still need access to that repository, until it goes public:
 
-The two also disagree with each other. `controller` replaces the carbide SDK at
-`v0.0.14` and `controller/forge-vms` at `v0.0.9`, and a workspace holds one
-replacement per module path:
+- `make vendor` — re-vendoring after a dependency change.
+- The freshness re-derivation inside `make work-sync` / `make work-check` —
+  rebuilding the module graph fetches every `go.mod`, including that one.
+  `work-check` detects when the module is unreachable, runs its static checks,
+  and skips only the freshness re-derivation with a note.
 
-```
-go: conflicting replacements for gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go
-	gitlab-master.nvidia.com/nvmetal/carbide-rest-ngc-sdk-go@v0.0.14
-	gitlab-master.nvidia.com/nvmetal/carbide-rest-ngc-sdk-go@v0.0.9
-```
-
-Both modules keep their own `Makefile` and are built as before, from inside
-their own directory. They join the workspace when they build from public
-dependencies.
+Workspace members are never vendored: `vendor/modules.txt` maps `agent`,
+`controller` and the rest to their live directories, so editing member source
+never requires re-vendoring — only dependency changes do.
 
 ## Everyday use
 
@@ -107,9 +102,9 @@ things. Each maps to a failure this repository can produce:
 |---|---|---|
 | `go.work` and `go.work.sum` are tracked by git | Either file left untracked. `git diff` reports nothing for an untracked path, so the rest of the check would pass in silence. | `make work-sync` and commit both |
 | `go.work` lists exactly the expected modules | A module dropped from or added to the workspace by hand | `make work` and commit `go.work` |
-| `go.work` carries no `replace` | `make work-full` output committed by accident. It repoints a dependency for every module while the module list still looks correct. | `make work`, or `git checkout -- go.work go.work.sum '*/go.mod' '*/go.sum'` |
-| Every `go.mod` in the tree is classified in the `Makefile` | A **new module** added to neither `WORK_MODULES` nor `PRIVATE_MODULES`. It would never be built or synced, and nothing else in CI would mention it. | add it to the right list in the `Makefile`, then `make work-sync` |
-| A full refresh changes nothing | The ordinary stale case: a bump landed in one module, so the others build against a version none of their `go.mod` files admits to | `make work-sync` and commit everything it changes |
+| `go.work` carries no `replace` | A workspace-level `replace` repoints a dependency for every module while the module list still looks correct. Module replaces belong in the individual `go.mod`, where `gomoddirectives` audits them. | `make work`, or `git checkout -- go.work` |
+| Every `go.mod` in the tree is classified in the `Makefile` | A **new module** added without being listed in `WORK_MODULES`. It would never be built or synced, and nothing else in CI would mention it. | add it to the list in the `Makefile`, then `make work-sync` |
+| A full refresh changes nothing | The ordinary stale case: a bump landed in one module, so the others build against a version none of their `go.mod` files admits to. Skipped (with a note) where `cluster-api-provider-nico` is unreachable — see "The vendored dependency". | `make work-sync` and commit everything it changes |
 
 The **Go Build** workflow runs `make build`. Both run on `ubuntu-latest` and
 need no NVIDIA credentials, so they also run on fork and Dependabot pull
@@ -118,36 +113,12 @@ requests.
 ## Adding a module
 
 1. Create it with `go mod init`.
-2. Add its path to `WORK_MODULES` in the root `Makefile` — or to
-   `PRIVATE_MODULES` if it needs `gitlab-master.nvidia.com`.
+2. Add its path to `WORK_MODULES` in the root `Makefile`.
 3. If it has commands to build, add it to `CMD_MODULES` too.
-4. Run `make work-sync` and commit `go.work`, `go.work.sum` and the `Makefile`.
+4. Run `make work-sync`, then `make vendor`, and commit `go.work`,
+   `go.work.sum`, `vendor/` and the `Makefile`.
 
 Skipping step 2 fails `make work-check` by design, with the module named.
-
-## Working on `controller` inside NVIDIA
-
-To put all seven modules in the workspace:
-
-```bash
-make work-full
-```
-
-This adds `controller` and `controller/forge-vms` and writes the workspace-level
-`replace` the version conflict requires, pinning the carbide SDK to `v0.0.14`
-for both. It needs `gitlab-master.nvidia.com` access, and it forces
-`controller/forge-vms` off its own `v0.0.9`.
-
-The result is **local only**. Undo it before committing — and restore all of it,
-not just `go.work`. If you ran `make work-sync` while the private modules were
-listed, it also rewrote `go.work.sum` and every `go.mod` and `go.sum`:
-
-```bash
-git checkout -- go.work go.work.sum '*/go.mod' '*/go.sum'
-```
-
-`make work` also resets `go.work` on its own: it drops any module not in
-`WORK_MODULES` and any `replace`.
 
 ## Troubleshooting
 
@@ -160,19 +131,11 @@ with stamping off:
 GOFLAGS=-buildvcs=false make build
 ```
 
-**`directory prefix . does not contain modules listed in go.work`**, or
-**`directory ... is contained in a module that is not one of the workspace
-modules`** — two different causes.
+**`directory prefix . does not contain modules listed in go.work`** — at the
+repository root, the root is not itself a module: build through the `Makefile`,
+or name a module path (`go build ./agent/...`).
 
-At the repository root, the root is not itself a module: build through the
-`Makefile`, or name a module path (`go build ./agent/...`).
-
-Inside `controller/` or `controller/forge-vms`, the cause is that those modules
-are not workspace members, and `GOWORK` is on by default for every `go` command
-under the root. Their Makefiles set `GOWORK=off`, so `make build`, `make test`
-and `make lint` work as before. A `go` command typed directly needs it too:
-
-```bash
-cd controller
-GOWORK=off go list ./...
-```
+**`inconsistent vendoring`** — a dependency changed (in any member's `go.mod`)
+without the vendor tree being refreshed. Run `make vendor` and commit the
+`vendor/` changes; it needs access to `cluster-api-provider-nico` (see "The
+vendored dependency").

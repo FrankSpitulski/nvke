@@ -17,9 +17,10 @@ import (
 	"strconv"
 	"strings"
 
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+
 	"github.com/NVIDIA/nke/controller/internal/rollout"
 	"github.com/NVIDIA/nke/controller/internal/rollout/nodeagent"
-	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 // execScriptOnNode dials the agent and runs script via the raw

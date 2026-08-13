@@ -27,6 +27,8 @@ import (
 	"golang.org/x/sync/errgroup"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	nicov1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
+
 	"github.com/NVIDIA/nke/controller/internal/agent"
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/controllers"
@@ -42,7 +44,6 @@ import (
 	"github.com/NVIDIA/nke/controller/internal/teleport"
 	"github.com/NVIDIA/nke/controller/internal/temporal"
 	"github.com/NVIDIA/nke/controller/internal/version"
-	nicov1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
 )
 
 const (

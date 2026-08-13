@@ -13,7 +13,7 @@ package http
 import (
 	nethttp "net/http"
 
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
 func (s *Server) handleListSSHKeyGroups(w nethttp.ResponseWriter, r *nethttp.Request) {

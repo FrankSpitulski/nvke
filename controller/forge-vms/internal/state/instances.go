@@ -499,7 +499,7 @@ func (s *Store) withInterfaces(ctx context.Context, rows []InstanceRow) ([]Insta
 	var interfaces []InstanceInterfaceRow
 	if err := s.db.NewSelect().
 		Model(&interfaces).
-		Where("instance_id IN (?)", bun.In(instanceIDs)).
+		Where("instance_id IN (?)", bun.In(instanceIDs)). //nolint:staticcheck // deprecated by the bun bump from the workspace version unification; migration to bun.List/Tuple tracked separately
 		Order("created_at ASC").
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("failed to list instance interfaces: %w", err)

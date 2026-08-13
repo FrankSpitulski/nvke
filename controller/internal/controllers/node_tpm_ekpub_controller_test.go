@@ -19,11 +19,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	forgeapi "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+
+	nicov1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
+
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/testutil"
-	nicov1 "gitlab-master.nvidia.com/nke/cluster-api-provider-nico/api/v1alpha1"
-	forgeapi "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
 )
 
 func TestReconcileForgeNodeEKPub_NoNodePoolSkipsWithoutForgeInstance(t *testing.T) {

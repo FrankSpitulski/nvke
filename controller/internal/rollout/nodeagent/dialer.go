@@ -19,8 +19,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/NVIDIA/nke/controller/internal/rollout"
 	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+
+	"github.com/NVIDIA/nke/controller/internal/rollout"
 )
 
 // Dialer opens an agent gRPC client for node and returns a cleanup the

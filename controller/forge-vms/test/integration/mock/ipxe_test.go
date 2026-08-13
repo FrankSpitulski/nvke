@@ -17,8 +17,9 @@ import (
 	"strings"
 	"testing"
 
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+
 	"github.com/NVIDIA/nke/controller/forge-vms/test/integration/testutil"
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
 )
 
 // TestIPXEBootFlow exercises the shared iPXE V1 flow on the mock backend.

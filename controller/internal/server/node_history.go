@@ -326,6 +326,8 @@ func temporalWorkflowStatusToString(status enums.WorkflowExecutionStatus) string
 		return "ContinuedAsNew"
 	case enums.WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
 		return "TimedOut"
+	case enums.WORKFLOW_EXECUTION_STATUS_PAUSED:
+		return "Paused"
 	default:
 		return "Unknown"
 	}

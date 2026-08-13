@@ -20,10 +20,11 @@ import (
 
 	"github.com/google/uuid"
 
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/kubeadmconfig"
 	"github.com/NVIDIA/nke/controller/internal/nodes"
-	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 type cachedJoinStrings struct {

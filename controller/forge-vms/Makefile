@@ -1,14 +1,16 @@
 GO ?= go
 
-# This module is not in the repository's root go.work, because it requires
-# gitlab-master.nvidia.com and a workspace resolves one build list across every
-# member. GOWORK is on by default, so without this every `go` command run here
-# fails with "directory ... is contained in a module that is not one of the
-# workspace modules listed in go.work". See docs/go-workspace.md.
-export GOWORK := off
-
 REPO_ROOT := $(shell pwd)
 BINARY := $(REPO_ROOT)/bin/forge-vms
+
+# Go tool install location (GOPATH/bin, unless GOBIN is set); matches agent/Makefile.
+GOBIN ?= $(shell $(GO) env GOBIN)
+ifeq (,$(GOBIN))
+GOBIN = $(shell $(GO) env GOPATH)/bin
+endif
+
+GOLANGCI_LINT_REPO    ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+GOLANGCI_LINT_VERSION ?= v2.7.2
 SETCAP := sudo setcap cap_net_admin+ep
 
 .PHONY: \
@@ -100,11 +102,5 @@ fmt:
 	$(GO) fmt ./...
 
 lint:
-ifdef CI
-	@if ! command -v golangci-lint >/dev/null 2>&1; then \
-		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin v2.7.2; \
-	fi
-	golangci-lint run --timeout 10m --max-same-issues 0 --max-issues-per-linter 0 ./...
-else
-	$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.7.2 run --timeout 5m --max-same-issues 0 --max-issues-per-linter 0 ./...
-endif
+	$(GO) install $(GOLANGCI_LINT_REPO)@$(GOLANGCI_LINT_VERSION)
+	$(GOBIN)/golangci-lint run --timeout 10m --max-same-issues 0 --max-issues-per-linter 0 ./...

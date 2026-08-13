@@ -28,6 +28,9 @@ env:
 
 jobs:
   lint:
+    # Do not rename: "golangci-lint" is a required branch-protection check
+    # (see docs/branch-protection-settings.md); a renamed job never reports
+    # under the required name and leaves every PR waiting forever.
     name: golangci-lint
     runs-on: linux-amd64-cpu16
     if: github.repository == 'NVIDIA/nke'
@@ -45,8 +48,69 @@ jobs:
         with:
           go-version-file: agent/go.mod
           cache: true
+          cache-dependency-path: agent/go.sum
 
-      # agent is the only module that builds from public dependencies.
       - name: Run golangci-lint
         working-directory: agent
+        run: make lint
+
+  lint-controller:
+    name: golangci-lint (controller)
+    runs-on: linux-amd64-cpu16
+    if: github.repository == 'NVIDIA/nke'
+    # make lint gives golangci-lint a 20m budget on this module; leave headroom
+    # for an uncached run.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    # Unlike the module-at-a-time jobs, this one runs in WORKSPACE mode
+    # (GOWORK back to its default, overriding the workflow-level "off"): the
+    # controller depends on github.com/NVIDIA/cluster-api-provider-nico, which
+    # is INTERNAL visibility until it is open-sourced, so its packages are only
+    # reachable through the committed root vendor/ tree — and vendor is a
+    # workspace-level construct here. go-version-file is go.work for the same
+    # reason: workspace mode requires the workspace's Go.
+    env:
+      GOWORK: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.work
+          cache: true
+          cache-dependency-path: go.work.sum
+
+      - name: Run golangci-lint
+        working-directory: controller
+        run: make lint
+
+  lint-forge-vms:
+    name: golangci-lint (forge-vms)
+    runs-on: linux-amd64-cpu16
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    # forge-vms builds from public dependencies only, so it lints one module
+    # at a time like agent (workflow-level GOWORK=off applies).
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: controller/forge-vms/go.mod
+          cache: true
+          cache-dependency-path: controller/forge-vms/go.sum
+
+      - name: Run golangci-lint
+        working-directory: controller/forge-vms
         run: make lint

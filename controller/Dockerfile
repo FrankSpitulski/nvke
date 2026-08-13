@@ -20,37 +20,18 @@ FROM ${BASE_REGISTRY}/golang:1.26.5 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
+# The build context is the REPOSITORY ROOT, not controller/ (docker-build-local
+# passes it): the controller is a member of the root Go workspace, and the
+# build needs go.work, the committed vendor/ tree, and the sibling modules
+# (../agent, ./api). No credentials or module downloads are needed — every
+# dependency comes from vendor/.
 WORKDIR /workspace
-
-# Add special sauce for our private gitlab repos.
-ENV GIT_TERMINAL_PROMPT=1
-RUN go env -w GOPRIVATE='*.nvidia.com'
-
-# Get dependencies.
-COPY go.mod go.mod
-COPY go.sum go.sum
-
-# Copy in api go modules
-COPY api/go.mod api/go.mod
-COPY api/go.sum api/go.sum
-
-# Cache dependencies before building and copying source to minimize downloads
-# and prevent source changes from invalidating cached dependencies layer.
-
-# path /kaniko/gitcreds is used as this works for kaniko builds in CI and local builds using docker
-# For local builds, use make commands to build a docker image
-# build secrets with id=gitcreds are expected to be passed in for localbuilds
-RUN --mount=type=secret,id=gitcreds,dst=/kaniko/gitcreds \
-    cp /kaniko/gitcreds /root/.netrc \
-    && go mod download \
-    && rm /root/.netrc
-
-# Copy all source to build container, including /vendor, for faster builds (no downloads!)
 COPY . /workspace
 
 # Build. Use make to ensure consistency between dev and CI environments.
 ARG BUILD_VERSION="v0.0.0"
 ARG GIT_VERSION=""
+WORKDIR /workspace/controller
 RUN echo "BUILD_VERSION=${BUILD_VERSION} GIT_VERSION=${GIT_VERSION} TARGETOS=${TARGETOS} TARGETARCH=${TARGETARCH}"
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} BUILD_VERSION=${BUILD_VERSION} GIT_VERSION=${GIT_VERSION} make build
 
@@ -77,25 +58,26 @@ RUN apk add --update --no-cache \
     readline
 
 WORKDIR /
-COPY --from=builder /workspace/bin/cloud-workflow-engine /usr/local/bin/cloud-workflow-engine
+COPY --from=builder /workspace/controller/bin/cloud-workflow-engine /usr/local/bin/cloud-workflow-engine
 COPY --from=spiffe-jwt-exec-auth /ko-app/cmd /opt/spiffe/bin/k8s-spiffe-workload-jwt-exec-auth
 
-COPY ./profiles /profiles
-COPY ./ui /ui
+COPY ./controller/profiles /profiles
+COPY ./controller/ui /ui
 
 # The image is a redistribution of this work and of every dependency linked into
 # the binary, so it carries their terms. /licenses is where image tooling and Red
 # Hat certification look. Copied from the build context rather than the builder
 # stage, so a change here cannot be masked by a stale build layer.
 #
-# These are copies, not the root files: this image builds with `controller/` as
-# its context and Docker cannot reach outside one. `make licenses` writes them
-# and `make licenses-check` fails when they drift.
+# The build context is the repository root (the controller is a workspace
+# member), so the root LICENSE and NOTICE are directly reachable — no copies
+# needed for the image. controller/licenses/ still exists for the Helm chart;
+# `make licenses` writes it and `make licenses-check` fails when it drifts.
 #
 # THIRD_PARTY_NOTICES.md is deliberately absent. The root file is an index that
 # states it does not cover controller/, so shipping it here would assert
 # attribution this image does not have. That gap is TODO item 44.
-COPY ./licenses/LICENSE ./licenses/NOTICE /licenses/
+COPY LICENSE NOTICE /licenses/
 
 ## https://github.com/opencontainers/image-spec/blob/main/annotations.md
 LABEL org.opencontainers.image.licenses="Apache-2.0" \

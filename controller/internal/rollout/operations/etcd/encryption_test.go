@@ -20,8 +20,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
-	"github.com/NVIDIA/nke/controller/internal/rollout"
 	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+
+	"github.com/NVIDIA/nke/controller/internal/rollout"
 )
 
 type fakeNode struct {

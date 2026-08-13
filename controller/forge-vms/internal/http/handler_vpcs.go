@@ -14,7 +14,7 @@ import (
 	"errors"
 	nethttp "net/http"
 
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 
 	"github.com/NVIDIA/nke/controller/forge-vms/internal/state"
 )

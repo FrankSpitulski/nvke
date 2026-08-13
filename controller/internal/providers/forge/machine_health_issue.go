@@ -18,7 +18,7 @@ import (
 	"slices"
 	"unicode/utf8"
 
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
 // MachineHealthIssue is our own type to avoid exposing the forgesdk dependency. It's a thin wrapper around the forgesdk.MachineHealthIssue.

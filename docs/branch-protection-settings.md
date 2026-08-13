@@ -29,6 +29,8 @@ checks the current workflows report:
 | Check | Workflow | Safe to require? |
 |---|---|---|
 | `golangci-lint` | `.github/workflows/lint.yml` | yes |
+| `golangci-lint (controller)` | `.github/workflows/lint.yml` | yes |
+| `golangci-lint (forge-vms)` | `.github/workflows/lint.yml` | yes |
 | `Check THIRD_PARTY_NOTICES.md is up to date` | `.github/workflows/notices-check.yml` | yes |
 | `build` | `.github/workflows/image.yml` | yes |
 | `DCO` | the DCO GitHub App, not a workflow | yes |

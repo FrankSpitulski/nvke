@@ -22,7 +22,7 @@ import (
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 
 	"github.com/NVIDIA/nke/controller/internal/capi"
 	"github.com/NVIDIA/nke/controller/internal/config"

@@ -19,9 +19,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+
 	"github.com/NVIDIA/nke/controller/internal/agent/agenttest"
 	"github.com/NVIDIA/nke/controller/internal/db"
-	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 )
 
 func TestParseReadyzVerbose(t *testing.T) {

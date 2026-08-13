@@ -16,7 +16,7 @@ import (
 	"io"
 	"net/http"
 
-	forgesdk "gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go"
+	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
 func UpdateInstance(ctx context.Context, apiClient *forgesdk.APIClient, orgID, instanceID string, payload forgesdk.InstanceUpdateRequest) (*forgesdk.Instance, error) {

@@ -123,7 +123,7 @@ func (c *NodeClusterStaticEntryController) reconcileClusterStaticEntries(ctx con
 func (c *NodeClusterStaticEntryController) applyClusterStaticEntry(ctx context.Context, name string, siteID uuid.UUID, node db.Node) error {
 	cse := &spirev1alpha1.ClusterStaticEntry{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: spirev1alpha1.GroupVersion.String(),
+			APIVersion: spirev1alpha1.SchemeGroupVersion.String(),
 			Kind:       "ClusterStaticEntry",
 		},
 		ObjectMeta: metav1.ObjectMeta{
