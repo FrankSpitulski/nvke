@@ -4,11 +4,23 @@
 # Reports Go dependency vulnerabilities that this code actually calls. Results
 # go to Security -> Code scanning under the "govulncheck" category.
 #
-# This job does not gate. In SARIF mode govulncheck exits 0 whether or not it
-# finds anything, so a non-zero exit here is a real tool or module failure and
-# does fail the job. Findings are triaged in the Security tab, not by a red
-# check — three of the four NKE repositories have findings today, and a gating
-# job would bury a new regression in that backlog.
+# This job gates, but only on the narrow question.
+#
+# In SARIF mode govulncheck exits 0 whether or not it finds anything, and that
+# SARIF carries everything it can see, including packages that are only
+# imported. Gating on all of it would bury a new regression in a backlog: this
+# module has 26 open SARIF alerts today. So the upload still reports everything,
+# and a separate step asks the smaller question -- does this code CALL a
+# vulnerable symbol? govulncheck exits 3 for that, 0 when clean.
+#
+# That set is zero for this module today, measured on 2026-08-13, so the gate
+# costs nothing to switch on. It is also the set that matters. GO-2026-6061 was
+# reachable from cmd/agent/main.go through agent.startSecureServer to
+# grpc.Server.Serve, and it reached main behind a green check because this job
+# reported it without failing on it. See #89.
+#
+# The gate runs after the upload so that a failure still leaves the findings in
+# the Security tab rather than losing them with the job.
 #
 # Only the agent module is covered. controller/ requires two non-public
 # modules — the carbide SDK, reached through the Forge provider, and
@@ -62,17 +74,27 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: ${{ env.GO_MODULE }}/go.mod
+          # Deliberately NOT go-version-file. The `go` directive in go.mod is a
+          # floor, not a pin, and setup-go pins GOTOOLCHAIN=local to whatever it
+          # installs -- so reading go.mod scans the OLDEST Go the module allows,
+          # which is a toolchain nobody ships. agent/Dockerfile.nke-builder
+          # builds the released agent with golang:1.26.5.
+          #
+          # That gap is not cosmetic. On 2026-08-13 the floor was go 1.26.0, and
+          # scanning it reported 16 reachable standard-library vulnerabilities,
+          # every one of them "Fixed in: go1.26.1". The same scan on 1.26.5
+          # reports none.
+          #
+          # `stable` tracks the newest released Go, so the scan covers a
+          # toolchain at least as new as the one we ship, and picks up each
+          # security patch without an edit here.
+          go-version: stable
           cache: true
           cache-dependency-path: ${{ env.GO_MODULE }}/go.sum
 
       - name: Install govulncheck
-        # setup-go pins GOTOOLCHAIN=local. golang.org/x/vuln v1.6.0 needs
-        # go >= 1.25.0, which is newer than some of our modules declare, so the
-        # install alone is allowed to fetch a toolchain. The scan below still
-        # runs under the module's own Go.
-        env:
-          GOTOOLCHAIN: auto
+        # golang.org/x/vuln v1.6.0 needs go >= 1.25.0. `stable` satisfies that,
+        # so this no longer needs GOTOOLCHAIN=auto to install.
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
 
       - name: Run govulncheck
@@ -124,3 +146,17 @@ jobs:
           sarif_file: ${{ steps.scan.outputs.sarif }}
           checkout_path: ${{ github.workspace }}/${{ env.GO_MODULE }}
           category: govulncheck
+
+      - name: Fail on a reachable vulnerability
+        # Runs last on purpose: the SARIF upload above must happen even when
+        # this fails, or a red check would also lose the findings.
+        #
+        # A second scan rather than a re-read of the SARIF, because the SARIF
+        # does not separate "imported" from "called". The module cache is warm
+        # from the first run, so this is cheap.
+        #
+        # Exit 3 is a called vulnerability, 0 is clean, 1 is the tool failing.
+        # Letting the step exit non-zero handles all three.
+        shell: bash
+        working-directory: ${{ env.GO_MODULE }}
+        run: govulncheck ./...
