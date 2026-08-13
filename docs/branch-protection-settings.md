@@ -26,12 +26,19 @@ An admin must apply them once after cloning or during initial repo setup.
 A required check is named after the **job**, not the workflow. These are the
 checks the current workflows report:
 
-| Check | Workflow |
-|---|---|
-| `golangci-lint` | `.github/workflows/lint.yml` |
-| `Check THIRD_PARTY_NOTICES.md is up to date` | `.github/workflows/notices-check.yml` |
-| `build` | `.github/workflows/image.yml` |
-| `DCO` | the DCO GitHub App, not a workflow |
+| Check | Workflow | Safe to require? |
+|---|---|---|
+| `golangci-lint` | `.github/workflows/lint.yml` | yes |
+| `Check THIRD_PARTY_NOTICES.md is up to date` | `.github/workflows/notices-check.yml` | yes |
+| `build` | `.github/workflows/image.yml` | yes |
+| `DCO` | the DCO GitHub App, not a workflow | yes |
+| `Build binaries` | `.github/workflows/go-build.yml` | **no — path-filtered** |
+| `Check go.work and go.work.sum are current` | `.github/workflows/go-work-check.yml` | **no — path-filtered** |
+
+⚠️ **Do not mark the last two required.** Both filter on `paths:`, so a
+documentation-only pull request never reports them — which is exactly the trap
+described next. Require them only if the filters go, or a skip shim reports the
+same check name.
 
 Confirm the exact names before you require one. A required check that names a
 job which never reports leaves every pull request waiting forever:

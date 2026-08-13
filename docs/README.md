@@ -4,6 +4,7 @@
 |---|---|
 | [architecture.md](architecture.md) | System overview — modules, data flows, deployment model |
 | [getting-started.md](getting-started.md) | Local dev setup for controller and agent |
+| [go-workspace.md](go-workspace.md) | The Go workspace: which modules are in it, and how to keep `go.work.sum` current |
 | [branch-protection-settings.md](branch-protection-settings.md) | Admin guide: required GitHub branch protection rules |
 
 Module-specific docs live alongside their code:

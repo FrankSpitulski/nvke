@@ -8,6 +8,14 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+
+# This module is not in the repository's root go.work, because it requires
+# gitlab-master.nvidia.com and a workspace resolves one build list across every
+# member. GOWORK is on by default, so without this every `go` command run here
+# fails with "directory ... is contained in a module that is not one of the
+# workspace modules listed in go.work". See docs/go-workspace.md.
+export GOWORK := off
+
 WORKER_BIN_NAME			?= cloud-workflow-engine
 TEMPORAL_CLI_DOWNLOAD_DIR	?= $(CURDIR)/.go/temporal-cli
 CWE_GOFAIL_E2E_WORKER_BINARY	?= $(CURDIR)/.go/bin/cwe-worker-gofail

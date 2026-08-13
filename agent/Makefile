@@ -275,7 +275,11 @@ GO_LICENSES_VERSION ?= v2.0.1
 # reports every stdlib package as having no module info and emits nothing at
 # all. `go install pkg@version` deliberately ignores the current module, so the
 # toolchain has to be pinned explicitly rather than inherited.
-GO_TOOLCHAIN := $(shell go version | awk '{print $$3}')
+# GOWORK=off: this must be the toolchain that builds THIS module. With a root
+# go.work the bare command reports the workspace's Go version instead, and a
+# go-licenses built with a different Go than runs it reports "no module info"
+# and emits nothing -- the failure warned about just above.
+GO_TOOLCHAIN := $(shell GOWORK=off go version | awk '{print $$3}')
 
 bin/go-licenses:
 	GOTOOLCHAIN=$(GO_TOOLCHAIN) GOBIN=$(CURDIR)/bin \

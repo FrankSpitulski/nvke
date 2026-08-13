@@ -1,5 +1,8 @@
-# Build artifacts
+# Build artifacts. `go build ./...` inside a module drops the binary in the
+# module directory; `make build` puts them all in bin/ instead.
 agent/agent
+controller/hack/capd-reboot-controller/capd-reboot-controller
+controller/hack/nico-mock/nico-mock
 **/*.test
 **/bin/
 **/dist/
@@ -13,6 +16,11 @@ agent/agent
 *~
 .DS_Store
 
-# Go workspace overrides
-go.work
-go.work.sum
+# go.work and go.work.sum are tracked, not ignored. The usual advice to keep a
+# workspace local applies to a workspace that papers over module boundaries
+# during development; this one is the build definition for the modules that
+# release, and CI verifies it is current (`make work-check`).
+#
+# `make work-full` rewrites go.work to add the modules that need
+# gitlab-master.nvidia.com. That result is local-only -- undo it with
+# `git checkout -- go.work` rather than committing it.

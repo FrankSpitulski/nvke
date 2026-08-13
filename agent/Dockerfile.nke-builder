@@ -3,7 +3,11 @@
 # For Go projects with proto, lint, test, and packaging stages
 # ============================================================
 
-FROM golang:1.24
+# Must be at least the `go` directive in agent/go.mod. The official golang
+# images set GOTOOLCHAIN=local, so a lower tag does not download a newer
+# toolchain -- it fails with "go.mod requires go >= ...". 1.25.12 matches the
+# other Dockerfiles in this repository.
+FROM golang:1.25.12
 
 # ------------------------------------------------------------
 # Environment setup

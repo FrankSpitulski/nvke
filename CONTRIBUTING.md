@@ -34,6 +34,21 @@ git clone https://github.com/NVIDIA/nke.git
 cd nke
 ```
 
+**Everything that builds publicly, in one command:**
+
+```bash
+make build   # builds bin/agent, bin/capd-reboot-controller, bin/nico-mock
+```
+
+The repository holds seven Go modules, and `go.work` ties together the five that
+build from public dependencies. `controller/` and `controller/forge-vms` are not
+in the workspace — they need `gitlab-master.nvidia.com` — so build those from
+their own directories as below.
+
+⚠️ **After changing any `go.mod` or `go.sum`, run `make work-sync` and commit
+`go.work` and `go.work.sum` with your change.** Nothing updates them for you,
+and CI fails on a stale workspace. See [`docs/go-workspace.md`](docs/go-workspace.md).
+
 **Controller (cloud-workflow-engine):**
 
 ```bash

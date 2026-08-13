@@ -24,6 +24,15 @@ set -euo pipefail
 # wrote it and "stale" everywhere else, which makes the CI check unusable.
 export LC_ALL=C
 
+# THIRD_PARTY_NOTICES.md describes exactly one module's dependency closure, so
+# this must not run in workspace mode. With a go.work above it, `go list -m`
+# returns every module in the workspace rather than one, and that value is used
+# as the module name in the output, passed to --ignore, and used by the
+# self-attribution guard below -- so a workspace turns all three wrong at once
+# while the script still exits 0 on a tolerant awk. No-op where there is no
+# go.work.
+export GOWORK=off
+
 OUTPUT="${OUTPUT:-THIRD_PARTY_NOTICES.md}"
 GO_LICENSES="${GO_LICENSES:-./bin/go-licenses}"
 read -r -a PACKAGES <<<"${PACKAGES:-./cmd/...}"

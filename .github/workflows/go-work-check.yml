@@ -1,0 +1,87 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fails when go.work or go.work.sum is stale.
+#
+# `make work-check` asserts five things, and each one has a failure this
+# repository can actually produce:
+#
+#   1. go.work and go.work.sum are tracked. `git diff` reports nothing for an
+#      untracked path, so without this the whole check passes in silence.
+#   2. go.work lists exactly the modules the Makefile expects.
+#   3. go.work carries no replace directive. `make work-full` writes one for
+#      work inside NVIDIA; committed, it would repoint a dependency for every
+#      module in the workspace while the module list still looked right.
+#   4. Every go.mod in the tree is classified in the Makefile, as either a
+#      workspace member or a module that needs gitlab-master.nvidia.com. A new
+#      module in neither list would never be built or synced, and nothing else
+#      in CI would report it.
+#   5. A full refresh changes nothing. This is the ordinary staleness case: a
+#      dependency bump lands in one module, and the other modules then build
+#      against a version none of their go.mod files admits to.
+#
+# This can run on a public runner only because go.work excludes the two modules
+# that need gitlab-master.nvidia.com. Add either of them and the refresh here
+# fails on credentials rather than on staleness. See docs/go-workspace.md.
+name: Go Workspace Check
+
+# The two path lists are duplicated by hand. github.com has supported YAML
+# anchors since August 2025, but GitHub Enterprise Server does not, and merge
+# keys are still unsupported everywhere. Keep the two lists identical.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/go.mod'
+      - '**/go.sum'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'Makefile'
+      - '.github/workflows/go-work-check.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/go.mod'
+      - '**/go.sum'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'Makefile'
+      - '.github/workflows/go-work-check.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Do not cancel a run on main; the newer workflows here all guard this.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  work-check:
+    name: Check go.work and go.work.sum are current
+    runs-on: ubuntu-latest
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.work
+          cache: true
+          # go.work.sum holds only the hashes NOT already in a member's go.sum,
+          # so the versions actually linked often appear in it zero times. Keyed
+          # on it alone, a dependency bump leaves the key unchanged and restores
+          # a stale cache.
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
+
+      - name: Verify the workspace is current
+        run: make work-check

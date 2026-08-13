@@ -1,0 +1,24 @@
+// Go workspace for the modules that build from public dependencies.
+//
+// `go work sync` and `go build` here need no NVIDIA credentials, so an outside
+// contributor gets the same result as CI.
+//
+// controller/ and controller/forge-vms are deliberately absent. Both require
+// gitlab-master.nvidia.com, and a workspace resolves ONE build list across every
+// member, so adding either makes every module unbuildable without credentials --
+// including agent, which builds publicly today. They also disagree on the SDK
+// version (v0.0.14 against v0.0.9), which a workspace cannot hold at once:
+//
+//     go: conflicting replacements for gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go
+//
+// `make work-full` adds them with the override that conflict needs, for work
+// inside NVIDIA. Do not commit the result. See docs/go-workspace.md.
+go 1.25.12
+
+use (
+	./agent
+	./controller/api
+	./controller/hack/capd-reboot-controller
+	./controller/hack/nico-mock
+	./controller/test/e2e
+)

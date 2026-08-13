@@ -1,4 +1,12 @@
 GO ?= go
+
+# This module is not in the repository's root go.work, because it requires
+# gitlab-master.nvidia.com and a workspace resolves one build list across every
+# member. GOWORK is on by default, so without this every `go` command run here
+# fails with "directory ... is contained in a module that is not one of the
+# workspace modules listed in go.work". See docs/go-workspace.md.
+export GOWORK := off
+
 REPO_ROOT := $(shell pwd)
 BINARY := $(REPO_ROOT)/bin/forge-vms
 SETCAP := sudo setcap cap_net_admin+ep

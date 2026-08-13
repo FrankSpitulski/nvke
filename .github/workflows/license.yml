@@ -39,6 +39,16 @@ on:
       - '.github/workflows/license.yml'
   workflow_call:
 
+# This workflow works one module at a time, as it did before the repository
+# gained a root go.work. GOWORK=off keeps it that way. It is also required:
+# the license-check job sets GOTOOLCHAIN=local itself, and the Go version
+# installed from a module's go.mod is older than the one go.work asks for, so
+# leaving the workspace on fails with "go.work requires go >= 1.25.12".
+# (Unlike the other workflows, this one pins setup-go v5.6.0, which does not
+# set GOTOOLCHAIN itself.)
+env:
+  GOWORK: "off"
+
 jobs:
   discover-modules:
     name: Discover Go modules

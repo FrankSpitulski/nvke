@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Builds every command in the Go workspace and throws the binaries away.
+#
+# The value is the compile check, not the artifact: until now nothing built the
+# agent or the two hack controllers on a pull request, so a change that did not
+# compile could merge and only fail later in a release or an image build.
+#
+# Runs on ubuntu-latest with `pull_request`, deliberately. Every module in
+# go.work builds from public dependencies, so this needs no NVIDIA runner and no
+# credentials -- which means it also runs on fork pull requests and on
+# Dependabot's, where the repository currently has almost no coverage.
+#
+# controller/ and controller/forge-vms are not built here. They require
+# gitlab-master.nvidia.com and cannot compile on a public runner. See
+# docs/go-workspace.md.
+name: Go Build
+
+# The two path lists are duplicated by hand. github.com has supported YAML
+# anchors since August 2025, but GitHub Enterprise Server does not, and merge
+# keys are still unsupported everywhere. Keep the two lists identical.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.go'
+      - '**/go.mod'
+      - '**/go.sum'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'Makefile'
+      - '.github/workflows/go-build.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.go'
+      - '**/go.mod'
+      - '**/go.sum'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'Makefile'
+      - '.github/workflows/go-build.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Do not cancel a run on main; the newer workflows here all guard this.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    name: Build binaries
+    runs-on: ubuntu-latest
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # go.work carries the highest Go version of any member module, so the
+      # toolchain it selects satisfies all of them.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.work
+          cache: true
+          # go.work.sum holds only the hashes NOT already in a member's go.sum,
+          # so the versions actually linked often appear in it zero times. Keyed
+          # on it alone, a dependency bump leaves the key unchanged and restores
+          # a stale cache.
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
+
+      - name: Build
+        run: make build
