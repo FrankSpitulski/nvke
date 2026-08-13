@@ -1,0 +1,224 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Builds the nke-agent Debian packages and inspects what came out.
+#
+# Nothing built them before. The .deb is how the agent reaches a node, and it
+# was the only artefact in the repository with no CI at all -- not even a lint.
+# That is worse than it sounds, because it did not merely go unbuilt: `make
+# deb-all` could not produce a package on main, and no job existed to say so.
+#
+#   dpkg-deb: error: 'Version' field value 'f0578cc8':
+#             version number does not start with digit
+#
+# DEB_VERSION comes from `git describe --match 'agent/v*'`, this repository has
+# no such tag, and `--always` falls back to a bare commit sha. dpkg requires a
+# version starting with a digit. The Makefile now prefixes 0.0.0- in that case,
+# and the assertions below are what stop it regressing.
+#
+# The packages are thrown away. The value is that the packaging path is
+# exercised on every change to agent/, in the same way Go Build exercises the
+# compile path -- see the header of go-build.yml for the same reasoning.
+#
+# Each architecture is built on a runner of that architecture -- amd64 on
+# ubuntu-24.04, arm64 on ubuntu-24.04-arm -- rather than cross-compiling both on
+# one machine. That is not for speed. Cross-compiling silently sets
+# CGO_ENABLED=0, because there is no C toolchain for the target, so the two
+# packages came out different: the native amd64 build was dynamically linked
+# against libc and the cross-built arm64 one was static, while both carried the
+# same `Depends: libc6`. True for one, false for the other, and chosen by
+# nobody.
+#
+# Building each natively removes the asymmetry at its source: CGO is enabled for
+# both, both link against libc, and `Depends: libc6` is correct for both.
+#
+# GitHub-hosted runners, not the self-hosted linux-*-cpu16 pool, deliberately.
+# Self-hosted runners do not receive pull_request events -- see the header of
+# lint.yml -- so using them would cost coverage of fork and Dependabot pull
+# requests, which is most of the reason this workflow exists. dpkg-deb and
+# fakeroot are ordinary Debian tooling and the agent builds from public
+# dependencies, so no NVIDIA runner and no credentials are needed.
+
+name: Debian Package
+
+# The two path lists are duplicated by hand. github.com has supported YAML
+# anchors since August 2025, but GitHub Enterprise Server does not, and merge
+# keys are still unsupported everywhere. Keep the two lists identical.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'agent/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'vendor/**'
+      - '.github/workflows/deb.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'agent/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'vendor/**'
+      - '.github/workflows/deb.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Do not cancel a run on main; the newer workflows here all guard this.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  deb:
+    name: Build the ${{ matrix.arch }} package
+    runs-on: ${{ matrix.runner }}
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # DEB_VERSION is derived from `git describe`, so the version under
+          # test depends on the tags being present. A shallow clone would make
+          # every build look untagged and quietly stop exercising the tagged
+          # path once agent/v* tags exist.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # go.work, not agent/go.mod. The package build runs `go build` with the
+          # workspace active, so the workspace's floor is the one that has to be
+          # satisfied -- and it is higher: go.work is at 1.26.4 while
+          # agent/go.mod declares 1.26.0. setup-go pins GOTOOLCHAIN=local, so
+          # reading the module instead fails outright rather than fetching a
+          # newer toolchain:
+          #
+          #   go: ../go.work requires go >= 1.26.4
+          #       (running go 1.26.0; GOTOOLCHAIN=local)
+          #
+          # go-build.yml and go-work-check.yml read go.work for the same reason.
+          # notices-check.yml reads agent/go.mod and is also correct, because it
+          # sets GOWORK=off and builds the module on its own.
+          go-version-file: go.work
+          cache: true
+
+      - name: Install the Debian packaging tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fakeroot dpkg-dev
+          dpkg-deb --version | head -1
+
+      - name: Build the package
+        working-directory: agent
+        # deb-$(arch), not deb-all: this runner is that architecture, so the
+        # build is native and CGO stays on. Building both here would put us back
+        # to cross-compiling one of them.
+        run: make deb-${{ matrix.arch }}
+
+      # The build succeeding is not the assertion. dpkg-deb will happily produce
+      # a package that installs nothing, so this checks what is actually inside.
+      - name: Inspect what was produced
+        working-directory: agent
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          debs=(bin/*.deb)
+          if [ ${#debs[@]} -ne 1 ]; then
+            echo "::error::expected exactly 1 package from 'make deb-${{ matrix.arch }}', found ${#debs[@]}"
+            printf '    %s\n' "${debs[@]}"
+            exit 1
+          fi
+          deb="${debs[0]}"
+
+          echo "::group::${deb}"
+          dpkg-deb -I "$deb"
+          dpkg-deb -c "$deb"
+          echo "::endgroup::"
+
+          pkg=$(dpkg-deb -f "$deb" Package)
+          ver=$(dpkg-deb -f "$deb" Version)
+          arch=$(dpkg-deb -f "$deb" Architecture)
+
+          [ "$pkg" = "nke-agent" ] \
+            || { echo "::error::${deb}: Package is '${pkg}', expected 'nke-agent'"; exit 1; }
+
+          # The regression guard for the bug this workflow was written after.
+          # dpkg itself rejects this at build time, but asserting it here names
+          # the cause instead of leaving a parser error to be decoded.
+          case "$ver" in
+            [0-9]*) ;;
+            *) echo "::error::${deb}: Version '${ver}' does not start with a digit; dpkg will reject it. DEB_VERSION derives from 'git describe --match agent/v*'."; exit 1 ;;
+          esac
+
+          # The package must be for the architecture this runner is. Building on
+          # the wrong runner, or a matrix entry drifting, would otherwise produce
+          # a silently cross-compiled package -- which is the asymmetry this
+          # workflow's per-arch runners exist to prevent.
+          [ "$arch" = "${{ matrix.arch }}" ] \
+            || { echo "::error::${deb}: Architecture is '${arch}', expected '${{ matrix.arch }}'"; exit 1; }
+
+          # A package that ships no binary would otherwise pass everything above.
+          # The systemd unit matters for the same reason: the agent is installed
+          # as a service, so an empty unit directory is a broken install that
+          # still produces a valid .deb.
+          contents=$(dpkg-deb -c "$deb")
+          printf '%s\n' "$contents" | grep -q './usr/local/bin/nke-agent' \
+            || { echo "::error::${deb}: does not contain /usr/local/bin/nke-agent"; exit 1; }
+          printf '%s\n' "$contents" | grep -q './etc/systemd/system/.*\.service' \
+            || { echo "::error::${deb}: contains no systemd unit"; exit 1; }
+
+          # The point of building natively. A cross-compiled Go binary has CGO
+          # disabled and comes out static, which would make the Depends: libc6
+          # in the control file false. Asserting it keeps the two architectures
+          # honest with each other rather than trusting the runner label.
+          dpkg-deb --fsys-tarfile "$deb" | tar -xO ./usr/local/bin/nke-agent > /tmp/nke-agent
+          linkage=$(file -b /tmp/nke-agent)
+          echo "  linkage: ${linkage}"
+          case "$linkage" in
+            *"dynamically linked"*) ;;
+            *) echo "::error::${deb}: the binary is not dynamically linked, so this build was not native and 'Depends: libc6' is wrong for it: ${linkage}"; exit 1 ;;
+          esac
+
+          echo "OK  ${deb}  package=${pkg} version=${ver} arch=${arch}"
+
+      - name: Summarise
+        if: always()
+        working-directory: agent
+        run: |
+          {
+            echo "### ${{ matrix.arch }} on ${{ matrix.runner }}"
+            echo
+            if compgen -G 'bin/*.deb' > /dev/null; then
+              echo '| Package | Version | Arch | Size | Linkage |'
+              echo '|---|---|---|---|---|'
+              for deb in bin/*.deb; do
+                link='?'
+                if dpkg-deb --fsys-tarfile "$deb" | tar -xO ./usr/local/bin/nke-agent > /tmp/s 2>/dev/null; then
+                  link=$(file -b /tmp/s | grep -oE 'statically linked|dynamically linked' || echo '?')
+                fi
+                printf '| %s | %s | %s | %s | %s |\n' \
+                  "$(dpkg-deb -f "$deb" Package)" \
+                  "$(dpkg-deb -f "$deb" Version)" \
+                  "$(dpkg-deb -f "$deb" Architecture)" \
+                  "$(du -h "$deb" | cut -f1)" \
+                  "$link"
+              done
+            else
+              echo 'No package was produced.'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"

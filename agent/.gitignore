@@ -14,6 +14,12 @@ test-client/test-client
 release
 sample-clients/streaming-script/streaming-script
 sample-clients/upload/upload
+# The per-arch staging directories the deb build creates and removes.
+# build/deb itself is listed too: it was NOT ignored before, which is how a
+# stale DEBIAN/control from an old build ended up committed -- pinned at
+# Version: 0.1.7 and missing Depends: libc6, so it disagreed with the real
+# source in scripts/ that the build actually reads.
+build/deb
 build/deb_amd64
 build/deb_arm64
 

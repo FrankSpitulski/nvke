@@ -25,7 +25,30 @@ SHELL = /usr/bin/env bash -o pipefail
 # Override with VERSION=... when building outside of a tagged checkout.
 VERSION_RAW ?= $(shell git describe --match 'agent/v*' --tags --always --dirty 2>/dev/null || git rev-parse --short HEAD)
 VERSION ?= $(shell echo '$(VERSION_RAW)' | sed 's|^agent/||')
-DEB_VERSION := $(shell echo '$(VERSION)' | sed 's/^v//')
+# dpkg refuses a version that does not start with a digit:
+#
+#   dpkg-deb: error: 'Version' field value 'f0578cc8':
+#             version number does not start with digit
+#
+# `git describe --always` falls back to a bare commit sha when no agent/v* tag
+# is reachable, and this repository has none -- so `make deb-all` cannot build
+# at all on main today. Prefixing 0.0.0- keeps an untagged build working and
+# sorts below every real release, so a development package can never be
+# mistaken for, or upgrade over, a tagged one.
+# The test is "did this come from a tag", NOT "does it start with a digit".
+# Tags are agent/vX.Y.Z, so VERSION starts with `v` exactly when describe found
+# one; anything else is the --always sha fallback.
+#
+# Testing the first character instead is wrong and looks right: roughly ten of
+# the sixteen possible leading hex digits ARE digits, so a sha like 587f4bbd
+# passes and becomes the package version verbatim -- and 587f4bbd sorts ABOVE
+# every real release, so a development build would upgrade over a tagged one.
+# The bug reproduces on about 62% of commits, which is the worst kind.
+#
+# Pure Make, no $(shell): Make counts parentheses to find the end of
+# $(shell ...), so an unbalanced `)` in a shell pattern like [0-9]*) closes it
+# early and the rest of the statement leaks into the value.
+DEB_VERSION := $(if $(filter v%,$(VERSION)),$(patsubst v%,%,$(VERSION)),0.0.0-$(VERSION))
 $(info $$VERSION is [${VERSION}])
 $(info $$DEB_VERSION is [${DEB_VERSION}])
 
