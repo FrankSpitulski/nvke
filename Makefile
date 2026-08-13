@@ -39,8 +39,20 @@ PRIVATE_MODULES  := controller controller/forge-vms
 CARBIDE_SDK      := gitlab-master.nvidia.com/nvmetal/cloud-api-sdk-go
 CARBIDE_OVERRIDE := gitlab-master.nvidia.com/nvmetal/carbide-rest-ngc-sdk-go@v0.0.14
 
+# Every place an artefact ships LICENSE and NOTICE from.
+#
+# The root files cannot be COPYed into the controller image directly: that image
+# builds with `controller/` as its context, and Docker cannot reach outside a
+# build context. So the files are copied to a location inside it. The Helm chart
+# has the same constraint and the same answer.
+#
+# The chart copies existed before this and nothing maintained them -- they were
+# committed by hand and happened to match. `licenses-check` now enforces it.
+LICENSE_DESTS := controller/licenses \
+                 controller/deploy/charts/cloud-workflow-engine
+
 .DEFAULT_GOAL := help
-.PHONY: help work work-sync work-check work-full build clean
+.PHONY: help work work-sync work-check work-full build clean licenses licenses-check
 
 help: ## Show the available targets.
 	@echo "Usage: make <target>"
@@ -186,6 +198,25 @@ work-full: ## NVIDIA-internal only: add controller and forge-vms. Do not commit 
 	@echo "It needs gitlab-master.nvidia.com credentials, and forge-vms is forced"
 	@echo "onto $(CARBIDE_OVERRIDE)."
 	@echo "DO NOT COMMIT go.work in this state. Restore it with:  git checkout -- go.work"
+
+licenses: ## Copy LICENSE and NOTICE everywhere an artefact ships them from.
+	@for d in $(LICENSE_DESTS); do \
+		mkdir -p $$d && cp LICENSE NOTICE $$d/ || exit 1; \
+	done
+	@echo "LICENSE and NOTICE copied to: $(LICENSE_DESTS)"
+
+licenses-check: licenses ## Verify the shipped LICENSE and NOTICE copies match the root files.
+	@# The image and the chart redistribute this work, so they carry its terms.
+	@# Both read from a copy inside their own build context, and a copy is a
+	@# thing that goes stale -- this is the assertion that it has not.
+	@git diff --exit-code -- $(LICENSE_DESTS) \
+		|| { echo "ERROR: a shipped LICENSE/NOTICE copy is stale. Run 'make licenses' and commit the change."; exit 1; }
+	@# git diff says nothing about a path git is not tracking, so a newly added
+	@# destination would otherwise pass while shipping nothing.
+	@untracked=$$(git ls-files --others --exclude-standard -- $(LICENSE_DESTS)); \
+	 [ -z "$$untracked" ] \
+		|| { echo "ERROR: these shipped licence files are not tracked:"; printf '%s\n' "$$untracked" | sed 's/^/    /'; exit 1; }
+	@echo "Shipped LICENSE and NOTICE copies are current."
 
 clean: ## Remove the built binaries.
 	@rm -rf $(BIN_DIR)

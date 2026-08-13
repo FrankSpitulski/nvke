@@ -29,6 +29,15 @@ on:
       - '**/*.go'
       - '**/go.mod'
       - '**/go.sum'
+      # The shipped LICENSE/NOTICE copies derive from the root files and from
+      # the Makefile that copies them, so all three trigger the check that
+      # compares them.
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'Makefile'
+      - 'controller/licenses/**'
+      - 'controller/deploy/charts/cloud-workflow-engine/LICENSE'
+      - 'controller/deploy/charts/cloud-workflow-engine/NOTICE'
       - '.github/workflows/license.yml'
   pull_request:
     branches: [main]
@@ -36,6 +45,15 @@ on:
       - '**/*.go'
       - '**/go.mod'
       - '**/go.sum'
+      # The shipped LICENSE/NOTICE copies derive from the root files and from
+      # the Makefile that copies them, so all three trigger the check that
+      # compares them.
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'Makefile'
+      - 'controller/licenses/**'
+      - 'controller/deploy/charts/cloud-workflow-engine/LICENSE'
+      - 'controller/deploy/charts/cloud-workflow-engine/NOTICE'
       - '.github/workflows/license.yml'
   workflow_call:
 
@@ -44,8 +62,9 @@ on:
 # the license-check job sets GOTOOLCHAIN=local itself, and the Go version
 # installed from a module's go.mod is older than the one go.work asks for, so
 # leaving the workspace on fails with "go.work requires go >= 1.26.0".
-# (Unlike the other workflows, this one pins setup-go v5.6.0, which does not
-# set GOTOOLCHAIN itself.)
+# (This workflow pinned setup-go v5.6.0, which did not set GOTOOLCHAIN itself,
+# until the 2026-08-13 bump to v7.0.0 — which does. The GOWORK=off above is what
+# keeps that from mattering either way.)
 env:
   GOWORK: "off"
 
@@ -142,3 +161,18 @@ jobs:
       - name: Verify license headers
         working-directory: ${{ matrix.module }}
         run: make file-license-check
+
+  shipped-licenses:
+    name: Shipped LICENSE and NOTICE copies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # No Go needed: the target is a copy and a diff. The controller image and
+      # the Helm chart each read LICENSE and NOTICE from a copy inside their own
+      # build context, because Docker cannot reach outside one and the root files
+      # sit outside `controller/`. A copy is a thing that goes stale, and until
+      # now nothing asserted these had not -- the chart's pair was committed by
+      # hand and merely happened to match.
+      - name: Verify the shipped copies match the root files
+        run: make licenses-check

@@ -83,6 +83,24 @@ COPY --from=spiffe-jwt-exec-auth /ko-app/cmd /opt/spiffe/bin/k8s-spiffe-workload
 COPY ./profiles /profiles
 COPY ./ui /ui
 
+# The image is a redistribution of this work and of every dependency linked into
+# the binary, so it carries their terms. /licenses is where image tooling and Red
+# Hat certification look. Copied from the build context rather than the builder
+# stage, so a change here cannot be masked by a stale build layer.
+#
+# These are copies, not the root files: this image builds with `controller/` as
+# its context and Docker cannot reach outside one. `make licenses` writes them
+# and `make licenses-check` fails when they drift.
+#
+# THIRD_PARTY_NOTICES.md is deliberately absent. The root file is an index that
+# states it does not cover controller/, so shipping it here would assert
+# attribution this image does not have. That gap is TODO item 44.
+COPY ./licenses/LICENSE ./licenses/NOTICE /licenses/
+
+## https://github.com/opencontainers/image-spec/blob/main/annotations.md
+LABEL org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="cloud-workflow-engine"
+
 EXPOSE 8080
 
 CMD ["cloud-workflow-engine"]
