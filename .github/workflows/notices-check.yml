@@ -17,6 +17,18 @@ on:
     branches:
       - main
       - "pull-request/[0-9]+"
+      # Dependabot pushes to a branch in this repository, which matches neither
+      # of the two above, so this check has never run on a dependency bump --
+      # the one kind of pull request most likely to stale the file. The failure
+      # then surfaced on main after the merge, which is exactly how syscmp's
+      # main went red on 2026-08-12. The other three repositories closed this
+      # in TODO item 66; nke was assumed covered by its pull_request-triggered
+      # workflows, but only three of its twelve are, and this is not one.
+      #
+      # Self-hosted runners do not receive pull_request events -- see the header
+      # of lint.yml -- so this job cannot switch triggers. It has to name the
+      # branch.
+      - "dependabot/**"
   workflow_dispatch:
 
 permissions: {}
