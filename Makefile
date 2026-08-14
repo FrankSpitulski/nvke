@@ -28,16 +28,22 @@ WORK_MODULES := agent \
                 controller/hack/nico-mock \
                 controller/test/e2e
 
-# The subset that holds released commands, built from ./cmd. controller/api and
-# controller/test/e2e carry library and test code with no ./cmd. The agent's
-# sample clients under samples/ and sample-clients/ are package main too, and
-# are deliberately not built: they are examples, not artefacts. controller and
-# controller/forge-vms ship through their own Makefiles and the container
-# image, under their own binary names — the ./... loop in `build` still
-# compiles their commands.
+# Modules whose commands `build` can compile with `go build -o bin/ ./cmd/...`,
+# which names each binary after its package directory. controller/api and
+# controller/test/e2e hold library and test code with no ./cmd. The agent's
+# samples/ and sample-clients/ are package main but are examples, not artefacts.
+#
+# controller does not belong here: its command is ./cmd/worker, but the binary
+# it ships is named cloud-workflow-engine and carries a version ldflag, so this
+# loop would produce the wrong name and no version. `build` delegates to
+# controller/Makefile for it. controller/forge-vms ships through its own
+# Makefile and the container image.
 CMD_MODULES := agent \
                controller/hack/capd-reboot-controller \
                controller/hack/nico-mock
+
+# Must match WORKER_BIN_NAME in controller/Makefile. `build` fails if it does not.
+CWE_BIN_NAME ?= cloud-workflow-engine
 
 # No module is excluded from the workspace any more; kept (empty) because
 # work-check accounts for every go.mod in the tree against these two lists.
@@ -238,6 +244,12 @@ build: ## Build every workspace package, and the released commands into bin/.
 		echo "- building $$m"; \
 		$(GO) build -C $$m -o $(BIN_DIR)/ ./cmd/... || exit 1; \
 	done
+	@# controller/Makefile owns this binary's name and its version ldflag, so
+	@# delegate rather than repeat either here. See CMD_MODULES above.
+	@echo "- building controller"
+	@$(MAKE) --no-print-directory -C controller build >/dev/null || exit 1
+	@cp controller/bin/$(CWE_BIN_NAME) $(BIN_DIR)/ \
+		|| { echo "ERROR: controller/Makefile no longer produces bin/$(CWE_BIN_NAME). Update CWE_BIN_NAME here to match its WORKER_BIN_NAME."; exit 1; }
 	@echo "Built into $(BIN_DIR):"
 	@ls -1 $(BIN_DIR) | sed 's/^/    /'
 
