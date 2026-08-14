@@ -73,3 +73,32 @@ jobs:
           fi
           echo "rendered ${count} resources"
           echo "### Chart renders ${count} resources" >> "${GITHUB_STEP_SUMMARY}"
+
+      # Chart.yaml carries version and appVersion 0.0.0 and says in a comment
+      # that CI overrides both at package time. Nothing verified that, so a
+      # packaging path that dropped the flags would ship 0.0.0 to whoever
+      # installs it. This runs the documented recipe and fails if the
+      # placeholder survives.
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A build version, not a release one. This job proves the flags work;
+          # a release would pass the tag without its leading v, as Chart.yaml
+          # describes.
+          version="0.0.0-${GITHUB_SHA::12}"
+
+          helm package "${CHART}" \
+            --version "${version}" \
+            --app-version "${version}" \
+            --destination "${RUNNER_TEMP}/chart-dist"
+
+          tgz=$(ls "${RUNNER_TEMP}"/chart-dist/*.tgz)
+          packaged=$(tar -xOf "${tgz}" --wildcards '*/Chart.yaml' | grep '^version:' | awk '{print $2}' | tr -d '"')
+
+          if [ "${packaged}" = "0.0.0" ]; then
+            echo "::error::the packaged chart is version 0.0.0; --version did not apply"
+            exit 1
+          fi
+          echo "packaged ${tgz##*/} at version ${packaged}"
+          echo "### Chart packages as \`${packaged}\`" >> "${GITHUB_STEP_SUMMARY}"
