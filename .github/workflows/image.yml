@@ -106,14 +106,28 @@ jobs:
       # repository root because the controller is a workspace member (it needs
       # go.work, vendor/ and the sibling modules). Verification only — the
       # local tag is never pushed.
+      # --platform matches controller/Makefile's docker-build-local. Without it
+      # the image is built for whatever the runner is, so CI and a local `make`
+      # would produce different images the day the runner pool changes. This
+      # image is amd64-only by decision; the agent is the one built for both.
       - name: Build controller image
         shell: bash
         run: |
           docker buildx build \
             --file controller/Dockerfile \
+            --platform linux/amd64 \
             --tag nke/cloud-workflow-engine:ci \
             --load \
             .
+
+      - name: Check the image is the architecture we intend
+        shell: bash
+        run: |
+          set -euo pipefail
+          got=$(docker image inspect nke/cloud-workflow-engine:ci --format '{{.Os}}/{{.Architecture}}')
+          [ "${got}" = "linux/amd64" ] \
+            || { echo "::error::controller image is ${got}, expected linux/amd64"; exit 1; }
+          echo "controller image: ${got}"
 
       - name: Show controller image
         shell: bash
