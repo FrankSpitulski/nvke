@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Lints and renders the Helm chart.
+#
+# Nothing checked the chart before this. It is packaged and pushed by the
+# internal pipeline, so a broken template reached a registry before anyone read
+# an error.
+#
+# Two steps, because they catch different things. `helm lint` reads Chart.yaml
+# and the chart structure. `helm template` renders every manifest, which is what
+# catches a bad range, a missing value, or an indentation error inside a
+# template -- lint alone passes all of those.
+#
+# GitHub-hosted, not the self-hosted pool: helm needs no NVIDIA runner, and
+# self-hosted runners do not receive fork or Dependabot pull_request events.
+
+name: Chart
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'controller/deploy/charts/**'
+      - '.github/workflows/chart.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'controller/deploy/charts/**'
+      - '.github/workflows/chart.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CHART: controller/deploy/charts/cloud-workflow-engine
+
+jobs:
+  chart:
+    name: lint and render
+    runs-on: ubuntu-latest
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.19.0
+
+      - name: Lint
+        run: helm lint "${CHART}"
+
+      - name: Render
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/rendered.yaml"
+          helm template cwe "${CHART}" > "${out}"
+          # A chart that renders to nothing passes `helm template` silently.
+          count=$(grep -c '^kind:' "${out}" || true)
+          if [ "${count}" -eq 0 ]; then
+            echo "::error::the chart rendered no resources"
+            exit 1
+          fi
+          echo "rendered ${count} resources"
+          echo "### Chart renders ${count} resources" >> "${GITHUB_STEP_SUMMARY}"

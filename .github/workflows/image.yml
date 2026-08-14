@@ -26,6 +26,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+      actions: read           # upload-sarif reads the workflow run
+      security-events: write  # the image scan uploads to code scanning
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -116,6 +118,51 @@ jobs:
       - name: Show controller image
         shell: bash
         run: docker image inspect nke/cloud-workflow-engine:ci --format 'built {{.RepoTags}} {{.Size}} bytes'
+
+      # Scan the image, not the source tree. security-scan.yml runs Grype over
+      # `path: "."`, which reads Go dependencies from the repository. It cannot
+      # see what is in the image: the Alpine base, its OS packages, or the
+      # SPIFFE binary copied in from an external image. Those are what a
+      # consumer actually runs.
+      #
+      # Scanned here rather than in security-scan.yml because the image already
+      # exists at this point, loaded into the local daemon. Doing it there would
+      # mean building it a second time.
+      #
+      # fail-build: false, matching security-scan.yml. This reports into the
+      # Security tab; it does not gate. Switch it on once the findings are
+      # triaged and the count is known.
+      - name: Scan the controller image
+        id: image-scan
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        with:
+          image: nke/cloud-workflow-engine:ci
+          severity-cutoff: medium
+          output-format: sarif
+          fail-build: false
+
+      - name: Summarise the image scan
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          f="${{ steps.image-scan.outputs.sarif }}"
+          {
+            echo "## Grype — controller image, medium and above"
+            echo
+            if [ ! -s "${f}" ]; then
+              echo "No SARIF produced. The scan did not finish."
+            else
+              echo "$(jq '[.runs[].results[]] | length' "${f}") result(s). Details in **Security -> Code scanning**, category \`grype-image\`."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload the image scan SARIF
+        if: always() && steps.image-scan.outputs.sarif != ''
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          sarif_file: ${{ steps.image-scan.outputs.sarif }}
+          category: grype-image
 
 # Not built here: controller/hack/Dockerfile.cwe.tilt — it only copies a
 # prebuilt binary, so it has nothing to verify without a preceding build.
