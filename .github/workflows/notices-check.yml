@@ -65,10 +65,27 @@ jobs:
           go-version-file: agent/go.mod
           cache: true
 
-      # Only the agent module is covered today. The controller still depends on
-      # private gitlab-master.nvidia.com modules, so go-licenses cannot resolve
-      # its package graph without credentials. Add it here once it builds from
-      # public dependencies.
+      # Only the agent module is covered today. The reason has narrowed, but it
+      # has not gone away.
+      #
+      # This comment used to say the controller depends on private
+      # gitlab-master.nvidia.com modules, so go-licenses cannot resolve its
+      # graph. #76 removed those. What is left is one module:
+      # github.com/NVIDIA/cluster-api-provider-nico, still INTERNAL.
+      #
+      # It still blocks this job because of GOWORK=off above. With the workspace
+      # off, go-licenses loads the module standalone -- the root vendor/ tree
+      # does not apply to a module below it -- so the controller's graph would
+      # have to be downloaded, and that module cannot be.
+      #
+      # The untried alternative is to drop GOWORK=off here and let go-licenses
+      # read the vendor tree, which would need no download at all. That needs
+      # the Go version pinned rather than read from a go.mod, the way
+      # govulncheck.yml and codeql.yml do it, because setup-go pins
+      # GOTOOLCHAIN=local and go.work's floor is higher than agent/go.mod's.
+      # Worth trying; not attempted here.
+      #
+      # The root THIRD_PARTY_NOTICES.md carries the rest of the plan.
       - name: Verify THIRD_PARTY_NOTICES.md is up to date
         working-directory: agent
         run: make notices-check

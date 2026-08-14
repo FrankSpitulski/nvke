@@ -18,9 +18,5 @@ controller/hack/nico-mock/nico-mock
 
 # go.work and go.work.sum are tracked, not ignored. The usual advice to keep a
 # workspace local applies to a workspace that papers over module boundaries
-# during development; this one is the build definition for the modules that
-# release, and CI verifies it is current (`make work-check`).
-#
-# `make work-full` rewrites go.work to add the modules that need
-# gitlab-master.nvidia.com. That result is local-only -- undo it with
-# `git checkout -- go.work` rather than committing it.
+# during development; this one is the build definition for every module that
+# releases, and CI verifies it is current (`make work-check`).

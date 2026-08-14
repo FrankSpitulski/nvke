@@ -9,8 +9,11 @@
 #     transitive dependency licenses are permissive (no restricted/reciprocal/
 #     forbidden/unknown types).  This is the same underlying tool used in the
 #     existing GitLab CI pipeline; no proprietary wrapper is required here.
-#     Modules that import private gitlab-master.nvidia.com packages are excluded
-#     because those imports cannot be resolved from public runners.
+#     controller is excluded, because go-licenses loads modules one at a time
+#     with the workspace off and no vendor tree, and it still requires
+#     github.com/NVIDIA/cluster-api-provider-nico, which is INTERNAL. That is
+#     the whole of the exclusion now: this used to say "modules that import
+#     private gitlab-master.nvidia.com packages", and #76 removed those.
 #
 #   header-check — `make file-license-check` verifies every source file carries
 #     the required copyright header via addlicense.  This runs over the *full*
@@ -139,8 +142,7 @@ jobs:
           go install github.com/google/go-licenses/v2@latest
           go-licenses check ./... \
             --disallowed_types=restricted,reciprocal,forbidden,unknown \
-            --ignore github.com/NVIDIA/nke \
-            --ignore gitlab-master.nvidia.com
+            --ignore github.com/NVIDIA/nke
 
   header-check:
     name: License headers (${{ matrix.module }})

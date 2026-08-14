@@ -20,11 +20,13 @@ cd nke
 
 ## controller (Cloud Workflow Engine)
 
-> **`controller/` does not build outside the NVIDIA network.** `controller/go.mod`
-> requires two modules that are not public: the carbide SDK, reached through the
-> Forge provider, and `cluster-api-provider-nico`. Every command in this section
-> needs access to `gitlab-master.nvidia.com`. The `agent` module below has no
-> such dependency and builds anywhere. See [AGENTS.md](../AGENTS.md).
+> **`controller/` builds outside the NVIDIA network**, as of #76, which replaced
+> the internal carbide SDK with the public
+> `github.com/NVIDIA/ncx-infra-controller-rest`. The one internal dependency
+> left, `cluster-api-provider-nico`, is carried in the committed `vendor/` tree,
+> so the commands in this section need no credentials. From the repository root,
+> `GOPROXY=off make build` compiles all seven modules and proves it. See
+> [AGENTS.md](../AGENTS.md).
 
 The controller uses [Flox](https://flox.dev/) to pin its toolchain. For
 day-to-day work, activate the Flox environment first:

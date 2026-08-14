@@ -34,15 +34,28 @@ clusters on demand. Two components live here:
 
 ## Read this before you try to build
 
-**`controller/` does not build outside the NVIDIA network.** `controller/go.mod`
-requires two modules that are not public: the carbide SDK
-(`nvmetal/cloud-api-sdk-go`, reached through the Forge provider) and
-`nke/cluster-api-provider-nico`. `go build ./...` in `controller/` fails without
-access to `gitlab-master.nvidia.com`.
+**Every module builds outside the NVIDIA network.** From a clean checkout, with
+no credentials and no network:
 
-**`agent/` is the only module that builds from public dependencies**, which is
-why CI lints that module alone — see the comment in
-[`.github/workflows/lint.yml`](.github/workflows/lint.yml).
+```bash
+GOPROXY=off make build
+```
+
+compiles all seven modules and links three binaries. `GOPROXY=off` is not a
+suggestion to copy — it is how you can tell nothing is being fetched.
+
+This changed in #76, which replaced the internal carbide SDK
+(`nvmetal/cloud-api-sdk-go`, reached through the Forge provider) with the public
+`github.com/NVIDIA/ncx-infra-controller-rest`. Before that, `controller/` needed
+`gitlab-master.nvidia.com` and only `agent/` built from public dependencies.
+
+**One internal dependency remains**, and it does not block you:
+`github.com/NVIDIA/cluster-api-provider-nico` is an internal GitHub repository,
+and it is carried in the committed `vendor/` tree. Building, testing and linting
+all read the vendor tree, so they work without access to it. **Only `go work
+vendor` resolves it for real** — so re-vendoring after a dependency bump needs
+that access, and `make work-check` probes for it and says so when it is
+skipping.
 
 If a task asks you to build or test `controller/` and the modules do not
 resolve, **say so and stop**. Do not vendor the private modules, do not add a

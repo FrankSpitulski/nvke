@@ -13,9 +13,10 @@
 #      work inside NVIDIA; committed, it would repoint a dependency for every
 #      module in the workspace while the module list still looked right.
 #   4. Every go.mod in the tree is classified in the Makefile, as either a
-#      workspace member or a module that needs gitlab-master.nvidia.com. A new
-#      module in neither list would never be built or synced, and nothing else
-#      in CI would report it.
+#      workspace member or an excluded module. Every module is a member today
+#      and PRIVATE_MODULES is empty, but the check is on both lists rather than
+#      on one: a new module in neither would never be built or synced, and
+#      nothing else in CI would report it.
 #   5. A full refresh changes nothing. This is the ordinary staleness case: a
 #      dependency bump lands in one module, and the other modules then build
 #      against a version none of their go.mod files admits to.
@@ -24,9 +25,17 @@
 #      one does not degrade the build, it stops it -- and #84 added the tree
 #      with no check, so main broke exactly this way on 2026-08-13.
 #
-# This can run on a public runner only because go.work excludes the two modules
-# that need gitlab-master.nvidia.com. Add either of them and the refresh here
-# fails on credentials rather than on staleness. See docs/go-workspace.md.
+# This runs on a public runner, and go.work now lists every module in the
+# repository -- #76 removed the carbide SDK, so there is nothing left to leave
+# out. The one internal dependency, github.com/NVIDIA/cluster-api-provider-nico,
+# is carried in the committed vendor/ tree, so builds and the static checks here
+# need no credentials.
+#
+# Only the freshness re-derivation in step 5 does, because `go work vendor`
+# resolves that module for real rather than reading the vendor tree. `make
+# work-check` probes for it and skips that block when it is unreachable, so this
+# job passes either way and says which happened. Drop the probe when
+# cluster-api-provider-nico is public. See docs/go-workspace.md.
 name: Go Workspace Check
 
 # The two path lists are duplicated by hand. github.com has supported YAML

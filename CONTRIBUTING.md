@@ -40,10 +40,11 @@ cd nke
 make build   # builds bin/agent, bin/capd-reboot-controller, bin/nico-mock
 ```
 
-The repository holds seven Go modules, and `go.work` ties together the five that
-build from public dependencies. `controller/` and `controller/forge-vms` are not
-in the workspace — they need `gitlab-master.nvidia.com` — so build those from
-their own directories as below.
+The repository holds seven Go modules, and `go.work` ties together **all seven**.
+`make build` compiles every one of them, so you do not need to build any module
+from its own directory. `controller/` and `controller/forge-vms` used to be
+outside the workspace because they needed `gitlab-master.nvidia.com`; #76
+removed that dependency and they joined it.
 
 ⚠️ **After changing any `go.mod` or `go.sum`, run `make work-sync` and commit
 `go.work` and `go.work.sum` with your change.** Nothing updates them for you,
