@@ -60,6 +60,22 @@ on:
       - '.github/workflows/license.yml'
   workflow_call:
 
+# Every job here only reads the checkout. Declared rather than inherited: a
+# called workflow with no permissions block takes the caller's, and release.yml
+# calls this one, so without this it would run with that job's grant.
+permissions: {}
+
+# The group is a fixed literal, NOT ${{ github.workflow }}. In a called
+# workflow that context resolves to the CALLER's name, so release.yml and this
+# file would share a group on a tag push: the caller holds it, the called
+# workflow queues behind its own caller, and the release never finishes.
+#
+# Not cancelled on a tag either. release.yml calls this as its publish gate,
+# and cancelling the gate fails the release.
+concurrency:
+  group: license-checks-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
 # This workflow works one module at a time, as it did before the repository
 # gained a root go.work. GOWORK=off keeps it that way. It is also required:
 # the license-check job sets GOTOOLCHAIN=local itself, and the Go version
@@ -75,11 +91,16 @@ jobs:
   discover-modules:
     name: Discover Go modules
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       modules: ${{ steps.find.outputs.modules }}
       header_modules: ${{ steps.find.outputs.header_modules }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Find Go modules
         id: find
@@ -119,12 +140,17 @@ jobs:
     name: License check (${{ matrix.module }})
     needs: [discover-modules]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     strategy:
       matrix:
         module: ${{ fromJson(needs.discover-modules.outputs.modules) }}
       fail-fast: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -148,12 +174,17 @@ jobs:
     name: License headers (${{ matrix.module }})
     needs: [discover-modules]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
     strategy:
       matrix:
         module: ${{ fromJson(needs.discover-modules.outputs.header_modules) }}
       fail-fast: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -169,8 +200,13 @@ jobs:
   shipped-licenses:
     name: Shipped LICENSE and NOTICE copies
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # No Go needed: the target is a copy and a diff. The controller image and
       # the Helm chart each read LICENSE and NOTICE from a copy inside their own

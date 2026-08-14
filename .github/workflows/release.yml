@@ -8,22 +8,37 @@ on:
       - '*/v[0-9]*'
   workflow_dispatch:
 
-permissions:
-  contents: write
+# Least privilege by default. Only the release job needs contents: write, and
+# it is granted there; license-checks and publish read only.
+permissions: {}
+
+# Keyed on the ref, so two different tags never share a group and run
+# concurrently. This only binds when the same tag is re-pushed or a run is
+# re-run, and there it does not cancel: a half-finished release run can leave a
+# tag with a partial release.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   license-checks:
     name: License checks (gate)
     uses: ./.github/workflows/license.yml
+    permissions:
+      contents: read
 
   release:
     name: Create GitHub release
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write   # creates the GitHub release
     if: ${{ !contains(github.ref_name, '/') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Extract changelog section for this tag
         id: changelog
@@ -55,7 +70,12 @@ jobs:
     needs: [license-checks]
     if: ${{ contains(github.ref_name, '/') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read   # raise to write when this job actually publishes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # TODO: add component-specific publish steps (NKX-14116)
       - run: echo "Publish placeholder — implement per component as part of NKX-14116"
