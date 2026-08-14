@@ -560,8 +560,12 @@ func readBGPMessage(conn net.Conn, timeout time.Duration) (*bgpmsg.BGPMessage, e
 		}
 	}
 
-	// Combine header + body and parse.
-	raw := append(header, body...)
+	// Combine header + body and parse. Written as an explicit allocation so
+	// makezero passes; append(header, body...) is safe here because make()
+	// returns cap == len, but the linter cannot see that.
+	raw := make([]byte, 0, len(header)+len(body))
+	raw = append(raw, header...)
+	raw = append(raw, body...)
 	msg, err := bgpmsg.ParseBGPMessage(raw)
 	if err != nil {
 		return nil, fmt.Errorf("parse BGP message: %w", err)

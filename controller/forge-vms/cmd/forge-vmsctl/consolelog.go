@@ -464,7 +464,7 @@ func runRemoteConsoleLog(serverURL, name, org, site, token string, follow bool) 
 	if site != "" {
 		endpoint += "&siteId=" + site
 	}
-	req, err := http.NewRequest("GET", endpoint, nil)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "create request: %v\n", err)
 		os.Exit(1)
