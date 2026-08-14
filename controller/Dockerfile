@@ -80,8 +80,14 @@ COPY ./controller/ui /ui
 COPY LICENSE NOTICE /licenses/
 
 ## https://github.com/opencontainers/image-spec/blob/main/annotations.md
+#
+# image.source is what links a published package back to this repository. GHCR
+# reads it to attach the package to the repo page, and a reader who finds the
+# image before the source has no other way back.
 LABEL org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.title="cloud-workflow-engine"
+      org.opencontainers.image.title="cloud-workflow-engine" \
+      org.opencontainers.image.source="https://github.com/NVIDIA/nke" \
+      org.opencontainers.image.description="NKE Cloud Workflow Engine"
 
 EXPOSE 8080
 

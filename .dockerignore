@@ -1,0 +1,39 @@
+# Build context exclusions for image builds rooted at the repository.
+#
+# Docker reads .dockerignore from the context root only. controller/Dockerfile
+# builds with the repository root as its context, so controller/.dockerignore
+# does not apply to it and this file is what governs that build.
+#
+# Keep this conservative. `COPY . /workspace` feeds a Go workspace build, so
+# every module directory, go.work, go.work.sum and the committed vendor/ tree
+# must reach the builder. LICENSE and NOTICE are copied into the final image.
+# Exclude only what the build cannot use.
+
+# Version control.
+.git
+.gitignore
+.gitattributes
+
+# Build output. Stale binaries from a host build would be copied in and, worse,
+# invalidate the layer cache on every local rebuild.
+bin/
+**/bin/
+
+# Editor and OS files.
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Local developer configuration. controller/README.md tells contributors to
+# create .env.local; it holds host-local settings and must never enter an image.
+.env
+.env.*
+**/.env
+**/.env.*
+
+# CI definitions and documentation. Neither is read by any image build.
+.github/
+docs/
