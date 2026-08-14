@@ -45,6 +45,27 @@ updates:
         exclude-patterns:
           - "k8s.io/*"
           - "sigs.k8s.io/*"
+    ignore:
+      # sigs.k8s.io/cluster-api/test v1.14.0 and later cannot be consumed. Its
+      # go.mod carries local replaces:
+      #
+      #   replace (
+      #     sigs.k8s.io/cluster-api     => ../
+      #     sigs.k8s.io/cluster-api/api => ../api
+      #   )
+      #
+      # A consumer ignores a dependency's replaces, so we resolve
+      # sigs.k8s.io/cluster-api/api at the placeholder version those leave
+      # behind, which does not exist. Requiring the real api module instead
+      # gives an ambiguous import, because api/ was split out of
+      # sigs.k8s.io/cluster-api between v1.12 and v1.14 and both still provide
+      # the same packages while the parent stays at v1.12.
+      #
+      # Taking it needs a deliberate cluster-api 1.12 -> 1.14 migration of
+      # controller/hack/capd-reboot-controller, moving the parent and the new
+      # api module together. Drop this entry when that happens. See #88.
+      - dependency-name: "sigs.k8s.io/cluster-api/test"
+        versions: [">=1.14.0"]
 
   # Dockerfiles anywhere in the tree (controller/, controller/hack/*, agent/, ...).
   - package-ecosystem: docker
