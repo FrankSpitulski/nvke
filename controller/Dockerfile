@@ -11,6 +11,15 @@
 # Base image registry. Defaults to Docker Hub so the image builds for anyone
 # with no NVIDIA network access. Internal builds override it, e.g.
 #   docker build --build-arg BASE_REGISTRY=dockerhub.nvidia.com .
+#
+# The ${BASE_REGISTRY} images below are not digest-pinned, unlike the other
+# Dockerfiles here. Dependabot cannot parse a FROM whose registry is a variable,
+# so nothing would ever move the digest. Following the tag at least picks up
+# in-place rebuilds, which is how base-OS CVE fixes ship under one patch tag.
+#
+# To pin them, put the whole reference in an ARG Dependabot can read
+# (ARG GOLANG_IMAGE=docker.io/golang:1.26.6@sha256:...). That changes what
+# callers override, so it needs agreement from whoever runs internal builds.
 ARG BASE_REGISTRY=docker.io
 
 FROM ghcr.io/spiffe/k8s-spiffe-workload-jwt-exec-auth:0.2.0@sha256:cffed83b451236bad4347110f116e0808a132b57b799acd7c9d8a4ce7cf6b781 AS spiffe-jwt-exec-auth

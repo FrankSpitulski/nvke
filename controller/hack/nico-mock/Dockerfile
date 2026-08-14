@@ -28,7 +28,7 @@ COPY cmd ./cmd
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
     go build -o /workspace/bin/nico-mock ./cmd/nico-mock
 
-FROM ${BASE_REGISTRY}/alpine:3.21.6
+FROM ${BASE_REGISTRY}/alpine:3.21.7
 RUN apk add --update --no-cache ca-certificates docker-cli
 
 COPY --from=builder /workspace/bin/nico-mock /usr/local/bin/nico-mock
