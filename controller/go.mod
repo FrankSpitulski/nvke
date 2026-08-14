@@ -14,6 +14,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gravitational/teleport/api v0.0.0-20251224210154-05b9362bd4d6
 	github.com/gravitational/trace v1.5.1
+	github.com/mattn/go-sqlite3 v1.14.49
 	github.com/oapi-codegen/nethttp-middleware v1.0.2
 	github.com/oapi-codegen/runtime v1.6.0
 	github.com/spiffe/spire-api-sdk v1.15.1
@@ -41,7 +42,6 @@ require (
 	k8s.io/kube-proxy v0.35.3
 	k8s.io/kubelet v0.35.3
 	k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2
-	modernc.org/sqlite v1.40.1
 	sigs.k8s.io/cluster-api v1.12.4
 	sigs.k8s.io/controller-runtime v0.24.1
 	sigs.k8s.io/yaml v1.6.0
@@ -53,7 +53,6 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/charlievieth/strcase v0.0.5 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -84,14 +83,11 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/mattermost/xml-roundtrip-validator v0.1.0 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/oasdiff/yaml v0.1.1 // indirect
 	github.com/oasdiff/yaml3 v0.0.14 // indirect
 	github.com/onsi/ginkgo/v2 v2.32.0 // indirect
 	github.com/onsi/gomega v1.42.1 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
-	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/russellhaering/gosaml2 v0.11.0 // indirect
 	github.com/russellhaering/goxmldsig v1.6.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
@@ -109,7 +105,6 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/term v0.44.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.5.0 // indirect
@@ -119,9 +114,6 @@ require (
 	k8s.io/cluster-bootstrap v0.34.2 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260317180543-43fb72c5454a // indirect
-	modernc.org/libc v1.67.0 // indirect
-	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.11.0 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.3 // indirect

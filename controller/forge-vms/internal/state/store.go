@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/mattn/go-sqlite3" // sqlite driver; requires cgo
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
-	_ "modernc.org/sqlite" // sqlite driver
 )
 
 var (
@@ -44,7 +44,7 @@ func Open(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("failed to create db directory: %w", err)
 	}
 
-	sqldb, err := sql.Open("sqlite", dbPath)
+	sqldb, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite db: %w", err)
 	}
