@@ -20,7 +20,15 @@ import (
 )
 
 func TestUnit_HandleGetInstanceType(t *testing.T) {
-	s := &server{cfg: config{InstanceTypeID: defaultInstanceTypeID}}
+	// instanceTypeCapacity must be seeded the way main() seeds it. The handler
+	// treats an ID missing from the map as 404, so building the server without
+	// it makes every lookup fail.
+	s := &server{
+		cfg: config{InstanceTypeID: defaultInstanceTypeID},
+		instanceTypeCapacity: map[string]int32{
+			defaultInstanceTypeID: int32(defaultInstanceTypeUnusedUsable),
+		},
+	}
 	mux := http.NewServeMux()
 	s.registerAPIRoutes(mux)
 

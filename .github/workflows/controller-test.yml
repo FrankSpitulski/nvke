@@ -1,0 +1,106 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Unit-test lane for the controller modules. Until this existed, agent-test.yml
+# was the only workflow that ran `go test` anywhere in the repository, so
+# controller/, controller/forge-vms/ and controller/hack/nico-mock/ were
+# compiled, linted, vetted, CodeQL-scanned and govulncheck-scanned -- and never
+# tested. A test suite nothing runs reads as coverage in review and provides
+# none.
+#
+# Not covered here, deliberately: controller/api and
+# controller/hack/capd-reboot-controller have no _test.go files at all, and
+# controller/test/e2e needs a live cluster in KUBECONFIG -- `make test-e2e`
+# drives it, and it does not belong in a pull-request lane.
+#
+# ⚠️ CGO_ENABLED=1 is set deliberately and this lane does not work without it.
+# #116 replaced modernc.org/sqlite (pure Go) with mattn/go-sqlite3 (a cgo
+# binding). Without cgo that package compiles to a stub that fails at the FIRST
+# QUERY rather than at build time, so 8 controller packages fail with
+# "requires cgo to work. This is a stub". A cross-compile disables cgo by
+# default too -- not only an explicit CGO_ENABLED=0 -- so this must stay
+# explicit rather than rely on a default.
+#
+# GitHub-hosted runners, not the self-hosted linux-*-cpu16 pool, for the reason
+# in agent-test.yml: self-hosted runners do not receive pull_request events, so
+# using them would cost coverage of fork and Dependabot pull requests.
+# ubuntu-latest ships a C toolchain, which is what cgo needs.
+
+name: Controller Unit Tests
+
+# The two path lists are duplicated by hand. github.com has supported YAML
+# anchors since August 2025, but GitHub Enterprise Server does not, and merge
+# keys are still unsupported everywhere. Keep the two lists identical.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'controller/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'vendor/**'
+      - '.github/workflows/controller-test.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'controller/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'vendor/**'
+      - '.github/workflows/controller-test.yml'
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Do not cancel a run on main; the newer workflows here all guard this.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test:
+    name: Unit tests (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `make test` here already drops ./integration-test, which needs a
+          # running CWE on port 8080.
+          - module: controller
+            run: make test
+          - module: controller/forge-vms
+            run: make test
+          # No Makefile in this module.
+          - module: controller/hack/nico-mock
+            run: go test ./...
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Workspace mode (default) so tests resolve from the committed vendor/
+      # tree. go.work carries the toolchain that satisfies every module.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.work
+          cache: true
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
+
+      - name: Run unit tests
+        working-directory: ${{ matrix.module }}
+        env:
+          CGO_ENABLED: "1"
+        # No -race yet. It belongs here, but it found a real failure in #116
+        # that has since been fixed, and turning it on for the whole controller
+        # suite at the same time as adding the lane would confuse a first red
+        # run. Enable it as an explicit follow-up.
+        run: ${{ matrix.run }}
