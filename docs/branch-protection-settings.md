@@ -34,6 +34,7 @@ checks the current workflows report:
 | `Check THIRD_PARTY_NOTICES.md is up to date` | `.github/workflows/notices-check.yml` | yes |
 | `build` | `.github/workflows/image.yml` | yes |
 | `DCO` | the DCO GitHub App, not a workflow | yes |
+| `actionlint` | `.github/workflows/actionlint.yml` | yes |
 | `Build binaries` | `.github/workflows/go-build.yml` | **no — path-filtered** |
 | `Check go.work and go.work.sum are current` | `.github/workflows/go-work-check.yml` | **no — path-filtered** |
 
@@ -41,6 +42,16 @@ checks the current workflows report:
 documentation-only pull request never reports them — which is exactly the trap
 described next. Require them only if the filters go, or a skip shim reports the
 same check name.
+
+⭐ **`actionlint` used to be in that group and was moved out deliberately.** Its
+`paths:` filter was dropped so it reports on every push and can therefore be
+required. The filter had already cost something: a red run merged to `main`, and
+because every branch inherits the workflow file, the failure then reported on
+every open pull request as though that pull request had caused it. Dropping the
+filter was cheaper than the alternative — a skip shim reporting the same check
+name — because the job is an eight-second static binary on a GitHub-hosted
+runner, so it consumes no self-hosted capacity. **Add it to the required list;
+it is not required yet.**
 
 Confirm the exact names before you require one. A required check that names a
 job which never reports leaves every pull request waiting forever:
@@ -59,7 +70,7 @@ documentation change on it buys little. Add it if you want that guarantee.
 ```bash
 gh api repos/NVIDIA/nke/branches/main/protection \
   --method PUT \
-  --field required_status_checks='{"strict":true,"contexts":["golangci-lint","Check THIRD_PARTY_NOTICES.md is up to date","DCO"]}' \
+  --field required_status_checks='{"strict":true,"contexts":["golangci-lint","actionlint","Check THIRD_PARTY_NOTICES.md is up to date","DCO"]}' \
   --field enforce_admins=true \
   --field required_pull_request_reviews='{"dismiss_stale_reviews":true,"require_code_owner_reviews":true,"required_approving_review_count":1}' \
   --field restrictions=null

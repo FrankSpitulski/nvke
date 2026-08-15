@@ -12,6 +12,18 @@
 # Runs on ubuntu-latest. actionlint is a static binary that reads YAML — it needs
 # no Docker, no private dependency and no NVIDIA runner, so it should not consume
 # self-hosted capacity, and a contributor working from a fork can see it.
+#
+# Deliberately NOT path-filtered, unlike most workflows here. A filtered check
+# does not report on a pull request that misses the filter, and a required check
+# that never reports leaves that pull request waiting forever -- so filtering
+# would make this unrequirable. See docs/branch-protection-settings.md. That is
+# not theoretical: a red run merged to main once and, because every branch
+# inherits the workflow file, the failure then reported on every open pull
+# request as though that pull request had caused it.
+#
+# The filter was saving nothing worth having. This is an eight-second static
+# binary on a GitHub-hosted runner, so running it on pushes that touch no
+# workflow file costs no self-hosted capacity and no meaningful time.
 
 name: Actionlint
 
@@ -20,9 +32,6 @@ on:
     branches:
       - main
       - "pull-request/[0-9]+"
-    paths:
-      - '.github/workflows/**'
-      - '.github/actionlint.yaml'
   workflow_dispatch: {}
 
 permissions: {}
