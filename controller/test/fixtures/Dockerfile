@@ -23,6 +23,6 @@
 # runner, which cannot resolve that host at all.
 ARG BASE_REGISTRY=docker.io
 
-FROM ${BASE_REGISTRY}/alpine:3.21.7
+FROM ${BASE_REGISTRY}/alpine:3.24.1
 RUN mkdir -p /profiles
 COPY profiles/ /profiles/

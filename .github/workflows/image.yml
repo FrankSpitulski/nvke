@@ -18,7 +18,7 @@ permissions: {}
 # gate is. The old summary heading said "medium and above" and would have gone
 # stale the moment the cutoff changed.
 env:
-  GRYPE_SEVERITY_CUTOFF: medium
+  GRYPE_SEVERITY_CUTOFF: critical
 
 concurrency:
   # The sha is part of the group on main, so every commit gets its own.
@@ -185,9 +185,10 @@ jobs:
       # exists at this point, loaded into the local daemon. Doing it there would
       # mean building it a second time.
       #
-      # fail-build: false, matching security-scan.yml. This reports into the
-      # Security tab; it does not gate. Switch it on once the findings are
-      # triaged and the count is known.
+      # Gates at critical. Everything from medium up still reaches the Security
+      # tab through the SARIF upload below; the cutoff decides what fails the
+      # build. .grype.yaml carries the known findings this does not fail on,
+      # each scoped to one package version and dated for review.
       - name: Scan the controller image
         id: image-scan
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
@@ -195,7 +196,8 @@ jobs:
           image: nke/cloud-workflow-engine:ci
           severity-cutoff: ${{ env.GRYPE_SEVERITY_CUTOFF }}
           output-format: sarif
-          fail-build: false
+          config: .grype.yaml
+          fail-build: true
 
       # Renders the findings into the job summary rather than a count and a
       # pointer elsewhere. When the scan gates, the step above prints one ERROR

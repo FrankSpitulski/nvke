@@ -47,7 +47,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} BUILD_VERSION=${B
 ########################################################################
 # Multi-state-final build
 # This should be alpine for us to test & debug
-FROM ${BASE_REGISTRY}/alpine:3.21.7
+FROM ${BASE_REGISTRY}/alpine:3.24.1
 # Runtime + in-container debug tooling, installed in a single --no-cache layer
 # so the apk index is not shipped. Documentation (*-doc) packages and packages
 # with no function inside this pod (binutils, pciutils, usbutils) are

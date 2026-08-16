@@ -9,9 +9,10 @@
 # manifest in the tree and reports the whole surface, which is what a consumer
 # of a released artifact is exposed to.
 #
-# `fail-build: false` matches NVIDIA/aicr: the scan reports, it does not gate.
-# `only-fixed: true` hides advisories with no fixed version, which are noise
-# until upstream ships something to upgrade to.
+# Gates at critical. `only-fixed: true` hides advisories with no fixed version,
+# which are noise until upstream ships something to upgrade to -- so this gates
+# only on criticals that are actually actionable. .grype.yaml carries the known
+# findings neither scan fails on.
 #
 # The summary step renders the findings into the run. Without it the only
 # output is a count and a pointer to the Security tab, which is a different UI
@@ -41,7 +42,7 @@ permissions:
 # gate is. The old summary heading hardcoded "medium severity and above" and
 # would have gone stale the moment the cutoff changed.
 env:
-  GRYPE_SEVERITY_CUTOFF: medium
+  GRYPE_SEVERITY_CUTOFF: critical
 
 concurrency:
   # The sha is part of the group on main, so every commit gets its own.
@@ -80,7 +81,8 @@ jobs:
           severity-cutoff: ${{ env.GRYPE_SEVERITY_CUTOFF }}
           output-format: sarif
           only-fixed: true
-          fail-build: false
+          config: .grype.yaml
+          fail-build: true
 
       # Renders the findings rather than a count and a pointer elsewhere. Same
       # reasoning as the equivalent step in image.yml: when a scan gates, the
