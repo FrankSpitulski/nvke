@@ -31,11 +31,16 @@ GOLANGCI_LINT_VERSION ?= v2.12.2
 # derives an agent version with an unmatched `git describe` and already
 # produces the wrong string.
 #
-# nkectl versions independently of the controller it sits under, so it gets its
-# own tag family. No nkectl/v* tag exists yet, hence the two fallbacks: a plain
-# v* tag, then v0.0.0. The matched prefix is stripped so the binary reports
-# v1.2.3 rather than nkectl/v1.2.3. --dirty marks a build from a modified tree.
-_NKECTL_VERSION_RAW := $(shell git describe --tags --dirty --match 'nkectl/v[0-9]*' 2>/dev/null || git describe --tags --dirty --match 'v[0-9]*' 2>/dev/null || echo "v0.0.0")
+# nkectl versions apart from the controller it sits under, so it gets its own tag
+# family. No nkectl/v* tag exists yet, hence the fallbacks: a plain v* tag, the
+# commit, then v0.0.0. The prefix is stripped, so the binary reports v1.2.3, not
+# nkectl/v1.2.3. --dirty marks a build from a modified tree.
+#
+# Without the commit step, every nkectl reports v0.0.0, because neither tag
+# family exists. The commit says which source the build came from, and leaves
+# v0.0.0 to mean a build outside a git checkout. Same steps as cmd_version in the
+# root Makefile.
+_NKECTL_VERSION_RAW := $(shell git describe --tags --dirty --match 'nkectl/v[0-9]*' 2>/dev/null || git describe --tags --dirty --match 'v[0-9]*' 2>/dev/null || git describe --always --dirty 2>/dev/null || echo "v0.0.0")
 NKECTL_VERSION  ?= $(patsubst nkectl/%,%,$(_NKECTL_VERSION_RAW))
 NKECTL_COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 NKECTL_TREE     ?= $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo clean || echo dirty)
@@ -63,7 +68,7 @@ build:
 	@# know the stamping worked is to ask the binary. Cheap, and it fails loudly.
 	@out="$$($(BINARY) version)"; \
 	case "$$out" in \
-	  *" dev "*|*"unknown"*) \
+	  *" dev "*|*"unknown"*|*"v0.0.0"*) \
 	    echo "ERROR: nkectl was built without version information: $$out"; \
 	    echo "       The -X symbols in NKECTL_LDFLAGS no longer match the variables in cmd/nkectl."; \
 	    exit 1;; \

@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -42,7 +43,18 @@ const (
 	defaultSleepDuration              = 10 * time.Second
 )
 
+// version is set at build time via -ldflags "-X main.version=<version>".
+var version = "dev"
+
 func main() {
+	versionFlag := flag.Bool("version", false, "Print the version and exit")
+	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("capd-reboot-controller %s\n", version)
+		os.Exit(0)
+	}
+
 	ctrllog.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	cfg := ctrl.GetConfigOrDie()

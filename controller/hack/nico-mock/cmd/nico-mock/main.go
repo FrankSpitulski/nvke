@@ -37,6 +37,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -186,7 +187,18 @@ type server struct {
 	instanceLabels       map[string]map[string]string
 }
 
+// version is set at build time via -ldflags "-X main.version=<version>".
+var version = "dev"
+
 func main() {
+	versionFlag := flag.Bool("version", false, "Print the version and exit")
+	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("nico-mock %s\n", version)
+		os.Exit(0)
+	}
+
 	cfg := config{
 		ListenAddr:     getenv("NICO_MOCK_LISTEN_ADDR", defaultListenAddr),
 		OrgID:          getenv("NICO_MOCK_ORG_ID", defaultOrgID),

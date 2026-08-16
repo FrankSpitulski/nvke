@@ -26,7 +26,10 @@ IMG_NAME ?= nvcr.io/j7sbcjl3qgta/cloud-workflow-engine
 IMG_TAG ?= latest
 IMG ?= ${IMG_NAME}:${IMG_TAG}
 export NAME := cloud-workflow-engine
-_BUILD_VERSION_RAW := $(shell git describe --tags --dirty --match 'controller/v[0-9]*' 2>/dev/null || git describe --tags --dirty --match 'v[0-9]*' 2>/dev/null || echo "v0.0.0")
+# Falls back to the commit before v0.0.0. A CI checkout is shallow and carries
+# no tags, so both describes find nothing there and every binary CI built
+# reported v0.0.0. Same steps as cmd_version in the root Makefile.
+_BUILD_VERSION_RAW := $(shell git describe --tags --dirty --match 'controller/v[0-9]*' 2>/dev/null || git describe --tags --dirty --match 'v[0-9]*' 2>/dev/null || git describe --always --dirty 2>/dev/null || echo "v0.0.0")
 BUILD_VERSION ?= $(patsubst controller/%,%,$(_BUILD_VERSION_RAW))
 
 # Get the last git commit hash. If we are on CI depend on what it provides

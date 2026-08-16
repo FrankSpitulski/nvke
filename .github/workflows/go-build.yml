@@ -87,5 +87,12 @@ jobs:
             go.work.sum
             **/go.sum
 
+      # version-check builds, then asks each binary for its version and fails on
+      # a placeholder. The linker drops an -X for a symbol the binary lacks
+      # without a word, so a renamed variable is otherwise invisible until a
+      # release reports "dev".
+      #
+      # The checkout above is shallow and has no tags, so `git describe --tags`
+      # finds nothing and the version falls back to the commit. That passes.
       - name: Build
-        run: make build
+        run: make version-check

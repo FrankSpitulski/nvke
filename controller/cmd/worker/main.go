@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -52,6 +53,15 @@ const (
 
 //nolint:gocyclo,maintidx // This isn't real complexity, it's just a lot of "exit if error"
 func main() {
+	// Before ParseConfigFromEnv, so --version answers without a configured env.
+	versionFlag := flag.Bool("version", false, "Print the version and exit")
+	flag.Parse()
+
+	if *versionFlag {
+		fmt.Fprintf(os.Stdout, "cloud-workflow-engine %s\n", version.Version)
+		os.Exit(0)
+	}
+
 	cfg, err := config.ParseConfigFromEnv()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)

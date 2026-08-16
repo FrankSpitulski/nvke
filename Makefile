@@ -35,17 +35,34 @@ WORK_MODULES := agent \
 # samples/ and sample-clients/ are package main but are examples, not artefacts.
 #
 # controller does not belong here: its command is ./cmd/worker, but the binary
-# it ships is named cloud-workflow-engine and carries a version ldflag, so this
-# loop would produce the wrong name and no version. `build` delegates to
-# controller/Makefile for it. controller/forge-vms ships through its own
-# Makefile and the container image.
+# it ships is named cloud-workflow-engine, so this loop would produce the wrong
+# name. `build` delegates to controller/Makefile for it. controller/forge-vms
+# ships through its own Makefile and the container image.
 #
-# controller/nkectl is absent for the version half of that same reason. nkectl
-# reports a build version, this loop passes no ldflags, and the result is a
-# binary that says "dev". `build` delegates to controller/nkectl/Makefile.
+# controller/nkectl is absent because its Makefile stamps four symbols, not one,
+# and asserts the stamp took. `build` delegates to controller/nkectl/Makefile.
 CMD_MODULES := agent \
                controller/hack/capd-reboot-controller \
                controller/hack/nico-mock
+
+# The version stamped into a CMD_MODULES binary. First hit wins: the module's own
+# tag series, a repo-wide one, the commit, then v0.0.0 outside a git checkout.
+# The hack tools have no tags, so they get the commit.
+#
+# --match is required. This repo has several tag series, and a bare
+# `git describe --tags` returns the nearest one, so agent would report a
+# controller version. Same derivation as controller/ and controller/nkectl/.
+cmd_version = $(patsubst $(notdir $(1))/%,%,$(shell \
+    git describe --tags --dirty --match '$(notdir $(1))/v[0-9]*' 2>/dev/null \
+    || git describe --tags --dirty --match 'v[0-9]*' 2>/dev/null \
+    || git describe --always --dirty 2>/dev/null \
+    || echo v0.0.0))
+
+# Both spellings: agent declares VERSION, the hack tools declare version. The
+# linker ignores an -X for a symbol the binary lacks, so passing both is safe.
+# It ignores it silently, which is why version-check exists.
+cmd_ldflags = -X 'main.version=$(call cmd_version,$(1))' \
+              -X 'main.VERSION=$(call cmd_version,$(1))'
 
 # Must match WORKER_BIN_NAME in controller/Makefile. `build` fails if it does not.
 CWE_BIN_NAME ?= cloud-workflow-engine
@@ -67,7 +84,7 @@ LICENSE_DESTS := controller/licenses \
                  controller/deploy/charts/cloud-workflow-engine
 
 .DEFAULT_GOAL := help
-.PHONY: help work work-sync work-check work-check-offline build clean licenses licenses-check
+.PHONY: help work work-sync work-check work-check-offline build version-check clean licenses licenses-check
 
 help: ## Show the available targets.
 	@echo "Usage: make <target>"
@@ -245,10 +262,11 @@ build: ## Build every workspace package, and the released commands into bin/.
 		$(GO) build -C $$m ./... || exit 1; \
 	done
 	@mkdir -p $(BIN_DIR)
-	@for m in $(CMD_MODULES); do \
-		echo "- building $$m"; \
-		$(GO) build -C $$m -o $(BIN_DIR)/ ./cmd/... || exit 1; \
-	done
+	@# foreach, not a shell loop: $(call) cannot read a shell variable.
+	@$(foreach m,$(CMD_MODULES), \
+		echo "- building $(m) $(call cmd_version,$(m))"; \
+		$(GO) build -C $(m) -ldflags "$(call cmd_ldflags,$(m))" -o $(BIN_DIR)/ ./cmd/... || exit 1; \
+	)
 	@# controller/Makefile owns this binary's name and its version ldflag, so
 	@# delegate rather than repeat either here. See CMD_MODULES above.
 	@echo "- building controller"
@@ -263,6 +281,52 @@ build: ## Build every workspace package, and the released commands into bin/.
 		|| { echo "ERROR: controller/nkectl/Makefile no longer produces bin/nkectl."; exit 1; }
 	@echo "Built into $(BIN_DIR):"
 	@ls -1 $(BIN_DIR) | sed 's/^/    /'
+
+# Every binary `build` produces, and how each reports its version. nkectl takes a
+# subcommand, the rest take a flag. Both answer the same question.
+#
+# name:argument pairs, because the check below reads them at make level. A shell
+# loop cannot: make expands $(VERSION_CMD_$$b) before the shell sets b.
+VERSION_CMDS := agent:--version \
+                capd-reboot-controller:--version \
+                cloud-workflow-engine:--version \
+                nico-mock:--version \
+                nkectl:version
+
+version-check: build ## Verify every built binary reports a real version.
+	@# Two tests. The name list catches a placeholder version. The emptiness test
+	@# catches a variable with no default, which prints a label and nothing else.
+	@# A shell function, because a `case` pattern inside $(foreach) would end it
+	@# at the pattern's own `)`.
+	@fail=0; \
+	check() { \
+		out=$$("$(BIN_DIR)/$$1" $$2 2>&1) || { \
+			echo "  FAIL $$1 $$2 -- exited non-zero:"; \
+			echo "$$out" | sed 's/^/         /'; \
+			return 1; \
+		}; \
+		case "$$out" in \
+			*dev*|*unknown*|*v0.0.0*|"") \
+				echo "  FAIL $$1 -- reports an unstamped version: $$out"; \
+				return 1 ;; \
+		esac; \
+		if [ -z "$$(printf '%s' "$$out" | tr -d '[:space:]:' | tail -c 1)" ]; then \
+			echo "  FAIL $$1 -- reports a label with no version: '$$out'"; \
+			return 1; \
+		fi; \
+		echo "  ok   $$1 -- $$out"; \
+	}; \
+	$(foreach p,$(VERSION_CMDS),check $(word 1,$(subst :, ,$(p))) $(word 2,$(subst :, ,$(p))) || fail=1;) \
+	declared="$(sort $(foreach p,$(VERSION_CMDS),$(word 1,$(subst :, ,$(p)))))"; \
+	built=$$(ls -1 $(BIN_DIR) | sort | tr '\n' ' '); \
+	if [ "$$(echo $$declared)" != "$$(echo $$built)" ]; then \
+		echo "  FAIL VERSION_CMDS lists [$$declared] but build produced [$$built]"; \
+		echo "       Add the new binary to VERSION_CMDS so its version is checked too."; \
+		fail=1; \
+	fi; \
+	[ $$fail -eq 0 ] || { \
+		echo "ERROR: a binary does not report a build version. See the -X notes on cmd_ldflags."; \
+		exit 1; }
 
 licenses: ## Copy LICENSE and NOTICE everywhere an artefact ships them from.
 	@for d in $(LICENSE_DESTS); do \

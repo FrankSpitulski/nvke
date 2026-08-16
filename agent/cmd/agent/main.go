@@ -37,7 +37,11 @@ const (
 
 // VERSION is set at build time via: -ldflags "-X main.VERSION=<version>"
 // Keep it as variable or things are going to break
-var VERSION string
+//
+// "dev", not the zero value, so a build with no -X says so. Empty, it printed
+// "NKE Agent Version: " and registered an empty version, which reads as a
+// display bug instead of a missing stamp.
+var VERSION = "dev"
 
 // envOr returns the value of the named environment variable, or fallback when unset/empty.
 func envOr(key, fallback string) string {
