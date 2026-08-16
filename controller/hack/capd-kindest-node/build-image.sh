@@ -108,7 +108,25 @@ if should_build_local_node_agent; then
     exit 1
   fi
 
-  effective_node_agent_version="${NODE_AGENT_VERSION:-$(git -C "${NODE_AGENT_REPO_PATH}" describe --tags --always --dirty)}"
+  # --match, then strip the prefix, exactly as agent/Makefile does. Keep the two
+  # in step: this value is passed back to that Makefile as VERSION, and it names
+  # the tarball read below.
+  #
+  # A bare `git describe --tags` returns the nearest tag from any series, so it
+  # returned agent/v0.2.0-... here and put a slash in the middle of a filename.
+  # The path it built could not exist, and the failure came from the `cp` several
+  # lines later rather than from the version.
+  effective_node_agent_version="${NODE_AGENT_VERSION:-$(
+    git -C "${NODE_AGENT_REPO_PATH}" describe --match 'agent/v*' --tags --always --dirty 2>/dev/null \
+      || git -C "${NODE_AGENT_REPO_PATH}" rev-parse --short HEAD
+  )}"
+  effective_node_agent_version="${effective_node_agent_version#agent/}"
+
+  if [[ "${effective_node_agent_version}" == */* ]]; then
+    echo "Agent version contains a slash and cannot name a file: ${effective_node_agent_version}" >&2
+    exit 1
+  fi
+
   node_agent_cgo_enabled="${CGO_ENABLED:-0}"
   echo "Building local agent ${effective_node_agent_version} for ${NODE_AGENT_DIR_ARCH} from ${NODE_AGENT_REPO_PATH} with CGO_ENABLED=${node_agent_cgo_enabled}..."
   CGO_ENABLED="${node_agent_cgo_enabled}" make -C "${NODE_AGENT_REPO_PATH}" "package-${NODE_AGENT_DIR_ARCH}" VERSION="${effective_node_agent_version}"
