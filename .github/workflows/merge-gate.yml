@@ -122,6 +122,21 @@ jobs:
     permissions:
       contents: read
 
+  lint:
+    uses: ./.github/workflows/lint.yml
+    permissions:
+      contents: read
+
+  # govulncheck needs more than contents:read -- it uploads SARIF. A called
+  # workflow cannot be granted less than its jobs request, or the whole file
+  # fails to start with no jobs and no error message.
+  govulncheck:
+    uses: ./.github/workflows/govulncheck.yml
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+
   gate:
     name: gate
     # always(), so the gate still reports when something upstream failed. Without
@@ -138,6 +153,8 @@ jobs:
       - generated
       - actionlint
       - shellcheck
+      - lint
+      - govulncheck
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}

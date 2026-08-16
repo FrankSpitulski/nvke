@@ -5,6 +5,17 @@ name: Lint
 
 # Self-hosted runners do not pick up jobs from pull_request events, so pull
 # requests are tested through the pull-request/<number> branch instead.
+# workflow_call so merge-gate.yml can call this, and ubuntu-latest so the call
+# works on a real pull_request event -- self-hosted runners do not receive fork
+# pull_request events, so a gate member left on one would queue forever.
+#
+# Nothing here needs an NVIDIA runner: the whole workspace resolves from the
+# committed vendor/ tree, so this is ordinary Go work with no credentials.
+#
+# Lands ahead of the gate change on purpose. A local `uses: ./.github/...`
+# reference resolves against the BASE branch, so a workflow whose workflow_call
+# trigger exists only on a pull-request head cannot be called from it -- the call
+# fails with no jobs and no error message.
 on:
   push:
     branches:
@@ -15,6 +26,7 @@ on:
       # of this check -- and a check that cannot report on a pull request
       # cannot be required. Same list as notices-check.yml.
       - "dependabot/**"
+  workflow_call:
   workflow_dispatch:
 
 permissions: {}
@@ -55,7 +67,7 @@ jobs:
     # (see docs/branch-protection-settings.md); a renamed job never reports
     # under the required name and leaves every PR waiting forever.
     name: golangci-lint
-    runs-on: linux-amd64-cpu16
+    runs-on: ubuntu-latest
     if: github.repository == 'NVIDIA/nke'
     timeout-minutes: 15
     permissions:
@@ -79,7 +91,7 @@ jobs:
 
   lint-controller:
     name: golangci-lint (controller)
-    runs-on: linux-amd64-cpu16
+    runs-on: ubuntu-latest
     if: github.repository == 'NVIDIA/nke'
     # make lint gives golangci-lint a 20m budget on this module; leave headroom
     # for an uncached run.
@@ -120,7 +132,7 @@ jobs:
 
   lint-nkectl:
     name: golangci-lint (nkectl)
-    runs-on: linux-amd64-cpu16
+    runs-on: ubuntu-latest
     if: github.repository == 'NVIDIA/nke'
     timeout-minutes: 15
     permissions:
@@ -151,7 +163,7 @@ jobs:
 
   lint-nico-mock:
     name: golangci-lint (nico-mock)
-    runs-on: linux-amd64-cpu16
+    runs-on: ubuntu-latest
     if: github.repository == 'NVIDIA/nke'
     timeout-minutes: 15
     permissions:
@@ -181,7 +193,7 @@ jobs:
 
   lint-forge-vms:
     name: golangci-lint (forge-vms)
-    runs-on: linux-amd64-cpu16
+    runs-on: ubuntu-latest
     if: github.repository == 'NVIDIA/nke'
     timeout-minutes: 15
     permissions:
