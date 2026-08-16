@@ -70,8 +70,14 @@ build:
 	  *) echo "  $$out";; \
 	esac
 
+# GO_TEST_FLAGS lets CI add -race without the workflow restating the test
+# command, so `make test` stays the one definition of what the tests are.
+# controller-test.yml sets it; without this the matrix entry would run without
+# the race detector and nothing would say so.
+GO_TEST_FLAGS ?=
+
 test:
-	$(GO) test ./...
+	$(GO) test $(GO_TEST_FLAGS) ./...
 
 # golangci-lint applies the formatters enabled in .golangci.yml (gci, gofumpt),
 # so there is no separate gofmt step here.
@@ -93,7 +99,9 @@ license: ## Ensure license headers at code.
 # environment, so one implementation serves every module in the workspace.
 .PHONY: notices notices-check
 notices: ## Regenerate THIRD_PARTY_NOTICES.md for the nkectl binary.
-	@$(MAKE) --no-print-directory -C .. bin/go-licenses
+	@# `go-licenses`, not `bin/go-licenses`: the real rule's target is an
+	@# absolute path, so a relative name does not match it.
+	@$(MAKE) --no-print-directory -C .. go-licenses
 	@MODULE_ROOT="$(CURDIR)" \
 		OUTPUT="$(CURDIR)/THIRD_PARTY_NOTICES.md" \
 		PACKAGES="./cmd/nkectl" \

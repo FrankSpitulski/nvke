@@ -49,9 +49,10 @@ import (
 	"sync"
 	"time"
 
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
+
+	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
 const (
@@ -738,7 +739,10 @@ func (s *server) createInstance(ctx context.Context, req nicosdk.InstanceCreateR
 	return inst, nil
 }
 
-func (s *server) startInstanceContainer(ctx context.Context, containerID, instanceID string, req nicosdk.InstanceCreateRequest) (*nicosdk.Instance, error) {
+// instanceID is unused: the container already carries it as a label, and the
+// instance is rebuilt from `docker inspect` below. Kept in the signature, named
+// _, so the call sites stay readable next to the other create/start helpers.
+func (s *server) startInstanceContainer(ctx context.Context, containerID, _ string, req nicosdk.InstanceCreateRequest) (*nicosdk.Instance, error) {
 	if _, err := runDocker(ctx, "start", containerID); err != nil {
 		return nil, fmt.Errorf("start node container: %w", err)
 	}
@@ -1165,7 +1169,10 @@ func runDocker(ctx context.Context, args ...string) (string, error) {
 }
 
 func decodeJSONBody(r *http.Request, v any) error {
-	defer r.Body.Close()
+	// net/http closes the request body itself, so this is belt and braces and
+	// there is nothing useful to do if it fails. Discarded explicitly rather
+	// than implicitly, so the intent is visible and errcheck stays on.
+	defer func() { _ = r.Body.Close() }()
 
 	return json.NewDecoder(r.Body).Decode(v)
 }

@@ -282,6 +282,15 @@ $(GO_LICENSES):
 	@GOTOOLCHAIN=$(GO_TOOLCHAIN) GOBIN=$(CURDIR)/bin \
 		go install github.com/google/go-licenses/v2@$(GO_LICENSES_VERSION)
 
+# A named alias for the rule above, so another module can ask for the binary by
+# name. GO_LICENSES is an absolute path, which means the real rule's target is
+# also absolute and `make -C .. bin/go-licenses` does not match it -- it fails
+# with "No rule to make target 'bin/go-licenses'". nkectl's notices target hit
+# exactly that, and it was masked in CI because the controller step runs first
+# and leaves the binary behind.
+.PHONY: go-licenses
+go-licenses: $(GO_LICENSES) ## Build the pinned go-licenses into ./bin.
+
 # Permissive licenses approved for redistribution. Matches the allowlist used by
 # NVIDIA/aicr. A dependency introducing anything else - copyleft in particular -
 # fails the check and needs a conscious decision rather than silent acceptance.

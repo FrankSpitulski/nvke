@@ -79,12 +79,14 @@ jobs:
             run: make test
           - module: controller/forge-vms
             run: make test
-          # Neither of these has a Makefile, so -race goes on the command
-          # itself rather than through GO_TEST_FLAGS.
+          # Every module here now has a Makefile with a `test` target, so all
+          # four go through `make test` and pick up -race from GO_TEST_FLAGS
+          # below. Previously these two ran a bare `go test -race ./...`,
+          # because neither had a Makefile.
           - module: controller/hack/nico-mock
-            run: go test -race ./...
+            run: make test
           - module: controller/nkectl
-            run: go test -race ./...
+            run: make test
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

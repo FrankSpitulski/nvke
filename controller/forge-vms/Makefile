@@ -112,3 +112,26 @@ fmt:
 lint:
 	$(GO) install $(GOLANGCI_LINT_REPO)@$(GOLANGCI_LINT_VERSION)
 	$(GOBIN)/golangci-lint run --timeout 10m --max-same-issues 0 --max-issues-per-linter 0 ./...
+
+license: ## Ensure license headers at code.
+	$(GO) run github.com/google/addlicense@v1.1.1 -f ./hack/boilerplate.addlicense.txt \
+		-ignore 'ui/vendor/**' \
+		-ignore 'test/integration/testutil/testdata/**' \
+		-ignore '.dev/**' \
+		.
+
+# The target name is load-bearing beyond this file. license.yml builds its
+# header-check matrix by selecting modules whose Makefile defines
+# `file-license-check:`, so a module without one is silently absent from that
+# matrix rather than reported as unchecked. Headers here were already correct,
+# enforced incidentally because controller's addlicense walks the filesystem and
+# does not know about module boundaries -- this makes the coverage explicit and
+# survives someone adding an ignore glob upstream. Expects a clean tree.
+.PHONY: license file-license-check
+file-license-check: license ## Verify all files have license headers.
+	@if ! git diff --exit-code -- . > /dev/null 2>&1; then \
+		echo "License headers are missing or outdated. Please run 'make license' locally and commit the changes."; \
+		echo "Files with missing/outdated license headers:"; \
+		git diff --name-only -- .; \
+		exit 1; \
+	fi
