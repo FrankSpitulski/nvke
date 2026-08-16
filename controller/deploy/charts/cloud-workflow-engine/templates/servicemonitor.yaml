@@ -18,9 +18,15 @@ spec:
     matchNames:
       - {{ include "cloud-workflow-engine.namespace" . }}
   selector:
+    {{- /*
+      Merged into one map rather than emitted as two blocks. Emitting both
+      produced a duplicate app.kubernetes.io/name key whenever a value here
+      repeated one of the selector labels -- which the shipped default did.
+      Helm never parses its own output, so `helm lint` and `helm template`
+      both passed while the manifest was invalid.
+    */}}
+    {{- $labels := fromYaml (include "cloud-workflow-engine.selectorLabels" .) }}
+    {{- $labels = merge (deepCopy (.Values.serviceMonitor.matchLabels | default dict)) $labels }}
     matchLabels:
-      {{- include "cloud-workflow-engine.selectorLabels" . | nindent 6 }}
-      {{- with .Values.serviceMonitor.matchLabels }}
-      {{- toYaml . | nindent 6 }}
-      {{- end }}
+      {{- toYaml $labels | nindent 6 }}
 {{- end }}

@@ -84,6 +84,33 @@ jobs:
           echo "rendered ${count} resources"
           echo "### Chart renders ${count} resources" >> "${GITHUB_STEP_SUMMARY}"
 
+      # Helm never parses its own output, so `helm lint` and `helm template`
+      # both pass on a manifest Kubernetes would reject. A duplicate
+      # app.kubernetes.io/name in the ServiceMonitor selector survived both for
+      # exactly that reason. kubeconform parses what was rendered.
+      - name: Validate the rendered manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Recomputed, not inherited: a shell variable set in the Render step
+          # does not survive into this one. Same expression as there.
+          out="${RUNNER_TEMP}/rendered.yaml"
+          ver=v0.7.0
+          curl -sSfL --retry 3 \
+            "https://github.com/yannh/kubeconform/releases/download/${ver}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz -C "${RUNNER_TEMP}" kubeconform
+          # -strict rejects duplicate keys and unknown fields. ServiceMonitor is
+          # a CRD, so its schema comes from the datreeio catalogue; -ignore-missing-schemas
+          # keeps an unpublished CRD from failing the build while still
+          # validating everything with a schema.
+          "${RUNNER_TEMP}/kubeconform" \
+            -strict \
+            -summary \
+            -ignore-missing-schemas \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            "${out}"
+
       # Chart.yaml carries version and appVersion 0.0.0 and says in a comment
       # that CI overrides both at package time. Nothing verified that, so a
       # packaging path that dropped the flags would ship 0.0.0 to whoever
