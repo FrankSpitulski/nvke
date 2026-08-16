@@ -1,7 +1,7 @@
 # NKE — NVIDIA Kubernetes Engine
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8.svg)](https://go.dev/dl/)
+[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8.svg)](https://go.dev/dl/)
 
 **A management plane for running GPU Kubernetes clusters on bare metal.** NKE
 provisions and operates isolated Kubernetes clusters on NVIDIA infrastructure,
@@ -50,10 +50,16 @@ What distinguishes it from a generic CAPI distribution:
 |---|---|
 | `controller/` | The control plane. REST API and UI, durable Temporal workflows, cluster and node inventory, and the infrastructure provider integrations. |
 | `agent/` | The on-node daemon. Exposes a gRPC API the controller drives to run `kubeadm`, install a CNI, and configure disk and etcd encryption. |
+| `controller/nkectl/` | `nkectl`, the command-line interface. Validates a site inventory and drives bootstrap. |
+| `controller/forge-vms/` | VM lifecycle service used by the development and test environments. |
 | `build/` | Build and publish scripts per component. |
 | `docs/` | Architecture, getting started, and admin guides. |
 
-The two Go modules are independently buildable.
+**Eight Go modules**, tied together by a workspace at the repository root, each
+independently buildable. `make build` links five binaries: `agent`,
+`cloud-workflow-engine`, `nkectl`, `capd-reboot-controller` and `nico-mock`.
+See [docs/go-workspace.md](docs/go-workspace.md) for how the workspace fits
+together and why `vendor/` is committed.
 
 ## Getting started
 
@@ -91,7 +97,7 @@ For the full local development setup, including the end-to-end suites, see
 
 | Tool | Version |
 |---|---|
-| Go | 1.24+ |
+| Go | 1.26+ |
 | Docker | 24+ |
 | Flox | optional, for a reproducible controller toolchain |
 

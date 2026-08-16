@@ -29,13 +29,19 @@ the dependency tree without the build going red.
 
 | Component | Why | Tracked by |
 |---|---|---|
-| `controller/` — the Cloud Workflow Engine | `controller/go.mod` requires two modules that are not public. `go-licenses` has to resolve every module in the graph to walk the import closure, so it cannot produce a complete or accurate list until those dependencies are removed. | The work to make `controller/` build from public dependencies |
+| `controller/` — the Cloud Workflow Engine | ⚠️ **A `controller/THIRD_PARTY_NOTICES.md` now exists and is NOT verified.** It was imported wholesale rather than generated from this tree, and `notices-check.yml` still runs `working-directory: agent`, so nothing regenerates or compares it. It attributes at least two modules that appear in no `go.sum` here and are not vendored. `controller/Dockerfile` copies it into `/licenses`, so it ships. | Regenerating it here and widening `notices-check.yml` |
+| `controller/nkectl/` — the `nkectl` CLI | No notices file at all. It is a shipped binary, so its dependencies — cobra, viper, mapstructure, yaml.v3 — are attributed nowhere. Every dependency is public, so nothing blocks generating it. | Generating notices for `controller/nkectl/` |
+
+⚠️ **The `controller/` row changed meaning on 2026-08-16 and this file has not
+caught up in spirit.** It used to mean *"no notices file exists"*. It now means
+*"one exists, ships inside the published image, and nobody has checked it"* —
+which is the worse of the two, because a wrong attribution list looks compliant.
 
 **A partial file would be worse than none here.** A notices file that silently
-omits the dependencies reached through the private modules would claim
+omits dependencies, or claims ones the artifact does not contain, asserts a
 completeness it does not have, and anyone relying on it for license compliance
-would be relying on the wrong list. The row above stays open until the closure
-can be walked end to end.
+would be relying on the wrong list. The rows above stay open until each closure
+can be walked end to end **and a check enforces it**.
 
 When `controller/` builds from public dependencies, cover it by copying
 `agent/hack/generate-notices.sh`, `agent/Makefile`'s `notices` and

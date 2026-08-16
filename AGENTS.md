@@ -243,9 +243,29 @@ reverting it.
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/).
 Branches follow `<type>/<short-description>`, for example `fix/kubeadm-reset-timeout`.
 
-Pull requests from a fork are built through a `pull-request/<number>` branch
-rather than the `pull_request` event, because the self-hosted runners do not pick
-up fork events. Expect checks to appear on that branch.
+Most checks are built through a `pull-request/<number>` branch rather than the
+`pull_request` event, because the self-hosted runners do not pick up
+`pull_request`. `copy-pr-bot` creates that branch. Expect those checks to appear
+on it rather than on your own branch.
+
+⚠️ **This is not a fork-only mechanism, despite what this file used to say.**
+The bot gates on **author vetting**, not on whether the pull request comes from
+a fork. Same-repository pull requests from unvetted authors are not mirrored
+either, and receive none of the checks that depend on it — `golangci-lint`,
+CodeQL, `govulncheck`, `gitleaks`, `grype`, `actionlint`, `shellcheck`, the
+image build and the notices gate.
+
+**Absence of a check does not look like failure.** The seven workflows on the
+real `pull_request` event still report, so the pull request page shows a column
+of green ticks with the other checks simply missing. If you are reviewing, check
+that the checks you care about are *present*, not just passing:
+
+```bash
+gh pr checks <number> --repo NVIDIA/nke --json name,workflow
+```
+
+See [docs/branch-protection-settings.md](docs/branch-protection-settings.md) for
+which checks fall into which group.
 
 ## See also
 

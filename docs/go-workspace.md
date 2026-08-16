@@ -30,7 +30,8 @@ testing and linting need no credentials at all**.
 
 Two things still need access to that repository, until it goes public:
 
-- `make vendor` — re-vendoring after a dependency change.
+- `make work-sync` — re-vendoring after a dependency change. It runs
+  `go work vendor` internally.
 - The freshness re-derivation inside `make work-sync` / `make work-check` —
   rebuilding the module graph fetches every `go.mod`, including that one.
   `work-check` detects when the module is unreachable, runs its static checks,
@@ -116,8 +117,8 @@ requests.
 1. Create it with `go mod init`.
 2. Add its path to `WORK_MODULES` in the root `Makefile`.
 3. If it has commands to build, add it to `CMD_MODULES` too.
-4. Run `make work-sync`, then `make vendor`, and commit `go.work`,
-   `go.work.sum`, `vendor/` and the `Makefile`.
+4. Run `make work-sync` — it refreshes the module graph **and** re-vendors —
+   then commit `go.work`, `go.work.sum`, `vendor/` and the `Makefile`.
 
 Skipping step 2 fails `make work-check` by design, with the module named.
 
@@ -137,6 +138,14 @@ repository root, the root is not itself a module: build through the `Makefile`,
 or name a module path (`go build ./agent/...`).
 
 **`inconsistent vendoring`** — a dependency changed (in any member's `go.mod`)
-without the vendor tree being refreshed. Run `make vendor` and commit the
+without the vendor tree being refreshed. Run `make work-sync` and commit the
 `vendor/` changes; it needs access to `cluster-api-provider-nico` (see "The
 vendored dependency").
+
+> ⚠️ **There is no `make vendor` target, and running it looks like it worked.**
+> This document used to say `make vendor` in three places. `vendor/` is a
+> directory, so make treats the name as an already-up-to-date file target and
+> exits 0 with `make: Nothing to be done for 'vendor'.` — nothing is
+> re-vendored, and the next build fails with the same `inconsistent vendoring`
+> error you were trying to clear. The target that does the work is
+> **`make work-sync`**.

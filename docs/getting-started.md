@@ -7,7 +7,7 @@ for nke and verifying that both modules build and test cleanly.
 
 | Tool | Version | Install |
 |---|---|---|
-| Go | 1.24+ | https://go.dev/dl/ |
+| Go | 1.26+ | https://go.dev/dl/ |
 | Docker | 24+ | https://docs.docker.com/get-docker/ |
 | Flox (optional) | latest | https://flox.dev/ — used for reproducible controller toolchain |
 

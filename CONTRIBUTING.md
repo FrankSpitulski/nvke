@@ -22,7 +22,7 @@ into three categories:
 
 ### Prerequisites
 
-- Go 1.24+ (`go version`)
+- Go 1.26+ (`go version`) — the floor is set by `go.work`, not by any single module
 - [Flox](https://flox.dev/) for reproducible toolchains inside `controller/`
 - Docker (for local integration tests)
 - A running Temporal server (for controller development)
