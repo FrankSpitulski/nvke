@@ -87,6 +87,31 @@ lint:
 license: ## Ensure license headers at code.
 	$(GO) run github.com/google/addlicense@v1.1.1 -f ./hack/boilerplate.addlicense.txt .
 
+# nkectl is a redistributed binary, so it carries its own attribution. It reuses
+# the controller's generator rather than copying it: the script discovers the
+# vendor tree by walking up, and takes the module and its packages from the
+# environment, so one implementation serves every module in the workspace.
+.PHONY: notices notices-check
+notices: ## Regenerate THIRD_PARTY_NOTICES.md for the nkectl binary.
+	@$(MAKE) --no-print-directory -C .. bin/go-licenses
+	@MODULE_ROOT="$(CURDIR)" \
+		OUTPUT="$(CURDIR)/THIRD_PARTY_NOTICES.md" \
+		PACKAGES="./cmd/nkectl" \
+		GO_LICENSES="$(CURDIR)/../bin/go-licenses" \
+		bash ../hack/generate-notices
+
+notices-check: ## Verify THIRD_PARTY_NOTICES.md is up to date.
+	@# git diff says nothing about an untracked path, so check tracking first --
+	@# otherwise a deleted or never-committed notices file passes silently.
+	@git ls-files --error-unmatch THIRD_PARTY_NOTICES.md > /dev/null 2>&1 \
+		|| { echo "THIRD_PARTY_NOTICES.md is not tracked by git. Run 'make notices' and commit it."; exit 1; }
+	@$(MAKE) --no-print-directory notices
+	@if ! git diff --exit-code -- THIRD_PARTY_NOTICES.md > /dev/null 2>&1; then \
+		echo "THIRD_PARTY_NOTICES.md is out of date. Please run 'make notices' locally and commit the changes."; \
+		git diff --name-only -- THIRD_PARTY_NOTICES.md; \
+		exit 1; \
+	fi
+
 # The name matters beyond this file. license.yml builds its header-check matrix
 # by selecting the modules whose Makefile defines a `file-license-check:`
 # target, so a module without one is silently absent from that matrix rather

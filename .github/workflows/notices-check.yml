@@ -63,33 +63,58 @@ jobs:
         with:
           persist-credentials: false
 
+      # go.work, not agent/go.mod. setup-go pins GOTOOLCHAIN=local, so the
+      # installed Go is the only one available -- and the controller and nkectl
+      # steps below clear GOWORK, which puts go.work's floor in force. Installing
+      # from agent/go.mod would give an older Go and fail those steps with
+      # "go.work requires go >= 1.26.5". The workspace Go satisfies every module,
+      # including agent, so one version serves all three.
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: agent/go.mod
+          go-version-file: go.work
           cache: true
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
 
-      # Only the agent module is covered today. The reason has narrowed, but it
-      # has not gone away.
+      # All three redistributed binaries are covered. This job used to check the
+      # agent alone, because go-licenses could not resolve the controller's
+      # graph with GOWORK=off: the module would have had to download the
+      # INTERNAL cluster-api-provider-nico.
       #
-      # This comment used to say the controller depends on private
-      # gitlab-master.nvidia.com modules, so go-licenses cannot resolve its
-      # graph. #76 removed those. What is left is one module:
-      # github.com/NVIDIA/cluster-api-provider-nico, still INTERNAL.
+      # What runs now is the alternative the old comment called "worth trying;
+      # not attempted here" -- let go-licenses read the committed vendor tree
+      # and download nothing. Two things had to be true for that to work.
       #
-      # It still blocks this job because of GOWORK=off above. With the workspace
-      # off, go-licenses loads the module standalone -- the root vendor/ tree
-      # does not apply to a module below it -- so the controller's graph would
-      # have to be downloaded, and that module cannot be.
+      # First, go-licenses requires its rootDir to CONTAIN the vendor tree it
+      # reads, and this repository vendors once at the workspace root, above
+      # every module. Run from controller/ it fails outright: "rootDir
+      # /…/controller should contain dir /…/vendor/k8s.io/…". So
+      # hack/generate-notices now walks up to whichever directory owns vendor/
+      # and names packages relative to it, which lets one generator serve every
+      # module in the workspace.
       #
-      # The untried alternative is to drop GOWORK=off here and let go-licenses
-      # read the vendor tree, which would need no download at all. That needs
-      # the Go version pinned rather than read from a go.mod, the way
-      # govulncheck.yml and codeql.yml do it, because setup-go pins
-      # GOTOOLCHAIN=local and go.work's floor is higher than agent/go.mod's.
-      # Worth trying; not attempted here.
-      #
-      # The root THIRD_PARTY_NOTICES.md carries the rest of the plan.
-      - name: Verify THIRD_PARTY_NOTICES.md is up to date
+      # Second, go-licenses embeds golang.org/x/tools/go/packages and must be
+      # built with the SAME toolchain that `go list` runs under. On a mismatch
+      # it reports every stdlib package as "does not have module info" and
+      # produces nothing -- a failure that reads like a broken generator rather
+      # than a version skew. controller/Makefile pins that toolchain, and the
+      # two jobs below reuse the binary it builds.
+      - name: Verify agent THIRD_PARTY_NOTICES.md is up to date
         working-directory: agent
+        run: make notices-check
+
+      # GOWORK is cleared for these two: they need the workspace, because the
+      # vendor tree they read is a workspace-level construct.
+      - name: Verify controller THIRD_PARTY_NOTICES.md is up to date
+        working-directory: controller
+        env:
+          GOWORK: ""
+        run: make notices-check
+
+      - name: Verify nkectl THIRD_PARTY_NOTICES.md is up to date
+        working-directory: controller/nkectl
+        env:
+          GOWORK: ""
         run: make notices-check

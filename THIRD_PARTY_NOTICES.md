@@ -14,12 +14,21 @@ where those notices are, and which do not yet — and why.
 | Component | Notices | Generated from | Enforced by |
 |---|---|---|---|
 | `agent/` — the node agent | [agent/THIRD_PARTY_NOTICES.md](agent/THIRD_PARTY_NOTICES.md) | the import closure of `./cmd/...` for `linux/amd64` and `linux/arm64` | the `Third-Party Notices` workflow, on every push |
+| `controller/` — the Cloud Workflow Engine | [controller/THIRD_PARTY_NOTICES.md](controller/THIRD_PARTY_NOTICES.md) — **156 modules** | the import closure of `./cmd/worker` for `linux/amd64`, read from the committed `vendor/` tree | the `Third-Party Notices` workflow, on every push |
+| `controller/nkectl/` — the `nkectl` CLI | [controller/nkectl/THIRD_PARTY_NOTICES.md](controller/nkectl/THIRD_PARTY_NOTICES.md) — **15 modules** | the import closure of `./cmd/nkectl` for `linux/amd64` | the `Third-Party Notices` workflow, on every push |
 
 Regenerate with:
 
 ```bash
-cd agent && make notices
+cd agent            && make notices
+cd controller       && make notices
+cd controller/nkectl && make notices
 ```
+
+⚠️ **The controller and nkectl generators need the workspace on** (do not set
+`GOWORK=off`). They read the committed `vendor/` tree, which is a
+workspace-level construct — that is what lets them run without downloading the
+internal `cluster-api-provider-nico`.
 
 `make notices-check` regenerates the file and fails if the result differs from
 what is committed. CI runs it on every push, so the file cannot drift away from
@@ -27,28 +36,45 @@ the dependency tree without the build going red.
 
 ## Not yet covered
 
-| Component | Why | Tracked by |
-|---|---|---|
-| `controller/` — the Cloud Workflow Engine | ⚠️ **A `controller/THIRD_PARTY_NOTICES.md` now exists and is NOT verified.** It was imported wholesale rather than generated from this tree, and `notices-check.yml` still runs `working-directory: agent`, so nothing regenerates or compares it. It attributes at least two modules that appear in no `go.sum` here and are not vendored. `controller/Dockerfile` copies it into `/licenses`, so it ships. | Regenerating it here and widening `notices-check.yml` |
-| `controller/nkectl/` — the `nkectl` CLI | No notices file at all. It is a shipped binary, so its dependencies — cobra, viper, mapstructure, yaml.v3 — are attributed nowhere. Every dependency is public, so nothing blocks generating it. | Generating notices for `controller/nkectl/` |
+**Nothing.** Every binary this repository redistributes now carries generated
+attribution, and CI regenerates and compares all three on every push.
 
-⚠️ **The `controller/` row changed meaning on 2026-08-16 and this file has not
-caught up in spirit.** It used to mean *"no notices file exists"*. It now means
-*"one exists, ships inside the published image, and nobody has checked it"* —
-which is the worse of the two, because a wrong attribution list looks compliant.
+`capd-reboot-controller` and `nico-mock` are built by `make build` but shipped
+nowhere — no image, no artifact, no package. If either starts shipping, it needs
+a row above and a `notices` target of its own.
 
-**A partial file would be worse than none here.** A notices file that silently
-omits dependencies, or claims ones the artifact does not contain, asserts a
-completeness it does not have, and anyone relying on it for license compliance
-would be relying on the wrong list. The rows above stay open until each closure
-can be walked end to end **and a check enforces it**.
+⚠️ **This section listed two open gaps until 2026-08-16**, describing a
+`controller/THIRD_PARTY_NOTICES.md` that existed but was unverified, and a
+missing one for `nkectl`. Both are closed below. **A partial or wrong file
+would be worse than none** — it asserts a completeness it does not have — so
+the rows stayed open until each closure could be walked end to end *and* a
+check enforced it.
 
-When `controller/` builds from public dependencies, cover it by copying
-`agent/hack/generate-notices.sh`, `agent/Makefile`'s `notices` and
-`notices-check` targets, and adding the module to
-`.github/workflows/notices-check.yml`. The generator is repository-agnostic and
-is configured entirely through the `PACKAGES`, `PLATFORMS`, `OUTPUT` and
-`GO_LICENSES` environment variables.
+### How the controller row was closed
+
+It was open for a long time with the reason *"`controller/go.mod` requires two
+modules that are not public"*. That stopped being true when
+[#76](https://github.com/NVIDIA/nke/pull/76) removed them, leaving one INTERNAL
+module, `cluster-api-provider-nico`. Two mechanical problems kept it open after
+that, and both are worth writing down because neither is obvious:
+
+**`go-licenses` requires its rootDir to contain the vendor tree.** This
+repository vendors once at the workspace root, above every module, so running
+the generator from `controller/` failed outright with `rootDir /…/controller
+should contain dir /…/vendor/k8s.io/…`. The generator now walks up to whichever
+directory owns `vendor/` and names packages relative to it, so one
+implementation serves every module.
+
+**`go-licenses` must be built with the same toolchain that `go list` runs
+under.** On a mismatch it reports every standard-library package as *"does not
+have module info"* and produces nothing — which reads like a broken generator
+rather than a version skew. `controller/Makefile` pins it.
+
+⚠️ **A file existing is not the same as a file being right.** A
+`controller/THIRD_PARTY_NOTICES.md` was imported from GitLab before this, and it
+attributed modules that appear in no `go.sum` here and are not vendored, while
+missing others. **A wrong notices file is worse than a missing one, because it
+looks compliant.** The check in CI is what makes the difference.
 
 ## Scope of a generated file
 
