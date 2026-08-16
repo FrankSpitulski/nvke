@@ -77,7 +77,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # The sha is part of the group on main, so every commit gets its own.
+  # Without it, back-to-back merges lose CI results: GitHub allows one
+  # running and one pending run per group, and cancels the pending one
+  # when a third arrives -- whatever cancel-in-progress says, because that
+  # setting only protects a run that has already started. Five merges in
+  # three minutes cancelled 18 runs across 7 workflows this way, leaving
+  # three consecutive commits on main with no test result at all.
+  #
+  # Pull-request branches keep sharing a group and still cancel, which is
+  # what you want there.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
