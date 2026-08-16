@@ -30,6 +30,11 @@ on:
     branches:
       - main
       - "pull-request/[0-9]+"
+      # Dependabot branches are mirrored to neither main nor
+      # pull-request/N, so without this line a dependency bump gets none
+      # of this check -- and a check that cannot report on a pull request
+      # cannot be required. Same list as notices-check.yml.
+      - "dependabot/**"
   schedule:
     - cron: '0 6 * * 1'
   workflow_dispatch:
@@ -71,7 +76,13 @@ jobs:
           # which lags upstream Go. Keep this in step with the Dockerfiles.
           go-version: '1.26.6'
           cache: true
-          cache-dependency-path: go.work.sum
+          # go.work.sum holds only the hashes NOT already in a member's go.sum,
+          # so the versions actually linked often appear in it zero times. Keyed
+          # on it alone, a dependency bump leaves the key unchanged and restores
+          # a stale cache. Same block as go-build.yml.
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6

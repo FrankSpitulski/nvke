@@ -10,13 +10,22 @@ on:
     branches:
       - main
       - "pull-request/[0-9]+"
+      # Dependabot branches are mirrored to neither main nor
+      # pull-request/N, so without this line a dependency bump gets none
+      # of this check -- and a check that cannot report on a pull request
+      # cannot be required. Same list as notices-check.yml.
+      - "dependabot/**"
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Do not cancel a run on main: back-to-back merges would otherwise
+  # discard this check's result for the intermediate commit, leaving a
+  # commit on main that nothing ever verified. Same guard as the other
+  # workflows here.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # This workflow works one module at a time, as it did before the repository
 # gained a root go.work. GOWORK=off keeps it that way. It is also required:
@@ -83,7 +92,13 @@ jobs:
         with:
           go-version-file: go.work
           cache: true
-          cache-dependency-path: go.work.sum
+          # go.work.sum holds only the hashes NOT already in a member's go.sum,
+          # so the versions actually linked often appear in it zero times. Keyed
+          # on it alone, a dependency bump leaves the key unchanged and restores
+          # a stale cache. Same block as go-build.yml.
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
 
       - name: Run golangci-lint
         working-directory: controller

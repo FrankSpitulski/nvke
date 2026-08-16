@@ -1,0 +1,85 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Verifies the committed oapi-codegen output still matches controller/api/openapi.yaml.
+#
+# controller/Makefile has had a `generate-check` target for exactly this, and
+# nothing ever called it: no workflow referenced generate-check, go generate or
+# oapi-codegen. That left 10,000+ lines of generated client and server code
+# free to drift from the API contract they are generated from.
+#
+# The drift is not hypothetical and not greppable. api/server.gen.go embeds the
+# OpenAPI spec as gzip+base64, so a stale copy sits inside a compressed blob
+# where no code search can see it -- which is how one survived a re-snapshot
+# until it was found by decoding the blob.
+#
+# This is the third generated-artefact gate, alongside notices-check.yml and
+# go-work-check.yml.
+
+name: Generate Check
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+      # Dependabot branches are mirrored to neither of the above. A bump to the
+      # generator or to kin-openapi changes the output, so this is precisely a
+      # pull request where the check needs to run. Same list as
+      # notices-check.yml.
+      - "dependabot/**"
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  generate-check:
+    name: Check generated API code is up to date
+    runs-on: ubuntu-latest
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    # GOWORK=off is required, not incidental. The generator is pinned in its
+    # own module file (api/oapi-codegen.mod) because it needs an older
+    # kin-openapi than the api module does, and Go refuses -modfile in
+    # workspace mode: "go: -modfile cannot be used in workspace mode". The
+    # module resolves from public dependencies alone, so dropping the workspace
+    # costs nothing here.
+    env:
+      GOWORK: "off"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: controller/api/go.mod
+          cache: true
+          cache-dependency-path: |
+            controller/api/go.sum
+            controller/api/oapi-codegen.sum
+
+      # generate-check depends on generate-api, not on the full generate
+      # target. The difference matters here: `go generate ./...` across the
+      # whole controller module has to load a package graph that reaches the
+      # internal cluster-api-provider-nico, which a GitHub-hosted runner cannot
+      # fetch and which GOWORK=off puts out of reach of the vendor/ tree. The
+      # api module is public and self-contained, and it holds every
+      # //go:generate directive in the controller, so it is both the half that
+      # can run here and the half this check is about.
+      #
+      # It also fixes the Go version: controller/go.mod asks for a newer
+      # toolchain than controller/api/go.mod, and setup-go pins
+      # GOTOOLCHAIN=local, so loading the outer module under the api module's
+      # Go fails with "go.mod requires go >= 1.26.4".
+      - name: Verify generated API code is up to date
+        working-directory: controller
+        run: make generate-check

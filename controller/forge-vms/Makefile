@@ -41,8 +41,16 @@ run:
 run-vm: build-privileged
 	FORGE_VMS_LOG_FORMAT=text FORGE_VMS_BASE_IMAGE="$(FORGE_VMS_BASE_IMAGE)" $(BINARY)
 
+# GO_TEST_FLAGS lets CI add -race without the workflow having to restate the
+# test command, so `make test` stays the one definition of what "the tests" are.
+GO_TEST_FLAGS ?=
+
+# atomic, not count: Go rejects `-covermode=count` when -race is on. atomic is
+# valid either way. Same setting as controller/Makefile.
+GO_COVER_MODE ?= atomic
+
 test:
-	$(GO) test ./... -coverprofile=coverage.txt -covermode=count
+	$(GO) test $(GO_TEST_FLAGS) ./... -coverprofile=coverage.txt -covermode=$(GO_COVER_MODE)
 
 # All backends (mock + real VMs) in a single invocation.
 #Linux runs libvirt; macOS runs qemu + libvirt-via-lima.

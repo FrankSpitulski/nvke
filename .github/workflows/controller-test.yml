@@ -9,10 +9,13 @@
 # tested. A test suite nothing runs reads as coverage in review and provides
 # none.
 #
-# Not covered here, deliberately: controller/api and
+# Not covered by the test job, deliberately: controller/api and
 # controller/hack/capd-reboot-controller have no _test.go files at all, and
 # controller/test/e2e needs a live cluster in KUBECONFIG -- `make test-e2e`
 # drives it, and it does not belong in a pull-request lane.
+#
+# The `compile` job below covers those heavier suites in the one way a pull
+# request can: it type-checks them without running them. See its own comment.
 #
 # ⚠️ CGO_ENABLED=1 is set deliberately and this lane does not work without it.
 # #116 replaced modernc.org/sqlite (pure Go) with mattn/go-sqlite3 (a cgo
@@ -76,11 +79,12 @@ jobs:
             run: make test
           - module: controller/forge-vms
             run: make test
-          # No Makefile in this module.
+          # Neither of these has a Makefile, so -race goes on the command
+          # itself rather than through GO_TEST_FLAGS.
           - module: controller/hack/nico-mock
-            run: go test ./...
+            run: go test -race ./...
           - module: controller/nkectl
-            run: go test ./...
+            run: go test -race ./...
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -98,12 +102,89 @@ jobs:
             go.work.sum
             **/go.sum
 
+      # -race, the follow-up this step used to defer. It is what caught the
+      # regression in #116, and the reason for waiting -- not wanting a first
+      # red run to conflate two changes -- expired once the lane was green.
+      #
+      # Measured before enabling: the full controller suite passes with 0 data
+      # races, and the added time is tens of seconds against the 30-minute
+      # timeout above. CGO_ENABLED=1 was already required here and the race
+      # detector needs cgo too, so nothing else changes.
       - name: Run unit tests
         working-directory: ${{ matrix.module }}
         env:
           CGO_ENABLED: "1"
-        # No -race yet. It belongs here, but it found a real failure in #116
-        # that has since been fixed, and turning it on for the whole controller
-        # suite at the same time as adding the lane would confuse a first red
-        # run. Enable it as an explicit follow-up.
+          GO_TEST_FLAGS: -race
+        run: ${{ matrix.run }}
+
+  # Type-checks the test code that nothing in CI compiles. These suites need a
+  # cluster, a live API, real VMs or a fault-injection build, so a pull request
+  # cannot run them -- but it can prove they still build, which is the failure
+  # they actually suffer from: they are written against packages that keep
+  # moving, and they rot silently.
+  #
+  # `go build ./...` does not cover this. It ignores _test.go entirely, and
+  # ignores any file behind a build tag nothing sets. So:
+  #
+  #   - controller/test/e2e is a separate module of 21 test files and no
+  #     non-test package. Nothing compiles it. Worse, controller-test.yml
+  #     filters on `paths: controller/**`, which MATCHES controller/test/e2e/**
+  #     -- so editing an e2e spec triggers a green "Controller Unit Tests" run
+  #     that never read the edited file.
+  #   - controller/e2e/... is behind `-tags gofail`; `go list ./e2e/...`
+  #     reports "matched no packages" without it.
+  #   - the teleport and forge-vms integration suites are behind
+  #     `-tags integration`. No workflow anywhere sets a Go build tag.
+  #   - controller/integration-test is dropped from `make test` by a grep,
+  #     because it needs a CWE on port 8080.
+  #
+  # go vet rather than `go build`: it type-checks test files, which is the
+  # point, and it is the cheapest thing that does. All five are green today.
+  compile:
+    name: Compile (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: test/e2e
+            dir: controller/test/e2e
+            run: go vet ./...
+          - name: e2e gofail
+            dir: controller
+            run: go vet -tags gofail ./e2e/...
+          - name: teleport integration
+            dir: controller
+            run: go vet -tags integration ./internal/teleport/...
+          - name: forge-vms integration
+            dir: controller/forge-vms
+            run: go vet -tags integration ./test/integration/...
+          - name: integration-test
+            dir: controller
+            run: go vet ./integration-test/...
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.work
+          cache: true
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
+
+      # Same reason as the test job: these packages reach mattn/go-sqlite3,
+      # which needs cgo.
+      - name: Type-check
+        working-directory: ${{ matrix.dir }}
+        env:
+          CGO_ENABLED: "1"
         run: ${{ matrix.run }}

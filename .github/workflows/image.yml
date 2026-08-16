@@ -16,7 +16,11 @@ permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Do not cancel a run on main: back-to-back merges would otherwise
+  # discard this check's result for the intermediate commit, leaving a
+  # commit on main that nothing ever verified. Same guard as the other
+  # workflows here.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   image:

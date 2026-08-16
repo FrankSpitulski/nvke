@@ -74,8 +74,15 @@ jobs:
             go.work.sum
             **/go.sum
 
+      # Same command as `make test`, with the race detector switched on through
+      # GO_TEST_FLAGS so the workflow does not have to restate what "the tests"
+      # are. This is the explicit follow-up the previous comment asked for.
+      #
+      # The agent runs goroutines around shared state -- pkg/auth ticks a token
+      # watcher that rewrites a field an interceptor reads -- so this is the
+      # module where -race has the most to find.
       - name: Run unit tests
         working-directory: agent
-        # Same command as `make test`. No -race here; enabling the race
-        # detector should be an explicit follow-up.
+        env:
+          GO_TEST_FLAGS: -race
         run: make test

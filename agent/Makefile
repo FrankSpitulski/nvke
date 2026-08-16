@@ -175,8 +175,12 @@ lint: ## Lint source files.
 	go install $(GOLANGCI_LINT_REPO)@$(GOLANGCI_LINT_VERSION)
 	$(GOBIN)/golangci-lint run --timeout 10m --show-stats ./...
 
+# GO_TEST_FLAGS lets CI add -race without the workflow having to restate the
+# test command, so `make test` stays the one definition of what "the tests" are.
+GO_TEST_FLAGS ?=
+
 test: ## Run tests
-	go test ./...
+	go test $(GO_TEST_FLAGS) ./...
 
 # Sources in this module carry the repository's Apache-2.0 identifier, per the
 # "License headers" section of the root CONTRIBUTING.md. Ignored paths are
