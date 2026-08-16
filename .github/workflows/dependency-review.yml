@@ -1,0 +1,77 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reviews dependencies added or changed by a pull request, before they land.
+#
+# This is the one check in the tree that looks at a dependency at the moment it
+# is introduced. The two that already exist look at the tree as it stands and
+# both have a blind spot for new dependencies:
+#
+#   govulncheck only fails on vulnerabilities in code that is actually CALLED,
+#   so an unreachable-today dependency with a known CVE passes.
+#
+#   security-scan.yml runs Grype with only-fixed: true, so an advisory with no
+#   fixed version is filtered out entirely.
+#
+# It also enforces the licence policy at the point of entry rather than after
+# the fact, which is where it is cheapest to act on.
+#
+# Runs on the real pull_request event, not through the pull-request/<number>
+# mirror branch. It needs the base and head refs to diff, and the action is
+# GitHub-hosted work with no NVIDIA runner requirement -- so unlike most checks
+# here, it reports on every pull request including those from unvetted authors.
+
+name: Dependency Review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: dependency-review
+    runs-on: ubuntu-latest
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write   # comment-summary-in-pr
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Review dependencies
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          # high, not critical: this gates a dependency at the moment someone
+          # chooses it, when swapping for an alternative is nearly free. The
+          # image scan gates the shipped artifact at critical, where the cost
+          # of a false stop is much higher.
+          fail-on-severity: high
+
+          # A deny list rather than an allow list, deliberately. An allow list
+          # also fails on any dependency whose licence the graph cannot detect,
+          # which is common and is not the thing being guarded against. These
+          # are the licences that would actually change this repository's
+          # obligations -- the reciprocal and network-copyleft families.
+          #
+          # controller/Makefile's ALLOWED_LICENSES is the allow-list counterpart
+          # and runs over the resolved set; keep the two consistent in spirit if
+          # either changes.
+          deny-licenses: >-
+            AGPL-3.0, AGPL-3.0-only, AGPL-3.0-or-later,
+            GPL-2.0, GPL-2.0-only, GPL-2.0-or-later,
+            GPL-3.0, GPL-3.0-only, GPL-3.0-or-later,
+            LGPL-2.1, LGPL-2.1-only, LGPL-2.1-or-later,
+            LGPL-3.0, LGPL-3.0-only, LGPL-3.0-or-later,
+            SSPL-1.0
+
+          comment-summary-in-pr: on-failure
