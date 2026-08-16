@@ -14,6 +14,12 @@ on:
 
 permissions: {}
 
+# Defined once so the scan and the summary below cannot disagree about what the
+# gate is. The old summary heading said "medium and above" and would have gone
+# stale the moment the cutoff changed.
+env:
+  GRYPE_SEVERITY_CUTOFF: medium
+
 concurrency:
   # The sha is part of the group on main, so every commit gets its own.
   # Without it, back-to-back merges lose CI results: GitHub allows one
@@ -187,24 +193,76 @@ jobs:
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         with:
           image: nke/cloud-workflow-engine:ci
-          severity-cutoff: medium
+          severity-cutoff: ${{ env.GRYPE_SEVERITY_CUTOFF }}
           output-format: sarif
           fail-build: false
 
+      # Renders the findings into the job summary rather than a count and a
+      # pointer elsewhere. When the scan gates, the step above prints one ERROR
+      # line and no list, so without this the only way to learn WHICH
+      # vulnerability failed the build is to leave the run for the Security tab.
       - name: Summarise the image scan
         if: always()
         shell: bash
+        env:
+          CUTOFF: ${{ env.GRYPE_SEVERITY_CUTOFF }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           f="${{ steps.image-scan.outputs.sarif }}"
-          {
-            echo "## Grype — controller image, medium and above"
-            echo
-            if [ ! -s "${f}" ]; then
+
+          if [ ! -s "${f}" ]; then
+            {
+              echo "## Grype — controller image"
+              echo
               echo "No SARIF produced. The scan did not finish."
-            else
-              echo "$(jq '[.runs[].results[]] | length' "${f}") result(s). Details in **Security -> Code scanning**, category \`grype-image\`."
-            fi
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          {
+            echo "## Grype — controller image"
+            echo
+
+            # GitHub's SARIF convention puts a numeric CVSS in
+            # properties["security-severity"]; >=9 critical, >=7 high, >=4 medium.
+            echo "**Total reported:** $(jq '[.runs[].results[]] | length' "${f}")"
+            echo
+            echo "| Severity | Count |"
+            echo "|---|---|"
+            jq -r '
+              [ .runs[] as $r | $r.results[] as $res
+                | ($r.tool.driver.rules[] | select(.id==$res.ruleId)) as $rule
+                | (($rule.properties["security-severity"] // "0") | tonumber) as $s
+                | if $s>=9 then "critical" elif $s>=7 then "high"
+                  elif $s>=4 then "medium" else "low" end ]
+              | group_by(.) | sort_by(-(.[0]|
+                  if .=="critical" then 4 elif .=="high" then 3
+                  elif .=="medium" then 2 else 1 end))
+              | map("| \(.[0]) | \(length) |") | .[]' "${f}"
+            echo
+
+            echo "### Findings at or above the \`${CUTOFF}\` gate"
+            echo
+            jq -r --arg cutoff "${CUTOFF}" '
+              ($cutoff | if .=="critical" then 9 elif .=="high" then 7
+                         elif .=="medium" then 4 else 0 end) as $min
+              | [ .runs[] as $r | $r.results[] as $res
+                  | ($r.tool.driver.rules[] | select(.id==$res.ruleId)) as $rule
+                  | (($rule.properties["security-severity"] // "0") | tonumber) as $sev
+                  | select($sev >= $min)
+                  | { pkg:   (($rule.help.text // "") | capture("Package: (?<v>.*)").v // "?"),
+                      ver:   (($rule.help.text // "") | capture("Version: (?<v>.*)").v // "?"),
+                      fix:   (($rule.help.text // "") | capture("Fix Version: (?<v>.*)").v // "none"),
+                      id:    $res.ruleId,
+                      where: ($res.locations[0].physicalLocation.artifactLocation.uri // "?") } ]
+              | unique
+              | if length == 0 then "None — the gate passed."
+                else (["| Package | Version | Fixed in | ID | Where |","|---|---|---|---|---|"]
+                      + map("| \(.pkg) | \(.ver) | \(.fix) | \(.id) | `\(.where)` |")
+                      | join("\n"))
+                end' "${f}"
+            echo
+            echo "Full set in **Security -> Code scanning**, category \`grype-image\`."
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload the image scan SARIF

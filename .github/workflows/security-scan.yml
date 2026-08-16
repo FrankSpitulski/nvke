@@ -12,6 +12,11 @@
 # `fail-build: false` matches NVIDIA/aicr: the scan reports, it does not gate.
 # `only-fixed: true` hides advisories with no fixed version, which are noise
 # until upstream ships something to upgrade to.
+#
+# The summary step renders the findings into the run. Without it the only
+# output is a count and a pointer to the Security tab, which is a different UI
+# with different permissions -- and when a scan does gate, the action prints
+# one ERROR line and no list of what failed it.
 
 name: Security Scan
 
@@ -31,6 +36,12 @@ on:
 
 permissions:
   contents: read
+
+# Defined once so the scan and the summary below cannot disagree about what the
+# gate is. The old summary heading hardcoded "medium severity and above" and
+# would have gone stale the moment the cutoff changed.
+env:
+  GRYPE_SEVERITY_CUTOFF: medium
 
 concurrency:
   # The sha is part of the group on main, so every commit gets its own.
@@ -66,25 +77,73 @@ jobs:
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         with:
           path: "."
-          severity-cutoff: medium
+          severity-cutoff: ${{ env.GRYPE_SEVERITY_CUTOFF }}
           output-format: sarif
           only-fixed: true
           fail-build: false
 
+      # Renders the findings rather than a count and a pointer elsewhere. Same
+      # reasoning as the equivalent step in image.yml: when a scan gates, the
+      # action prints one ERROR line and no list of what failed it.
       - name: Summarise
         if: always()
         shell: bash
+        env:
+          CUTOFF: ${{ env.GRYPE_SEVERITY_CUTOFF }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           f="${{ steps.scan.outputs.sarif }}"
-          {
-            echo "## Grype — medium severity and above, fixed versions only"
-            echo
-            if [ -z "${f}" ] || [ ! -s "${f}" ]; then
+
+          if [ -z "${f}" ] || [ ! -s "${f}" ]; then
+            {
+              echo "## Grype — source tree"
+              echo
               echo "No SARIF produced. The scan did not finish."
-            else
-              echo "$(jq '[.runs[].results[]] | length' "${f}") result(s). Details in **Security -> Code scanning**, category \`grype\`."
-            fi
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          {
+            echo "## Grype — source tree, fixed versions only"
+            echo
+            echo "**Total reported:** $(jq '[.runs[].results[]] | length' "${f}")"
+            echo
+            echo "| Severity | Count |"
+            echo "|---|---|"
+            jq -r '
+              [ .runs[] as $r | $r.results[] as $res
+                | ($r.tool.driver.rules[] | select(.id==$res.ruleId)) as $rule
+                | (($rule.properties["security-severity"] // "0") | tonumber) as $s
+                | if $s>=9 then "critical" elif $s>=7 then "high"
+                  elif $s>=4 then "medium" else "low" end ]
+              | group_by(.) | sort_by(-(.[0]|
+                  if .=="critical" then 4 elif .=="high" then 3
+                  elif .=="medium" then 2 else 1 end))
+              | map("| \(.[0]) | \(length) |") | .[]' "${f}"
+            echo
+
+            echo "### Findings at or above the \`${CUTOFF}\` gate"
+            echo
+            jq -r --arg cutoff "${CUTOFF}" '
+              ($cutoff | if .=="critical" then 9 elif .=="high" then 7
+                         elif .=="medium" then 4 else 0 end) as $min
+              | [ .runs[] as $r | $r.results[] as $res
+                  | ($r.tool.driver.rules[] | select(.id==$res.ruleId)) as $rule
+                  | (($rule.properties["security-severity"] // "0") | tonumber) as $sev
+                  | select($sev >= $min)
+                  | { pkg:   (($rule.help.text // "") | capture("Package: (?<v>.*)").v // "?"),
+                      ver:   (($rule.help.text // "") | capture("Version: (?<v>.*)").v // "?"),
+                      fix:   (($rule.help.text // "") | capture("Fix Version: (?<v>.*)").v // "none"),
+                      id:    $res.ruleId,
+                      where: ($res.locations[0].physicalLocation.artifactLocation.uri // "?") } ]
+              | unique
+              | if length == 0 then "None — the gate passed."
+                else (["| Package | Version | Fixed in | ID | Where |","|---|---|---|---|---|"]
+                      + map("| \(.pkg) | \(.ver) | \(.fix) | \(.id) | `\(.where)` |")
+                      | join("\n"))
+                end' "${f}"
+            echo
+            echo "Full set in **Security -> Code scanning**, category \`grype\`."
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload SARIF
