@@ -25,9 +25,16 @@ var OpenapiYAML string
 // dependency graph without downgrading the runtime module. To bump the
 // generator, run `go get -modfile=oapi-codegen.mod
 // github.com/deepmap/oapi-codegen/v2/cmd/oapi-codegen@<ver>` and regenerate.
-//go:generate go run -modfile=oapi-codegen.mod github.com/deepmap/oapi-codegen/v2/cmd/oapi-codegen --config=config-models.yaml ./openapi.yaml
-//go:generate go run -modfile=oapi-codegen.mod github.com/deepmap/oapi-codegen/v2/cmd/oapi-codegen --config=config-server.yaml ./openapi.yaml
-//go:generate go run -modfile=oapi-codegen.mod github.com/deepmap/oapi-codegen/v2/cmd/oapi-codegen --config=config-client.yaml ./openapi.yaml
+//
+// GOWORK=off is required, not incidental. This module is a member of the
+// repository's Go workspace, and Go refuses `-modfile` in workspace mode:
+// "go: -modfile cannot be used in workspace mode". Without it `go generate`
+// fails here however it is invoked, so the setting belongs on the directives
+// rather than in one caller. It only affects the generator's own module
+// resolution; the generated output is identical.
+//go:generate env GOWORK=off go run -modfile=oapi-codegen.mod github.com/deepmap/oapi-codegen/v2/cmd/oapi-codegen --config=config-models.yaml ./openapi.yaml
+//go:generate env GOWORK=off go run -modfile=oapi-codegen.mod github.com/deepmap/oapi-codegen/v2/cmd/oapi-codegen --config=config-server.yaml ./openapi.yaml
+//go:generate env GOWORK=off go run -modfile=oapi-codegen.mod github.com/deepmap/oapi-codegen/v2/cmd/oapi-codegen --config=config-client.yaml ./openapi.yaml
 //go:generate go run ./patch-optional-bodies.go
 //go:generate go run ./prepend-license.go
 
