@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# CodeQL static analysis for Go. Results go to Security -> Code scanning.
+# CodeQL static analysis. Results go to Security -> Code scanning.
+#
+# Three languages, one job per language via a matrix: go, javascript-typescript
+# and actions. Only go needs a traced build; the other two extract from source.
 #
 # `build-mode: manual` because CodeQL has to observe a real compile to build its
 # database. Whatever the build step compiles is what gets analysed, and nothing
@@ -58,7 +61,7 @@ concurrency:
 
 jobs:
   analyze:
-    name: Analyze Go
+    name: Analyze ${{ matrix.language }}
     runs-on: linux-amd64-cpu16
     if: github.repository == 'NVIDIA/nke'
     timeout-minutes: 60
@@ -66,12 +69,34 @@ jobs:
       contents: read
       actions: read
       security-events: write
+    # A matrix over LANGUAGES, which is not the matrix the note at the top of
+    # this file argues against -- that one is about modules, and the Go build
+    # below still analyses all eight in a single traced pass. CodeQL produces
+    # one database per language and uploads each under its own category, so a
+    # language axis is the shape it expects.
+    #
+    # Only Go needs a build. javascript-typescript and actions are extracted
+    # from source, so they take build-mode: none and skip the Go setup below.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: manual
+          # controller/ui ships into the image at /ui (controller/Dockerfile:76),
+          # so this is analysed code, not developer tooling.
+          - language: javascript-typescript
+            build-mode: none
+          # The workflows themselves. One of them runs on pull_request_target.
+          - language: actions
+            build-mode: none
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: matrix.language == 'go'
         with:
           # Pin the version the Dockerfiles build with. Not go-version-file: a
           # go directive is a floor, so it installs the oldest Go a module
@@ -97,10 +122,17 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
-          languages: go
-          build-mode: manual
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # security-extended over the default suite. The default set is tuned
+          # to keep false positives low; this repository would rather see a
+          # noisier list than miss something, and CodeQL reports into the
+          # Security tab without failing the build, so a wider net costs
+          # triage time rather than merges.
+          queries: security-extended
 
       - name: Build
+        if: matrix.language == 'go'
         # Not `make build`, and not `go build -C <module>`, though both compile
         # exactly the right set. CodeQL traces the `go` process it puts on PATH,
         # and `-C` makes go chdir before it does anything else, so the extractor
@@ -150,4 +182,4 @@ jobs:
       - name: Run CodeQL analysis
         uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
-          category: "/language:go"
+          category: "/language:${{ matrix.language }}"

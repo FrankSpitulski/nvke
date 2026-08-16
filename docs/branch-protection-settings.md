@@ -72,7 +72,8 @@ checks the current workflows report.
 > section below.
 >
 > ⚠️ **This list is also incomplete.** The repository reports far more checks
-> than appear here, including `Analyze Go`, `grype`, `gitleaks`,
+> than appear here, including `Analyze go`, `Analyze javascript-typescript`, `Analyze actions`,
+> `grype`, `gitleaks`,
 > `Check generated API code is up to date`, eight `govulncheck (<module>)`
 > jobs, five `Unit tests (<module>)` jobs and five `Compile (<suite>)` jobs.
 > Derive the live list rather than trusting this table:
