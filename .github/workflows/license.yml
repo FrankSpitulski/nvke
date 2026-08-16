@@ -9,11 +9,11 @@
 #     transitive dependency licenses are permissive (no restricted/reciprocal/
 #     forbidden/unknown types).  This is the same underlying tool used in the
 #     existing GitLab CI pipeline; no proprietary wrapper is required here.
-#     controller is excluded, because go-licenses loads modules one at a time
-#     with the workspace off and no vendor tree, and it still requires
-#     github.com/NVIDIA/cluster-api-provider-nico, which is INTERNAL. That is
-#     the whole of the exclusion now: this used to say "modules that import
-#     private gitlab-master.nvidia.com packages", and #76 removed those.
+#     It covers every module.  controller used to be excluded because the check
+#     resolved dependencies over the network and could not reach the INTERNAL
+#     github.com/NVIDIA/cluster-api-provider-nico; it now reads the committed
+#     vendor tree, which carries that module, so nothing is excluded and no
+#     credential is needed.
 #
 #   header-check — `make file-license-check` verifies every source file carries
 #     the required copyright header via addlicense.  This runs over the *full*
@@ -76,14 +76,21 @@ concurrency:
   group: license-checks-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
-# This workflow works one module at a time, as it did before the repository
-# gained a root go.work. GOWORK=off keeps it that way. It is also required:
-# the license-check job sets GOTOOLCHAIN=local itself, and the Go version
-# installed from a module's go.mod is older than the one go.work asks for, so
-# leaving the workspace on fails with "go.work requires go >= 1.26.0".
-# (This workflow pinned setup-go v5.6.0, which did not set GOTOOLCHAIN itself,
-# until the 2026-08-13 bump to v7.0.0 — which does. The GOWORK=off above is what
-# keeps that from mattering either way.)
+# header-check works one module at a time, as this whole workflow did before the
+# repository gained a root go.work. GOWORK=off keeps it that way, and is
+# required: that job reads the Go version from the module's own go.mod, which is
+# older than go.work asks for, so leaving the workspace on fails with
+# "go.work requires go >= 1.26.0".
+#
+# license-check turns it back on for itself. It has to: it reads the vendor tree
+# at the workspace root, and with GOWORK=off there is no main module there, so
+# every pattern fails with
+#
+#   pattern ./agent/...: directory prefix agent does not contain main module
+#   or its selected dependencies
+#
+# That job reads its Go version from go.work instead, so the version mismatch
+# above cannot bite it. See the job for both.
 env:
   GOWORK: "off"
 
@@ -111,15 +118,12 @@ jobs:
             -exec dirname {} \; \
             | sort)
 
-          # Dependency-license checks: go-licenses loads modules one at a time
-          # (GOWORK=off, no vendor), so a module whose dependency cannot be
-          # fetched from a public runner cannot be scanned. controller requires
-          # github.com/NVIDIA/cluster-api-provider-nico, which is INTERNAL
-          # visibility until it is open-sourced; drop this exclusion when the
-          # repo goes public.
-          modules=$(printf '%s\n' "$all" \
-            | grep -vxF -e './controller' \
-            | jq -R . | jq -sc .)
+          # Every module, with no exclusion. controller used to be dropped here
+          # because go-licenses resolved dependencies over the network and could
+          # not reach the INTERNAL cluster-api-provider-nico. The check now runs
+          # from the vendor tree instead, which carries that module, so it needs
+          # no credential and no exclusion. See the check job below.
+          modules=$(printf '%s\n' "$all" | jq -R . | jq -sc .)
           echo "modules=$modules" >> "$GITHUB_OUTPUT"
 
           # Header checks: every module that exposes the Makefile target, with
@@ -143,6 +147,11 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    # Undoes the workflow-level GOWORK=off for this job only. Empty means
+    # "find go.work normally", which is what reading the root vendor tree
+    # needs. header-check keeps the workflow-level value.
+    env:
+      GOWORK: ""
     strategy:
       matrix:
         module: ${{ fromJson(needs.discover-modules.outputs.modules) }}
@@ -152,23 +161,56 @@ jobs:
         with:
           persist-credentials: false
 
+      # go.work, not the module's go.mod. The check below runs from the
+      # repository root with the workspace on, and setup-go pins
+      # GOTOOLCHAIN=local. A `go` directive is a floor, so reading a module that
+      # says 1.25.4 installs exactly that, and every command then stops with
+      #
+      #   go: go.work requires go >= 1.26.5
+      #       (running go 1.25.4; GOTOOLCHAIN=local)
+      #
+      # go.work carries the highest floor of any member, so it satisfies all of
+      # them. Same reasoning as go-build.yml.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: '${{ matrix.module }}/go.mod'
+          go-version-file: go.work
           cache: true
+          # go.work.sum holds only the hashes NOT already in a member's go.sum,
+          # so keying on it alone restores a stale cache after a bump.
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
 
+      # Runs from the repository root, not from the module, and names the module
+      # as a package pattern. go-licenses requires its root directory to CONTAIN
+      # the vendor tree it reads, and this repository vendors once at the
+      # workspace root, above every module. From inside a module it finds no
+      # vendor tree, resolves each dependency over the network, and cannot reach
+      # the INTERNAL cluster-api-provider-nico -- which is why controller was
+      # excluded from this matrix rather than fixed.
+      #
+      # Reading the vendor tree is also the more accurate test: it checks the
+      # dependencies that are committed and built, rather than whatever a fresh
+      # resolution returns today.
+      #
+      # controller/hack/generate-notices does the same thing for the same reason
+      # and has been generating the shipped attribution since #142.
       - name: Check dependency licenses
-        working-directory: ${{ matrix.module }}
         # GOTOOLCHAIN=local prevents Go from downloading a golang.org/toolchain
         # module for stdlib, which confuses go-licenses into treating standard
         # library packages as unrecognised external packages.
         env:
           GOTOOLCHAIN: local
+          MODULE: ${{ matrix.module }}
         run: |
           go install github.com/google/go-licenses/v2@latest
-          go-licenses check ./... \
+          # cluster-api-provider-nico is first-party NVIDIA code carried in
+          # vendor/, not a third-party dependency, and it ships no LICENSE of its
+          # own. Same ignore list as controller/Makefile's license-policy-check.
+          go-licenses check "./${MODULE#./}/..." \
             --disallowed_types=restricted,reciprocal,forbidden,unknown \
-            --ignore github.com/NVIDIA/nke
+            --ignore github.com/NVIDIA/nke \
+            --ignore github.com/NVIDIA/cluster-api-provider-nico
 
   header-check:
     name: License headers (${{ matrix.module }})
