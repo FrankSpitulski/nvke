@@ -41,6 +41,7 @@ jobs:
     name: Create GitHub release
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: [license-checks]
     permissions:
       contents: write   # creates the GitHub release
     if: ${{ !contains(github.ref_name, '/') }}
