@@ -21,6 +21,23 @@
 # Runs on a schedule and on push to main, NOT on pull_request. Scorecard needs
 # repository-level metadata and a token with more than a pull request should
 # ever carry, and its own documentation says to run it this way.
+#
+# PUBLIC REPOSITORIES ONLY, which is what the gate job is for. Scorecard reads
+# history over the GitHub GraphQL API, and GITHUB_TOKEN may not do that on a
+# repository that is not public. It does not degrade, it stops:
+#
+#   scorecard had an error: internal error: ListCommits:error during
+#   graphqlHandler.setup: internal error: githubv4.Query:
+#   Resource not accessible by integration
+#
+# This repository is `internal` today, so the analysis is skipped and the run
+# stays green with a note that says why. It starts working by itself on the day
+# the repository is made public: the gate reads the live visibility rather than
+# a value written down here, so nothing needs editing then.
+#
+# The alternative is a PAT with repo scope. That is a long-lived credential with
+# much more reach than this needs, to grade a repository whose whole purpose is
+# to stop being private.
 
 name: Scorecard
 
@@ -45,10 +62,46 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  analysis:
-    name: Scorecard analysis
+  # Reads the visibility live rather than testing github.event.repository, which
+  # is absent on a schedule trigger and would skip every weekly run.
+  gate:
+    name: Check the repository is public
     runs-on: ubuntu-latest
     if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      public: ${{ steps.visibility.outputs.public }}
+    steps:
+      - name: Read the repository visibility
+        id: visibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          vis=$(gh api "repos/${GITHUB_REPOSITORY}" --jq .visibility)
+          echo "Repository visibility: ${vis}"
+          if [ "${vis}" = "public" ]; then
+            echo "public=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "public=false" >> "${GITHUB_OUTPUT}"
+            {
+              echo "### Scorecard skipped"
+              echo
+              echo "The repository is \`${vis}\`. OpenSSF Scorecard needs the GraphQL"
+              echo "API, which \`GITHUB_TOKEN\` cannot use on a repository that is not"
+              echo "public, so the analysis would fail rather than report."
+              echo
+              echo "This runs by itself once the repository is public. No change needed here."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+  analysis:
+    name: Scorecard analysis
+    needs: [gate]
+    if: needs.gate.outputs.public == 'true'
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       # Upload the findings to the code-scanning dashboard.
