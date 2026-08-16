@@ -5,6 +5,10 @@ controller/hack/capd-reboot-controller/capd-reboot-controller
 controller/hack/nico-mock/nico-mock
 **/*.test
 **/bin/
+# Separate from **/bin/ on purpose: a leading dot is not matched by that
+# pattern, and 141 MB of downloaded tools reached main through exactly this
+# gap.
+**/.bin/
 **/dist/
 **/release/
 

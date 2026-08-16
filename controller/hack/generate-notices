@@ -69,16 +69,31 @@ if [[ ! -x "${GO_LICENSES}" ]]; then
     fi
 fi
 
-LOCAL_MODULE="$(go list -m 2>/dev/null || true)"
+# GOWORK=off is required, not tidiness. This repository is a Go workspace, and
+# under it `go list -m` prints all eight member modules rather than one, so
+# LOCAL_MODULE becomes a multi-line string and the --ignore value built from it
+# below stops meaning anything. Turning the workspace off narrows it to this
+# module, which is what the variable name promises.
+LOCAL_MODULE="$(GOWORK=off go list -m 2>/dev/null || true)"
 if [[ -z "${LOCAL_MODULE}" ]]; then
     echo "ERROR: could not determine the local module path via 'go list -m'." >&2
     exit 1
 fi
+if [[ "${LOCAL_MODULE}" == *$'\n'* ]]; then
+    echo "ERROR: 'go list -m' returned more than one module:" >&2
+    printf '  %s\n' "${LOCAL_MODULE}" >&2
+    echo "Expected exactly one. Check GOWORK." >&2
+    exit 1
+fi
 
 # First-party NVIDIA modules are not third-party dependencies. The main module
-# is excluded by path; sibling gitlab-master.nvidia.com modules (this repo's own
-# api/ submodule, node-agent, capnico) carry no LICENSE file because they are
-# our own code.
+# is excluded by path; the siblings are named explicitly below because they are
+# our own code and carry no LICENSE file of their own.
+#
+# They are named rather than matched by a `gitlab-master.nvidia.com` prefix,
+# which is what this used to do. No module in this repository has had a
+# gitlab-master path since the public-dependency migration, so that prefix
+# matched nothing and the siblings were never actually ignored.
 #
 # Nothing else is ignored. Every other dependency is attributed, including the
 # whole golang.org/*, google.golang.org/*, gopkg.in/*, go.uber.org/*,
@@ -94,7 +109,7 @@ fi
 # No stdlib list is needed anyway: go-licenses already excludes the standard
 # library, verified by it emitting zero packages whose first path component
 # lacks a dot.
-IGNORE="${LOCAL_MODULE},gitlab-master.nvidia.com"
+IGNORE="${LOCAL_MODULE},github.com/NVIDIA/nke/agent,github.com/NVIDIA/cluster-api-provider-nico"
 
 # Explicit mktemp templates: macOS mktemp with no template ignores TMPDIR and
 # allocates under confstr(_CS_DARWIN_USER_TEMP_DIR), which makes the scratch

@@ -90,7 +90,7 @@ build:
 .PHONY: fmt
 fmt: ## Format code (gofumpt + goimports; matches .golangci.yml formatters).
 	go run mvdan.cc/gofumpt@v0.11.0 -w -extra .
-	go run golang.org/x/tools/cmd/goimports@v0.48.0 -w -local github.com/NVIDIA/nke/controller,gitlab-master.nvidia.com .
+	go run golang.org/x/tools/cmd/goimports@v0.48.0 -w -local github.com/NVIDIA/nke/controller .
 
 .PHONY: test
 test: ## Execute unit tests (excludes integration tests).
@@ -278,9 +278,14 @@ ALLOWED_LICENSES ?= MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,Zlib
 .PHONY: license-policy-check
 license-policy-check: $(GO_LICENSES) ## Verify every third-party dependency uses an approved license.
 	@echo "Checking dependency licenses against $(ALLOWED_LICENSES)..."
+	@# GOWORK=off and the quotes both matter. Under the workspace, `go list -m`
+	@# prints all eight member modules, so unquoted it word-splits into one
+	@# --ignore= plus seven stray positional arguments that go-licenses reads as
+	@# package patterns. GOWORK=off narrows it to this module, and the siblings
+	@# that genuinely need ignoring are named explicitly.
 	@GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO_LICENSES) check ./cmd/worker \
 		--allowed_licenses=$(ALLOWED_LICENSES) \
-		--ignore=$$(go list -m),gitlab-master.nvidia.com
+		--ignore="$$(GOWORK=off go list -m),github.com/NVIDIA/nke/agent,github.com/NVIDIA/cluster-api-provider-nico"
 
 .PHONY: notices
 notices: $(GO_LICENSES) ## Regenerate THIRD_PARTY_NOTICES.md for the released worker binary.
