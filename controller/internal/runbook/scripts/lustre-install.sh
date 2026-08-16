@@ -22,7 +22,10 @@ KERNEL_LOCK="/etc/apt/preferences.d/nvidia-kernel-lock"
 TMP_KERNEL_LOCK="$ASSETS_DIR/nvidia-kernel-lock"
 
 error() {
-    echo "Error: $@"
+    # "$*", not "$@": inside a quoted string "$@" expands to one word per
+    # argument, so only the first gets the "Error: " prefix and the rest arrive
+    # as separate echo arguments.
+    echo "Error: $*"
     exit 1
 }
 

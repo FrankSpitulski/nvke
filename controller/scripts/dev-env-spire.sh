@@ -119,8 +119,16 @@ spire_fetch_trust_bundle() {
         return 1
     fi
 
+    # `2>&1 > file`, and the order is the whole point: 2>&1 first sends stderr
+    # to where stdout currently goes -- the command substitution -- and only
+    # then is stdout redirected into the file. The bundle lands in the file and
+    # the diagnostics land in bundle_output.
+    #
+    # Written the other way round, as `> file 2>&1`, both streams end up in the
+    # file, bundle_output is always empty, and the failure branch below prints
+    # an empty "Command output:".
     bundle_output=$(kubectl exec "${SPIRE_SERVER_POD}" -n "${SPIRE_NAMESPACE}" -c spire-server -- \
-        bin/spire-server bundle show > "${bundle_path}" 2>&1)
+        bin/spire-server bundle show 2>&1 > "${bundle_path}")
     local exit_code=$?
 
     if [[ ${exit_code} -ne 0 ]]; then

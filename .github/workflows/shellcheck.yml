@@ -1,0 +1,95 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Lints the shell scripts.
+#
+# actionlint already runs shellcheck, but only over `run:` blocks inside
+# workflow YAML. The 100 standalone .sh files in this tree had nothing checking
+# them, and three real bugs were sitting in them -- including a dependency
+# check in a runbook script that is compiled into the controller binary and
+# executed on nodes, and that never detected a missing tool. All three parsed
+# fine under `bash -n`; only shellcheck saw them.
+#
+# Runs on ubuntu-latest. shellcheck is preinstalled on GitHub runners, so this
+# needs no download, no NVIDIA runner and no credentials.
+#
+# Deliberately NOT path-filtered, for the reason recorded in actionlint.yml: a
+# filtered check does not report on a pull request that misses the filter, and
+# a required check that never reports leaves that pull request waiting forever.
+# See docs/branch-protection-settings.md.
+
+name: Shellcheck
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # -S error, not -S warning. The tree is clean at error severity as of
+      # this commit, so the gate starts green and any new error-level bug fails
+      # the build. It is NOT clean at warning severity: 29 findings remain,
+      # mostly SC2155 (declare and assign separately), SC2010 (ls | grep) and
+      # SC2128 (array expanded without an index). Those are worth fixing, but
+      # folding 29 edits into the change that introduces the check would bury
+      # the three real bugs it was written for. The step below prints the live
+      # count, so this number does not have to be trusted as it drifts.
+      #
+      # Raise this to -S warning once that backlog is cleared. The runbook
+      # scripts under controller/internal/runbook/scripts/ are the ones to
+      # clear first: they ship inside the controller binary and run on nodes.
+      - name: Lint shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' -t scripts < <(
+            find . -name '*.sh' -not -path './vendor/*' -not -path './.git/*' -print0
+          )
+          echo "Checking ${#scripts[@]} shell scripts at severity=error"
+          shellcheck --severity=error --format=tty "${scripts[@]}"
+
+      # Reported, not enforced, so the size of the backlog is visible in the
+      # log without gating on it. Remove this step when the gate above moves
+      # to -S warning.
+      - name: Report the warning-level backlog
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          mapfile -d '' -t scripts < <(
+            find . -name '*.sh' -not -path './vendor/*' -not -path './.git/*' -print0
+          )
+          # `|| true` is required, not defensive. shellcheck exits non-zero
+          # when it finds anything, and the runner invokes this step with
+          # `bash -e -o pipefail` whatever the script itself sets -- so without
+          # it, a non-empty backlog fails a step whose entire job is to count
+          # the backlog.
+          count=$( { shellcheck --severity=warning --format=gcc "${scripts[@]}" 2>/dev/null || true; } | wc -l | tr -d ' ')
+          {
+            echo "## shellcheck"
+            echo
+            echo "Gate: \`--severity=error\` over ${#scripts[@]} scripts."
+            echo
+            echo "Not yet enforced: **${count}** finding(s) at \`--severity=warning\`."
+          } >> "${GITHUB_STEP_SUMMARY}"

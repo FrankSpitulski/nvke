@@ -91,8 +91,11 @@ error() {
 
 check_dependencies() {
   local missing_deps=()
-  [ ! command -v jq &>/dev/null ] && missing_deps+=("jq")
-  [ ! command -v curl &>/dev/null ] && missing_deps+=("curl")
+  # `command -v` is run directly, not wrapped in [ ]. Wrapping it passes the
+  # words to the test builtin as operands instead of executing anything, which
+  # is what this used to do.
+  command -v jq >/dev/null 2>&1 || missing_deps+=("jq")
+  command -v curl >/dev/null 2>&1 || missing_deps+=("curl")
 
   if [[ ${#missing_deps[@]} -gt 0 ]]; then
     error "Missing required tools: ${missing_deps[*]}"

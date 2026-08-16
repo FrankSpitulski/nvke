@@ -35,6 +35,7 @@ checks the current workflows report:
 | `build` | `.github/workflows/image.yml` | yes |
 | `DCO` | the DCO GitHub App, not a workflow | yes |
 | `actionlint` | `.github/workflows/actionlint.yml` | yes |
+| `shellcheck` | `.github/workflows/shellcheck.yml` | yes |
 | `Build binaries` | `.github/workflows/go-build.yml` | **no — path-filtered** |
 | `Check go.work and go.work.sum are current` | `.github/workflows/go-work-check.yml` | **no — path-filtered** |
 
