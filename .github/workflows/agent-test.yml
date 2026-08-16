@@ -19,6 +19,14 @@ name: Agent Unit Tests
 # The two path lists are duplicated by hand. github.com has supported YAML
 # anchors since August 2025, but GitHub Enterprise Server does not, and merge
 # keys are still unsupported everywhere. Keep the two lists identical.
+# workflow_call is declared so merge-gate.yml can call this as a reusable
+# workflow. Adding the trigger changes nothing on its own: this workflow still
+# runs exactly as it did, on the same events.
+#
+# It lands ahead of the gate on purpose. A local `uses: ./.github/workflows/...`
+# reference resolves against the BASE branch, so a workflow whose workflow_call
+# trigger exists only on a pull-request head cannot be called from that same
+# pull request -- the call fails with no jobs and no error message.
 on:
   push:
     branches: [main]
@@ -36,6 +44,7 @@ on:
       - 'go.work.sum'
       - 'vendor/**'
       - '.github/workflows/agent-test.yml'
+  workflow_call:
   workflow_dispatch: {}
 
 permissions: {}
