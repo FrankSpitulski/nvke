@@ -15,29 +15,15 @@
 # See docs/go-workspace.md.
 name: Go Build
 
-# The two path lists are duplicated by hand. github.com has supported YAML
-# anchors since August 2025, but GitHub Enterprise Server does not, and merge
-# keys are still unsupported everywhere. Keep the two lists identical.
-# workflow_call is declared so merge-gate.yml can call this as a reusable
-# workflow. Adding the trigger changes nothing on its own: this workflow still
-# runs exactly as it did, on the same events.
+# workflow_call is what merge-gate.yml uses to call this as a reusable workflow.
+# Its own `pull_request:` trigger is gone: pull requests reach it through the
+# gate, so it runs once per pull request rather than twice.
 #
-# It lands ahead of the gate on purpose. A local `uses: ./.github/workflows/...`
-# reference resolves against the BASE branch, so a workflow whose workflow_call
-# trigger exists only on a pull-request head cannot be called from that same
-# pull request -- the call fails with no jobs and no error message.
+# A called workflow does not apply its own `paths:` filter, so on a pull request
+# this runs whatever changed. That is deliberate -- see the note in
+# merge-gate.yml. The filter below still applies to `push`.
 on:
   push:
-    branches: [main]
-    paths:
-      - '**/*.go'
-      - '**/go.mod'
-      - '**/go.sum'
-      - 'go.work'
-      - 'go.work.sum'
-      - 'Makefile'
-      - '.github/workflows/go-build.yml'
-  pull_request:
     branches: [main]
     paths:
       - '**/*.go'
@@ -63,7 +49,11 @@ concurrency:
   #
   # Pull-request branches keep sharing a group and still cancel, which is
   # what you want there.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
+  # expression is the CALLER's name, so every workflow merge-gate.yml calls would
+  # compute the same group and cancel each other -- 8 of 9 calls died that way,
+  # reported to the gate as failures with no jobs and no error message.
+  group: Go Build-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   # Do not cancel a run on main; the newer workflows here all guard this.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 

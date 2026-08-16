@@ -61,7 +61,11 @@ concurrency:
   #
   # Pull-request branches keep sharing a group and still cancel, which is
   # what you want there.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
+  # expression is the CALLER's name, so every workflow merge-gate.yml calls would
+  # compute the same group and cancel each other -- 8 of 9 calls died that way,
+  # reported to the gate as failures with no jobs and no error message.
+  group: Actionlint-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:

@@ -44,7 +44,11 @@ concurrency:
   #
   # Pull-request branches keep sharing a group and still cancel, which is
   # what you want there.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
+  # expression is the CALLER's name, so any workflow merge-gate.yml calls would
+  # share a group with its siblings and cancel them. 8 of 9 calls died that way,
+  # reported as failures with no jobs and no error message.
+  group: Third-Party Notices-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   # Do not cancel a run on main: back-to-back merges would otherwise
   # discard this check's result for the intermediate commit, leaving a
   # commit on main that nothing ever verified. Same guard as the other

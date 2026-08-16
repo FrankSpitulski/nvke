@@ -30,7 +30,11 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
+  # expression is the CALLER's name, so any workflow merge-gate.yml calls would
+  # share a group with its siblings and cancel them. 8 of 9 calls died that way,
+  # reported as failures with no jobs and no error message.
+  group: Dependency Review-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

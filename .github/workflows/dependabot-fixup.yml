@@ -76,7 +76,11 @@ on:
       - main
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
+  # expression is the CALLER's name, so any workflow merge-gate.yml calls would
+  # share a group with its siblings and cancel them. 8 of 9 calls died that way,
+  # reported as failures with no jobs and no error message.
+  group: Dependabot Fixup-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions: {}

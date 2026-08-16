@@ -1,0 +1,165 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# One check to require: `gate`.
+#
+# WHY ONE AGGREGATE RATHER THAN A LIST OF JOB NAMES
+#
+# Two ways a required check blocks a pull request forever, and both apply here:
+#
+#   1. A check that never runs. Nine of this repository's workflows trigger on
+#      `push` to main or to pull-request/N, so they only appear when copy-pr-bot
+#      mirrors the head -- which happens for vetted authors. Requiring one of
+#      those would block every unvetted contributor permanently.
+#
+#   2. A check that is skipped. Most workflows here carry `paths:` filters, so a
+#      pull request that does not touch their paths never reports them. GitHub
+#      treats a required-but-absent check as pending, not as passed.
+#
+# So the required context is this one job. It runs on `pull_request`, which every
+# author gets, and it reports a single result no matter which underlying checks
+# ran. Adding a module, growing a matrix or renaming a job then needs no change
+# to branch protection -- which matters, because the licence and govulncheck
+# matrices are generated from go.work.
+#
+# WHAT IS IN IT
+#
+# Everything that runs on a GitHub-hosted runner and is fast enough not to hurt
+# pull-request latency. Deliberately NOT in it: codeql, image, notices-check,
+# secrets, security-scan and lint, which need NVIDIA runners, and deb, whose
+# two-architecture package build is slow and only matters to an agent release.
+# Those keep reporting on `push` as they do today; they are advisory.
+#
+# `DCO` is not here either. It is a GitHub App rather than a workflow, it already
+# reports on every pull request regardless of author, and it should be required
+# directly alongside this one.
+#
+# HOW IT SEES THE OTHER CHECKS
+#
+# A job cannot `needs:` across workflows, so each one is called as a reusable
+# workflow. Each called workflow gained `workflow_call:` and lost its own
+# `pull_request:` trigger in the same change, so it runs once -- through here --
+# rather than twice on every pull request.
+#
+# A called workflow does NOT apply its own `paths:` filter, so everything below
+# runs on every pull request. That is deliberate: preserving the filters would
+# mean copying every path list into a `changes` job here, and two copies of a
+# path list is a thing that goes stale silently. Running the full set costs a few
+# minutes and cannot be wrong.
+
+name: Merge gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  # The sha is part of the group on main, so every commit gets its own.
+  # Without it, back-to-back merges lose CI results: GitHub allows one
+  # running and one pending run per group, and cancels the pending one
+  # when a third arrives -- whatever cancel-in-progress says, because that
+  # setting only protects a run that has already started.
+  #
+  # This matters more here than anywhere else: once `gate` is required, a
+  # cancelled run is indistinguishable from one still in progress, and the
+  # pull request simply never becomes mergeable.
+  # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
+  # expression is the CALLER's name, so any workflow merge-gate.yml calls would
+  # share a group with its siblings and cancel them. 8 of 9 calls died that way,
+  # reported as failures with no jobs and no error message.
+  group: Merge gate-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    uses: ./.github/workflows/go-build.yml
+    permissions:
+      contents: read
+
+  controller-test:
+    uses: ./.github/workflows/controller-test.yml
+    permissions:
+      contents: read
+
+  agent-test:
+    uses: ./.github/workflows/agent-test.yml
+    permissions:
+      contents: read
+
+  workspace:
+    uses: ./.github/workflows/go-work-check.yml
+    permissions:
+      contents: read
+    secrets: inherit
+
+  chart:
+    uses: ./.github/workflows/chart.yml
+    permissions:
+      contents: read
+
+  licenses:
+    uses: ./.github/workflows/license.yml
+    permissions:
+      contents: read
+
+  generated:
+    uses: ./.github/workflows/generate-check.yml
+    permissions:
+      contents: read
+
+  actionlint:
+    uses: ./.github/workflows/actionlint.yml
+    permissions:
+      contents: read
+
+  shellcheck:
+    uses: ./.github/workflows/shellcheck.yml
+    permissions:
+      contents: read
+
+  gate:
+    name: gate
+    # always(), so the gate still reports when something upstream failed. Without
+    # it the gate would itself be skipped, which reads to branch protection as
+    # "never ran" -- the exact failure this workflow exists to avoid.
+    if: always()
+    needs:
+      - build
+      - controller-test
+      - agent-test
+      - workspace
+      - chart
+      - licenses
+      - generated
+      - actionlint
+      - shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require every check to have passed
+        shell: bash
+        run: |
+          set -euo pipefail
+          results='${{ join(needs.*.result, ' ') }}'
+          echo "  results: ${results}"
+
+          # `skipped` is tolerated on purpose. A called workflow can skip for
+          # reasons that are not failures, and treating that as a failure would
+          # block merges for no reason. `failure` and `cancelled` are not
+          # tolerated -- a cancelled run has proven nothing.
+          for r in ${results}; do
+            case "${r}" in
+              failure|cancelled)
+                echo "::error::a required check did not pass: ${results}"
+                exit 1
+                ;;
+            esac
+          done
+          echo "  all required checks passed"
+          echo "### Merge gate passed" >> "${GITHUB_STEP_SUMMARY}"

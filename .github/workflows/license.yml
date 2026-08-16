@@ -42,22 +42,9 @@ on:
       - 'controller/deploy/charts/cloud-workflow-engine/LICENSE'
       - 'controller/deploy/charts/cloud-workflow-engine/NOTICE'
       - '.github/workflows/license.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - '**/*.go'
-      - '**/go.mod'
-      - '**/go.sum'
-      # The shipped LICENSE/NOTICE copies derive from the root files and from
-      # the Makefile that copies them, so all three trigger the check that
-      # compares them.
-      - 'LICENSE'
-      - 'NOTICE'
-      - 'Makefile'
-      - 'controller/licenses/**'
-      - 'controller/deploy/charts/cloud-workflow-engine/LICENSE'
-      - 'controller/deploy/charts/cloud-workflow-engine/NOTICE'
-      - '.github/workflows/license.yml'
+  # No `pull_request:` trigger. Pull requests reach this through merge-gate.yml,
+  # which calls it as a reusable workflow, so it runs once rather than twice.
+  # release.yml also calls it, which is why workflow_call was already here.
   workflow_call:
 
 # Every job here only reads the checkout. Declared rather than inherited: a

@@ -46,7 +46,11 @@ concurrency:
   #
   # Pull-request branches keep sharing a group and still cancel, which is
   # what you want there.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
+  # expression is the CALLER's name, so any workflow merge-gate.yml calls would
+  # share a group with its siblings and cancel them. 8 of 9 calls died that way,
+  # reported as failures with no jobs and no error message.
+  group: Agent Artifact-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   # Never cancel a publish midway: the index is created from tags pushed
   # earlier in the same job, and a half-published set would leave an index
   # pointing at an architecture that is not there.
