@@ -11,8 +11,10 @@ deploymentAnnotations: {}
 
 # This sets the container image.
 # https://kubernetes.io/docs/concepts/containers/images/
+#
+# Must match what image-nvcr.yml pushes: nvcr.io/${NKE_NGC_ORG}/controller.
 image:
-  repository: nvcr.io/j7sbcjl3qgta/cloud-workflow-engine
+  repository: nvcr.io/j7sbcjl3qgta/controller
   # -- This sets the pull policy for images.
   pullPolicy: IfNotPresent
   # -- Overrides the image tag whose default is the chart appVersion.
