@@ -87,7 +87,25 @@ jobs:
           # Using controller/ instead fails on CopyIgnoredFile, because
           # controller/.dockerignore excludes **/bin.
           check controller/hack/Dockerfile.cwe.tilt               controller/hack
+
+          # The profiles fixture is the one non-shipped image whose context IS
+          # in the tree, so it is built for real below rather than only parsed.
           exit $status
+
+      # Built rather than only checked, unlike the four above, because its whole
+      # context is in the tree. It ships nowhere: it is a test fixture the
+      # Tiltfile and capd-e2e use, and the fleet profiles image is built from
+      # nke-site-deploy. This is a compile check, not a publish step.
+      #
+      # A real build rather than `docker build --check`, because --check parses
+      # the Dockerfile and never resolves a COPY source. It would not notice
+      # profiles/ going missing, which is the failure worth catching here.
+      - name: Build the profiles fixture image
+        run: |
+          docker buildx build -f controller/test/fixtures/Dockerfile \
+            --platform linux/amd64 --load --progress=plain \
+            --tag cwe-profiles-fixture:ci \
+            controller/test/fixtures
 
       # A real end-to-end image build. nico-mock is used because it has no
       # private module dependencies, so it builds from public sources alone —

@@ -89,6 +89,37 @@ jobs:
         working-directory: controller
         run: make lint
 
+  lint-nkectl:
+    name: golangci-lint (nkectl)
+    runs-on: linux-amd64-cpu16
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    # nkectl depends only on public modules, so it lints one module at a time
+    # like agent and forge-vms (workflow-level GOWORK=off applies). It is a
+    # nested module: `go list ./...` in controller/ does not reach it, so
+    # controller's own lint job cannot cover it and this job is the only thing
+    # that does.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: controller/nkectl/go.mod
+          cache: true
+          cache-dependency-path: |
+            controller/nkectl/go.sum
+            **/go.sum
+
+      - name: Run golangci-lint
+        working-directory: controller/nkectl
+        run: make lint
+
   lint-forge-vms:
     name: golangci-lint (forge-vms)
     runs-on: linux-amd64-cpu16

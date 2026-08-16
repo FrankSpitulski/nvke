@@ -47,7 +47,11 @@ concurrency:
 
 jobs:
   test:
-    name: Unit tests
+    # Named for the module, matching controller-test.yml's
+    # `Unit tests (${{ matrix.module }})`. This is the only unqualified test
+    # check left, and branch protection matches a required check by job name --
+    # so an unqualified name is one workflow away from being ambiguous.
+    name: Unit tests (agent)
     runs-on: ubuntu-latest
     if: github.repository == 'NVIDIA/nke'
     timeout-minutes: 15

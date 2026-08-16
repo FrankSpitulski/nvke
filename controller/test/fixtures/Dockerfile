@@ -13,8 +13,16 @@
 # The Tiltfile builds this with build context test/fixtures/ and the chart's
 # materialize-profiles initContainer copies /profiles into the shared volume
 # that the app container mounts at PROFILES_DIR (profiles.path). Fleet profiles
-# live in nke-site-deploy/cwe-profiles (NKX-13910); this tree is a sanitized
-# fixture used only for tests.
-FROM dockerhub.nvidia.com/alpine:3.21.7
+# live in nke-site-deploy/cwe-profiles; this tree is a sanitized fixture used
+# only for tests.
+#
+# Defaults to Docker Hub so this builds for anyone with no NVIDIA network
+# access, matching controller/Dockerfile and hack/nico-mock/Dockerfile.
+# Internal builds override it. Hardcoding dockerhub.nvidia.com here made the
+# image unbuildable outside the NVIDIA network -- including on the GitHub
+# runner, which cannot resolve that host at all.
+ARG BASE_REGISTRY=docker.io
+
+FROM ${BASE_REGISTRY}/alpine:3.21.7
 RUN mkdir -p /profiles
 COPY profiles/ /profiles/

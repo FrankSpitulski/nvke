@@ -11,10 +11,13 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/NVIDIA/nke/controller/nkectl/internal/inventory"
 )
 
 const validInventory = `
@@ -102,4 +105,67 @@ func writeInventory(t *testing.T, content string) string {
 		t.Fatalf("write inventory: %v", err)
 	}
 	return path
+}
+
+// TestDumpInventoryRedactsRegistryAPIKey covers the one branch in this package
+// that exists purely to keep a credential out of the terminal. Nothing else
+// asserted it: every other inventory in these tests omits apiKey, so the
+// redaction line had an execution count of zero and a regression that printed
+// the key verbatim would have passed.
+func TestDumpInventoryRedactsRegistryAPIKey(t *testing.T) {
+	const secret = "nvapi-do-not-print-me"
+
+	inv, err := inventory.Load(writeInventory(t, validInventory+"  apiKey: "+secret+"\n"))
+	if err != nil {
+		t.Fatalf("load inventory: %v", err)
+	}
+	if inv.Registry.APIKey != secret {
+		t.Fatalf("fixture did not set the api key: got %q, want %q", inv.Registry.APIKey, secret)
+	}
+
+	out := captureStdout(t, func() {
+		if err := dumpInventory(inv); err != nil {
+			t.Fatalf("dumpInventory: %v", err)
+		}
+	})
+
+	if strings.Contains(out, secret) {
+		t.Errorf("dumpInventory printed the registry credential:\n%s", out)
+	}
+	if !strings.Contains(out, "***redacted***") {
+		t.Errorf("dumpInventory did not mark the credential as redacted:\n%s", out)
+	}
+	// Redaction works on a copy, so the caller's inventory must be left intact:
+	// whatever runs next still needs the real credential.
+	if inv.Registry.APIKey != secret {
+		t.Errorf("dumpInventory mutated the caller's inventory: api key is now %q", inv.Registry.APIKey)
+	}
+}
+
+// captureStdout runs fn with os.Stdout replaced by a pipe and returns what was
+// written. dumpInventory writes to os.Stdout directly rather than to an
+// injected writer, so this is the only way to observe it.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+
+	done := make(chan string, 1)
+	go func() {
+		var sb strings.Builder
+		_, _ = io.Copy(&sb, r)
+		done <- sb.String()
+	}()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("close pipe writer: %v", err)
+	}
+	return <-done
 }

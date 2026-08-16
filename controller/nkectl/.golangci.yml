@@ -1,0 +1,78 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+
+# Upstream nkectl carries no config of its own: it sat inside a repository
+# whose root .golangci.yml covered it. Imported here it becomes a module in a
+# workspace where every other module brings its own, so it needs one too --
+# without it golangci-lint applies bare defaults, which lack the exclusion
+# presets the rest of the tree relies on.
+#
+# The linter set is small on purpose. This module is new and clean; the wider
+# sets in agent/ and controller/ carry disabled entries for pre-existing debt
+# that does not exist here. Add linters as the module grows rather than
+# importing another module's backlog.
+
+version: "2"
+
+run:
+  concurrency: 8
+  modules-download-mode: readonly
+  tests: true
+  allow-parallel-runners: true
+
+linters:
+  enable:
+    - errorlint
+    - goheader
+    - misspell
+    - revive
+    - unconvert
+    - usestdlibvars
+  settings:
+    # Mirrors controller/.golangci.yml and controller/forge-vms/.golangci.yml.
+    # goheader with no template silently passes everything, so the template is
+    # the whole point of enabling it.
+    goheader:
+      template: |-
+        SPDX-FileCopyrightText: Copyright (c) {{MOD_YEAR-RANGE}} NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+        SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+
+        NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+        property and proprietary rights in and to this material, related
+        documentation and any modifications thereto. Any use, reproduction,
+        disclosure or distribution of this material and related documentation
+        without an express license agreement from NVIDIA CORPORATION or
+        its affiliates is strictly prohibited.
+  exclusions:
+    generated: lax
+    # std-error-handling is what makes the default errcheck usable: it drops
+    # the unchecked-return reports on fmt.Fprint* to os.Stdout/os.Stderr, which
+    # a CLI does on nearly every line and cannot act on if they fail. Same four
+    # presets as agent/, controller/ and controller/forge-vms.
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+
+formatters:
+  # Enabled, as in controller/ and controller/forge-vms/. agent/ is the only
+  # module that disables them, pending a formatting sweep of existing code.
+  enable:
+    - gci
+    - gofumpt
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/NVIDIA/)
+    gofumpt:
+      extra-rules: true
