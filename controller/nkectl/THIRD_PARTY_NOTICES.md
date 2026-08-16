@@ -30,7 +30,7 @@ notices-check` verifies it is up to date.
 | `github.com/subosito/gotenv` | MIT | `github.com/subosito/gotenv@v1.6.0` | Unknown |
 | `go.yaml.in/yaml/v3` | MIT | `go.yaml.in/yaml/v3@v3.0.4` | Unknown |
 | `golang.org/x/sys/unix` | BSD-3-Clause | `golang.org/x/sys@v0.47.0` | Unknown |
-| `golang.org/x/text` | BSD-3-Clause | `golang.org/x/text@v0.40.0` | Unknown |
+| `golang.org/x/text` | BSD-3-Clause | `golang.org/x/text@v0.41.0` | Unknown |
 | `gopkg.in/yaml.v3` | MIT | `gopkg.in/yaml.v3@v3.0.1` | Unknown |
 
 ## Go Module License Texts
@@ -808,7 +808,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### golang.org/x/text
 
-_BSD-3-Clause — golang.org/x/text@v0.40.0_
+_BSD-3-Clause — golang.org/x/text@v0.41.0_
 
 #### LICENSE
 

@@ -68,7 +68,7 @@ notices-check` verifies it is up to date.
 | `github.com/gravitational/teleport/api` | Apache-2.0 | `github.com/gravitational/teleport/api@v0.0.0-20251224210154-05b9362bd4d6` | Unknown |
 | `github.com/gravitational/trace` | Apache-2.0 | `github.com/gravitational/trace@v1.5.1` | Unknown |
 | `github.com/grpc-ecosystem/go-grpc-middleware/v2` | Apache-2.0 | `github.com/grpc-ecosystem/go-grpc-middleware/v2@v2.3.3` | Unknown |
-| `github.com/grpc-ecosystem/grpc-gateway/v2` | BSD-3-Clause | `github.com/grpc-ecosystem/grpc-gateway/v2@v2.27.7` | Unknown |
+| `github.com/grpc-ecosystem/grpc-gateway/v2` | BSD-3-Clause | `github.com/grpc-ecosystem/grpc-gateway/v2@v2.28.0` | Unknown |
 | `github.com/jinzhu/inflection` | MIT | `github.com/jinzhu/inflection@v1.0.0` | Unknown |
 | `github.com/jonboulle/clockwork` | Apache-2.0 | `github.com/jonboulle/clockwork@v0.5.0` | Unknown |
 | `github.com/json-iterator/go` | MIT | `github.com/json-iterator/go@v1.1.12` | Unknown |
@@ -117,12 +117,12 @@ notices-check` verifies it is up to date.
 | `go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc` | Apache-2.0 / BSD-3-Clause | `go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc@v0.67.0` | Unknown |
 | `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp` | Apache-2.0 / BSD-3-Clause | `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp@v0.67.0` | Unknown |
 | `go.opentelemetry.io/otel` | Apache-2.0 / BSD-3-Clause | `go.opentelemetry.io/otel@v1.44.0` | Unknown |
-| `go.opentelemetry.io/otel/exporters/otlp/otlptrace` | Apache-2.0 / BSD-3-Clause | `go.opentelemetry.io/otel/exporters/otlp/otlptrace@v1.40.0` | Unknown |
-| `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc` | Apache-2.0 / BSD-3-Clause | `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.40.0` | Unknown |
+| `go.opentelemetry.io/otel/exporters/otlp/otlptrace` | Apache-2.0 / BSD-3-Clause | `go.opentelemetry.io/otel/exporters/otlp/otlptrace@v1.43.0` | Unknown |
+| `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc` | Apache-2.0 / BSD-3-Clause | `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.43.0` | Unknown |
 | `go.opentelemetry.io/otel/metric` | Apache-2.0 / BSD-3-Clause | `go.opentelemetry.io/otel/metric@v1.44.0` | Unknown |
 | `go.opentelemetry.io/otel/sdk` | Apache-2.0 / BSD-3-Clause | `go.opentelemetry.io/otel/sdk@v1.44.0` | Unknown |
 | `go.opentelemetry.io/otel/trace` | Apache-2.0 / BSD-3-Clause | `go.opentelemetry.io/otel/trace@v1.44.0` | Unknown |
-| `go.opentelemetry.io/proto/otlp` | Apache-2.0 | `go.opentelemetry.io/proto/otlp@v1.9.0` | Unknown |
+| `go.opentelemetry.io/proto/otlp` | Apache-2.0 | `go.opentelemetry.io/proto/otlp@v1.10.0` | Unknown |
 | `go.temporal.io/api` | MIT | `go.temporal.io/api@v1.60.0` | Unknown |
 | `go.temporal.io/api/internal/protojson` | BSD-3-Clause | `go.temporal.io/api@v1.60.0` | Unknown |
 | `go.temporal.io/sdk` | MIT | `go.temporal.io/sdk@v1.39.0` | Unknown |
@@ -132,13 +132,13 @@ notices-check` verifies it is up to date.
 | `go.yaml.in/yaml/v2` | Apache-2.0 | `go.yaml.in/yaml/v2@v2.4.3` | Unknown |
 | `go.yaml.in/yaml/v3` | MIT | `go.yaml.in/yaml/v3@v3.0.4` | Unknown |
 | `go.yaml.in/yaml/v4` | Apache-2.0 | `go.yaml.in/yaml/v4@v4.0.0-rc.4` | Unknown |
-| `golang.org/x/crypto` | BSD-3-Clause | `golang.org/x/crypto@v0.53.0` | Unknown |
-| `golang.org/x/net` | BSD-3-Clause | `golang.org/x/net@v0.56.0` | Unknown |
+| `golang.org/x/crypto` | BSD-3-Clause | `golang.org/x/crypto@v0.55.0` | Unknown |
+| `golang.org/x/net` | BSD-3-Clause | `golang.org/x/net@v0.57.0` | Unknown |
 | `golang.org/x/oauth2` | BSD-3-Clause | `golang.org/x/oauth2@v0.36.0` | Unknown |
 | `golang.org/x/sync` | BSD-3-Clause | `golang.org/x/sync@v0.22.0` | Unknown |
 | `golang.org/x/sys` | BSD-3-Clause | `golang.org/x/sys@v0.47.0` | Unknown |
-| `golang.org/x/term` | BSD-3-Clause | `golang.org/x/term@v0.44.0` | Unknown |
-| `golang.org/x/text` | BSD-3-Clause | `golang.org/x/text@v0.40.0` | Unknown |
+| `golang.org/x/term` | BSD-3-Clause | `golang.org/x/term@v0.45.0` | Unknown |
+| `golang.org/x/text` | BSD-3-Clause | `golang.org/x/text@v0.41.0` | Unknown |
 | `golang.org/x/time/rate` | BSD-3-Clause | `golang.org/x/time@v0.15.0` | Unknown |
 | `gomodules.xyz/jsonpatch/v2` | Apache-2.0 | `gomodules.xyz/jsonpatch/v2@v2.5.0` | Unknown |
 | `google.golang.org/genproto/googleapis/api` | Apache-2.0 | `google.golang.org/genproto/googleapis/api@v0.0.0-20260807164820-c8921c73eeea` | Unknown |
@@ -155,7 +155,7 @@ notices-check` verifies it is up to date.
 | `k8s.io/apimachinery/third_party/forked/golang` | BSD-3-Clause | `k8s.io/apimachinery@v0.36.3` | Unknown |
 | `k8s.io/apiserver/pkg` | Apache-2.0 | `k8s.io/apiserver@v0.36.0` | Unknown |
 | `k8s.io/client-go` | Apache-2.0 | `k8s.io/client-go@v0.36.3` | Unknown |
-| `k8s.io/cluster-bootstrap/token` | Apache-2.0 | `k8s.io/cluster-bootstrap@v0.34.2` | Unknown |
+| `k8s.io/cluster-bootstrap/token` | Apache-2.0 | `k8s.io/cluster-bootstrap@v0.35.4` | Unknown |
 | `k8s.io/component-base` | Apache-2.0 | `k8s.io/component-base@v0.36.1` | Unknown |
 | `k8s.io/klog/v2` | Apache-2.0 | `k8s.io/klog/v2@v2.140.0` | Unknown |
 | `k8s.io/kube-openapi/pkg` | Apache-2.0 | `k8s.io/kube-openapi@v0.0.0-20260317180543-43fb72c5454a` | Unknown |
@@ -171,7 +171,7 @@ notices-check` verifies it is up to date.
 | `sigs.k8s.io/controller-runtime` | Apache-2.0 | `sigs.k8s.io/controller-runtime@v0.24.1` | Unknown |
 | `sigs.k8s.io/json` | Apache-2.0 / BSD-3-Clause | `sigs.k8s.io/json@v0.0.0-20250730193827-2d320260d730` | Unknown |
 | `sigs.k8s.io/randfill` | Apache-2.0 | `sigs.k8s.io/randfill@v1.0.0` | Unknown |
-| `sigs.k8s.io/structured-merge-diff/v6` | Apache-2.0 | `sigs.k8s.io/structured-merge-diff/v6@v6.3.3` | Unknown |
+| `sigs.k8s.io/structured-merge-diff/v6` | Apache-2.0 | `sigs.k8s.io/structured-merge-diff/v6@v6.4.0` | Unknown |
 | `sigs.k8s.io/yaml` | Apache-2.0 / BSD-3-Clause / MIT | `sigs.k8s.io/yaml@v1.6.0` | Unknown |
 
 ## Go Module License Texts
@@ -6184,7 +6184,7 @@ _Apache-2.0 — github.com/grpc-ecosystem/go-grpc-middleware/v2@v2.3.3_
 
 ### github.com/grpc-ecosystem/grpc-gateway/v2
 
-_BSD-3-Clause — github.com/grpc-ecosystem/grpc-gateway/v2@v2.27.7_
+_BSD-3-Clause — github.com/grpc-ecosystem/grpc-gateway/v2@v2.28.0_
 
 #### LICENSE
 
@@ -12107,7 +12107,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### go.opentelemetry.io/otel/exporters/otlp/otlptrace
 
-_Apache-2.0 / BSD-3-Clause — go.opentelemetry.io/otel/exporters/otlp/otlptrace@v1.40.0_
+_Apache-2.0 / BSD-3-Clause — go.opentelemetry.io/otel/exporters/otlp/otlptrace@v1.43.0_
 
 #### LICENSE
 
@@ -12347,7 +12347,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc
 
-_Apache-2.0 / BSD-3-Clause — go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.40.0_
+_Apache-2.0 / BSD-3-Clause — go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.43.0_
 
 #### LICENSE
 
@@ -13307,7 +13307,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### go.opentelemetry.io/proto/otlp
 
-_Apache-2.0 — go.opentelemetry.io/proto/otlp@v1.9.0_
+_Apache-2.0 — go.opentelemetry.io/proto/otlp@v1.10.0_
 
 #### LICENSE
 
@@ -14254,7 +14254,7 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 ### golang.org/x/crypto
 
-_BSD-3-Clause — golang.org/x/crypto@v0.53.0_
+_BSD-3-Clause — golang.org/x/crypto@v0.55.0_
 
 #### LICENSE
 
@@ -14291,7 +14291,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### golang.org/x/net
 
-_BSD-3-Clause — golang.org/x/net@v0.56.0_
+_BSD-3-Clause — golang.org/x/net@v0.57.0_
 
 #### LICENSE
 
@@ -14439,7 +14439,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### golang.org/x/term
 
-_BSD-3-Clause — golang.org/x/term@v0.44.0_
+_BSD-3-Clause — golang.org/x/term@v0.45.0_
 
 #### LICENSE
 
@@ -14476,7 +14476,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### golang.org/x/text
 
-_BSD-3-Clause — golang.org/x/text@v0.40.0_
+_BSD-3-Clause — golang.org/x/text@v0.41.0_
 
 #### LICENSE
 
@@ -16933,7 +16933,7 @@ _Apache-2.0 — k8s.io/client-go@v0.36.3_
 
 ### k8s.io/cluster-bootstrap/token
 
-_Apache-2.0 — k8s.io/cluster-bootstrap@v0.34.2_
+_Apache-2.0 — k8s.io/cluster-bootstrap@v0.35.4_
 
 #### LICENSE
 
@@ -19848,7 +19848,7 @@ Submitted on behalf of a third-party: @disconnect3d (Disconnect3d)
 
 ### sigs.k8s.io/structured-merge-diff/v6
 
-_Apache-2.0 — sigs.k8s.io/structured-merge-diff/v6@v6.3.3_
+_Apache-2.0 — sigs.k8s.io/structured-merge-diff/v6@v6.4.0_
 
 #### LICENSE
 
