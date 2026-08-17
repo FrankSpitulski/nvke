@@ -48,27 +48,45 @@ section and exits 0, so nothing fails.
 git commit -s -m "chore: update CHANGELOG.md for v0.2.0"
 ```
 
-**The heading carries no `v` prefix.** Step 3 and
-`.github/workflows/release.yml` both read the section back by that heading, and
-neither fails when it does not match — they emit a fallback line — so a mismatch
-ships a release with no notes rather than an error.
+**The heading carries no `v` prefix.** `.github/workflows/release.yml` reads the
+section back by that heading and does not fail when it finds nothing — it emits
+a fallback line — so a mismatch ships a release with no notes rather than an
+error.
+
+A component tag never matches. `cliff.toml` sets `tag_pattern = "^v[0-9]"`, so
+git-cliff writes sections for bare tags only, and a `cli/v0.2.0` release falls
+back to the one-line body. Write the notes by hand afterwards if the release
+needs them.
 
 ### 2. Tag the release
+
+A bare tag releases the whole repository:
 
 ```bash
 git tag -s v0.2.0 -m "Release v0.2.0"
 git push upstream v0.2.0
 ```
 
-### 3. Create a GitHub release
+A single component is tagged with its own directory in front:
 
 ```bash
-gh release create v0.2.0 \
-  --title "v0.2.0" \
-  --notes-file <(sed -n '/^## \[0.2.0\]/,/^## \[/{ /^## \[0.2.0\]/d; /^## \[/d; p }' CHANGELOG.md)
+git tag -s cli/v0.2.0 -m "Release cli/v0.2.0"
+git push upstream cli/v0.2.0
 ```
 
-Or use the GitHub UI: **Releases → Draft a new release → Choose tag → Generate release notes**.
+The prefix is the module's directory because Go requires it: the module
+`github.com/NVIDIA/nke/cli` can only be resolved by a tag named `cli/vX.Y.Z`.
+`.github/workflows/release.yml` reads the directory back off the tag and checks
+it against `go.work`, so a prefix naming no module fails the run.
+
+Push tags to `upstream`. The release workflow has no repository guard, so a tag
+pushed to a fork cuts a real release there.
+
+### 3. Wait for the release workflow
+
+The tag push creates the GitHub release. `.github/workflows/release.yml` builds
+the component's artifacts, attaches them with a `checksums.txt`, and takes the
+body from `CHANGELOG.md`. Nothing is created by hand.
 
 ### 4. Verify artifacts
 
@@ -86,5 +104,17 @@ For security patches that cannot wait for the next regular release:
 
 ## Pre-releases
 
-For release candidates, append `-rc.N` to the version: `v0.2.0-rc.1`.
-Tag and publish the same way; GitHub marks pre-release tags automatically.
+For release candidates, append `-rc.N` to the version: `v0.2.0-rc.1`, or
+`cli/v0.2.0-rc.1` for one component. Tag and push the same way.
+
+**The dot in `-rc.N` is load-bearing.** `.github/workflows/release.yml` marks
+the release as a pre-release by looking for `-rc.`, so `v0.2.0-rc1` without it
+would publish as a full release and take the repository's "Latest release"
+badge. The workflow rejects that spelling rather than releasing it. The dot also
+gives the right ordering: `rc.2` sorts before `rc.10`, while `rc2` sorts after
+`rc10`, because SemVer compares an all-digit identifier as a number and anything
+else as text.
+
+GitHub does not infer any of this from the tag name. Releases created through
+the API are full releases unless the caller says otherwise, and the workflow is
+the only thing that says otherwise.

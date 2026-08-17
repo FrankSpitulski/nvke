@@ -81,6 +81,18 @@ jobs:
             VERSION="${TAG}"
           fi
 
+          # The two forms the root tags are already held to at the top of this
+          # file. The component pattern there cannot be that strict, because a
+          # glob cannot spell "vX.Y.Z", so the rule is enforced here instead.
+          # It fails rather than skips: a tighter glob would let a malformed tag
+          # push do nothing at all, and silence reads as success.
+          if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "::error::${TAG} carries version '${VERSION}', which is neither vX.Y.Z nor vX.Y.Z-rc.N."
+            echo "A release candidate needs the dot: v0.1.0-rc.0, not v0.1.0-rc0."
+            echo "Delete the tag, then push a corrected one."
+            exit 1
+          fi
+
           echo "dir=${DIR}"         >> "${GITHUB_OUTPUT}"
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "Releasing ${TAG}: module='${DIR:-<repository>}' version=${VERSION}"
