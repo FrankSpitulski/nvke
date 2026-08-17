@@ -128,7 +128,7 @@ jobs:
         run: make notices-check
 
       - name: Verify nkectl THIRD_PARTY_NOTICES.md is up to date
-        working-directory: controller/nkectl
+        working-directory: cli
         env:
           GOWORK: ""
         run: make notices-check

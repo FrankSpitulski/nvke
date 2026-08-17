@@ -48,29 +48,100 @@ jobs:
     needs: [license-checks]
     permissions:
       contents: write   # creates the GitHub release
-    if: ${{ !contains(github.ref_name, '/') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
+      # A tag is <module-directory>/vX.Y.Z, because that is what Go requires of a
+      # submodule: github.com/NVIDIA/nke/cli is tagged cli/vX.Y.Z. So the
+      # directory is read back off the tag and nothing below needs to name a
+      # component. Move a module and its tag prefix moves with it, because Go
+      # makes them the same string; go.work then says whether the directory is
+      # real. A bare vX.Y.Z is the whole repository.
+      - name: Resolve the component from the tag
+        id: component
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+
+          if [[ "${TAG}" == */* ]]; then
+            DIR="${TAG%/v*}"
+            VERSION="v${TAG##*/v}"
+            if ! go work edit -json | jq -e --arg d "./${DIR}" \
+                 '.Use[]|select(.DiskPath==$d)' >/dev/null; then
+              echo "::error::${TAG} names '${DIR}', which is not a module in go.work."
+              echo "go.work lists:"; go work edit -json | jq -r '.Use[].DiskPath'
+              exit 1
+            fi
+          else
+            DIR=""
+            VERSION="${TAG}"
+          fi
+
+          echo "dir=${DIR}"         >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Releasing ${TAG}: module='${DIR:-<repository>}' version=${VERSION}"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cli/go.mod
+
+      # What each component ships differs, so it is declared rather than guessed.
+      # A component with no artifacts still gets a release: the tag and its notes
+      # are the point and the files are a bonus.
+      - name: Build release artifacts
+        id: artifacts
+        shell: bash
+        env:
+          DIR: ${{ steps.component.outputs.dir }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          case "${DIR}" in
+            cli)
+              make -C cli build-cross DIST="${GITHUB_WORKSPACE}/dist"
+              # Shipped beside the binaries because nkectl is redistributed --
+              # which is the reason it carries its own attribution at all.
+              cp cli/THIRD_PARTY_NOTICES.md dist/
+              ;;
+            *)
+              echo "No artifacts defined for '${DIR:-<repository>}'; releasing notes only."
+              ;;
+          esac
+
+          if find dist -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+            ( cd dist && sha256sum -- * > checksums.txt )
+            echo "artifacts:"
+            find dist -mindepth 1 -maxdepth 1 -printf '  %f\n' | sort
+            echo "has_files=true" >> "${GITHUB_OUTPUT}"
+          else
+            rmdir dist
+            echo "has_files=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Extract changelog section for this tag
         id: changelog
+        shell: bash
+        env:
+          # The resolved version, not the raw ref. CHANGELOG.md headings carry
+          # neither the "v" nor the module prefix, so `cli/v0.1.0` read raw
+          # would look for "## [cli/v0.1.0]" and match
+          # nothing. That does not fail -- the fallback fires -- so the release
+          # would quietly ship a one-line body.
+          VERSION: ${{ steps.component.outputs.version }}
         run: |
-          # Strip a leading "v". CHANGELOG.md headings carry no prefix, which is
-          # the Keep a Changelog convention and what git-cliff emits, so reading
-          # the raw ref name would look for "## [v0.2.0]" and match nothing.
-          # This does not fail — the fallback below fires — so the release would
-          # ship a one-line body instead. cluster-api-provider-nico and
-          # cluster-api-addon-provider-syscmp already strip it.
-          TAG="${GITHUB_REF_NAME#v}"
-          # Extract the section between this version header and the next one
+          set -euo pipefail
+          TAG="${VERSION#v}"
           NOTES=$(awk "/^## \[${TAG}\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md)
           if [ -z "$NOTES" ]; then
             NOTES="See [CHANGELOG.md](CHANGELOG.md) for details."
           fi
-          # Write to a file to avoid quoting issues
+          # Written to a file to avoid quoting issues
           echo "$NOTES" > /tmp/release-notes.md
 
       - name: Create GitHub release
@@ -79,7 +150,12 @@ jobs:
           body_path: /tmp/release-notes.md
           prerelease: ${{ contains(github.ref_name, '-rc.') }}
           generate_release_notes: false
+          # Empty when the component ships nothing, which the action accepts.
+          files: ${{ steps.artifacts.outputs.has_files == 'true' && 'dist/*' || '' }}
 
+  # Still a placeholder, but no longer the only thing a prefixed tag reaches:
+  # the release job above now handles every tag, so this is for publishing that
+  # is not a GitHub release asset -- registries, apt, and so on.
   publish:
     name: Publish
     needs: [license-checks]

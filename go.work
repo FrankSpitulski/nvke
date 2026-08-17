@@ -11,11 +11,11 @@ go 1.26.5
 
 use (
 	./agent
+	./cli
 	./controller
 	./controller/api
 	./controller/forge-vms
 	./controller/hack/capd-reboot-controller
 	./controller/hack/nico-mock
-	./controller/nkectl
 	./controller/test/e2e
 )

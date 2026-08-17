@@ -26,7 +26,7 @@ WORK_MODULES := agent \
                 controller/forge-vms \
                 controller/hack/capd-reboot-controller \
                 controller/hack/nico-mock \
-                controller/nkectl \
+                cli \
                 controller/test/e2e
 
 # Modules whose commands `build` can compile with `go build -o bin/ ./cmd/...`,
@@ -39,8 +39,8 @@ WORK_MODULES := agent \
 # name. `build` delegates to controller/Makefile for it. controller/forge-vms
 # ships through its own Makefile and the container image.
 #
-# controller/nkectl is absent because its Makefile stamps four symbols, not one,
-# and asserts the stamp took. `build` delegates to controller/nkectl/Makefile.
+# cli is absent because its Makefile stamps four symbols, not one,
+# and asserts the stamp took. `build` delegates to cli/Makefile.
 CMD_MODULES := agent \
                controller/hack/capd-reboot-controller \
                controller/hack/nico-mock
@@ -51,7 +51,7 @@ CMD_MODULES := agent \
 #
 # --match is required. This repo has several tag series, and a bare
 # `git describe --tags` returns the nearest one, so agent would report a
-# controller version. Same derivation as controller/ and controller/nkectl/.
+# controller version. Same derivation as controller/ and cli/.
 cmd_version = $(patsubst $(notdir $(1))/%,%,$(shell \
     git describe --tags --dirty --match '$(notdir $(1))/v[0-9]*' 2>/dev/null \
     || git describe --tags --dirty --match 'v[0-9]*' 2>/dev/null \
@@ -273,12 +273,12 @@ build: ## Build every workspace package, and the released commands into bin/.
 	@$(MAKE) --no-print-directory -C controller build >/dev/null || exit 1
 	@cp controller/bin/$(CWE_BIN_NAME) $(BIN_DIR)/ \
 		|| { echo "ERROR: controller/Makefile no longer produces bin/$(CWE_BIN_NAME). Update CWE_BIN_NAME here to match its WORKER_BIN_NAME."; exit 1; }
-	@# Same reason as controller: controller/nkectl/Makefile owns nkectl's
+	@# Same reason as controller: cli/Makefile owns nkectl's
 	@# version ldflags, and it asserts the stamp took.
-	@echo "- building controller/nkectl"
-	@$(MAKE) --no-print-directory -C controller/nkectl build >/dev/null || exit 1
-	@cp controller/nkectl/bin/nkectl $(BIN_DIR)/ \
-		|| { echo "ERROR: controller/nkectl/Makefile no longer produces bin/nkectl."; exit 1; }
+	@echo "- building cli"
+	@$(MAKE) --no-print-directory -C cli build >/dev/null || exit 1
+	@cp cli/bin/nkectl $(BIN_DIR)/ \
+		|| { echo "ERROR: cli/Makefile no longer produces bin/nkectl."; exit 1; }
 	@echo "Built into $(BIN_DIR):"
 	@ls -1 $(BIN_DIR) | sed 's/^/    /'
 

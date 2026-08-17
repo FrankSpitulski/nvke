@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/nke/controller/nkectl/internal/inventory"
+	"github.com/NVIDIA/nke/cli/internal/inventory"
 )
 
 const validInventory = `

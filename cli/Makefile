@@ -3,7 +3,7 @@
 
 # Module-level targets, matching the other workspace members. The root Makefile
 # builds nkectl into the repository's bin/ as part of `make build`; this file is
-# for working inside controller/nkectl/ alone, and it is what the Lint workflow
+# for working inside cli/ alone, and it is what the Lint workflow
 # invokes.
 #
 # Every dependency here is public, so these targets need neither the workspace
@@ -31,17 +31,14 @@ GOLANGCI_LINT_VERSION ?= v2.12.2
 # derives an agent version with an unmatched `git describe` and already
 # produces the wrong string.
 #
-# nkectl versions apart from the controller it sits under, so it gets its own tag
-# family. No nkectl/v* tag exists yet, hence the fallbacks: a plain v* tag, the
-# commit, then v0.0.0. The prefix is stripped, so the binary reports v1.2.3, not
-# nkectl/v1.2.3. --dirty marks a build from a modified tree.
-#
-# Without the commit step, every nkectl reports v0.0.0, because neither tag
-# family exists. The commit says which source the build came from, and leaves
-# v0.0.0 to mean a build outside a git checkout. Same steps as cmd_version in the
-# root Makefile.
-_NKECTL_VERSION_RAW := $(shell git describe --tags --dirty --match 'nkectl/v[0-9]*' 2>/dev/null || git describe --tags --dirty --match 'v[0-9]*' 2>/dev/null || git describe --always --dirty 2>/dev/null || echo "v0.0.0")
-NKECTL_VERSION  ?= $(patsubst nkectl/%,%,$(_NKECTL_VERSION_RAW))
+# nkectl versions apart from the controller, so it gets its own tag family. Go
+# requires a submodule's tags to carry its directory, so this module is tagged
+# cli/vX.Y.Z. The prefix is stripped, so the binary reports v1.2.3. No cli/v*
+# tag exists yet, hence the fallbacks: a plain v* tag, the commit, then v0.0.0.
+# The commit says which source a build came from, leaving v0.0.0 to mean a build
+# outside a git checkout. --dirty marks a modified tree.
+_NKECTL_VERSION_RAW := $(shell git describe --tags --dirty --match 'cli/v[0-9]*' 2>/dev/null || git describe --tags --dirty --match 'v[0-9]*' 2>/dev/null || git describe --always --dirty 2>/dev/null || echo "v0.0.0")
+NKECTL_VERSION  ?= $(patsubst cli/%,%,$(_NKECTL_VERSION_RAW))
 NKECTL_COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 NKECTL_TREE     ?= $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo clean || echo dirty)
 # The commit timestamp, not the wall clock: building the same commit twice
@@ -60,7 +57,39 @@ NKECTL_LDFLAGS := \
 	-X '$(NKECTL_PKG).gitTreeState=$(NKECTL_TREE)' \
 	-X '$(NKECTL_PKG).buildDate=$(NKECTL_DATE)'
 
-.PHONY: build test fmt lint license file-license-check
+.PHONY: build build-cross test fmt lint license file-license-check
+
+# The platforms shipped on a release. nkectl is the one binary here a human
+# downloads, so it is cross-built; the others are deployed, not fetched.
+NKECTL_PLATFORMS ?= darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
+DIST ?= dist
+
+build-cross: ## Build nkectl for every NKECTL_PLATFORMS entry into DIST.
+	@mkdir -p $(DIST)
+	@# CGO off so each output is a static binary that runs on a bare image, and
+	@# so cross-compiling needs no per-target toolchain.
+	@for p in $(NKECTL_PLATFORMS); do \
+	  os=$${p%/*}; arch=$${p#*/}; \
+	  echo "  building $(DIST)/nkectl-$$os-$$arch"; \
+	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
+	    $(GO) build -trimpath -ldflags "$(NKECTL_LDFLAGS)" \
+	    -o $(DIST)/nkectl-$$os-$$arch ./cmd/nkectl || exit 1; \
+	done
+	@# `make build` proves the -X symbols by running the binary. That cannot be
+	@# done for a foreign GOOS, so the host-matching output is executed instead:
+	@# every platform shares one NKECTL_LDFLAGS, so if one is stamped they all
+	@# are. Skipped when no built platform matches the host.
+	@host="$$($(GO) env GOOS)-$$($(GO) env GOARCH)"; \
+	if [ -x "$(DIST)/nkectl-$$host" ]; then \
+	  out="$$($(DIST)/nkectl-$$host version)"; \
+	  case "$$out" in \
+	    *" dev "*|*"unknown"*|*"v0.0.0"*) \
+	      echo "ERROR: cross build produced an unstamped binary: $$out"; exit 1;; \
+	    *) echo "  verified $$host: $$out";; \
+	  esac; \
+	else \
+	  echo "  no host-matching platform in NKECTL_PLATFORMS; version assertion skipped"; \
+	fi
 
 build:
 	$(GO) build -ldflags "$(NKECTL_LDFLAGS)" -o $(BINARY) ./cmd/nkectl
@@ -104,14 +133,15 @@ license: ## Ensure license headers at code.
 # environment, so one implementation serves every module in the workspace.
 .PHONY: notices notices-check
 notices: ## Regenerate THIRD_PARTY_NOTICES.md for the nkectl binary.
-	@# `go-licenses`, not `bin/go-licenses`: the real rule's target is an
-	@# absolute path, so a relative name does not match it.
-	@$(MAKE) --no-print-directory -C .. go-licenses
+	@# The tool and the script both live in controller/, which is a sibling now,
+	@# not the parent. `go-licenses`, not `bin/go-licenses`: the real rule's
+	@# target is an absolute path, so a relative name does not match it.
+	@$(MAKE) --no-print-directory -C ../controller go-licenses
 	@MODULE_ROOT="$(CURDIR)" \
 		OUTPUT="$(CURDIR)/THIRD_PARTY_NOTICES.md" \
 		PACKAGES="./cmd/nkectl" \
-		GO_LICENSES="$(CURDIR)/../bin/go-licenses" \
-		bash ../hack/generate-notices
+		GO_LICENSES="$(CURDIR)/../controller/bin/go-licenses" \
+		bash ../controller/hack/generate-notices
 
 notices-check: ## Verify THIRD_PARTY_NOTICES.md is up to date.
 	@# git diff says nothing about an untracked path, so check tracking first --

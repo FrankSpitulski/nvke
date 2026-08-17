@@ -13,7 +13,7 @@
 # for this module: it carries the controller's own goimports prefix and its
 # accumulated debt exclusions, neither of which applies here.
 #
-# The linter set is deliberately small, matching controller/nkectl. This module
+# The linter set is deliberately small, matching cli/. This module
 # is 1,300 lines of HTTP mock; the wider sets elsewhere in the tree carry
 # disabled entries for debt that does not exist here, and importing one would
 # import its backlog.

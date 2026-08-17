@@ -19,7 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/NVIDIA/nke/controller/nkectl/internal/inventory"
+	"github.com/NVIDIA/nke/cli/internal/inventory"
 )
 
 const (

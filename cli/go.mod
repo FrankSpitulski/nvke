@@ -1,4 +1,4 @@
-module github.com/NVIDIA/nke/controller/nkectl
+module github.com/NVIDIA/nke/cli
 
 go 1.26.5
 
@@ -35,4 +35,4 @@ require (
 	golang.org/x/text v0.41.0 // indirect
 )
 
-replace github.com/NVIDIA/nke/controller/api => ../api
+replace github.com/NVIDIA/nke/controller/api => ../controller/api

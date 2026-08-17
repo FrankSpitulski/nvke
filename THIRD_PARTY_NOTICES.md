@@ -15,14 +15,14 @@ where those notices are, and which do not yet — and why.
 |---|---|---|---|
 | `agent/` — the node agent | [agent/THIRD_PARTY_NOTICES.md](agent/THIRD_PARTY_NOTICES.md) | the import closure of `./cmd/...` for `linux/amd64` and `linux/arm64` | the `Third-Party Notices` workflow, on every push |
 | `controller/` — the Cloud Workflow Engine | [controller/THIRD_PARTY_NOTICES.md](controller/THIRD_PARTY_NOTICES.md) — **156 modules** | the import closure of `./cmd/worker` for `linux/amd64`, read from the committed `vendor/` tree | the `Third-Party Notices` workflow, on every push |
-| `controller/nkectl/` — the `nkectl` CLI | [controller/nkectl/THIRD_PARTY_NOTICES.md](controller/nkectl/THIRD_PARTY_NOTICES.md) — **15 modules** | the import closure of `./cmd/nkectl` for `linux/amd64` | the `Third-Party Notices` workflow, on every push |
+| `cli/` — the `nkectl` CLI | [cli/THIRD_PARTY_NOTICES.md](cli/THIRD_PARTY_NOTICES.md) — **24 modules** | the import closure of `./cmd/nkectl` for `linux/amd64` | the `Third-Party Notices` workflow, on every push |
 
 Regenerate with:
 
 ```bash
 cd agent            && make notices
 cd controller       && make notices
-cd controller/nkectl && make notices
+cd cli && make notices
 ```
 
 ⚠️ **The controller and nkectl generators need the workspace on** (do not set

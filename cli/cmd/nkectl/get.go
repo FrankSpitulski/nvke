@@ -6,14 +6,14 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/NVIDIA/nke/controller/nkectl/internal/cwe/clusters"
+	"github.com/NVIDIA/nke/cli/internal/cwe/clusters"
 )
 
-func newDescribeCmd() *cobra.Command {
+func newGetCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "describe",
-		Short: "Show details of a resource",
+		Use:   "get",
+		Short: "Display one or more resources",
 	}
-	cmd.AddCommand(clusters.NewDescribeCmd(loadClient))
+	cmd.AddCommand(clusters.NewGetCmd(loadClient))
 	return cmd
 }

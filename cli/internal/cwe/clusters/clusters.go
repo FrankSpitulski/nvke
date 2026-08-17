@@ -12,9 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/NVIDIA/nke/cli/internal/client"
+	"github.com/NVIDIA/nke/cli/internal/cwe"
 	api "github.com/NVIDIA/nke/controller/api"
-	"github.com/NVIDIA/nke/controller/nkectl/internal/client"
-	"github.com/NVIDIA/nke/controller/nkectl/internal/cwe"
 )
 
 // ClientFn is a factory that returns an authenticated CWE client.

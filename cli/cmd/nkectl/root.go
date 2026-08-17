@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/NVIDIA/nke/controller/nkectl/internal/client"
-	"github.com/NVIDIA/nke/controller/nkectl/internal/config"
+	"github.com/NVIDIA/nke/cli/internal/client"
+	"github.com/NVIDIA/nke/cli/internal/config"
 )
 
 var (

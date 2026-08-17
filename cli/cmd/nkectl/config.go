@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/NVIDIA/nke/controller/nkectl/internal/config"
+	"github.com/NVIDIA/nke/cli/internal/config"
 )
 
 func newConfigCmd() *cobra.Command {

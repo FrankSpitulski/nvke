@@ -99,7 +99,7 @@ jobs:
           # because neither had a Makefile.
           - module: controller/hack/nico-mock
             run: make test
-          - module: controller/nkectl
+          - module: cli
             run: make test
     steps:
       - name: Checkout
