@@ -226,3 +226,42 @@ jobs:
         run: |
           set -euo pipefail
           docker buildx imagetools inspect "${IMAGE}:sha-${GITHUB_SHA}"
+
+  # Scans the pushed image rather than attesting at build time. `buildx
+  # --sbom=true` would be shorter, but an attestation turns a single-arch push
+  # into an OCI index, which breaks the imagetools create in docker-manifest --
+  # the same reason --provenance=false is already on docker-push-arch.
+  sbom:
+    if: github.repository == 'NVIDIA/nke'
+    name: SBOM (${{ matrix.arch }})
+    runs-on: linux-amd64-cpu8
+    needs: [manifest]
+    environment: nvcr
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      # `$oauthtoken` is NGC's literal username, not a variable reference.
+      - name: Log in to NVCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: nvcr.io
+          username: "$oauthtoken"
+          password: ${{ secrets.NGC_REGISTRY_TOKEN_NKE }}
+
+      # Uses the per-arch tags docker-push-arch already pushes, so no digest has
+      # to come out of the build job. An arm64 image scans fine on an amd64
+      # runner: the scanner reads layers, it does not run them.
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: nvcr.io/${{ vars.NKE_NGC_ORG }}/controller:sha-${{ github.sha }}-${{ matrix.arch }}
+          format: spdx-json
+          artifact-name: nke-controller-sbom-linux-${{ matrix.arch }}.spdx.json
+          upload-artifact: true
+          # No release exists to attach to yet. Flip this when one does.
+          upload-release-assets: false
