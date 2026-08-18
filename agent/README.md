@@ -152,13 +152,19 @@ see [AGENTS.md](AGENTS.md)). Override with `VERSION=...` when needed.
 ### Binaries (GHCR)
 
 Every commit on `main` and every `agent/vX.Y.Z` tag publishes the binaries to
-`ghcr.io/nvidia/nke-agent` as OCI artifacts, joined by a multi-arch index
+`ghcr.io/nvidia/nke/agent` as OCI artifacts, joined by a multi-arch index
 (`.github/workflows/agent-artifact.yml`). Pull one by platform:
 
 ```bash
-oras pull ghcr.io/nvidia/nke-agent:v0.3.0 --platform linux/arm64   # release
-oras pull ghcr.io/nvidia/nke-agent:edge   --platform linux/amd64   # tip of main
+oras pull ghcr.io/nvidia/nke/agent:v0.3.0 --platform linux/arm64   # release
+oras pull ghcr.io/nvidia/nke/agent:edge   --platform linux/amd64   # tip of main
 ```
+
+These are binaries, **not** container images — `docker pull` will fetch one but
+there is nothing to run. Use `oras`.
+
+⚠️ **The path changed.** Releases up to and including `agent/v0.2.1-rc.0` are at
+the old `ghcr.io/nvidia/nke-agent`, which is frozen and still serves them.
 
 Tags are `edge`, `sha-<commit>`, and `vX.Y.Z`, each with `-amd64` / `-arm64`
 single-platform variants underneath. These are artifacts, not container images

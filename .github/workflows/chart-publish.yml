@@ -3,11 +3,19 @@
 
 name: Chart Publish
 
-# Packages the cloud-workflow-engine Helm chart and publishes it to
-# ghcr.io/nvidia/nke as an OCI artifact:
+# Packages the cloud-workflow-engine Helm chart and publishes it under
+# ghcr.io/nvidia/nke/charts as an OCI artifact:
 #
-#   ghcr.io/nvidia/nke/cloud-workflow-engine:0.1.0          <- release tag
-#   ghcr.io/nvidia/nke/cloud-workflow-engine:0.1.0-4-gabc   <- main between tags
+#   ghcr.io/nvidia/nke/charts/cloud-workflow-engine:0.1.0        <- release tag
+#   ghcr.io/nvidia/nke/charts/cloud-workflow-engine:0.1.0-rc.1   <- release candidate
+#
+# Release tags only. The NVCR mirror in chart-publish-nvcr.yml is the one that
+# also runs on main.
+#
+# `charts/` is a reserved path segment: everything else directly under
+# ghcr.io/nvidia/nke is a payload you pull by name -- the controller image, the
+# agent binaries. Without that split a chart and an image end up in one OCI
+# repository, told apart only by whether the tag carries a "v".
 #
 # Chart version: git describe output with the "controller/" prefix and leading
 # "v" stripped (OCI chart tags carry no "v" prefix by convention).
@@ -17,10 +25,16 @@ name: Chart Publish
 # The nvcr.io mirror lives in chart-publish-nvcr.yml; this workflow uses only
 # the GITHUB_TOKEN and needs no secrets or environments.
 
+# Release tags only, unlike the NVCR mirror which also runs on main.
+#
+# The chart names the GHCR controller image, and image-nvcr.yml promotes to
+# GHCR only for release tags -- NVCR gets every main commit, GHCR does not. A
+# chart built from main would therefore carry an appVersion like
+# v0.1.0-4-gabcdef and point at ghcr.io/nvidia/nke/controller:v0.1.0-4-gabcdef,
+# which does not exist. Publishing only what the image side publishes keeps the
+# two in step.
 on:
   push:
-    branches:
-      - main
     tags:
       - "controller/v[0-9]+.[0-9]+.[0-9]+"
       - "controller/v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
@@ -53,7 +67,14 @@ jobs:
   publish:
     name: Publish chart
     runs-on: ubuntu-latest
-    if: github.repository == 'NVIDIA/nke'
+    # The ref check is not redundant with the `on:` filter above: it also covers
+    # workflow_dispatch, which accepts any ref. Dispatched from main this job
+    # would package something like 0.1.1-rc.0-2-g068156e and point it at
+    # ghcr.io/nvidia/nke/controller:v0.1.1-rc.0-2-g068156e, a tag promotion never
+    # creates -- a chart naming an image that does not exist.
+    if: >-
+      github.repository == 'NVIDIA/nke' &&
+      startsWith(github.ref, 'refs/tags/controller/v')
     timeout-minutes: 10
     permissions:
       contents: read
@@ -83,6 +104,28 @@ jobs:
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "app_version=${describe}" >> "${GITHUB_OUTPUT}"
           echo "Chart version: ${version}  appVersion: ${describe}"
+
+      # values.yaml already defaults to this image, so the rewrite is normally a
+      # no-op. It is here so the packaged chart cannot silently inherit a
+      # different default if someone edits values.yaml, and so this job states
+      # which registry it publishes for rather than relying on a file it does
+      # not own.
+      - name: Point the chart at the GHCR image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="ghcr.io/nvidia/nke/controller"
+
+          # Anchored at exactly two spaces so this hits image.repository and
+          # NOT profiles.image.repository, which is nested one level deeper and
+          # names an image nke-site-deploy builds.
+          sed -i -e "s#^  repository: .*#  repository: ${image}#" \
+            "${CHART}/values.yaml"
+
+          grep -q "^  repository: ${image}\$" "${CHART}/values.yaml" \
+            || { echo "::error::image rewrite did not apply"; exit 1; }
+          grep -q "^    repository: nvcr.io/.*/cwe-profiles\$" "${CHART}/values.yaml" \
+            || { echo "::error::profiles image was rewritten and should not be"; exit 1; }
 
       - name: Package
         shell: bash
@@ -114,5 +157,5 @@ jobs:
           set -euo pipefail
           helm push \
             "${RUNNER_TEMP}/chart-dist/cloud-workflow-engine-${VERSION}.tgz" \
-            oci://ghcr.io/nvidia/nke
-          echo "Pushed ghcr.io/nvidia/nke/cloud-workflow-engine:${VERSION}"
+            oci://ghcr.io/nvidia/nke/charts
+          echo "Pushed ghcr.io/nvidia/nke/charts/cloud-workflow-engine:${VERSION}"

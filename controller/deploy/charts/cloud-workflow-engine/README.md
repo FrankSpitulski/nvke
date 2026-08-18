@@ -24,10 +24,10 @@ A Helm chart to deploy the cloud-workflow-engine service
 | cni.imageRegistry | string | `""` | Optional OCI registry prefix for CNI component images. Empty uses chart defaults. |
 | env | list | `[]` | Additional environment variables to inject into the CWE container. |
 | fullnameOverride | string | `""` |  |
-| image.pullPolicy | string | `"Always"` | This sets the pull policy for images. |
-| image.repository | string | `"nvcr.io/j7sbcjl3qgta/cloud-workflow-engine"` |  |
+| image.pullPolicy | string | `"IfNotPresent"` | This sets the pull policy for images. |
+| image.repository | string | `"ghcr.io/nvidia/nke/controller"` |  |
 | image.tag | string | `""` | Overrides the image tag whose default is the chart appVersion. |
-| imagePullSecrets[0].name | string | `"svc-nke-ngc-imagepull"` |  |
+| imagePullSecrets | list | `[]` | Must match image.repository, which defaults to ghcr.io. The NVCR-published chart gets the NGC secret put back at package time. Supply your own for a private GHCR package. |
 | ingress.annotations | object | `{}` |  |
 | ingress.className | string | `""` |  |
 | ingress.enabled | bool | `false` |  |

@@ -88,6 +88,45 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
           echo "Chart version: ${version}  appVersion: ${describe}  repo: nvcr.io/${NKE_NGC_ORG}"
 
+      # values.yaml defaults to the GHCR image, which is the right default for
+      # someone reading the repository. This chart goes to NVCR, so it has to
+      # name the NVCR copy instead: GHCR carries release tags only, while NVCR
+      # carries every main commit, and this workflow runs on both.
+      - name: Point the chart at the NVCR image
+        shell: bash
+        env:
+          NKE_NGC_ORG: ${{ vars.NKE_NGC_ORG }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${NKE_NGC_ORG}" ]]; then
+            echo "::error::NKE_NGC_ORG is not set in the nvcr environment"
+            exit 1
+          fi
+
+          image="nvcr.io/${NKE_NGC_ORG}/controller"
+
+          # Anchored at exactly two spaces so this hits image.repository and
+          # NOT profiles.image.repository, which is nested one level deeper and
+          # names an image nke-site-deploy builds. An unanchored `repository:`
+          # match would rewrite both.
+          sed -i -e "s#^  repository: .*#  repository: ${image}#" \
+            "${CHART}/values.yaml"
+
+          # Fail loudly rather than ship a chart naming an image that is not
+          # there. A wrong repository here surfaces at install time, to someone
+          # who cannot fix it.
+          grep -q "^  repository: ${image}\$" "${CHART}/values.yaml" \
+            || { echo "::error::image rewrite did not apply"; exit 1; }
+
+          # The pull secret has to move with the registry. values.yaml ships
+          # `imagePullSecrets: []` because it defaults to ghcr.io, where an NGC
+          # credential is useless; this chart names nvcr.io, so it needs the NGC
+          # one back or every pod it creates lands in ImagePullBackOff.
+          sed -i -e "s#^imagePullSecrets: \[\]\$#imagePullSecrets:\n  - name: svc-nke-ngc-imagepull#" \
+            "${CHART}/values.yaml"
+          grep -q "^  - name: svc-nke-ngc-imagepull\$" "${CHART}/values.yaml" \
+            || { echo "::error::pull-secret rewrite did not apply"; exit 1; }
+
       - name: Package
         shell: bash
         env:

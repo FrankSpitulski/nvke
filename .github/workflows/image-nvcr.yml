@@ -235,9 +235,10 @@ jobs:
   # Tags only. `main` keeps publishing to NVCR alone, so GHCR carries released
   # versions rather than every commit.
   #
-  # The destination is nke-controller, not nke: `oci://ghcr.io/nvidia/nke` is
-  # already the Helm chart, and a chart and an image in one OCI repository are
-  # told apart only by their tags.
+  # The destination is ghcr.io/nvidia/nke/controller. Charts live under
+  # ghcr.io/nvidia/nke/charts, which is what keeps a chart and an image from
+  # sharing one OCI repository -- on two of the CAPI repos they did, told apart
+  # only by whether the tag carried a "v".
   promote-ghcr:
     name: Promote to GHCR
     if: startsWith(github.ref, 'refs/tags/controller/v')
@@ -295,7 +296,7 @@ jobs:
 
           version="${GITHUB_REF_NAME#controller/}"
           src="nvcr.io/${NKE_NGC_ORG}/controller:${version}"
-          dst="ghcr.io/${GITHUB_REPOSITORY,,}-controller"
+          dst="ghcr.io/${GITHUB_REPOSITORY,,}/controller"
           crane="controller/bin/crane"
 
           if ! digest="$("${crane}" digest "${src}")"; then
