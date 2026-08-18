@@ -227,6 +227,90 @@ jobs:
           set -euo pipefail
           docker buildx imagetools inspect "${IMAGE}:sha-${GITHUB_SHA}"
 
+  # NVCR needs an NGC account to pull from, so the controller image is not
+  # reachable by anyone outside NVIDIA. A release tag copies it to GHCR, which
+  # is public once this repository is, so a released version can be pulled by
+  # whoever the release is for.
+  #
+  # Tags only. `main` keeps publishing to NVCR alone, so GHCR carries released
+  # versions rather than every commit.
+  #
+  # The destination is nke-controller, not nke: `oci://ghcr.io/nvidia/nke` is
+  # already the Helm chart, and a chart and an image in one OCI repository are
+  # told apart only by their tags.
+  promote-ghcr:
+    name: Promote to GHCR
+    if: startsWith(github.ref, 'refs/tags/controller/v')
+    runs-on: linux-amd64-cpu8
+    needs: [manifest]
+    environment: nvcr
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to NVCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: nvcr.io
+          username: "$oauthtoken"
+          password: ${{ secrets.NGC_REGISTRY_TOKEN_NKE }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: controller/go.mod
+          cache: false
+
+      - name: Build crane
+        run: make -C controller crane
+
+      # crane copies the whole index, so the per-architecture manifests come
+      # with it and the digest is preserved. What GHCR serves is the image NVCR
+      # already holds, not a rebuild. This is the promotion the three CAPI
+      # provider repositories run, with the same tool at the same version.
+      - name: Copy the released image to GHCR
+        shell: bash
+        env:
+          NKE_NGC_ORG: ${{ vars.NKE_NGC_ORG }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${NKE_NGC_ORG}" ]]; then
+            echo "::error::NKE_NGC_ORG is not set in the nvcr environment"
+            exit 1
+          fi
+
+          version="${GITHUB_REF_NAME#controller/}"
+          src="nvcr.io/${NKE_NGC_ORG}/controller:${version}"
+          dst="ghcr.io/${GITHUB_REPOSITORY,,}-controller"
+          crane="controller/bin/crane"
+
+          if ! digest="$("${crane}" digest "${src}")"; then
+            echo "::error::${src} does not exist. The manifest job should have pushed it."
+            exit 1
+          fi
+
+          "${crane}" copy "${src}" "${dst}:${version}"
+          "${crane}" tag "${dst}:${version}" "sha-${GITHUB_SHA}"
+
+          {
+            echo "- \`${dst}:${version}\` is \`${digest}\`"
+            echo "- copied from \`${src}\`, not rebuilt"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   # Scans the pushed image rather than attesting at build time. `buildx
   # --sbom=true` would be shorter, but an attestation turns a single-arch push
   # into an OCI index, which breaks the imagetools create in docker-manifest --

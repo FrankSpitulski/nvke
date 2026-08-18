@@ -275,11 +275,20 @@ jobs:
             echo "release_name=agent ${version}"
           } >> "${GITHUB_OUTPUT}"
 
+      # The release is created as a draft so the packages upload before it is
+      # published. If a repository has release immutability turned on, GitHub
+      # seals the release when it is published and rejects any asset uploaded
+      # after that.
+      #
+      # The action does not publish a draft, so the step below publishes it.
+      # Do not remove that step.
       - name: Create or update GitHub Release
+        id: release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ steps.meta.outputs.release_name }}
+          draft: true
           body: |
             nke-agent ${{ steps.meta.outputs.version }} Debian packages (amd64 and arm64).
 
@@ -289,3 +298,36 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-rc.') }}
           make_latest: false
           generate_release_notes: false
+
+      # The packages are checked before the release is published, because
+      # publishing it is what seals it. An agent/v* tag also runs release.yml,
+      # which creates a release for the same tag, so the two workflows can
+      # reach the same release object.
+      - name: Publish the release
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const release_id = Number('${{ steps.release.outputs.id }}');
+
+            const { data: rel } = await github.rest.repos.getRelease({
+              ...context.repo, release_id,
+            });
+
+            const debs = rel.assets.filter(a => a.name.endsWith('.deb'));
+            if (debs.length < 2) {
+              core.setFailed(
+                `release ${release_id} carries ${debs.length} .deb files, expected 2. ` +
+                `It is left as an unpublished draft. Delete it before re-pushing the tag.`);
+              return;
+            }
+
+            if (rel.draft) {
+              // make_latest has to be repeated here. GitHub defaults it to
+              // true when a release is published, so leaving it out would give
+              // an agent release the repository's "Latest release" badge, which
+              // is what make_latest: false on the step above exists to prevent.
+              await github.rest.repos.updateRelease({
+                ...context.repo, release_id, draft: false, make_latest: 'false',
+              });
+            }
+            core.info(`Published ${context.ref.replace('refs/tags/', '')} with ${debs.length} packages.`);

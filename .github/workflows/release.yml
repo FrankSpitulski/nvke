@@ -41,8 +41,14 @@ jobs:
     permissions:
       contents: read
 
+  # Skipped for an agent tag, which agent-deb-publish.yml releases instead. That
+  # workflow builds the Debian packages, creates the release, attaches them and
+  # publishes it. This job builds nothing for agent, and CHANGELOG.md has no
+  # section a component tag can match, so it would only add an empty release and
+  # a set of notes that overwrite the package ones.
   release:
     name: Create GitHub release
+    if: ${{ !startsWith(github.ref_name, 'agent/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [license-checks]
@@ -121,6 +127,12 @@ jobs:
               # which is the reason it carries its own attribution at all.
               cp cli/THIRD_PARTY_NOTICES.md dist/
               ;;
+            controller)
+              # The controller ships as an image, so a release carries no
+              # binary. It does carry the attribution for what is inside that
+              # image, which is otherwise only readable by pulling it.
+              cp controller/THIRD_PARTY_NOTICES.md dist/
+              ;;
             *)
               echo "No artifacts defined for '${DIR:-<repository>}'; releasing notes only."
               ;;
@@ -131,9 +143,13 @@ jobs:
             echo "artifacts:"
             find dist -mindepth 1 -maxdepth 1 -printf '  %f\n' | sort
             echo "has_files=true" >> "${GITHUB_OUTPUT}"
+            # Counted here so the publish step can assert that everything built
+            # actually reached the release, rather than trusting the upload.
+            echo "count=$(find dist -mindepth 1 -maxdepth 1 | wc -l)" >> "${GITHUB_OUTPUT}"
           else
             rmdir dist
             echo "has_files=false" >> "${GITHUB_OUTPUT}"
+            echo "count=0" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Extract changelog section for this tag
@@ -156,14 +172,91 @@ jobs:
           # Written to a file to avoid quoting issues
           echo "$NOTES" > /tmp/release-notes.md
 
+      # The release is created as a draft so the assets upload before it is
+      # published. If a repository has release immutability turned on, GitHub
+      # seals the release when it is published and rejects any asset uploaded
+      # after that.
+      #
+      # The action does not publish a draft, so the step below publishes it.
+      # Do not remove that step.
       - name: Create GitHub release
+        id: release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           body_path: /tmp/release-notes.md
+          draft: true
           prerelease: ${{ contains(github.ref_name, '-rc.') }}
           generate_release_notes: false
           # Empty when the component ships nothing, which the action accepts.
           files: ${{ steps.artifacts.outputs.has_files == 'true' && 'dist/*' || '' }}
+
+      # The assets are checked before the release is published, because
+      # publishing it is what seals it.
+      #
+      # This step uses github-script rather than the gh command line tool, to
+      # match the three sibling repositories, whose release jobs run on a
+      # self-hosted runner where gh may not be installed.
+      - name: Publish the release
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+          EXPECTED: ${{ steps.artifacts.outputs.count }}
+        with:
+          # Retries cover a server error or a dropped connection. The action
+          # this step replaced retried three times, so without them a flake
+          # would leave the release unpublished.
+          retries: 3
+          script: |
+            const release_id = Number(process.env.RELEASE_ID);
+
+            // Tested as a string. Number('') is 0 and Number.isInteger(0) is
+            // true, so an unset count would read as "built nothing" and
+            // publish whatever happened to be there.
+            const raw = process.env.EXPECTED;
+            if (!/^\d+$/.test(raw)) {
+              core.setFailed(`The built asset count is '${raw}', which is not a number.`);
+              return;
+            }
+            const expected = Number(raw);
+
+            // The asset list can lag behind an upload that has already
+            // succeeded, so a short list is read again before it is treated as
+            // a failure. An asset also counts only once it is fully uploaded,
+            // because publishing seals it and a truncated file would be sealed
+            // with it.
+            let got = [];
+            let draft = true;
+            for (let attempt = 0; attempt < 3; attempt++) {
+              if (attempt > 0) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+              }
+              const { data: rel } = await github.rest.repos.getRelease({
+                ...context.repo, release_id,
+              });
+              draft = rel.draft;
+              got = rel.assets
+                .filter(a => a.state === 'uploaded' && a.size > 0)
+                .map(a => a.name)
+                .sort();
+              if (got.length >= expected) {
+                break;
+              }
+            }
+
+            if (got.length < expected) {
+              core.setFailed(
+                `Release ${release_id} carries ${got.length} uploaded assets ` +
+                `[${got.join(', ') || 'nothing'}], and this job built ${expected}. ` +
+                `It is left as an unpublished draft. Re-run this job to try again.`);
+              return;
+            }
+
+            if (draft) {
+              await github.rest.repos.updateRelease({
+                ...context.repo, release_id, draft: false,
+              });
+            }
+            core.info(`Published ${context.ref.replace('refs/tags/', '')} with ${got.length} assets.`);
 
   # Still a placeholder, but no longer the only thing a prefixed tag reaches:
   # the release job above now handles every tag, so this is for publishing that
