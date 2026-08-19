@@ -27,6 +27,8 @@ type Client interface {
 	GetAgentVersion(ctx context.Context, node db.Node) (string, error)
 	GetKubeadmStatus(ctx context.Context, node db.Node) (*nkeproto.KubeadmStatusResponse, error)
 	ExecuteKubeadmInit(ctx context.Context, node db.Node, req *nkeproto.KubeadmInitRequest) (*nkeproto.KubeadmInitStatusResponse, error)
+	InstallPackages(ctx context.Context, node db.Node, req *nkeproto.InstallPackagesRequest) (*nkeproto.InstallPackagesResponse, error)
+	InstallCNI(ctx context.Context, node db.Node, req *nkeproto.InstallCNIRequest) (*nkeproto.InstallCNIResponse, error)
 	ExecuteKubeadmJoin(ctx context.Context, node db.Node, req *nkeproto.KubeadmJoinRequest) (*nkeproto.KubeadmJoinStatusResponse, error)
 	ExecuteKubeadmReset(ctx context.Context, node db.Node, req *nkeproto.KubeadmResetRequest) (*nkeproto.KubeadmResetStatusResponse, error)
 	ExecuteNodePreflight(ctx context.Context, node db.Node, req *nkeproto.ExecuteNodePreflightRequest) (*nkeproto.ExecuteNodePreflightResponse, error)
@@ -201,6 +203,34 @@ func (c *NodeAgentClient) ExecuteKubeadmInit(ctx context.Context, node db.Node, 
 	resp, err := nkeproto.NewNodeAgentClient(conn).ExecuteKubeadmInit(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute kubeadm init on node %s: %w", node.Name, err)
+	}
+	return resp, nil
+}
+
+func (c *NodeAgentClient) InstallPackages(ctx context.Context, node db.Node, req *nkeproto.InstallPackagesRequest) (*nkeproto.InstallPackagesResponse, error) {
+	conn, cleanup, err := c.getGRPCConnection(ctx, node)
+	if err != nil {
+		return nil, fmt.Errorf("failed to install packages on node %s: %w", node.Name, err)
+	}
+	defer cleanup()
+
+	resp, err := nkeproto.NewNodeAgentClient(conn).InstallPackages(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to install packages on node %s: %w", node.Name, err)
+	}
+	return resp, nil
+}
+
+func (c *NodeAgentClient) InstallCNI(ctx context.Context, node db.Node, req *nkeproto.InstallCNIRequest) (*nkeproto.InstallCNIResponse, error) {
+	conn, cleanup, err := c.getGRPCConnection(ctx, node)
+	if err != nil {
+		return nil, fmt.Errorf("failed to install CNI on node %s: %w", node.Name, err)
+	}
+	defer cleanup()
+
+	resp, err := nkeproto.NewNodeAgentClient(conn).InstallCNI(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to install CNI on node %s: %w", node.Name, err)
 	}
 	return resp, nil
 }

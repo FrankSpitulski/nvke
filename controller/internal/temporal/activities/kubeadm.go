@@ -31,7 +31,6 @@ const (
 	kubeadmPhaseJoin     = "join"
 
 	cniStatusReady = "ready"
-	cniStatusError = "error"
 
 	etcdEncryptionSecretPrefix     = "etcd-encryption-key-"
 	etcdEncryptionFieldActive      = "active"

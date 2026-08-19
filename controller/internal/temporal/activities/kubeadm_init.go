@@ -123,31 +123,14 @@ func (a *Activities) kubeadmInit(ctx context.Context, input KubeadmInitInput) er
 		ApiEncryptionEnabled: cluster.EtcdEncrypted,
 		ObjectsToEncrypt:     []string{"secrets"},
 		Files:                toNodeAgentFiles(artifacts.Files),
+		// Current agent installs CNI via InstallCNI, not during kubeadm init.
+		NoCniInstall: true,
 	}
 	if cluster.EtcdEncrypted {
 		req.ApiEncryptionKey, err = a.ensureKubeAPIEncryptionKey(ctx, cluster.ID)
 		if err != nil {
 			return fmt.Errorf("failed to ensure kube-api encryption key: %w", err)
 		}
-	}
-	if a.cfg.CNIImageRegistry != "" {
-		req.CniConfig = map[string]string{"global.registry": a.cfg.CNIImageRegistry} //nolint:staticcheck // Deprecated in-init CNI path still consumes CniConfig for registry overrides.
-	}
-
-	// Use the cluster's configured CNI version (falling back to the plugin default when unset) so the
-	// in-init CNI manifests match the CNI image package pinned in the node's user-data. See
-	// db.EffectiveCNIVersion and getUserData's CNIImagePackage.
-	cniVersion := db.EffectiveCNIVersion(cluster.CniPlugin, strings.TrimSpace(cluster.CniVersion))
-	switch cluster.CniPlugin {
-	case db.CNIOvnKubernetes:
-		req.UseOvnK8SCni = true     //nolint:staticcheck // Deprecated agent in-init CNI path still consumes legacy fields.
-		req.CniPluginName = "ovn"   //nolint:staticcheck // Legacy in-init CNI install still switches on this deprecated agent field.
-		req.OvnVersion = cniVersion //nolint:staticcheck // Legacy in-init CNI install still consumes deprecated version fields.
-	case db.CNICalico:
-		req.CniPluginName = "calico"   //nolint:staticcheck // Legacy in-init CNI install still switches on this deprecated agent field.
-		req.TigeraVersion = cniVersion //nolint:staticcheck // Legacy in-init CNI install still consumes deprecated version fields.
-	default:
-		return fmt.Errorf("unsupported CNI plugin: %s", cluster.CniPlugin)
 	}
 
 	if _, err := a.nodeAgentClient.ExecuteKubeadmInit(ctx, node, req); err != nil {
@@ -168,17 +151,12 @@ func (a *Activities) waitForKubeadmInitReady(ctx context.Context, node db.Node) 
 		}
 		kubeadmStatus := strings.ToLower(status.GetKubeadmStatus())
 		kubeadmPhase := strings.ToLower(status.GetKubeadmPhase())
-		cniStatus := strings.ToLower(status.GetCniInstallStatus())
 
 		if kubeadmStatus == kubeadmStatusError {
 			return fmt.Errorf("kubeadm init failed: %s", status.GetKubeadmCurrentMessage())
 		}
 
-		if cniStatus == cniStatusError {
-			return fmt.Errorf("CNI install failed: %s", status.GetKubeadmCurrentMessage())
-		}
-
-		if kubeadmStatus == kubeadmStatusReady && kubeadmPhase == kubeadmPhaseInit && cniStatus == cniStatusReady {
+		if kubeadmStatus == kubeadmStatusReady && kubeadmPhase == kubeadmPhaseInit {
 			return nil
 		}
 

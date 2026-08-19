@@ -10,8 +10,11 @@ import (
 
 	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 
+	"github.com/NVIDIA/nke/controller/internal/agent"
 	"github.com/NVIDIA/nke/controller/internal/db"
 )
+
+var _ agent.Client = (*FakeClient)(nil)
 
 type FakeClient struct {
 	GetKubeconfigCalls []uuid.UUID
@@ -41,6 +44,15 @@ type FakeClient struct {
 	StartKubeVIPRestoreCalls                []uuid.UUID
 	StartKubeVIPRestoreIDs                  []string
 	ExecuteScriptNames                      []string
+
+	InstallPackagesCalls []uuid.UUID
+	LastInstallPackages  *nkeproto.InstallPackagesRequest
+	InstallPackagesErr   error
+
+	InstallCNICalls []uuid.UUID
+	LastInstallCNI  *nkeproto.InstallCNIRequest
+	InstallCNIErr   error
+	InstallCNIResp  *nkeproto.InstallCNIResponse
 
 	// ExecuteScriptHook, when set, produces the response for ExecuteScript calls,
 	// letting tests drive per-node script output (e.g. /readyz probes).
@@ -113,6 +125,27 @@ func (f *FakeClient) StartKubeVIPRestore(_ context.Context, node db.Node, operat
 
 func (f *FakeClient) ExecuteKubeadmInit(context.Context, db.Node, *nkeproto.KubeadmInitRequest) (*nkeproto.KubeadmInitStatusResponse, error) {
 	return &nkeproto.KubeadmInitStatusResponse{}, nil
+}
+
+func (f *FakeClient) InstallPackages(_ context.Context, node db.Node, req *nkeproto.InstallPackagesRequest) (*nkeproto.InstallPackagesResponse, error) {
+	f.InstallPackagesCalls = append(f.InstallPackagesCalls, node.ID)
+	f.LastInstallPackages = req
+	if f.InstallPackagesErr != nil {
+		return nil, f.InstallPackagesErr
+	}
+	return &nkeproto.InstallPackagesResponse{}, nil
+}
+
+func (f *FakeClient) InstallCNI(_ context.Context, node db.Node, req *nkeproto.InstallCNIRequest) (*nkeproto.InstallCNIResponse, error) {
+	f.InstallCNICalls = append(f.InstallCNICalls, node.ID)
+	f.LastInstallCNI = req
+	if f.InstallCNIErr != nil {
+		return nil, f.InstallCNIErr
+	}
+	if f.InstallCNIResp != nil {
+		return f.InstallCNIResp, nil
+	}
+	return &nkeproto.InstallCNIResponse{Status: "ready"}, nil
 }
 
 func (f *FakeClient) ExecuteKubeadmJoin(context.Context, db.Node, *nkeproto.KubeadmJoinRequest) (*nkeproto.KubeadmJoinStatusResponse, error) {

@@ -33,6 +33,30 @@ func TestInstallKubeLocalDNSSchedulesInProcessActivity(t *testing.T) {
 	env.AssertExpectations(t)
 }
 
+func TestInstallCNISchedulesInProcessActivity(t *testing.T) {
+	clusterID := uuid.New()
+	nodeID := uuid.New()
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestWorkflowEnvironment()
+	a := &activities.Activities{}
+
+	env.OnActivity(a.InstallCNI, mock.Anything, activities.InstallCNIInput{
+		ClusterID:                           clusterID,
+		InitialNodeID:                       nodeID,
+		ClusterProvisioningConditionMessage: "Installing CNI",
+	}).Return(nil).Once()
+
+	env.ExecuteWorkflow(installCNITestWorkflow, clusterID, nodeID)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	env.AssertExpectations(t)
+}
+
+func installCNITestWorkflow(ctx workflow.Context, clusterID, nodeID uuid.UUID) error {
+	return installCNI(ctx, clusterID, nodeID)
+}
+
 func installKubeLocalDNSTestWorkflow(ctx workflow.Context, clusterID uuid.UUID) error {
 	return installKubeLocalDNS(ctx, clusterID)
 }

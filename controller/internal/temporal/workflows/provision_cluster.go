@@ -71,6 +71,10 @@ func provisionCluster(ctx workflow.Context, input ProvisionClusterInput) error {
 		return fmt.Errorf("failed to initialize Kubernetes control plane: %w", err)
 	}
 
+	if err := installCNI(ctx, input.ClusterID, initialNodeID); err != nil {
+		return fmt.Errorf("failed to install CNI: %w", err)
+	}
+
 	if clusterCtx.InfraMode == activities.InfraModeCAPI {
 		if err := applyCAPIClusterKubeconfigSecret(ctx, input.ClusterID, initialNodeID); err != nil {
 			return fmt.Errorf("failed to publish CAPI kubeconfig secret: %w", err)
@@ -209,6 +213,33 @@ func kubeadmInit(ctx workflow.Context, clusterID, initialNodeID uuid.UUID) error
 		},
 	).Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to initialize Kubernetes control plane: %w", err)
+	}
+
+	return nil
+}
+
+func installCNI(ctx workflow.Context, clusterID, initialNodeID uuid.UUID) error {
+	var a *activities.Activities
+
+	activityOptions := workflow.ActivityOptions{
+		StartToCloseTimeout: 15 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    1 * time.Minute,
+			MaximumInterval:    5 * time.Minute,
+			BackoffCoefficient: 2,
+			MaximumAttempts:    0,
+		},
+	}
+	if err := workflow.ExecuteActivity(
+		workflow.WithActivityOptions(ctx, activityOptions),
+		a.InstallCNI,
+		activities.InstallCNIInput{
+			ClusterID:                           clusterID,
+			InitialNodeID:                       initialNodeID,
+			ClusterProvisioningConditionMessage: "Installing CNI",
+		},
+	).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to install CNI: %w", err)
 	}
 
 	return nil
