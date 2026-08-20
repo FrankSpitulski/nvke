@@ -60,7 +60,8 @@ NKECTL_LDFLAGS := \
 	-X '$(NKECTL_PKG).gitTreeState=$(NKECTL_TREE)' \
 	-X '$(NKECTL_PKG).buildDate=$(NKECTL_DATE)'
 
-.PHONY: build build-cross test fmt lint license file-license-check
+.PHONY: build build-cross test test-e2e-bootstrap fmt lint license file-license-check \
+	ensure-capd-image nodes-up nodes-down nodes-status
 
 # The platforms shipped on a release. nkectl is the one binary here a human
 # downloads, so it is cross-built; the others are deployed, not fetched.
@@ -115,6 +116,46 @@ GO_TEST_FLAGS ?=
 
 test:
 	$(GO) test $(GO_TEST_FLAGS) ./...
+
+# e2e coverage for "nkectl bootstrap site" specifically -- e2e/bootstrap/ is
+# one of what may become several e2e/<command>/ suites as nkectl grows more
+# commands worth covering this way.
+#
+# Self-contained: no live cluster or external service required, unlike
+# controller/test/e2e. Safe for a pull-request lane. See e2e/bootstrap/run.sh
+# for what it currently exercises and why it grows in step with bootstrap
+# site.
+test-e2e-bootstrap: build
+	./e2e/bootstrap/run.sh
+
+# Fake-node fixture for the bootstrap e2e suite: docker containers running
+# nke-agent, standing in for pre-provisioned hardware. cli/e2e/bootstrap/substrate
+# is a thin derivation of controller/hack/capd-kindest-node's node image
+# (nke-agent, SPIRE/TPM plumbing, kubeadm/reboot shims and registry mirrors
+# stay a single source of truth there) plus a small Go package that brings the
+# containers up, waits for the agent, and tears them down — see
+# e2e/bootstrap/substrate/substrate.go. `nodes-up`/`nodes-down` are also
+# invoked by e2e/bootstrap/run.sh (via `make -C`).
+CAPD_KINDEST_NODE_IMAGE ?= cwe-capd-kindest-node:local
+
+# Builds nke-agent from this checkout's own agent/ module rather than
+# downloading a published bundle, so the e2e job depends on no registry
+# beyond the public CNI/SPIRE bundle host controller/hack/capd-kindest-node
+# already uses. A no-op once the image exists locally.
+ensure-capd-image:
+	@docker image inspect $(CAPD_KINDEST_NODE_IMAGE) >/dev/null 2>&1 || \
+	  CAPD_NODE_AGENT_LOCAL_BUILD=true NODE_AGENT_REPO_PATH=$(CURDIR)/../agent \
+	  CAPD_KINDEST_NODE_IMAGE=$(CAPD_KINDEST_NODE_IMAGE) \
+	  bash ../controller/hack/capd-kindest-node/build-image.sh
+
+nodes-up: ensure-capd-image
+	$(GO) run ./e2e/bootstrap/substrate/cmd/nodes up
+
+nodes-down:
+	$(GO) run ./e2e/bootstrap/substrate/cmd/nodes down
+
+nodes-status:
+	$(GO) run ./e2e/bootstrap/substrate/cmd/nodes status
 
 # golangci-lint applies the formatters enabled in .golangci.yml (gci, gofumpt),
 # so there is no separate gofmt step here.

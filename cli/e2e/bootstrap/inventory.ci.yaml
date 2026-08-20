@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Inventory fixture for `make -C cli test-e2e-bootstrap` and the
+# "nkectl bootstrap e2e" CI workflow. See examples/inventory.yaml for the
+# annotated field reference.
+#
+# Node IPs match the deterministic addressing the substrate package assigns
+# (cli/e2e/bootstrap/substrate, subnet 172.26.0.0/24 starting at .10) — this
+# file lands ahead of dispatch actually dialing them because the
+# walking-skeleton e2e run does not reach the nodes yet.
+#
+# nodeAgentPort is set explicitly rather than left to
+# inventory.DefaultNodeAgentPort ("50051"): the agent/ module's nke-agent
+# actually defaults its gRPC port to 15005 (`-secure-server-port`), confirmed
+# by running it in this fixture's node image. DefaultNodeAgentPort appears to
+# be stale, inherited from a GitLab-side spike that fetched a different
+# node-agent build — worth a separate look, not fixed here.
+
+clusterName: "nke-e2e"
+
+cluster:
+  # First control-plane node — kubeadm init runs here.
+  initNode:
+    name: "node1"
+    ip: "172.26.0.10"
+
+  # Remaining nodes. In M0 every node joins as a control-plane node.
+  joinNodes:
+    - name: "node2"
+      ip: "172.26.0.11"
+    - name: "node3"
+      ip: "172.26.0.12"
+
+  # Kubernetes version to install — plain semantic version, no leading "v".
+  k8sVersion: "1.32.0"
+
+  # CNI plugin: "calico" or "ovn-kubernetes".
+  cniName: "calico"
+  cniVersion: "3.31.4-1"
+
+  # Pod network CIDR. Multiple CIDRs may be given as a comma-separated string.
+  podCidr: "10.100.0.0/16"
+  # Service network CIDR.
+  serviceCidr: "10.200.0.0/16"
+
+  # Fake node containers run with limited memory; the kubelet default exceeds
+  # their capacity and refuses to start without this override.
+  kubeletConfig:
+    systemReservedMemory: "512Mi"
+
+  # See the note above DefaultNodeAgentPort is stale — the real default is
+  # wrong for this fixture's node image, so it is overridden here.
+  nodeAgentPort: "15005"
+
+# Container registry for the bootstrap engine image and chart. The version
+# (image/chart tag) is baked into the nkectl build, so it is not set here.
+registry:
+  bootstrapRepo: "nvcr.io/org/cloud-workflow-engine"
+  bootstrapChart: "cloud-workflow-engine"
