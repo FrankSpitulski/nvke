@@ -36,11 +36,15 @@ func (a *Activities) ApplyCAPIClusterResources(ctx context.Context, input ApplyC
 	return capi.ApplyClusterScaffold(ctx, a.k8sClient, cluster)
 }
 
+// ApplyCAPIClusterKubeconfigSecretInput identifies a legacy provisioning
+// workflow whose recorded history still schedules the former CAPI publisher.
 type ApplyCAPIClusterKubeconfigSecretInput struct {
 	ClusterID                 uuid.UUID
 	InitialControlPlaneNodeID uuid.UUID
 }
 
+// ApplyCAPIClusterKubeconfigSecret is retained only for replay compatibility.
+// TenantAccess is the sole publisher for workflows started by current code.
 func (a *Activities) ApplyCAPIClusterKubeconfigSecret(ctx context.Context, input ApplyCAPIClusterKubeconfigSecretInput) error {
 	cluster, err := a.db.GetCluster(ctx, input.ClusterID)
 	if err != nil {

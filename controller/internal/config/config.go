@@ -219,7 +219,7 @@ type Config struct {
 	// SpireJoinTokenTTL is the TTL used when creating SPIRE join tokens via the server API.
 	SpireJoinTokenTTL time.Duration `env:"SPIRE_JOIN_TOKEN_TTL" default:"1h"`
 
-	// NodeAgentPort is the "new" port that nke agent listens on.
+	// NodeAgentPort is the "new" port that nke node-agent listens on.
 	// Note: This will only be used if SpiffeEnabled is true. Eventually this will be the only port used.
 	NodeAgentPort string `env:"NODE_AGENT_PORT" default:"15005"`
 
@@ -283,9 +283,12 @@ type Config struct {
 	// NKE management identities to tenant cluster kube-apiservers.
 	NkeOIDCAuth NkeOIDCAuth `envPrefix:"NKE_OIDC_AUTH_"`
 
-	// TenantAccessEnabled controls whether the TenantAccessController publishes
-	// each cluster's admin kubeconfig into the tenant-access Secret plane.
-	TenantAccessEnabled bool `env:"TENANT_ACCESS_ENABLED" default:"true"`
+	// TenantAccessEnabled is the site Helm/env flag for the Nico consume
+	// fallback. CAPI clients always read the published nke-system Secret.
+	// The TenantAccess controller is constructed whenever a Kubernetes client
+	// exists and always publishes nke-system/<name>-kubeconfig; this flag does
+	// not gate that writer.
+	TenantAccessEnabled bool `env:"TENANT_ACCESS_ENABLED" default:"false"`
 
 	// Tracing configures OpenTelemetry distributed tracing. When Enabled and
 	// Endpoint are set, CWE exports OTLP gRPC spans. Endpoint and related OTEL_*

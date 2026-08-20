@@ -2,10 +2,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# CAPD workload kubeconfig for local Mac/Colima: CWE uses namespace cluster-<name>
-# (internal/capi/naming.go). Pulls admin.conf from a CAPD control-plane container, or
-# Secret <name>-kubeconfig when present. Rewrites apiserver to 127.0.0.1:<docker-published 6443>
-# (<name>-lb first, else the same control-plane container).
+# CAPD workload kubeconfig for local Mac/Colima. Looks up <name>-kubeconfig in
+# nke-system (OIDC-mode) then cluster-<name> (legacy). SPIRE exec kubeconfigs
+# are skipped — they are not usable as laptop kubectl without the plugin.
+# Falls back to admin.conf from a CAPD control-plane container. Rewrites
+# apiserver to 127.0.0.1:<docker-published 6443> (<name>-lb first, else the
+# same control-plane container).
 #
 # Usage: ./hack/fetch-capd-kubeconfig.sh [CLUSTER_NAME] [OUTPUT_FILE]
 #   Defaults: CLUSTER_NAME=capd, OUTPUT_FILE=workload-<CLUSTER_NAME>.kubeconfig
@@ -15,7 +17,6 @@ set -euo pipefail
 
 CLUSTER_NAME="${1:-capd}"
 OUTPUT_FILE="${2:-workload-${CLUSTER_NAME}.kubeconfig}"
-CLUSTER_NAMESPACE="cluster-${CLUSTER_NAME}"
 TEMP_FILE="$(mktemp)"
 trap 'rm -f "${TEMP_FILE}"' EXIT
 
@@ -25,8 +26,14 @@ CONTROL_PLANE_CONTAINER_ID="$(docker ps -qf "label=io.x-k8s.kind.cluster=${CLUST
   exit 1
 }
 
-if kubectl get secret "${CLUSTER_NAME}-kubeconfig" -n "${CLUSTER_NAMESPACE}" -o jsonpath='{.data.value}' 2>/dev/null | base64 -d >"${TEMP_FILE}" \
-  && grep -q '^apiVersion:' "${TEMP_FILE}"; then
+secret_usable() {
+  local ns="$1"
+  kubectl get secret "${CLUSTER_NAME}-kubeconfig" -n "${ns}" -o jsonpath='{.data.value}' 2>/dev/null | base64 -d >"${TEMP_FILE}" \
+    && grep -q '^apiVersion:' "${TEMP_FILE}" \
+    && ! grep -q 'k8s-spiffe-workload-jwt-exec-auth' "${TEMP_FILE}"
+}
+
+if secret_usable nke-system || secret_usable "cluster-${CLUSTER_NAME}"; then
   :
 else
   docker exec "${CONTROL_PLANE_CONTAINER_ID}" cat /etc/kubernetes/admin.conf >"${TEMP_FILE}"

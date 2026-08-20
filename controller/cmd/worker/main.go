@@ -184,44 +184,42 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	if cfg.TenantAccessEnabled {
-		tenantManagerSet, err := tenant.NewManagerSet(
-			ctx,
-			logger.With("logger", "tenant-controller-manager-set"),
-			tenant.NewManagerFactory(
-				logger.With("logger", "tenant-controller-runtime"),
-				csr.NewRegistrar(dbInstance, logger.With("logger", "tenant-csr-controller")),
-			),
-			tenant.DefaultManagerSetOptions(),
-		)
-		if err != nil {
-			logger.Error("Failed to create tenant controller manager set", "error", err)
-			os.Exit(1)
-		}
-		defer tenantManagerSet.Shutdown()
+	tenantManagerSet, err := tenant.NewManagerSet(
+		ctx,
+		logger.With("logger", "tenant-controller-manager-set"),
+		tenant.NewManagerFactory(
+			logger.With("logger", "tenant-controller-runtime"),
+			csr.NewRegistrar(dbInstance, logger.With("logger", "tenant-csr-controller")),
+		),
+		tenant.DefaultManagerSetOptions(),
+	)
+	if err != nil {
+		logger.Error("Failed to create tenant controller manager set", "error", err)
+		os.Exit(1)
+	}
+	defer tenantManagerSet.Shutdown()
 
-		tenantAccessController := tenantaccess.NewController(
-			cfg,
-			logger.With("logger", "tenant-access"),
-			dbInstance,
-			managementK8sClient,
-			nodeAgentClient,
-			tenantManagerSet,
-		)
-		if err := tenantAccessController.SetupWithManager(k8sControllerManager); err != nil {
-			logger.Error("Failed to set up tenant access controller", "error", err)
-			os.Exit(1)
-		}
+	tenantAccessController := tenantaccess.NewController(
+		cfg,
+		logger.With("logger", "tenant-access"),
+		dbInstance,
+		managementK8sClient,
+		nodeAgentClient,
+		tenantManagerSet,
+	)
+	if err := tenantAccessController.SetupWithManager(k8sControllerManager); err != nil {
+		logger.Error("Failed to set up tenant access controller", "error", err)
+		os.Exit(1)
+	}
 
-		tenantSecretReconciler := tenant.NewSecretReconciler(
-			dbInstance,
-			k8sControllerManager.GetClient(),
-			tenantManagerSet,
-		)
-		if err := tenantSecretReconciler.SetupWithManager(k8sControllerManager); err != nil {
-			logger.Error("Failed to set up tenant manager Secret reconciler", "error", err)
-			os.Exit(1)
-		}
+	tenantSecretReconciler := tenant.NewSecretReconciler(
+		dbInstance,
+		k8sControllerManager.GetClient(),
+		tenantManagerSet,
+	)
+	if err := tenantSecretReconciler.SetupWithManager(k8sControllerManager); err != nil {
+		logger.Error("Failed to set up tenant manager Secret reconciler", "error", err)
+		os.Exit(1)
 	}
 
 	nodePoolController := nodepool.NewController(

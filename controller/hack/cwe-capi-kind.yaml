@@ -3,10 +3,20 @@
 
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+# The capi-spiffe-exec-auth overlay mounts the SPIRE exec-auth plugin as an OCI
+# image volume. ImageVolume is beta but off by default through k8s 1.34, so
+# enable it explicitly rather than depending on the kind binary's default node
+# image (kind v0.32 defaults to 1.36, which NKE does not support yet).
+featureGates:
+  ImageVolume: true
 networking:
   ipFamily: dual
 nodes:
 - role: control-plane
+  # Pinned to the KINDEST_NODE_TAG used by hack/capd-kindest-node/Dockerfile so
+  # the management and CAPD workload nodes share one version. Ships containerd
+  # 2.3.1, past the 2.1 floor image volumes require.
+  image: kindest/node:v1.34.8@sha256:02722c2dedddcfc00febf5d27fbeb9b7b2c14294c82109ff4a85d89ac9ba3256
   extraMounts:
     - hostPath: /var/run/docker.sock
       containerPath: /var/run/docker.sock

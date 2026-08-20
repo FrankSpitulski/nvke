@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# The plugin image is Chainguard static (no /bin/sh or cp). Mount the ko
+# binary from an Image volume at the kubeconfig exec path.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: capi-kubeadm-control-plane-controller-manager
+  namespace: capi-kubeadm-control-plane-system
+spec:
+  template:
+    spec:
+      volumes:
+        - name: spiffe-workload-api
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+        - name: spiffe-exec-plugin
+          image:
+            reference: ghcr.io/spiffe/k8s-spiffe-workload-jwt-exec-auth:0.1.0@sha256:550fe75d87ed7a8a2312e27545a18ba21f93c75c68d13188baef1e7f6e77c8e8
+            pullPolicy: IfNotPresent
+      containers:
+        - name: manager
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: unix:///spiffe-workload-api/spire-agent.sock
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /spiffe-workload-api
+              readOnly: true
+            - name: spiffe-exec-plugin
+              mountPath: /opt/spiffe/bin/k8s-spiffe-workload-jwt-exec-auth
+              subPath: ko-app/cmd
+              readOnly: true

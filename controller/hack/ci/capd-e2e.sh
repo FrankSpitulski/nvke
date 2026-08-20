@@ -527,6 +527,8 @@ runner_exec env CLUSTER_TOPOLOGY=true clusterctl init \
   --infrastructure "docker:${CAPD_PROVIDER_VERSION}"
 runner_exec kubectl rollout status deployment/capi-controller-manager -n capi-system --timeout=5m
 runner_exec kubectl rollout status deployment/capd-controller-manager -n capd-system --timeout=5m
+log "injecting SPIRE exec-auth plugin into CAPI/CAPD controllers"
+runner_exec bash /workspace/cloud-workflow-engine/hack/apply-capi-spiffe-exec-auth.sh
 
 management_vip="$(docker inspect \
   --format '{{(index .NetworkSettings.Networks "kind").IPAddress}}' \

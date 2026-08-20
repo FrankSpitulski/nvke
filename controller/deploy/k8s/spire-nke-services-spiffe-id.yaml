@@ -14,3 +14,6 @@ spec:
       operator: In
       values:
       - cloud-workflow-engine
+      - capi-system
+      - capi-kubeadm-control-plane-system
+      - capd-system

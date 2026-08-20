@@ -243,8 +243,7 @@ func (a *Activities) DeleteCAPIMachineForNode(ctx context.Context, input DeleteC
 	if err != nil {
 		return fmt.Errorf("failed to get node: %w", err)
 	}
-	clusterID := node.ClusterID
-	cluster, err := a.db.GetCluster(ctx, clusterID)
+	cluster, err := a.db.GetCluster(ctx, node.ClusterID)
 	if err != nil {
 		return fmt.Errorf("failed to get cluster: %w", err)
 	}

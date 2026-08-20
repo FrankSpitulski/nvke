@@ -5,6 +5,7 @@ package capi
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"testing"
 
@@ -188,6 +189,26 @@ func TestNicoProviderIDControllerReconcileWaitsForOwnerMachine(t *testing.T) {
 func TestNicoProviderIDControllerReconcileWaitsForKubeconfigSecret(t *testing.T) {
 	tenantProvider := &fakeTenantClusterClientProvider{
 		err: apierrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "test-kubeconfig"),
+	}
+	controller := newNicoProviderIDControllerForTestWithProvider(
+		t,
+		[]client.Object{
+			newCAPIClusterForProviderIDTest(),
+			newMachineForProviderIDTest(),
+			newNicoMachineForProviderIDTest("nico://instance-1", providerIDTestNodeName),
+		},
+		tenantProvider,
+	)
+
+	result, err := controller.Reconcile(context.Background(), providerIDReconcileRequest())
+	require.NoError(t, err)
+	require.Equal(t, tenantClusterReadinessRetryAfter, result.RequeueAfter)
+	require.Equal(t, 1, tenantProvider.calls)
+}
+
+func TestNicoProviderIDControllerReconcileWaitsWhenTenantClientNotReady(t *testing.T) {
+	tenantProvider := &fakeTenantClusterClientProvider{
+		err: fmt.Errorf("%w: published kubeconfig not ready", kube.ErrTenantClientNotReady),
 	}
 	controller := newNicoProviderIDControllerForTestWithProvider(
 		t,

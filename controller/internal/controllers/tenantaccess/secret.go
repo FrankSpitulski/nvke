@@ -5,76 +5,76 @@ package tenantaccess
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"log/slog"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/NVIDIA/nke/controller/internal/constants"
+	"github.com/NVIDIA/nke/controller/internal/capi"
 	"github.com/NVIDIA/nke/controller/internal/db"
 )
 
-// upsertSecret creates or updates an Opaque Secret in the tenant-access
-// namespace, merging only the fields this controller owns (the owner labels and
-// the single data key) so foreign labels/annotations are preserved.
-func (c *Controller) upsertSecret(ctx context.Context, cluster db.Cluster, secretName, dataKey string, value []byte) error {
-	// Re-read the cluster immediately before writing. Reconcile decides what to
-	// publish from a ListClusters snapshot taken at the top of the pass, and a
-	// pass can span minutes (an agent probe per cluster, plus a tenant apply
-	// on the OIDC path). Without this, a cluster that started deleting mid-pass
-	// would be published from the stale snapshot — re-creating Secrets teardown
-	// had already removed, and orphaning them for good once the row is gone.
-	live, err := c.db.GetCluster(ctx, cluster.ID)
-	if errors.Is(err, db.ErrNotFound) {
-		c.logger.Debug("Cluster no longer exists; skipping tenant-access secret", "clusterID", cluster.ID, "secret", secretName)
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("re-reading cluster %s before publishing %s: %w", cluster.ID, secretName, err)
-	}
-	if live.Conditions.Deleting.Status == db.ConditionStatusTrue {
-		c.logger.Debug("Cluster started deleting; skipping tenant-access secret", "clusterID", cluster.ID, "secret", secretName)
-		return nil
+// upsertSecret publishes one Controller-owned Secret.
+//
+// The live row is re-read here, immediately before the write, and not only once
+// per publish: on the OIDC path publishSPIRE applies RBAC into the tenant
+// cluster between the publish-time refresh and these writes, and that apply is
+// bounded by tenantRequestTimeout, not by anything quick. A cluster that started
+// deleting during it would otherwise have its Secrets re-created after teardown
+// had already removed them, orphaning them for good once the row is gone.
+func (c *Controller) upsertSecret(ctx context.Context, cluster db.Cluster, desired *corev1.Secret) error {
+	live, skip, err := c.refreshCluster(ctx, cluster)
+	if err != nil || skip {
+		return err
 	}
 
+	return upsertOwnedSecret(ctx, c.k8sClient, c.logger, live, desired)
+}
+
+func upsertOwnedSecret(
+	ctx context.Context,
+	k8sClient client.Client,
+	logger *slog.Logger,
+	cluster db.Cluster,
+	desired *corev1.Secret,
+) error {
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: SecretsNamespace,
-		},
+		ObjectMeta: desired.ObjectMeta,
 	}
 
-	op, err := controllerutil.CreateOrUpdate(ctx, c.k8sClient, secret, func() error {
+	op, err := controllerutil.CreateOrUpdate(ctx, k8sClient, secret, func() error {
+		if err := capi.ValidateSecretOwnership(secret, cluster); err != nil {
+			return err
+		}
 		if secret.Labels == nil {
 			secret.Labels = map[string]string{}
 		}
-		secret.Labels[constants.LabelKeyNkeManagedBy] = constants.LabelValueNkeManagedBy
-		secret.Labels[constants.LabelKeyClusterID] = cluster.ID.String()
-		secret.Type = corev1.SecretTypeOpaque
+		for key, value := range desired.Labels {
+			secret.Labels[key] = value
+		}
+		secret.Type = desired.Type
 		if secret.Data == nil {
 			secret.Data = map[string][]byte{}
 		}
-		secret.Data[dataKey] = value
+		for key, value := range desired.Data {
+			secret.Data[key] = value
+		}
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("upserting secret %s/%s: %w", SecretsNamespace, secretName, err)
+		return fmt.Errorf("upserting secret %s/%s: %w", desired.Namespace, desired.Name, err)
 	}
 
-	// Creation is a one-off worth surfacing. Updates are not: this runs on every
-	// poll for every cluster, so logging them at info level scales with fleet size
-	// and reconcile frequency rather than with anything an operator cares about.
 	switch op {
 	case controllerutil.OperationResultCreated:
-		c.logger.Info("Tenant-access secret created", "clusterName", cluster.Name, "secret", secretName)
+		logger.Info("Tenant-access secret created", "clusterName", cluster.Name, "secret", desired.Name)
 	case controllerutil.OperationResultNone:
-		// Steady state: the published Secret already matches. Stay quiet.
 	case controllerutil.OperationResultUpdated,
 		controllerutil.OperationResultUpdatedStatus,
 		controllerutil.OperationResultUpdatedStatusOnly:
-		c.logger.Debug("Tenant-access secret updated", "clusterName", cluster.Name, "secret", secretName, "operation", string(op))
+		logger.Debug("Tenant-access secret updated", "clusterName", cluster.Name, "secret", desired.Name, "operation", string(op))
 	}
 	return nil
 }

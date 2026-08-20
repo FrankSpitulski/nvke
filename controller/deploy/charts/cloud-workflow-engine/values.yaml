@@ -388,8 +388,9 @@ spiffe:
   # -- Enable SPIFFE identity for mTLS to tenant clusters
   enabled: false
   endpointSocket: "unix:///spiffe-workload-api/spire-agent.sock"
-  # -- SPIRE trust domain. Required when nkeOIDCAuth.enabled is true: builds the
-  # nke:cwe SPIFFE subject ID in the nke-rbac ConfigMap. Must equal the
+  # -- SPIRE trust domain. When set, the chart renders ConfigMap nke-rbac.
+  # Required when nkeOIDCAuth.enabled is true: builds the
+  # nke:cwe SPIFFE subject ID in that ConfigMap. Must equal the
   # SPIRE server's trust domain (the spire chart's global.spire.trustDomain) so the
   # RBAC principals match issued identities.
   trustDomain: ""

@@ -9,16 +9,16 @@ import (
 	"fmt"
 	"log/slog"
 
-	"k8s.io/utils/ptr"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/NVIDIA/nke/controller/internal/agent"
 	"github.com/NVIDIA/nke/controller/internal/capi"
+	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/db"
-	"github.com/NVIDIA/nke/controller/internal/nodes"
 )
 
 type CAPIClusterScaffoldController struct {
+	cfg             config.Config
 	logger          *slog.Logger
 	db              db.DB
 	k8sClient       ctrlclient.Client
@@ -26,12 +26,14 @@ type CAPIClusterScaffoldController struct {
 }
 
 func NewCAPIClusterScaffoldController(
+	cfg config.Config,
 	logger *slog.Logger,
 	dbInstance db.DB,
 	k8sClient ctrlclient.Client,
 	nodeAgentClient agent.Client,
 ) *CAPIClusterScaffoldController {
 	return &CAPIClusterScaffoldController{
+		cfg:             cfg,
 		logger:          logger,
 		db:              dbInstance,
 		k8sClient:       k8sClient,
@@ -74,45 +76,5 @@ func (c *CAPIClusterScaffoldController) reconcileCluster(ctx context.Context, cl
 	if err := capi.ApplyClusterScaffold(ctx, c.k8sClient, cluster); err != nil {
 		return fmt.Errorf("failed to apply CAPI cluster scaffold: %w", err)
 	}
-
-	if err := c.reconcileKubeconfigSecret(ctx, cluster); err != nil {
-		return fmt.Errorf("failed to reconcile CAPI kubeconfig secret: %w", err)
-	}
-
 	return nil
-}
-
-func (c *CAPIClusterScaffoldController) reconcileKubeconfigSecret(ctx context.Context, cluster db.Cluster) error {
-	controlPlaneNodes, err := c.db.ListNodes(ctx, db.NodeFilters{
-		ClusterID:    &cluster.ID,
-		ControlPlane: ptr.To(true),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list control plane nodes: %w", err)
-	}
-
-	candidates, healthyCandidates := nodes.PickControlPlaneRunbookCandidates(controlPlaneNodes)
-	if len(candidates) == 0 {
-		return fmt.Errorf("cluster %s has no joined control plane nodes for kubeconfig extraction", cluster.ID)
-	}
-	if !healthyCandidates {
-		c.logger.Warn("No healthy joined control plane nodes found, falling back to joined nodes for kubeconfig extraction", "clusterID", cluster.ID, "clusterName", cluster.Name)
-	}
-
-	var candidateErrs []error
-	for _, node := range candidates {
-		kubeconfigBytes, err := c.nodeAgentClient.GetKubeconfig(ctx, node)
-		if err != nil {
-			candidateErrs = append(candidateErrs, fmt.Errorf("node %s: %w", node.ID, err))
-			continue
-		}
-		if kubeconfigBytes == "" {
-			candidateErrs = append(candidateErrs, fmt.Errorf("node %s returned an empty kubeconfig", node.ID))
-			continue
-		}
-
-		return capi.ApplyClusterKubeconfigSecret(ctx, c.k8sClient, cluster, []byte(kubeconfigBytes))
-	}
-
-	return fmt.Errorf("failed to extract kubeconfig from %d control plane candidates: %w", len(candidates), errors.Join(candidateErrs...))
 }

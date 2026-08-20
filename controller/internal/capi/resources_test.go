@@ -13,10 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -30,7 +28,6 @@ import (
 
 const (
 	testClusterName       = "test-cluster"
-	testKubeconfig        = "kubeconfig-data"
 	testNicoClusterKind   = "NicoCluster"
 	testNicoClusterSiteID = "site-1"
 	testNicoClusterAPI    = "infrastructure.cluster.x-k8s.io/v1alpha1"
@@ -45,6 +42,10 @@ func TestResources_ApplyClusterScaffold(t *testing.T) {
 	tests := map[string]parameters{
 		"applies namespace CAPI cluster and NicoCluster": {
 			cluster:         testCluster(),
+			wantNicoCluster: true,
+		},
+		"OIDC-mode still scaffolds into cluster-<name>": {
+			cluster:         testOIDCCluster(),
 			wantNicoCluster: true,
 		},
 	}
@@ -150,88 +151,6 @@ func TestIsDockerMachineTemplate(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
-func TestResources_ApplyClusterKubeconfigSecret(t *testing.T) {
-	type parameters struct {
-		cluster            db.Cluster
-		existingObjects    []client.Object
-		wantSecret         bool
-		wantNotFoundError  bool
-		wantKubeconfigData []byte
-	}
-
-	cluster := testCluster()
-	namespace := capi.ClusterNamespace(cluster.Name)
-
-	tests := map[string]parameters{
-		"applies kubeconfig secret for existing CAPI cluster": {
-			cluster: cluster,
-			existingObjects: []client.Object{
-				&clusterv1.Cluster{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      cluster.Name,
-						Namespace: namespace,
-					},
-				},
-			},
-			wantSecret:         true,
-			wantKubeconfigData: []byte(testKubeconfig),
-		},
-		"leaves existing kubeconfig secret untouched": {
-			cluster: cluster,
-			existingObjects: []client.Object{
-				&clusterv1.Cluster{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      cluster.Name,
-						Namespace: namespace,
-					},
-				},
-				&corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      cluster.Name + "-kubeconfig",
-						Namespace: namespace,
-					},
-					Data: map[string][]byte{"value": []byte("existing-kubeconfig")},
-				},
-			},
-			wantSecret:         true,
-			wantKubeconfigData: []byte("existing-kubeconfig"),
-		},
-		"returns not found when CAPI cluster is missing": {
-			cluster:           cluster,
-			wantSecret:        false,
-			wantNotFoundError: true,
-		},
-	}
-
-	for name, params := range tests {
-		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
-			k8sClient := fake.NewClientBuilder().
-				WithScheme(testScheme(t)).
-				WithObjects(params.existingObjects...).
-				Build()
-
-			err := capi.ApplyClusterKubeconfigSecret(ctx, k8sClient, params.cluster, []byte(testKubeconfig))
-			if params.wantNotFoundError {
-				require.Error(t, err)
-				assert.True(t, apierrors.IsNotFound(err))
-				return
-			}
-			require.NoError(t, err)
-
-			secret := &corev1.Secret{}
-			err = k8sClient.Get(ctx, types.NamespacedName{Name: params.cluster.Name + "-kubeconfig", Namespace: capi.ClusterNamespace(params.cluster.Name)}, secret)
-			if !params.wantSecret {
-				assert.True(t, apierrors.IsNotFound(err))
-				return
-			}
-
-			require.NoError(t, err)
-			assert.Equal(t, params.wantKubeconfigData, secret.Data["value"])
 		})
 	}
 }
@@ -362,6 +281,12 @@ func testCluster() db.Cluster {
 		ProviderType: db.ProviderTypeNico,
 		Nico:         &db.NicoClusterProvider{OrgID: "org-1", SiteID: siteID, VpcID: vpcID},
 	}
+	return cluster
+}
+
+func testOIDCCluster() db.Cluster {
+	cluster := testCluster()
+	cluster.OIDCAuthEnabled = true
 	return cluster
 }
 

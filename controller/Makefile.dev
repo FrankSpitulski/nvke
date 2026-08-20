@@ -463,9 +463,14 @@ capd-up: kind-up clusterctl-install capd-image registry-mirror ## Bring up the l
 	@echo "Waiting for CAPI and CAPD controllers to be ready..."
 	@kubectl rollout status deployment/capi-controller-manager -n capi-system --timeout=120s
 	@kubectl rollout status deployment/capd-controller-manager -n capd-system --timeout=120s
+	@$(MAKE) capi-spiffe-exec-auth
 	@echo "✅ CAPD management cluster is ready"
 	@echo "Next step: tilt up"
 	@echo "The bgp-containers Tilt provider starts the kube-vip BGP peer by default"
+
+.PHONY: capi-spiffe-exec-auth
+capi-spiffe-exec-auth: ## Patch CAPI/CAPD Deployments with the SPIRE exec-auth plugin (after clusterctl)
+	@cd "$(CURDIR)" && ./hack/apply-capi-spiffe-exec-auth.sh
 
 .PHONY: clusterctl-install
 clusterctl-install: ## Install the pinned clusterctl (CAPI_CORE_VERSION) into .local/bin unless the binary PATH would select already reports that exact version
@@ -533,6 +538,7 @@ capi-core-up: kind-up clusterctl-install registry-mirror ## Bring up the Kind ma
 	@kubectl rollout status deployment/capi-controller-manager -n capi-system --timeout=180s
 	@kubectl rollout status deployment/capi-kubeadm-bootstrap-controller-manager -n capi-kubeadm-bootstrap-system --timeout=180s
 	@kubectl rollout status deployment/capi-kubeadm-control-plane-controller-manager -n capi-kubeadm-control-plane-system --timeout=180s
+	@$(MAKE) capi-spiffe-exec-auth
 	@echo "✅ CAPI core management cluster is ready (context kind-$(KIND_CLUSTER_NAME))"
 	@echo "Next step: tilt up"
 
@@ -569,6 +575,7 @@ capd-upgrade: ## Rebuild CAPD node image for TARGET_VERSION and PATCH the cluste
 		DRY_RUN="$(or $(DRY_RUN),false)" \
 		WAIT="$(or $(WAIT),false)" \
 		./hack/capd-upgrade.sh
+	@$(MAKE) capi-spiffe-exec-auth
 
 .PHONY: capd-kubeconfig
 capd-kubeconfig: ## Write CAPD workload kubeconfig for kubectl on this host (CLUSTER_NAME=capd OUTPUT=path ./hack/fetch-capd-kubeconfig.sh)

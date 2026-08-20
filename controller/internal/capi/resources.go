@@ -111,6 +111,9 @@ func ClusterScaffoldManifest(cluster db.Cluster) (json.RawMessage, error) {
 	}
 }
 
+// ApplyClusterKubeconfigSecret preserves the legacy CAPI kubeconfig activity
+// for replay of provisioning workflows started before TenantAccess became the
+// sole publisher. New workflows do not call this path.
 func ApplyClusterKubeconfigSecret(ctx context.Context, k8sClient client.Client, cluster db.Cluster, kubeconfigBytes []byte) error {
 	namespace := ClusterNamespace(cluster.Name)
 	clusterObj := &clusterv1.Cluster{}
@@ -127,14 +130,9 @@ func ApplyClusterKubeconfigSecret(ctx context.Context, k8sClient client.Client, 
 		Kind:       "Secret",
 	}
 
-	if err := k8sClient.Create(ctx, secretObj); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			// nothing to do, secret already exists
-			return nil
-		}
+	if err := k8sClient.Create(ctx, secretObj); err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("creating CAPI kubeconfig secret %s/%s: %w", secretObj.Namespace, secretObj.Name, err)
 	}
-
 	return nil
 }
 

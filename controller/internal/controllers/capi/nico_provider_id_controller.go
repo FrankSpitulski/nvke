@@ -5,6 +5,7 @@ package capi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -110,7 +111,7 @@ func (c *NicoProviderIDController) Reconcile(ctx context.Context, req ctrl.Reque
 
 	tenantClient, err := c.tenantClientProvider.ClientForCluster(ctx, cluster)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) || errors.Is(err, kube.ErrTenantClientNotReady) {
 			logger.Info("Waiting for CAPI kubeconfig secret", "clusterName", cluster.Name)
 			return ctrl.Result{RequeueAfter: tenantClusterReadinessRetryAfter}, nil
 		}

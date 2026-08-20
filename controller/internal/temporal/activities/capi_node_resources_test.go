@@ -24,6 +24,7 @@ import (
 
 	nicov1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
 
+	"github.com/NVIDIA/nke/controller/internal/capi"
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/testutil"
@@ -90,7 +91,6 @@ func TestActivities_CreateTemplateLessForgeCAPIMachineForNode_Idempotent(t *test
 	vpcID := uuid.MustParse("70000000-0000-0000-0000-000000000006")
 	vpcPrefixID := uuid.MustParse("70000000-0000-0000-0000-000000000007")
 	siteID := uuid.MustParse("70000000-0000-0000-0000-000000000008")
-	namespace := "cluster-cluster-a"
 	node := db.Node{
 		ID:           nodeID,
 		NodePoolID:   nodePoolID,
@@ -123,6 +123,7 @@ func TestActivities_CreateTemplateLessForgeCAPIMachineForNode_Idempotent(t *test
 		CniPlugin: db.CNICalico,
 	}
 	cluster.SetNicoProvider(db.NicoClusterProvider{OrgID: "org-1", SiteID: siteID, VpcID: vpcID})
+	namespace := capi.ClusterNamespace(cluster.Name)
 	k8sClient := newCAPIMachineCreateClient(t)
 	a := &Activities{
 		cfg:       testTemplateLessForgeCAPICfg(t),
@@ -310,7 +311,7 @@ func testCAPIMachineWithNicoInfraRef(addresses clusterv1.MachineAddresses) *clus
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "worker-0",
-			Namespace: "cluster-cluster-a",
+			Namespace: capi.ClusterNamespace("cluster-a"),
 		},
 		Spec: clusterv1.MachineSpec{
 			InfrastructureRef: clusterv1.ContractVersionedObjectReference{
@@ -367,7 +368,7 @@ func testNicoMachineForRotation(params nicoMachineRotationParameters) *nicov1.Ni
 
 func testNicoMachineForCAPIMachineReady(params nicoMachineRotationParameters) *nicov1.NicoMachine {
 	nicoMachine := testNicoMachineForRotation(params)
-	nicoMachine.Namespace = "cluster-cluster-a"
+	nicoMachine.Namespace = capi.ClusterNamespace("cluster-a")
 	return nicoMachine
 }
 
@@ -468,7 +469,7 @@ func getTestNicoMachine(t *testing.T, k8sClient client.Client) *nicov1.NicoMachi
 
 	nicoMachine := &nicov1.NicoMachine{}
 	require.NoError(t, k8sClient.Get(context.Background(), client.ObjectKey{
-		Namespace: "cluster-cluster-a",
+		Namespace: capi.ClusterNamespace("cluster-a"),
 		Name:      "worker-0",
 	}, nicoMachine))
 	return nicoMachine

@@ -7,10 +7,12 @@
 # tenantAccess.enabled and nkeOIDCAuth.enabled. Keeping it unconditional also means
 # a site that has published Secrets and is then disabled keeps them addressable.
 #
-# The nke-rbac ConfigMap (key manifest.yaml) is created only when OIDC is enabled:
-# that controller reads it and Server-Side-Applies the manifest directly into each
-# OIDC tenant cluster. It defines the SPIFFE identities allowed to call each tenant
-# API surface (nke:cwe).
+# The nke-rbac ConfigMap (key manifest.yaml) is rendered whenever
+# spiffe.trustDomain is set, not when the live nkeOIDCAuth flag is on.
+# TenantAccess reads it and Server-Side-Applies the manifest into each
+# persisted-OIDC tenant cluster. Flipping nkeOIDCAuth.enabled off must not
+# drop the document. It defines the SPIFFE identities allowed to call each
+# tenant API surface (nke:cwe).
 {{- if .Values.nkeSystemNamespace.create }}
 apiVersion: v1
 kind: Namespace
@@ -38,6 +40,8 @@ metadata:
 {{- if not .Values.tenantAccess.enabled }}
 {{- fail "tenantAccess.enabled must be true when nkeOIDCAuth.enabled is true (the tenant-access controller applies nke-rbac into tenant clusters and publishes their kubeconfig; without it OIDC auth is configured but unusable)" }}
 {{- end }}
+{{- end }}
+{{- if .Values.spiffe.trustDomain }}
 {{- $td := .Values.spiffe.trustDomain }}
 ---
 apiVersion: v1
@@ -146,5 +150,24 @@ data:
     roleRef:
       kind: Role
       name: nke:cwe
+      apiGroup: rbac.authorization.k8s.io
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: nke:capi-cluster-admin
+    subjects:
+      - kind: User
+        name: spiffe://{{ $td }}/nke-service/capi-manager
+        apiGroup: rbac.authorization.k8s.io
+      - kind: User
+        name: spiffe://{{ $td }}/nke-service/capi-kubeadm-control-plane-manager
+        apiGroup: rbac.authorization.k8s.io
+      - kind: User
+        name: spiffe://{{ $td }}/nke-service/capd-manager
+        apiGroup: rbac.authorization.k8s.io
+    roleRef:
+      kind: ClusterRole
+      name: cluster-admin
       apiGroup: rbac.authorization.k8s.io
 {{- end }}

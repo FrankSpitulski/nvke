@@ -18,16 +18,16 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	capikubeconfig "sigs.k8s.io/cluster-api/util/kubeconfig"
-	capisecret "sigs.k8s.io/cluster-api/util/secret"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/NVIDIA/nke/controller/internal/agent"
 	"github.com/NVIDIA/nke/controller/internal/capi"
+	"github.com/NVIDIA/nke/controller/internal/constants"
 	"github.com/NVIDIA/nke/controller/internal/db"
 )
 
 const (
-	tenantAccessKubeconfigNamespace = "nke-system"
+	tenantAccessKubeconfigNamespace = constants.NamespaceNKESystem
 	tenantAccessKubeconfigKey       = "value"
 	tenantAPIServerProbeTimeout     = 5 * time.Second
 )
@@ -41,7 +41,9 @@ type TenantClientProvider interface {
 }
 
 // CAPIKubeconfigTenantClientProvider reads the standard Cluster API
-// <cluster-name>-kubeconfig Secret from the management cluster.
+// <cluster-name>-kubeconfig Secret from the Cluster's namespace. That is the
+// CAPI object plane (still cluster-<name> until NKX-14454 moves those objects).
+// CWE DB consumers use DBClusterTenantClientProvider instead.
 type CAPIKubeconfigTenantClientProvider struct {
 	managementClient client.Reader
 }
@@ -116,10 +118,10 @@ func NewClientFromRESTConfig(restConfig *rest.Config, addToSchemes ...AddToSchem
 }
 
 // DBClusterTenantClientProvider returns shared tenant-cluster Kubernetes clients
-// for CWE DB clusters. Site-managed clusters use the kubeconfig published by the
-// tenant-access controller when enabled, with the existing agent path kept
-// as the disabled-state rollout fallback. CAPI clusters use the standard CAPI
-// Secret plane.
+// for CWE DB clusters. CAPI clusters, and Nico clusters when tenant-access
+// consume is enabled, read nke-system/<name>-kubeconfig (TenantAccess). Nico
+// keeps the node-agent path as the disabled-state rollout fallback. CAPI
+// Cluster/Machine objects stay in cluster-<name> (NKX-14454).
 type DBClusterTenantClientProvider struct {
 	database            db.DB
 	managementClient    client.Reader
@@ -131,8 +133,8 @@ type DBClusterTenantClientProvider struct {
 }
 
 type tenantClientCacheEntry struct {
-	secretVersion string
-	client        client.Client
+	cacheKey string
+	client   client.Client
 }
 
 func NewDBClusterTenantClientProvider(
@@ -161,7 +163,7 @@ func (p *DBClusterTenantClientProvider) ClientForDBCluster(ctx context.Context, 
 			return nil, fmt.Errorf("cluster %s must define capiInfraCluster when provider type is %q", cluster.ID, db.ProviderTypeCAPI)
 		}
 
-		return p.clientForCAPICluster(ctx, cluster)
+		return p.clientFromTenantAccessSecret(ctx, cluster)
 	case db.ProviderTypeNico:
 		if _, err := cluster.NicoProvider(); err != nil {
 			return nil, err
@@ -179,38 +181,6 @@ func (p *DBClusterTenantClientProvider) ClientForDBCluster(ctx context.Context, 
 	default:
 		return nil, fmt.Errorf("unsupported provider type %q for cluster %s", cluster.ProviderType, cluster.ID)
 	}
-}
-
-func (p *DBClusterTenantClientProvider) clientForCAPICluster(ctx context.Context, cluster db.Cluster) (client.Client, error) {
-	capiCluster := &clusterv1.Cluster{}
-	if err := p.managementClient.Get(ctx, client.ObjectKey{
-		Namespace: capi.ClusterNamespace(cluster.Name),
-		Name:      cluster.Name,
-	}, capiCluster); err != nil {
-		return nil, fmt.Errorf("failed to get CAPI cluster: %w", err)
-	}
-
-	kubeconfigSecret, err := capisecret.Get(ctx, p.managementClient, client.ObjectKey{
-		Namespace: capiCluster.Namespace,
-		Name:      capiCluster.Name,
-	}, capisecret.Kubeconfig)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("%w: CAPI kubeconfig secret %s/%s not found: %w", ErrTenantClientNotReady, capiCluster.Namespace, capisecret.Name(capiCluster.Name, capisecret.Kubeconfig), err)
-		}
-		return nil, fmt.Errorf("failed to get CAPI kubeconfig secret: %w", err)
-	}
-
-	kubeconfigBytes := kubeconfigSecret.Data[capisecret.KubeconfigDataName]
-	if len(kubeconfigBytes) == 0 {
-		return nil, fmt.Errorf("%w: CAPI kubeconfig secret %s/%s has no non-empty %q key", ErrTenantClientNotReady, kubeconfigSecret.Namespace, kubeconfigSecret.Name, capisecret.KubeconfigDataName)
-	}
-
-	tenantClient, err := p.clientFromSecretVersion(cluster.ID, kubeconfigSecret, kubeconfigBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create tenant client from CAPI kubeconfig secret: %w", err)
-	}
-	return tenantClient, nil
 }
 
 func (p *DBClusterTenantClientProvider) clientFromTenantAccessSecret(ctx context.Context, cluster db.Cluster) (client.Client, error) {
@@ -242,8 +212,7 @@ func (p *DBClusterTenantClientProvider) clientFromTenantAccessSecret(ctx context
 			tenantAccessKubeconfigKey,
 		)
 	}
-
-	tenantClient, err := p.clientFromSecretVersion(cluster.ID, secret, kubeconfigBytes)
+	tenantClient, err := p.clientFromSecretVersion(cluster, secret, kubeconfigBytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client from published tenant kubeconfig secret %s/%s: %w", tenantAccessKubeconfigNamespace, secretName, err)
 	}
@@ -251,15 +220,15 @@ func (p *DBClusterTenantClientProvider) clientFromTenantAccessSecret(ctx context
 }
 
 func (p *DBClusterTenantClientProvider) clientFromSecretVersion(
-	clusterID uuid.UUID,
+	cluster db.Cluster,
 	secret *corev1.Secret,
 	kubeconfigBytes []byte,
 ) (client.Client, error) {
-	secretVersion := secret.Namespace + "/" + secret.Name + "@" + secret.ResourceVersion
+	cacheKey := secret.Namespace + "/" + secret.Name + "@" + secret.ResourceVersion
 	p.clientsMu.RLock()
-	cached := p.clients[clusterID]
+	cached := p.clients[cluster.ID]
 	p.clientsMu.RUnlock()
-	if cached.client != nil && cached.secretVersion == secretVersion {
+	if cached.client != nil && cached.cacheKey == cacheKey {
 		return cached.client, nil
 	}
 
@@ -271,13 +240,13 @@ func (p *DBClusterTenantClientProvider) clientFromSecretVersion(
 	// Client construction may race for the same Secret version. Keep and return
 	// the first successfully constructed instance for that version.
 	p.clientsMu.Lock()
-	cached = p.clients[clusterID]
-	if cached.client != nil && cached.secretVersion == secretVersion {
+	cached = p.clients[cluster.ID]
+	if cached.client != nil && cached.cacheKey == cacheKey {
 		tenantClient = cached.client
 	} else {
-		p.clients[clusterID] = tenantClientCacheEntry{
-			secretVersion: secretVersion,
-			client:        tenantClient,
+		p.clients[cluster.ID] = tenantClientCacheEntry{
+			cacheKey: cacheKey,
+			client:   tenantClient,
 		}
 	}
 	p.clientsMu.Unlock()
@@ -286,7 +255,7 @@ func (p *DBClusterTenantClientProvider) clientFromSecretVersion(
 }
 
 // clientFromControlPlaneNodeAgent gets kubeconfigs from joined control-plane
-// agents and returns the first one whose apiserver endpoint is reachable
+// node-agents and returns the first one whose apiserver endpoint is reachable
 // from the CWE process. This path remains available while tenant access is
 // disabled so the producer and consumer can be enabled with one rollout flag.
 func (p *DBClusterTenantClientProvider) clientFromControlPlaneNodeAgent(ctx context.Context, cluster db.Cluster, nodes []db.Node) (client.Client, error) {

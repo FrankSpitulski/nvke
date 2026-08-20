@@ -75,7 +75,7 @@ func NewControllerManager(
 
 	var capiClusterScaffold *CAPIClusterScaffoldController
 	if cfg.EnableForgeCapi {
-		capiClusterScaffold = NewCAPIClusterScaffoldController(controllerManagerLogger, dbInstance, k8sClient, nodeAgentClient)
+		capiClusterScaffold = NewCAPIClusterScaffoldController(cfg, controllerManagerLogger, dbInstance, k8sClient, nodeAgentClient)
 	}
 
 	return &ControllerManager{

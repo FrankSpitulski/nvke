@@ -48,6 +48,22 @@ func TestApplyClusterDefaults(t *testing.T) {
 		require.NoError(t, svcOff.applyClusterDefaults(req, cluster))
 		assert.True(t, cluster.TeleportEnabled)
 	})
+
+	// Characterization of pre-existing behavior in applyClusterDefaults, not a
+	// change: TenantAccess now selects SPIRE vs admin from the persisted
+	// OIDCAuthEnabled re-read from the DB, so create-time stamping is load-bearing
+	// for publish and nothing pinned it.
+	t.Run("stamps OIDCAuthEnabled from create-time OIDC flag", func(t *testing.T) {
+		svcOn := &clusterService{oidcAuthEnabled: true}
+		clusterOn := &db.Cluster{}
+		require.NoError(t, svcOn.applyClusterDefaults(&api.CreateClusterRequest{}, clusterOn))
+		assert.True(t, clusterOn.OIDCAuthEnabled)
+
+		svcOff := &clusterService{oidcAuthEnabled: false}
+		clusterOff := &db.Cluster{}
+		require.NoError(t, svcOff.applyClusterDefaults(&api.CreateClusterRequest{}, clusterOff))
+		assert.False(t, clusterOff.OIDCAuthEnabled)
+	})
 }
 
 func TestApplyNodePoolDefaults(t *testing.T) {

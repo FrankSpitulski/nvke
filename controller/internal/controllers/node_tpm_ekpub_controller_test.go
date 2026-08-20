@@ -23,6 +23,7 @@ import (
 
 	nicov1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
 
+	"github.com/NVIDIA/nke/controller/internal/capi"
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/testutil"
@@ -178,7 +179,7 @@ func TestReconcileNicoNodeEKPub_PersistsHashWhenReady(t *testing.T) {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.Name,
-			Namespace: "cluster-capi-cluster",
+			Namespace: capi.ClusterNamespace("capi-cluster"),
 		},
 		Spec: nicov1.NicoMachineSpec{
 			ProviderID: "nico://instance-1",
@@ -259,7 +260,7 @@ func TestReconcileNicoNodeEKPub_SkipsWhenNotReady(t *testing.T) {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.Name,
-			Namespace: "cluster-capi-cluster",
+			Namespace: capi.ClusterNamespace(cluster.Name),
 		},
 		Spec: nicov1.NicoMachineSpec{
 			ProviderID: "nico://instance-1",
