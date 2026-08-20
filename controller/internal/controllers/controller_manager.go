@@ -17,7 +17,6 @@ import (
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/controllers/controlplane"
 	"github.com/NVIDIA/nke/controller/internal/controllers/nodehealth"
-	"github.com/NVIDIA/nke/controller/internal/controllers/tenantaccess"
 	"github.com/NVIDIA/nke/controller/internal/db"
 	"github.com/NVIDIA/nke/controller/internal/kube"
 	"github.com/NVIDIA/nke/controller/internal/providers/forge"
@@ -37,13 +36,11 @@ type ControllerManager struct {
 	autoModeController           *AutoModeController
 	controlPlaneController       *controlplane.Controller
 	nodeHealthController         *nodehealth.Controller
-	csrApprovalController        *CSRApprovalController
 	certRenewalController        *CertRenewalController
 	nodeTPMEKPubController       *NodeTPMEKPubController
 	clusterStaticEntryController *NodeClusterStaticEntryController
 	tpmPubhashesCmController     *TpmPubhashesCmController
 	teleportTokenController      *TeleportTokenController
-	tenantAccessController       *tenantaccess.Controller
 }
 
 // NewControllerManager creates a new ControllerManager.
@@ -81,11 +78,6 @@ func NewControllerManager(
 		capiClusterScaffold = NewCAPIClusterScaffoldController(controllerManagerLogger, dbInstance, k8sClient, nodeAgentClient)
 	}
 
-	var tenantAccessController *tenantaccess.Controller
-	if cfg.TenantAccessEnabled {
-		tenantAccessController = tenantaccess.NewController(cfg, controllerManagerLogger, dbInstance, k8sClient, nodeAgentClient)
-	}
-
 	return &ControllerManager{
 		cfg:                          cfg,
 		logger:                       controllerManagerLogger,
@@ -96,13 +88,11 @@ func NewControllerManager(
 		autoModeController:           NewAutoModeController(cfg, controllerManagerLogger, dbInstance),
 		controlPlaneController:       controlplane.NewController(cfg, logger, dbInstance, cweTemporalClient),
 		nodeHealthController:         nodehealth.NewController(cfg, logger, dbInstance, cweTemporalClient, nodeAgentClient, tenantClientProvider),
-		csrApprovalController:        NewCSRApprovalController(cfg, controllerManagerLogger, dbInstance, cweTemporalClient),
 		certRenewalController:        NewCertRenewalController(cfg, controllerManagerLogger, dbInstance, cweTemporalClient),
 		nodeTPMEKPubController:       NewNodeTPMEKPubController(cfg, dbInstance, controllerManagerLogger, forgeProvider, k8sClient),
 		clusterStaticEntryController: clusterStaticEntryController,
 		tpmPubhashesCmController:     tpmPubhashesCmController,
 		teleportTokenController:      teleportTokenController,
-		tenantAccessController:       tenantAccessController,
 	}, nil
 }
 
@@ -253,13 +243,6 @@ func (a *ControllerManager) processSite(ctx context.Context, site db.Site) {
 		}
 	}
 
-	if a.tenantAccessController != nil {
-		if err := a.tenantAccessController.Reconcile(ctx, site); err != nil {
-			// Log errors but continue processing the other controllers.
-			a.logger.Error("Failed to reconcile tenant access", "error", err, "siteID", site.ID.String())
-		}
-	}
-
 	if a.cfg.SpiffeEnabled {
 		if err := a.clusterStaticEntryController.Reconcile(ctx, site); err != nil {
 			// Log errors but continue processing the other controllers.
@@ -272,11 +255,6 @@ func (a *ControllerManager) processSite(ctx context.Context, site db.Site) {
 		}
 	} else {
 		a.logger.Debug("SPIFFE is disabled, skipping tpm pubhashes configmap reconciliation")
-	}
-
-	if err := a.csrApprovalController.Reconcile(ctx, site); err != nil {
-		// Log errors but continue processing the other controllers.
-		a.logger.Error("Failed to reconcile CSR approval", "error", err, "siteID", site.ID.String())
 	}
 
 	if err := a.certRenewalController.Reconcile(ctx, site); err != nil {
