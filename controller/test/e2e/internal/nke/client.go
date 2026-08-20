@@ -132,10 +132,46 @@ func (c *Client) ProvisionedNodeCount(ctx context.Context, nodePoolID openapi_ty
 
 // CreateCluster builds a create request from spec and posts it. It requires a
 // 201 response and returns the created cluster.
+// DefaultSiteVIPRanges matches hack/register-default-site.sh: distinct from the
+// forge-vms range and off the kind Docker subnet.
+var DefaultSiteVIPRanges = []string{"172.31.1.0/24"}
+
+// EnsureSite registers a site if it is not already there.
+//
+// Nothing is scheduled for a site that does not exist, and the provisioning
+// workflow waits instead of failing, so a missing site is indistinguishable
+// from slow provisioning until the spec times out. The suite assumed the
+// nil-UUID site but never created it, leaving that to a Tilt button.
+func (c *Client) EnsureSite(ctx context.Context, id openapi_types.UUID, vipRanges []string) error {
+	if got, err := c.api.GetSiteWithResponse(ctx, id); err == nil && got.StatusCode() == 200 {
+		return nil
+	}
+	resp, err := c.api.RegisterSiteWithResponse(ctx, api.RegisterSiteJSONRequestBody{
+		ID:        id,
+		VIPRanges: vipRanges,
+	})
+	if err != nil {
+		return fmt.Errorf("registering site %s: %w", id, err)
+	}
+	switch resp.StatusCode() {
+	case 200, 201, 409: // 409: a concurrent spec won the race, which is fine.
+		return nil
+	default:
+		return fmt.Errorf("registering site %s: unexpected status %s: %s", id, resp.Status(), resp.Body)
+	}
+}
+
 func (c *Client) CreateCluster(ctx context.Context, spec ClusterSpec) (*api.Cluster, error) {
 	req, err := buildCreateRequest(spec)
 	if err != nil {
 		return nil, err
+	}
+	// Note the nil UUID is a legitimate site ID here, so this keys off the spec
+	// string being set rather than the parsed value being non-zero.
+	if spec.SiteID != "" {
+		if err := c.EnsureSite(ctx, req.SiteID, DefaultSiteVIPRanges); err != nil {
+			return nil, err
+		}
 	}
 	resp, err := c.api.CreateClusterWithResponse(ctx, req)
 	if err != nil {

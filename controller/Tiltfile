@@ -948,15 +948,23 @@ _cwe_compile_script = """
       CGO_ENABLED=0 GOOS=linux GOARCH="%s" make build
 """ % _cwe_tilt_goarch
 
+# Default to the sanitized fixture that ships in this repository. It is
+# Apache-2.0, builds from a Docker Hub base, and is what CI already uses
+# (hack/ci/capd-e2e.sh). Defaulting to the nke-site-deploy sibling instead meant
+# a plain `tilt up` failed for anyone without that checkout, even though a
+# working profiles tree was one directory away.
+#
+# Point CWE_PROFILES_DIR at nke-site-deploy/cwe-profiles/profiles to exercise
+# the fleet profiles.
 _cwe_profiles_dir = os.getenv("CWE_PROFILES_DIR", _tilt_env.get("CWE_PROFILES_DIR", "")).strip()
 if _cwe_profiles_dir == "":
-    _cwe_profiles_dir = os.path.abspath(os.path.join(config.main_dir, "..", "..", "nke-site-deploy", "cwe-profiles", "profiles"))
+    _cwe_profiles_dir = os.path.abspath(os.path.join(config.main_dir, "test", "fixtures", "profiles"))
 elif not _cwe_profiles_dir.startswith("/"):
     _cwe_profiles_dir = os.path.abspath(os.path.join(config.main_dir, _cwe_profiles_dir))
 _cwe_profiles_preloaded = os.getenv("CWE_PROFILES_PRELOADED", "false") == "true"
 # Starlark's os.path has exists/join but not isdir.
 if not _cwe_profiles_preloaded and not os.path.exists(_cwe_profiles_dir):
-    fail("CWE profiles not found at %s (set CWE_PROFILES_DIR). Fleet profiles live in nke-site-deploy." % _cwe_profiles_dir)
+    fail("CWE profiles not found at %s. Set CWE_PROFILES_DIR to a profiles tree; the in-repo fixture is controller/test/fixtures/profiles and the fleet profiles live in nke-site-deploy." % _cwe_profiles_dir)
 
 _cwe_profiles_context = os.path.dirname(_cwe_profiles_dir)
 _cwe_profiles_dockerfile = os.path.join(_cwe_profiles_context, "Dockerfile")

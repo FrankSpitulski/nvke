@@ -291,7 +291,11 @@ func main() {
 
 	serverLogger := logger.With("logger", "server")
 	temporalLogger := logger.With("logger", "temporal")
-	if err := temporal.RegisterNamespace(ctx, cfg, temporalLogger); err != nil {
+	// Retry before giving up. Temporal restarting for a few seconds used to be
+	// enough to exit here, and once the process is in CrashLoopBackOff the
+	// restart delay grows to five minutes -- so a dependency that was away for
+	// seconds kept CWE down for minutes. Retry for a bounded window instead.
+	if err := registerTemporalNamespaceWithRetry(ctx, cfg, temporalLogger, logger); err != nil {
 		logger.Error("Failed to register Temporal namespace", "error", err)
 		os.Exit(1)
 	}
@@ -477,8 +481,47 @@ func main() {
 	}
 }
 
+// registerTemporalNamespaceWithRetry retries namespace registration for a
+// bounded window so a brief Temporal outage does not take the worker down for
+// far longer than the outage itself lasted.
+func registerTemporalNamespaceWithRetry(ctx context.Context, cfg config.Config, temporalLogger, logger *slog.Logger) error {
+	const (
+		attempts = 12
+		delay    = 5 * time.Second
+	)
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		err := temporal.RegisterNamespace(ctx, cfg, temporalLogger)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if attempt == attempts {
+			break
+		}
+		logger.Warn("Temporal namespace registration failed, retrying",
+			"attempt", attempt, "of", attempts, "retryIn", delay, "error", lastErr)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return lastErr
+}
+
 func getSpiffeTrustDomain(ctx context.Context, cfg config.Config, logger *slog.Logger) (string, error) {
 	if !cfg.SpiffeEnabled {
+		// With CAPI on, CreateCAPIInfraMachine builds spiffe://<trustDomain>/...
+		// An empty domain makes that ID unparseable, and it fails after the
+		// infra machine is applied but before the CAPI Machine is. The symptom
+		// is infra machines with no Machines, retrying forever. Fail here
+		// instead. SPIFFE off is still fine when CAPI is off.
+		if cfg.EnableCapi {
+			return "", fmt.Errorf("SPIFFE is disabled but ENABLE_CAPI is true, " +
+				"and CAPI node provisioning needs a trust domain to build SPIFFE IDs; " +
+				"set SPIFFE_ENABLED=true with SPIFFE_TRUST_DOMAIN, or disable CAPI")
+		}
 		logger.Info("SPIFFE is disabled, using empty trust domain")
 		return "", nil
 	}

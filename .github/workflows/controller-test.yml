@@ -181,7 +181,11 @@ jobs:
             run: go vet -tags integration ./test/integration/...
           - name: integration-test
             dir: controller
-            run: go vet ./integration-test/...
+            # The package sits behind the `integration_test` build tag so a
+            # plain `go test ./...` no longer picks it up and fails on a
+            # refused connection to localhost:8080. Vet has to pass the tag,
+            # or it matches no packages and exits non-zero.
+            run: go vet -tags integration_test ./integration-test/...
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

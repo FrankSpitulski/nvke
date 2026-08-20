@@ -85,6 +85,14 @@ FWE_API_KEY=<your-NGC-api-key> make run
 # Swagger: http://localhost:8080/api/docs
 ```
 
+Without an NGC account, run the `test` Forge environment instead. It signs a
+self-signed JWT rather than authenticating against NGC, so it needs no
+`FWE_API_KEY`:
+
+```bash
+FORGE_ENVIRONMENT=test make run
+```
+
 ## agent (nke-agent)
 
 The source lives in `agent/`. The binary installed on a node is called

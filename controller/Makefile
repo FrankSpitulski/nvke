@@ -115,13 +115,16 @@ GO_COVER_MODE ?= atomic
 .PHONY: test
 test: ## Execute unit tests (excludes integration tests).
 	# See: https://docs.gitlab.com/ee/ci/testing/test_coverage_visualization.html#go-example
-	go test $(GO_TEST_FLAGS) $(shell go list ./... | grep -v './integration-test') -coverprofile=coverage.txt -covermode $(GO_COVER_MODE)
+	# integration-test/ is behind the `integration_test` build tag, so
+	# `go list ./...` no longer needs filtering here. The old grep matched
+	# by accident anyway: `.` is a regex wildcard, not a path prefix.
+	go test $(GO_TEST_FLAGS) ./... -coverprofile=coverage.txt -covermode $(GO_COVER_MODE)
 	go run github.com/boumenot/gocover-cobertura@v1.2.0 < coverage.txt > cobertura.xml
 
 .PHONY: test-integration
 test-integration: ## Execute tests against a running CWE deployment.
 	@echo "Running integration tests..."
-	cd integration-test && go test -timeout=3h
+	cd integration-test && go test -tags integration_test -timeout=3h
 
 .PHONY: test-health
 test-health: ## Run the health-labeled subset of the test/e2e suite against the cluster in KUBECONFIG.

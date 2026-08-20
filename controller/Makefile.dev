@@ -495,7 +495,11 @@ clusterctl-install: ## Install the pinned clusterctl (CAPI_CORE_VERSION) into .l
 		fi; \
 		echo "Downloading clusterctl $(CAPI_CORE_VERSION) to $(LOCAL_BIN)..."; \
 		mkdir -p "$(LOCAL_BIN)"; \
-		curl -fsSL --remove-on-error -o "$(LOCAL_BIN)/clusterctl.tmp" \
+		: "--remove-on-error needs curl 7.83.0; Ubuntu 22.04 ships 7.81.0 and"; \
+		: "fails the whole command with 'option --remove-on-error: is unknown'."; \
+		: "The failure branch below already removes the partial file."; \
+		curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused \
+			-o "$(LOCAL_BIN)/clusterctl.tmp" \
 			"https://github.com/kubernetes-sigs/cluster-api/releases/download/$(CAPI_CORE_VERSION)/clusterctl-$(clusterctl-os)-$(clusterctl-arch)" && \
 		chmod +x "$(LOCAL_BIN)/clusterctl.tmp" || { \
 			rm -f "$(LOCAL_BIN)/clusterctl.tmp"; \

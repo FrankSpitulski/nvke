@@ -20,8 +20,16 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	semver "github.com/Masterminds/semver/v3"
+)
+
+const (
+	// Retry budget for artifact downloads. Nodes fetch these seconds after
+	// their network comes up, so transient failures are expected.
+	httpRetryAttempts     = 5
+	httpRetryInitialDelay = 2 * time.Second
 )
 
 // BundleSourceType represents the type of bundle source
@@ -300,7 +308,46 @@ func DropLastURLDir(raw string) (string, error) {
 	return u.String(), nil
 }
 
+// ConventionalBundleURL builds the URL a bundle is published at, without
+// consulting the index.
+//
+// The index only maps (name, version, arch) to a path, and that path follows a
+// fixed convention:
+//
+//	<directory of index.json>/<arch>/<name>_v<version>_<arch>.tgz
+//
+// Deriving the directory from the index URL rather than hardcoding it keeps
+// this correct whichever distro directory the index lives in.
+func ConventionalBundleURL(indexFileURL, name string, version *semver.Version, architecture string) string {
+	if version == nil || indexFileURL == "" || name == "" || architecture == "" {
+		return ""
+	}
+	base := indexFileURL
+	if i := strings.LastIndex(base, "/"); i >= 0 {
+		base = base[:i]
+	}
+	return fmt.Sprintf("%s/%s/%s_v%s_%s.tgz", base, architecture, name, version.String(), architecture)
+}
+
+// FetchBundleFromIndex resolves a bundle to a downloadable URL.
+//
+// It tries the conventional URL FIRST and falls back to the index only if that
+// fails. The index is an extra round trip to a file whose whole job is to hold
+// paths we can already predict, so requiring it lets an unreachable index block
+// an artifact that is perfectly reachable. That is not hypothetical: a bundle
+// server which serves artifacts but refuses index.json fails every CNI install
+// with "unable to fetch index".
 func FetchBundleFromIndex(ctx context.Context, bundleServerURL, indexFile, name string, version *semver.Version, architecture string) (*Bundle, error) {
+	if directURL := ConventionalBundleURL(indexFile, name, version, architecture); directURL != "" {
+		if err := URLExists(ctx, directURL); err == nil {
+			slog.Info("resolved bundle directly, skipping the index", "url", directURL)
+			return &Bundle{Name: name, Version: version, URL: directURL}, nil
+		} else {
+			slog.Info("direct bundle URL unavailable, falling back to the index",
+				"url", directURL, "error", err)
+		}
+	}
+
 	idx, err := FetchIndex(ctx, indexFile)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch index: %w", err)
@@ -314,6 +361,67 @@ func FetchBundleFromIndex(ctx context.Context, bundleServerURL, indexFile, name 
 
 	bundle.URL = bundleServerURL + bundle.Path
 	return bundle, nil
+}
+
+// URLExists reports whether a URL serves content. It uses HEAD, and falls back
+// to GET for servers that do not implement HEAD.
+func URLExists(ctx context.Context, url string) error {
+	if resp, err := httpDoWithRetry(ctx, http.MethodHead, url); err == nil {
+		status := resp.StatusCode
+		resp.Body.Close()
+		if status == http.StatusOK {
+			return nil
+		}
+		if status != http.StatusMethodNotAllowed && status != http.StatusNotImplemented {
+			return fmt.Errorf("bad response: %d", status)
+		}
+	}
+	resp, err := httpDoWithRetry(ctx, http.MethodGet, url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad response: %s", resp.Status)
+	}
+	return nil
+}
+
+// httpDoWithRetry issues a request, retrying transport errors and 5xx with
+// backoff. Artifact downloads run on freshly provisioned nodes whose networking
+// has just come up, so a single transient failure should not fail an install.
+// 4xx is returned immediately: it will not become a 200 by waiting.
+func httpDoWithRetry(ctx context.Context, method, url string) (*http.Response, error) {
+	var lastErr error
+	delay := httpRetryInitialDelay
+	for attempt := 1; attempt <= httpRetryAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, method, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := http.DefaultClient.Do(req)
+		switch {
+		case err != nil:
+			lastErr = err
+		case resp.StatusCode < 500:
+			return resp, nil
+		default:
+			lastErr = fmt.Errorf("bad response: %s", resp.Status)
+			resp.Body.Close()
+		}
+		if attempt == httpRetryAttempts {
+			break
+		}
+		slog.Warn("retrying request", "method", method, "url", url,
+			"attempt", attempt, "error", lastErr, "sleep", delay)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+		delay *= 2
+	}
+	return nil, lastErr
 }
 
 func InstallBundle(b *Bundle, runner CommandRunner, source *BundleSource) (string, error) {
@@ -392,7 +500,7 @@ func downloadAndExtractFromHTTP(b *Bundle) (string, error) {
 	}
 
 	slog.Info("attempt download of bundle from HTTP", "URL", b.URL)
-	resp, err := http.Get(b.URL)
+	resp, err := httpDoWithRetry(context.Background(), http.MethodGet, b.URL)
 	if err != nil {
 		return outputDir, fmt.Errorf("failed to download tgz: %w", err)
 	}

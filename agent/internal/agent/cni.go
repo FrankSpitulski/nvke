@@ -60,6 +60,12 @@ const (
 	// defaultCalicoCniStream is the Calico patch stream in Debian package names when version is empty.
 	// Sync with CALICO_STREAM in cni-packages debs/calico/BUILD.
 	defaultCalicoCniStream = "3.30.1"
+
+	// CNI plugin names, as they arrive on InstallCNIPluginRequest.
+	// `tigera` and `calico` name the same plugin; callers send either.
+	cniPluginOVN    = "ovn"
+	cniPluginCalico = "calico"
+	cniPluginTigera = "tigera"
 )
 
 // checkHostOpenVSwitchReady verifies ovs-vsctl is installed (ovs-vsctl --version).
@@ -108,7 +114,7 @@ func (s *NodeAgentServer) installCalico(version *semver.Version, operatorManifes
 	//
 	// We can update the bundle to our "formula" and include everything in it then just call "installBundle"
 	slog.Info("fetching calico bundle by index", "version", version.String(), "architecture", s.NodeStatus.Architecture)
-	calicoBundle, err := nkeutils.FetchBundleFromIndex(context.Background(), s.BundleServerURL, s.BundleIndexFile, "calico", version, s.NodeStatus.Architecture)
+	calicoBundle, err := nkeutils.FetchBundleFromIndex(context.Background(), s.BundleServerURL, s.BundleIndexFile, cniPluginCalico, version, s.NodeStatus.Architecture)
 	if err != nil {
 		slog.Error("failed to fetch calico bundle", "error", err)
 		return err
@@ -295,7 +301,7 @@ func (s *NodeAgentServer) installOvnK8sCNIPlugin(req *pb.InstallCNIPluginRequest
 		return fmt.Errorf("failed to parse ovn version: %w", err)
 	}
 
-	ovnBundle, err := nkeutils.FetchBundleFromIndex(context.Background(), s.BundleServerURL, s.BundleIndexFile, "ovn", version, s.NodeStatus.Architecture)
+	ovnBundle, err := nkeutils.FetchBundleFromIndex(context.Background(), s.BundleServerURL, s.BundleIndexFile, cniPluginOVN, version, s.NodeStatus.Architecture)
 	if err != nil {
 		return err
 	}

@@ -81,11 +81,12 @@ CMD_MODULES := agent \
 # --match is required. This repo has several tag series, and a bare
 # `git describe --tags` returns the nearest one, so agent would report a
 # controller version. Same derivation as controller/ and cli/.
-cmd_version = $(patsubst $(notdir $(1))/%,%,$(shell \
-    git describe --tags --dirty --match '$(notdir $(1))/v[0-9]*' 2>/dev/null \
-    || git describe --tags --dirty --match 'v[0-9]*' 2>/dev/null \
-    || git describe --always --dirty 2>/dev/null \
-    || echo v0.0.0))
+cmd_version = $(shell \
+    v=$$(git describe --tags --dirty --match '$(notdir $(1))/v[0-9]*' 2>/dev/null \
+      || git describe --tags --dirty --match 'v[0-9]*' 2>/dev/null \
+      || git describe --always --dirty 2>/dev/null \
+      || echo v0.0.0); \
+    printf '%s' "$${v##*/}")
 
 # Both spellings: agent declares VERSION, the hack tools declare version. The
 # linker ignores an -X for a symbol the binary lacks, so passing both is safe.
@@ -113,7 +114,7 @@ LICENSE_DESTS := controller/licenses \
                  controller/deploy/charts/cloud-workflow-engine
 
 .DEFAULT_GOAL := help
-.PHONY: help work work-sync work-check work-check-offline build version-check clean licenses licenses-check
+.PHONY: help work work-sync work-check work-check-offline build test version-check clean licenses licenses-check
 
 help: ## Show the available targets.
 	@echo "Usage: make <target>"
@@ -281,6 +282,20 @@ work-check-offline: ## Verify vendor/ agrees with every go.mod. Needs no network
 			     echo "  Run 'make work-sync' and commit every file it changes."; exit 1; }; \
 	done
 	@echo "  vendor/ is consistent with every module."
+
+test: ## Run each module's own test suite.
+	@# The root builds every module but used to test none, which invites the
+	@# assumption that `make test` here does what `make test` in a module does.
+	@# Each module keeps its own exclusions, so defer to its Makefile when it
+	@# has one and fall back to `go test ./...` when it does not.
+	@for m in $(WORK_MODULES); do \
+		echo "- testing $$m"; \
+		if [ -f $$m/Makefile ] && $(MAKE) -C $$m -n test >/dev/null 2>&1; then \
+			$(MAKE) -C $$m test || exit 1; \
+		else \
+			$(GO) test -C $$m ./... || exit 1; \
+		fi; \
+	done
 
 build: ## Build every workspace package, and the released commands into bin/.
 	@# Compile everything first. Building only ./cmd/... left controller/api and

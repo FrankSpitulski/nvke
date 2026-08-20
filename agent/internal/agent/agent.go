@@ -867,9 +867,9 @@ func (s *NodeAgentServer) InstallCNI(
 // Used for status persistence so we record the actual version installed.
 func resolveCNIPluginVersion(req *pb.InstallCNIPluginRequest) string {
 	switch req.GetPluginName() {
-	case "ovn":
+	case cniPluginOVN:
 		return req.GetPluginVersion()
-	case "tigera", "calico":
+	case cniPluginTigera, cniPluginCalico:
 		if v := req.GetPluginVersion(); v != "" {
 			return v
 		}
@@ -891,12 +891,12 @@ func installCNIPluginRequestFromKubeadmInit(req *pb.KubeadmInitRequest) *pb.Inst
 		CniConfig:                    req.GetCniConfig(),
 	}
 	switch req.GetCniPluginName() {
-	case "ovn":
+	case cniPluginOVN:
 		cniReq.PluginVersion = req.GetOvnVersion()
-	case "tigera", "calico":
+	case cniPluginTigera, cniPluginCalico:
 		cniReq.PluginVersion = req.GetTigeraVersion()
 	default:
-		cniReq.PluginName = "calico"
+		cniReq.PluginName = cniPluginCalico
 		cniReq.PluginVersion = DefaultTigeraVersion.String()
 	}
 	return cniReq
@@ -904,10 +904,10 @@ func installCNIPluginRequestFromKubeadmInit(req *pb.KubeadmInitRequest) *pb.Inst
 
 func (s *NodeAgentServer) installCNIPlugin(req *pb.InstallCNIPluginRequest) error {
 	switch req.GetPluginName() {
-	case "ovn":
+	case cniPluginOVN:
 		slog.Info("installing ovn")
 		return s.installOvnK8sCNIPlugin(req)
-	case "tigera", "calico":
+	case cniPluginTigera, cniPluginCalico:
 		slog.Info("installing calico")
 		versionStr := req.GetPluginVersion()
 		if versionStr == "" {

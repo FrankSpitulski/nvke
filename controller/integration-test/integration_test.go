@@ -1,6 +1,14 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build integration_test
+
+// This suite drives a RUNNING CWE deployment (see README.md in this
+// directory). Without a build tag it is picked up by a plain
+// `go test ./...`, which then fails on a connection refused to
+// localhost:8080 and names neither the cause nor the fix. `make test`
+// only avoided it by filtering the package name out of `go list`.
+
 package main
 
 import (

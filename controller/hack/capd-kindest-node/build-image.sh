@@ -22,10 +22,100 @@ repo_root="$(cd "${script_dir}/../.." && pwd)"
 : "${BUNDLE_SERVER_URL:=https://d3mq564cn7sth7.cloudfront.net/}"
 : "${INDEX_FILE_URL:=${BUNDLE_SERVER_URL%/}/nke_bundles/Ubuntu_24.04/index.json}"
 
+# Where the SPIRE agent bundle comes from.
+#   github - assemble it from the upstream public releases (default)
+#   bundle - download the pre-assembled bundle from BUNDLE_SERVER_URL
+# Downstream builds that want the internal bundle set SPIRE_AGENT_SOURCE=bundle.
+: "${SPIRE_AGENT_SOURCE:=github}"
+: "${SPIRE_AGENT_VERSION:=1.14.1}"
+: "${TPM_ATTESTOR_VERSION:=1.9.0}"
+: "${SPIRE_RELEASE_BASE_URL:=https://github.com/spiffe/spire/releases/download}"
+: "${TPM_ATTESTOR_RELEASE_BASE_URL:=https://github.com/spiffe/spire-tpm-plugin/releases/download}"
+# Retry budget for every artifact download.
+: "${DOWNLOAD_RETRIES:=5}"
+: "${DOWNLOAD_RETRY_DELAY:=3}"
+
 if [[ "$(uname -s)" == "Darwin" && -z "${DOCKER_HOST:-}" ]]; then
   : "${COLIMA_DOCKER_HOST:=unix://${HOME}/.colima/default/docker.sock}"
   export DOCKER_HOST="${COLIMA_DOCKER_HOST}"
 fi
+
+# Download with retry and exponential backoff.
+#
+# NOTE: deliberately no `--remove-on-error`. That option needs curl >= 7.83.0
+# and Ubuntu 22.04 ships 7.81.0, where the whole command fails with
+# "option --remove-on-error: is unknown". We remove the partial file ourselves,
+# which works on every curl.
+fetch_url() {
+  local url="$1" dest="$2" attempt=1 delay="${DOWNLOAD_RETRY_DELAY}"
+  while :; do
+    if curl -fsSL "${url}" -o "${dest}"; then
+      return 0
+    fi
+    rm -f "${dest}"
+    if (( attempt >= DOWNLOAD_RETRIES )); then
+      echo "failed to download after ${DOWNLOAD_RETRIES} attempts: ${url}" >&2
+      return 1
+    fi
+    echo "  download attempt ${attempt}/${DOWNLOAD_RETRIES} failed, retrying in ${delay}s: ${url}" >&2
+    sleep "${delay}"
+    attempt=$(( attempt + 1 ))
+    delay=$(( delay * 2 ))
+  done
+}
+
+# Build the SPIRE agent bundle from the upstream public releases, producing the
+# same layout the internal bundle has and the Dockerfile expects:
+#
+#   <root>/install.sh  <root>/spire-agent.service  <root>/spire-agent.env
+#   <root>/bin/spire-agent  <root>/bin/tpm_attestor_agent
+assemble_spire_bundle_from_upstream() {
+  local out="$1"
+  local spire_arch tpm_arch
+  case "${SPIRE_BUNDLE_ARCH}" in
+    x86_64)  spire_arch="amd64"; tpm_arch="amd64" ;;
+    aarch64) spire_arch="arm64"; tpm_arch="arm64" ;;
+    *) echo "unsupported SPIRE bundle arch: ${SPIRE_BUNDLE_ARCH}" >&2; return 1 ;;
+  esac
+
+  local work; work="$(mktemp -d)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '${work}'" RETURN
+
+  local spire_url="${SPIRE_RELEASE_BASE_URL}/v${SPIRE_AGENT_VERSION}/spire-${SPIRE_AGENT_VERSION}-linux-${spire_arch}-musl.tar.gz"
+  local tpm_url="${TPM_ATTESTOR_RELEASE_BASE_URL}/v${TPM_ATTESTOR_VERSION}/spire_tpm_plugin_tpm_attestor_agent_linux_${tpm_arch}_v${TPM_ATTESTOR_VERSION}.tar.gz"
+
+  echo "Assembling SPIRE agent bundle from upstream releases"
+  echo "  spire-agent        ${spire_url}"
+  echo "  tpm_attestor_agent ${tpm_url}"
+  fetch_url "${spire_url}" "${work}/spire.tar.gz"
+  fetch_url "${tpm_url}"   "${work}/tpm.tar.gz"
+
+  # Same top-level directory name the internal bundle uses; the Dockerfile
+  # extracts with --strip-components=1, so there must be exactly one.
+  local root="${work}/spire_agent_v${SPIRE_AGENT_VERSION}_tpm_attestor_v${TPM_ATTESTOR_VERSION}"
+  mkdir -p "${root}/bin"
+  tar -xzf "${work}/spire.tar.gz" -C "${work}"
+  cp "${work}/spire-${SPIRE_AGENT_VERSION}/bin/spire-agent" "${root}/bin/spire-agent"
+  tar -xzf "${work}/tpm.tar.gz" -C "${work}"
+  cp "$(find "${work}" -maxdepth 2 -name tpm_attestor_agent -type f | head -1)" \
+     "${root}/bin/tpm_attestor_agent"
+  chmod 0755 "${root}/bin/spire-agent" "${root}/bin/tpm_attestor_agent"
+
+  cp "${repo_root}/hack/ci/assets/spire-agent-install.sh" "${root}/install.sh"
+  cp "${repo_root}/hack/ci/assets/spire-agent.service" "${root}/spire-agent.service"
+  chmod 0755 "${root}/install.sh"
+
+  # The agent config resolves ${TPM_PLUGIN_CHECKSUM}; SPIRE verifies the plugin
+  # against it at load time. Compute it from the binary we just fetched rather
+  # than hardcoding a value that would silently drift on a version bump.
+  local sum
+  sum="$(sha256sum "${root}/bin/tpm_attestor_agent" | cut -d' ' -f1)"
+  printf 'TPM_PLUGIN_CHECKSUM=%s\n' "${sum}" > "${root}/spire-agent.env"
+  echo "  tpm plugin checksum ${sum}"
+
+  tar -czf "${out}" -C "${work}" "$(basename "${root}")"
+}
 
 detect_default_platform() {
   local arch
@@ -159,7 +249,7 @@ elif [[ -n "${NODE_AGENT_BUNDLE_PATH:-}" ]]; then
 else
   node_agent_url="${NODE_AGENT_BASE_URL}/agent_${effective_node_agent_version}_${NODE_AGENT_BUNDLE_ARCH}.tgz"
   echo "Downloading published agent bundle ${node_agent_url}"
-  curl -fsSL "${node_agent_url}" -o "${build_context}/agent.tgz"
+  fetch_url "${node_agent_url}" "${build_context}/agent.tgz"
 fi
 
 if [[ -n "${SPIRE_AGENT_BUNDLE_PATH:-}" ]]; then
@@ -168,11 +258,20 @@ if [[ -n "${SPIRE_AGENT_BUNDLE_PATH:-}" ]]; then
     exit 1
   fi
   cp "${SPIRE_AGENT_BUNDLE_PATH}" "${build_context}/spire-agent.tgz"
+elif [[ "${SPIRE_AGENT_SOURCE}" == "github" ]]; then
+  # Default: assemble the bundle from the UPSTREAM PUBLIC releases.
+  #
+  # These are the same artifacts the internal bundle is built from -- the
+  # published tarball contains the upstream `spire-agent` and
+  # `tpm_attestor_agent` binaries unmodified, byte for byte. Fetching them here
+  # means a developer outside the NVIDIA network can build this image, while
+  # downstream keeps the internal path by setting SPIRE_AGENT_SOURCE=bundle.
+  assemble_spire_bundle_from_upstream "${build_context}/spire-agent.tgz"
 else
-  spire_bundle_name="spire_agent_v1.14.1_tpm_attestor_v1.9.0_${SPIRE_BUNDLE_ARCH}.tgz"
+  spire_bundle_name="spire_agent_v${SPIRE_AGENT_VERSION}_tpm_attestor_v${TPM_ATTESTOR_VERSION}_${SPIRE_BUNDLE_ARCH}.tgz"
   spire_bundle_url="${SPIRE_BUNDLES_BASE_URL}/${spire_bundle_name}"
   echo "Downloading published SPIRE agent bundle ${spire_bundle_url}"
-  curl -fsSL "${spire_bundle_url}" -o "${build_context}/spire-agent.tgz"
+  fetch_url "${spire_bundle_url}" "${build_context}/spire-agent.tgz"
 fi
 
 echo "Ensuring kindest/node:${CAPD_KINDEST_NODE_TAG} is available for ${effective_platform}..."
