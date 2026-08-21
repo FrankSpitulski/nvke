@@ -238,7 +238,8 @@ func addHookRunbook(runbooks map[string]struct{}, hook *HookSpec) {
 }
 
 // configProfilesDirForTest resolves fleet config profiles (NKX-13910 moved them
-// to nke-site-deploy). Prefer CWE_PROFILES_DIR, then sibling checkout.
+// to nke-site-deploy). Order: CWE_PROFILES_DIR, sibling checkout, in-repo
+// fixtures. osProfilesDir in this package already resolves in that order.
 func configProfilesDirForTest(t *testing.T) string {
 	t.Helper()
 	if dir := os.Getenv("CWE_PROFILES_DIR"); dir != "" {
@@ -247,6 +248,12 @@ func configProfilesDirForTest(t *testing.T) string {
 	sibling := filepath.Join(repoRoot(t), "..", "nke-site-deploy", "cwe-profiles", "0.1.0", "profiles", "configProfiles")
 	if _, err := os.Stat(sibling); err == nil {
 		return sibling
+	}
+	// Fixtures last, so a real fleet tree wins when present. Without them CI
+	// matched no candidate and every test reaching here skipped.
+	fixture := filepath.Join(repoRoot(t), "test", "fixtures", "profiles", "configProfiles")
+	if _, err := os.Stat(fixture); err == nil {
+		return fixture
 	}
 	t.Skip("production config profiles moved to nke-site-deploy; set CWE_PROFILES_DIR to run")
 	return ""
