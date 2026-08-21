@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -260,9 +261,9 @@ func TestTenantRESTConfigPreservesAdminCredentials(t *testing.T) {
 	}
 }
 
-func TestGetAdminClientReadsCAPIKubeconfigAndRegistersVerifierSchemes(t *testing.T) {
+func TestGetAdminClientReadsPublishedKubeconfigAndRegistersVerifierSchemes(t *testing.T) {
 	factory := newTestTenantClientFactory(t, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "cluster-tenant-a", Name: "tenant-a-kubeconfig"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: tenantKubeconfigNamespace, Name: "tenant-a-kubeconfig"},
 		Data:       map[string][]byte{tenantKubeconfigKey: testClientKubeconfig(t)},
 	})
 
@@ -282,12 +283,77 @@ func TestGetAdminClientReadsCAPIKubeconfigAndRegistersVerifierSchemes(t *testing
 	}
 }
 
-func TestGetAdminClientReportsMissingCAPIKubeconfig(t *testing.T) {
+func TestGetAdminClientReportsMissingKubeconfig(t *testing.T) {
 	factory := newTestTenantClientFactory(t)
 
 	_, err := factory.GetAdminClient(context.Background(), "tenant-a")
-	if err == nil || !strings.Contains(err.Error(), "getting CAPI admin kubeconfig secret cluster-tenant-a/tenant-a-kubeconfig") {
+	if err == nil || !strings.Contains(err.Error(), "getting tenant kubeconfig secret nke-system/tenant-a-kubeconfig") {
 		t.Fatalf("GetAdminClient() error = %v, want contextual Secret error", err)
+	}
+}
+
+// On an OIDC cluster the published kubeconfig authenticates as the CWE
+// identity, which is deliberately not cluster-admin. GetAdminClient must mint
+// the capi-manager identity instead, or every caller gets a 403 on test setup.
+func TestAdminAndCWEPathsMintDistinctIdentities(t *testing.T) {
+	objects := []runtime.Object{
+		spireServerConfigMapObject(`{"server":{"trust_domain":"test.nke.local"}}`),
+		spireServerPod("spire-server-1", true, spireServerSelector()),
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: tenantKubeconfigNamespace, Name: "tenant-a-kubeconfig"},
+			Data:       map[string][]byte{tenantKubeconfigKey: testSPIREKubeconfig(t, "tenant-a")},
+		},
+	}
+	factory := newTestTenantClientFactory(t, objects...)
+
+	var gotURL *url.URL
+	factory.newExecutor = func(_ string, requestURL *url.URL) (remotecommand.Executor, error) {
+		copyURL := *requestURL
+		gotURL = &copyURL
+		return &fakeExecutor{stdout: testJWT(time.Now().Add(time.Hour), "minted") + "\n"}, nil
+	}
+
+	// The token is minted lazily, so drive one request through each transport
+	// and read the SPIFFE ID the exec command asked SPIRE to mint.
+	mintedFor := func(t *testing.T, config *rest.Config) []string {
+		t.Helper()
+		gotURL = nil
+		transport := config.WrapTransport(roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(""))}, nil
+		}))
+		request, err := http.NewRequest(http.MethodGet, "https://tenant.example:6443/api", http.NoBody)
+		if err != nil {
+			t.Fatalf("http.NewRequest() error = %v", err)
+		}
+		if _, err := transport.RoundTrip(request); err != nil {
+			t.Fatalf("RoundTrip() error = %v", err)
+		}
+		if gotURL == nil {
+			t.Fatal("no JWT was minted")
+		}
+		return gotURL.Query()["command"]
+	}
+
+	adminConfig, err := factory.tenantRESTConfigAs(context.Background(), "tenant-a", adminSPIFFEPath)
+	if err != nil {
+		t.Fatalf("tenantRESTConfigAs(admin) error = %v", err)
+	}
+	if want := "spiffe://test.nke.local" + adminSPIFFEPath; !slices.Contains(mintedFor(t, adminConfig), want) {
+		t.Fatalf("admin path did not mint %q", want)
+	}
+
+	// The GetClient path must keep minting the CWE identity. Pointing it at the
+	// admin identity would silently give every tenant read cluster-admin.
+	cweConfig, err := factory.tenantRESTConfig(context.Background(), "tenant-a")
+	if err != nil {
+		t.Fatalf("tenantRESTConfig() error = %v", err)
+	}
+	command := mintedFor(t, cweConfig)
+	if want := "spiffe://test.nke.local" + cweSPIFFEPath; !slices.Contains(command, want) {
+		t.Fatalf("GetClient path did not mint %q, got %#v", want, command)
+	}
+	if slices.Contains(command, "spiffe://test.nke.local"+adminSPIFFEPath) {
+		t.Fatal("GetClient path minted the cluster-admin identity")
 	}
 }
 
@@ -607,4 +673,67 @@ func (e *fakeExecutor) write(options remotecommand.StreamOptions) error {
 		}
 	})
 	return e.err
+}
+
+// The verifier pods shell out to kubectl, which cannot use the SPIRE exec
+// plugin. AdminKubeconfig must hand back a plain token kubeconfig that keeps the
+// published endpoint and CA.
+func TestAdminKubeconfigReplacesSPIREExecWithAMintedToken(t *testing.T) {
+	wantToken := testJWT(time.Now().Add(time.Hour), "minted")
+	factory := newTestTenantClientFactory(t,
+		spireServerConfigMapObject(`{"server":{"trust_domain":"test.nke.local"}}`),
+		spireServerPod("spire-server-1", true, spireServerSelector()),
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: tenantKubeconfigNamespace, Name: "tenant-a-kubeconfig"},
+			Data:       map[string][]byte{tenantKubeconfigKey: testSPIREKubeconfig(t, "tenant-a")},
+		},
+	)
+	var gotURL *url.URL
+	factory.newExecutor = func(_ string, requestURL *url.URL) (remotecommand.Executor, error) {
+		copyURL := *requestURL
+		gotURL = &copyURL
+		return &fakeExecutor{stdout: wantToken + "\n"}, nil
+	}
+
+	rendered, err := factory.AdminKubeconfig(context.Background(), "tenant-a")
+	if err != nil {
+		t.Fatalf("AdminKubeconfig() error = %v", err)
+	}
+	parsed, err := clientcmd.Load(rendered)
+	if err != nil {
+		t.Fatalf("clientcmd.Load() error = %v", err)
+	}
+
+	authInfo := parsed.AuthInfos["admin"]
+	if authInfo == nil || authInfo.Token != wantToken {
+		t.Fatalf("rendered token = %#v, want the minted JWT", authInfo)
+	}
+	if authInfo.Exec != nil {
+		t.Fatal("rendered kubeconfig still carries an exec plugin")
+	}
+	cluster := parsed.Clusters["tenant"]
+	if cluster == nil || cluster.Server != "https://tenant.example:6443" || string(cluster.CertificateAuthorityData) != "tenant-ca" {
+		t.Fatalf("rendered cluster = %#v, want the published endpoint and CA", cluster)
+	}
+	if want := "spiffe://test.nke.local" + adminSPIFFEPath; !slices.Contains(gotURL.Query()["command"], want) {
+		t.Fatalf("AdminKubeconfig() did not mint %q", want)
+	}
+}
+
+// A non-SPIRE kubeconfig already carries a usable credential and must be handed
+// back untouched, so an OIDC-off cluster keeps working.
+func TestAdminKubeconfigPassesThroughANonSPIREKubeconfig(t *testing.T) {
+	published := testClientKubeconfig(t)
+	factory := newTestTenantClientFactory(t, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: tenantKubeconfigNamespace, Name: "tenant-a-kubeconfig"},
+		Data:       map[string][]byte{tenantKubeconfigKey: published},
+	})
+
+	rendered, err := factory.AdminKubeconfig(context.Background(), "tenant-a")
+	if err != nil {
+		t.Fatalf("AdminKubeconfig() error = %v", err)
+	}
+	if string(rendered) != string(published) {
+		t.Fatal("AdminKubeconfig() rewrote a kubeconfig that needed no change")
+	}
 }

@@ -29,6 +29,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -40,6 +42,27 @@ type staticDatabase struct {
 	clusterErr error
 	nodes      []db.Node
 	nodesErr   error
+}
+
+func TestTenantCSRControllerRegistrationSupportsMultipleTenantsAndRestart(t *testing.T) {
+	clusterA := uuid.New()
+	clusterB := uuid.New()
+	nameA, _ := tenantCSRControllerRegistration(clusterA)
+	nameB, _ := tenantCSRControllerRegistration(clusterB)
+	require.NotEqual(t, nameA, nameB)
+
+	register := func(clusterID uuid.UUID) error {
+		name, options := tenantCSRControllerRegistration(clusterID)
+		options.Reconciler = reconcile.Func(func(context.Context, ctrl.Request) (ctrl.Result, error) {
+			return ctrl.Result{}, nil
+		})
+		_, err := controller.NewUnmanaged(name, options)
+		return err
+	}
+
+	require.NoError(t, register(clusterA), "first tenant should register")
+	require.NoError(t, register(clusterB), "second tenant should register")
+	require.NoError(t, register(clusterA), "restarted tenant manager should register")
 }
 
 func (d staticDatabase) GetCluster(context.Context, uuid.UUID) (db.Cluster, error) {

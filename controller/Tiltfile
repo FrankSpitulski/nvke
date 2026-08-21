@@ -269,8 +269,12 @@ def detect_cert_manager():
 
 # Host IP reachable from inside Kind pods. On macOS, host.docker.internal works.
 # On Linux with native Docker, use the Kind network gateway IP.
+# Match an IPv4 address rather than filtering out colons. A newer Docker CLI
+# renders an absent Gateway as the string "invalid IP" (Go's zero netip.Addr),
+# so {{if .Gateway}} is true and the old filter kept "invalid IP". The kind
+# network lists its IPv6 subnet, which has no gateway, first.
 _kind_host_ip = str(local(
-    "docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{println .Gateway}}{{end}}{{end}}' 2>/dev/null | grep -v : | head -1 || echo host.docker.internal",
+    "docker network inspect kind -f '{{range .IPAM.Config}}{{println .Gateway}}{{end}}' 2>/dev/null | grep -Eo '^[0-9]+(\\.[0-9]+){3}$' | head -1 || true",
     quiet=True,
 )).strip() or "host.docker.internal"
 

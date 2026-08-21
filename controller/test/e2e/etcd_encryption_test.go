@@ -6,8 +6,12 @@ package e2e
 import (
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -84,7 +88,7 @@ func validateEtcdEncryptionConfiguration(test *tenantTest) {
 		Expect(validateKubeadmEncryptionConfig(ctx, tenantClient)).To(Succeed())
 
 		By("Verifying a Secret is encrypted in raw etcd")
-		Expect(runEtcdEncryptionVerifier(ctx, test.k8sClient, test.cluster.Name)).To(Succeed())
+		Expect(runEtcdEncryptionVerifier(ctx, test.k8sClient, adminKubeconfigSecret(ctx, test))).To(Succeed())
 	}, Label("lifecycle", "encryption"), NodeTimeout(15*time.Minute))
 }
 
@@ -103,7 +107,7 @@ func validateEtcdEncryptionKeyRotation(test *tenantTest) {
 
 		beforeKey := expectSucceed(readEtcdEncryptionKeyState(ctx, test.k8sClient, test.cluster.ID.String()))
 		Expect(beforeKey.pending).To(BeFalse(), "a pending key should not exist before rotation")
-		beforeRestarts := expectSucceed(readKubeAPIServerRestartCounts(ctx, test.k8sClient, test.cluster.Name))
+		beforeRestarts := expectSucceed(readKubeAPIServerRestartCounts(ctx, test.k8sClient, adminKubeconfigSecret(ctx, test)))
 
 		By("Starting the operator-only Temporal workflow")
 		workflowID := expectSucceed(runEtcdEncryptionKeyRotation(ctx, test.k8sClient, test.cluster.ID.String()))
@@ -122,7 +126,7 @@ func validateEtcdEncryptionKeyRotation(test *tenantTest) {
 		test.cluster = cluster
 
 		By("Verifying the configuration update did not restart kube-apiserver")
-		afterRestarts := expectSucceed(readKubeAPIServerRestartCounts(ctx, test.k8sClient, test.cluster.Name))
+		afterRestarts := expectSucceed(readKubeAPIServerRestartCounts(ctx, test.k8sClient, adminKubeconfigSecret(ctx, test)))
 		Expect(afterRestarts).To(Equal(beforeRestarts))
 		Expect(test.nke.AssertNodeConditions(
 			ctx,
@@ -132,7 +136,7 @@ func validateEtcdEncryptionKeyRotation(test *tenantTest) {
 		)).To(Succeed())
 
 		By("Verifying Secrets remain encrypted in raw etcd after rotation")
-		Expect(runEtcdEncryptionVerifier(ctx, test.k8sClient, test.cluster.Name)).To(Succeed())
+		Expect(runEtcdEncryptionVerifier(ctx, test.k8sClient, adminKubeconfigSecret(ctx, test))).To(Succeed())
 	}, Label("encryption", "etcd-key-rotation"), NodeTimeout(20*time.Minute))
 }
 
@@ -199,7 +203,7 @@ func readEtcdEncryptionKeyState(
 	}, nil
 }
 
-func readKubeAPIServerRestartCounts(ctx context.Context, c client.Client, clusterName string) (string, error) {
+func readKubeAPIServerRestartCounts(ctx context.Context, c client.Client, kubeconfigSecret string) (string, error) {
 	namespace := "nke-system"
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -221,7 +225,7 @@ func readKubeAPIServerRestartCounts(ctx context.Context, c client.Client, cluste
 			Volumes: []corev1.Volume{{
 				Name: "kubeconfig",
 				VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
-					SecretName: clusterName + "-kubeconfig",
+					SecretName: kubeconfigSecret,
 				}},
 			}},
 		},
@@ -404,7 +408,32 @@ func kubeadmArgValue(value any) (string, bool) {
 	}
 }
 
-func runEtcdEncryptionVerifier(ctx context.Context, c client.Client, clusterName string) error {
+// adminKubeconfigSecret writes a short-lived Secret holding a kubeconfig the
+// verifier pods can actually use, and returns its name.
+//
+// The published <cluster>-kubeconfig cannot be mounted directly: on an OIDC
+// cluster it authenticates through the SPIRE exec plugin, which is not in the
+// kubectl image and needs a Workload API socket the pod does not have. kubectl
+// then fails with no message, which is how these two specs failed.
+func adminKubeconfigSecret(ctx context.Context, test *tenantTest) string {
+	GinkgoHelper()
+
+	kubeconfig := expectSucceed(test.tenantClients.AdminKubeconfig(ctx, test.cluster.Name))
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "e2e-admin-kubeconfig-",
+			Namespace:    "nke-system",
+		},
+		Data: map[string][]byte{"value": kubeconfig},
+	}
+	Expect(test.k8sClient.Create(ctx, secret)).To(Succeed(), "should create the verifier kubeconfig secret")
+	DeferCleanup(func(ctx context.Context) {
+		_ = test.k8sClient.Delete(ctx, secret)
+	})
+	return secret.Name
+}
+
+func runEtcdEncryptionVerifier(ctx context.Context, c client.Client, kubeconfigSecret string) error {
 	namespace := "nke-system"
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -426,7 +455,7 @@ func runEtcdEncryptionVerifier(ctx context.Context, c client.Client, clusterName
 			Volumes: []corev1.Volume{{
 				Name: "kubeconfig",
 				VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
-					SecretName: clusterName + "-kubeconfig",
+					SecretName: kubeconfigSecret,
 				}},
 			}},
 		},
@@ -438,46 +467,317 @@ func runEtcdEncryptionVerifier(ctx context.Context, c client.Client, clusterName
 }
 
 const etcdEncryptionVerifyScript = `set -eu
+kubeconfig_path="${E2E_KUBECONFIG_PATH:-/kubeconfig/value}"
+termination_log="${E2E_TERMINATION_LOG:-/dev/termination-log}"
 secret_name="e2e-etcd-encryption-$(date +%s)"
 plaintext_marker="nke-e2e-plaintext-$secret_name"
+secret_key="/registry/secrets/default/$secret_name"
+raw_value_path="${TMPDIR:-/tmp}/raw-etcd-secret-$secret_name"
+api_servers_path="${TMPDIR:-/tmp}/kube-apiserver-endpoints-$secret_name"
+metrics_raw_path="${TMPDIR:-/tmp}/kube-apiserver-metrics-$secret_name"
+metrics_before_path="${TMPDIR:-/tmp}/kube-apiserver-metrics-before-$secret_name"
+metrics_after_path="${TMPDIR:-/tmp}/kube-apiserver-metrics-after-$secret_name"
+diagnostic_secrets_path="${TMPDIR:-/tmp}/diagnostic-secrets-$secret_name"
+etcd_pod="unknown"
 cleanup() {
-  kubectl --kubeconfig /kubeconfig/value delete secret "$secret_name" -n default --ignore-not-found >/dev/null 2>&1 || true
+	if [ -f "$diagnostic_secrets_path" ]; then
+		while IFS= read -r diagnostic_secret; do
+			[ -n "$diagnostic_secret" ] || continue
+			kubectl --kubeconfig "$kubeconfig_path" delete secret "$diagnostic_secret" \
+				-n default --ignore-not-found >/dev/null 2>&1 || true
+		done < "$diagnostic_secrets_path"
+	fi
+	rm -f "$raw_value_path" "$api_servers_path" "$metrics_raw_path" \
+		"$metrics_before_path" "$metrics_after_path" "$diagnostic_secrets_path"
+	kubectl --kubeconfig "$kubeconfig_path" delete secret "$secret_name" -n default --ignore-not-found >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
-kubectl --kubeconfig /kubeconfig/value create secret generic "$secret_name" \
-  -n default --from-literal=probe="$plaintext_marker" >/dev/null
+secret_write_counts() {
+	api_server="$1"
+	output_path="$2"
+	if ! kubectl --kubeconfig "$kubeconfig_path" --server="$api_server" \
+		--request-timeout=10s get --raw /metrics > "$metrics_raw_path" 2>/dev/null; then
+		rm -f "$metrics_raw_path"
+		return 1
+	fi
 
-etcd_pod="$(kubectl --kubeconfig /kubeconfig/value get pods -n kube-system \
-  -l component=etcd -o jsonpath='{.items[0].metadata.name}')"
-if [ -z "$etcd_pod" ]; then
-  echo "no etcd pod found" > /dev/termination-log
-  exit 1
-fi
-
-read_secret_from_etcd() {
-  kubectl --kubeconfig /kubeconfig/value exec -n kube-system "$etcd_pod" -c etcd -- \
-    etcdctl \
-      --endpoints=https://127.0.0.1:2379 \
-      --cacert=/etc/kubernetes/pki/etcd/ca.crt \
-      --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt \
-      --key=/etc/kubernetes/pki/etcd/healthcheck-client.key \
-      get "/registry/secrets/default/$secret_name" --print-value-only
+	# Kubernetes records the transformer used for each write. Reduce the
+	# provider-specific prefix to a provider name so key names never reach logs.
+	if ! awk '
+		/^apiserver_storage_transformation_operations_total\{/ &&
+		/transformation_type="to_storage"/ &&
+		/status="OK"/ {
+			if ($0 ~ /resource="/ && $0 !~ /resource="secrets"/) {
+				next
+			}
+			marker = "transformer_prefix=\""
+			start = index($0, marker)
+			if (start == 0) {
+				next
+			}
+			rest = substr($0, start + length(marker))
+			finish = index(rest, "\"")
+			if (finish == 0) {
+				next
+			}
+			prefix = substr(rest, 1, finish - 1)
+			if (prefix == "") {
+				identity += $2
+			} else if (index(prefix, "k8s:enc:secretbox:v1:") == 1) {
+				secretbox += $2
+			} else if (index(prefix, "k8s:enc:") == 1) {
+				other += $2
+			}
+		}
+		END {
+			printf "identity %.17g\n", identity
+			printf "secretbox %.17g\n", secretbox
+			printf "other %.17g\n", other
+		}
+	' "$metrics_raw_path" > "$output_path"; then
+		rm -f "$metrics_raw_path" "$output_path"
+		return 1
+	fi
+	rm -f "$metrics_raw_path"
 }
 
-# Read the raw etcd value as a byte stream. Do not store or print it: protobuf
-# values can contain NUL bytes and may include Secret contents on failure.
-if ! read_secret_from_etcd | grep -a -q 'k8s:enc:secretbox:v1:'; then
-  echo "raw etcd Secret is missing the secretbox encryption prefix" > /dev/termination-log
-  exit 1
-fi
-if read_secret_from_etcd | grep -a -F -q "$plaintext_marker"; then
-  echo "raw etcd Secret contains the plaintext marker" > /dev/termination-log
-  exit 1
+provider_delta() {
+	awk '
+		NR == FNR {
+			before[$1] = $2
+			next
+		}
+		$2 > before[$1] {
+			if (providers != "") {
+				providers = providers "+"
+			}
+			providers = providers $1
+		}
+		END {
+			if (providers == "") {
+				providers = "no-observed-transform(config-may-be-absent)"
+			}
+			printf "%s", providers
+		}
+	' "$metrics_before_path" "$metrics_after_path"
+}
+
+effective_write_providers() {
+	api_servers=""
+	if ! api_servers="$(kubectl --kubeconfig "$kubeconfig_path" get pods -n kube-system \
+		-l component=kube-apiserver \
+		-o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.status.podIP}{"\n"}{end}' 2>/dev/null)"; then
+		printf 'unknown'
+		return
+	fi
+	if [ -z "$api_servers" ]; then
+		printf 'unknown'
+		return
+	fi
+
+	printf '%s\n' "$api_servers" | sort > "$api_servers_path"
+	providers=""
+	probe_index=0
+	while IFS='|' read -r api_pod api_ip; do
+		[ -n "$api_pod" ] || continue
+		probe_index=$((probe_index + 1))
+		provider="unknown"
+		if [ -z "$api_ip" ]; then
+			provider="missing-pod-ip"
+		else
+			case "$api_ip" in
+				*:*) api_server="https://[$api_ip]:6443" ;;
+				*) api_server="https://$api_ip:6443" ;;
+			esac
+			diagnostic_secret="${secret_name}-api-${probe_index}"
+			if ! secret_write_counts "$api_server" "$metrics_before_path"; then
+				provider="metrics-before-error"
+			elif ! kubectl --kubeconfig "$kubeconfig_path" --server="$api_server" \
+				--request-timeout=10s create secret generic "$diagnostic_secret" \
+				-n default --from-literal=probe="provider-diagnostic" >/dev/null 2>&1; then
+				provider="write-error"
+			else
+				printf '%s\n' "$diagnostic_secret" >> "$diagnostic_secrets_path"
+				if ! secret_write_counts "$api_server" "$metrics_after_path"; then
+					provider="metrics-after-error"
+				else
+					provider="$(provider_delta)"
+				fi
+			fi
+		fi
+		if [ -n "$providers" ]; then
+			providers="$providers; "
+		fi
+		providers="${providers}${api_pod}=${provider}"
+	done < "$api_servers_path"
+	printf '%s' "${providers:-unknown}"
+}
+
+fail_verification() {
+	reason="$1"
+	providers="$(effective_write_providers)"
+	printf '%s (etcd pod: %s; effective write providers: %s)\n' \
+		"$reason" "$etcd_pod" "$providers" > "$termination_log"
+	exit 1
+}
+
+if ! kubectl --kubeconfig "$kubeconfig_path" create secret generic "$secret_name" \
+	-n default --from-literal=probe="$plaintext_marker" >/dev/null; then
+	fail_verification "failed to create the verifier Secret"
 fi
 
-echo "raw etcd Secret encryption verified" > /dev/termination-log
+if ! etcd_pod="$(kubectl --kubeconfig "$kubeconfig_path" get pods -n kube-system \
+	-l component=etcd -o jsonpath='{.items[0].metadata.name}')"; then
+	etcd_pod="unknown"
+	fail_verification "failed to list etcd pods"
+fi
+if [ -z "$etcd_pod" ]; then
+	etcd_pod="unknown"
+	fail_verification "no etcd pod found"
+fi
+
+etcdctl_for_secret() {
+	kubectl --kubeconfig "$kubeconfig_path" exec -n kube-system "$etcd_pod" -c etcd -- \
+		etcdctl \
+			--endpoints=https://127.0.0.1:2379 \
+			--cacert=/etc/kubernetes/pki/etcd/ca.crt \
+			--cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt \
+			--key=/etc/kubernetes/pki/etcd/healthcheck-client.key \
+			get "$secret_key" "$@"
+}
+
+# Keep the binary protobuf value only in a temporary file so the etcdctl exit
+# status can be checked independently from the content checks. The EXIT trap
+# removes the file, and neither the value nor etcdctl stderr is ever logged.
+if ! etcdctl_for_secret --print-value-only > "$raw_value_path" 2>/dev/null; then
+	fail_verification "failed to read the raw etcd Secret value"
+fi
+if [ ! -s "$raw_value_path" ]; then
+	fail_verification "raw etcd Secret key is missing or its value is empty"
+fi
+if grep -a -F -q "$plaintext_marker" "$raw_value_path"; then
+	fail_verification "raw etcd Secret contains the plaintext marker"
+fi
+if ! grep -a -q 'k8s:enc:secretbox:v1:' "$raw_value_path"; then
+	fail_verification "raw etcd Secret does not contain the secretbox encryption prefix"
+fi
+
+echo "raw etcd Secret encryption verified" > "$termination_log"
 `
+
+const fakeEtcdVerifierKubectl = `#!/bin/sh
+set -eu
+args="$*"
+secret_name="unknown"
+api_server=""
+for arg in "$@"; do
+	case "$arg" in
+		/registry/secrets/default/*)
+			secret_name="${arg##*/}"
+			;;
+		--server=*)
+			api_server="${arg#--server=}"
+			;;
+	esac
+done
+
+case "$args" in
+	*" delete secret "*)
+		exit 0
+		;;
+	*" create secret generic "*)
+		if [ -n "$api_server" ]; then
+			case "$api_server" in
+				*10.0.0.10*) server_index=0 ;;
+				*10.0.0.11*) server_index=1 ;;
+				*) exit 98 ;;
+			esac
+			: > "${FAKE_STATE_DIR}/server-${server_index}"
+		fi
+		exit "${FAKE_CREATE_STATUS:-0}"
+		;;
+	*" get --raw /metrics"*)
+		case "$api_server" in
+			*10.0.0.10*)
+				server_index=0
+				provider="${FAKE_PROVIDER_0:-secretbox}"
+				;;
+			*10.0.0.11*)
+				server_index=1
+				provider="${FAKE_PROVIDER_1:-identity}"
+				;;
+			*)
+				exit 97
+				;;
+		esac
+		if [ ! -f "${FAKE_STATE_DIR}/server-${server_index}" ]; then
+			exit 0
+		fi
+		case "$provider" in
+			identity)
+				printf '%s\n' \
+					'apiserver_storage_transformation_operations_total{resource="secrets",status="OK",transformation_type="to_storage",transformer_prefix=""} 1'
+				;;
+			secretbox)
+				printf '%s' "$FAKE_SECRETBOX_METRICS"
+				;;
+			secretbox-legacy)
+				printf '%s' "$FAKE_SECRETBOX_LEGACY_METRICS"
+				;;
+			other)
+				printf '%s\n' \
+					'apiserver_storage_transformation_operations_total{resource="secrets",status="OK",transformation_type="to_storage",transformer_prefix="k8s:enc:aescbc:v1:"} 1' \
+					'apiserver_storage_transformation_operations_total{resource="secrets",status="OK",transformation_type="to_storage",transformer_prefix="nke-key-1:"} 1'
+				;;
+		esac
+		;;
+	*" get pods -n kube-system -l component=etcd "*)
+		if [ "${FAKE_ETCD_LIST_STATUS:-0}" -ne 0 ]; then
+			exit "$FAKE_ETCD_LIST_STATUS"
+		fi
+		printf '%s' "${FAKE_ETCD_POD:-etcd-0}"
+		;;
+	*" get pods -n kube-system -l component=kube-apiserver "*)
+		printf '%s\n' 'kube-apiserver-1|10.0.0.11' 'kube-apiserver-0|10.0.0.10'
+		;;
+	*" --count-only"*)
+		printf '%s\n' 'Error: --count-only is only for --write-out=fields' >&2
+		exit 128
+		;;
+	*" --print-value-only"*)
+		if [ "${FAKE_ETCD_READ_STATUS:-0}" -ne 0 ]; then
+			exit "$FAKE_ETCD_READ_STATUS"
+		fi
+		case "${FAKE_ETCD_VALUE:-encrypted}" in
+			empty)
+				;;
+			encrypted)
+				printf 'binary-prefix-k8s:enc:secretbox:v1:encrypted-payload'
+				;;
+			plaintext)
+				printf 'RAW_SECRET_SENTINEL-nke-e2e-plaintext-%s' "$secret_name"
+				;;
+			unrecognized)
+				printf 'RAW_SECRET_SENTINEL-unrecognized-encoding'
+				;;
+		esac
+		;;
+	*)
+		printf 'unexpected fake kubectl invocation: %s\n' "$args" >&2
+		exit 99
+		;;
+esac
+`
+
+// The CAPD entrypoint copies only the compiled test binary into its inner
+// runner, so captured fixtures must not depend on the process working directory.
+//
+//go:embed testdata/secretbox-transformation-metrics.prom
+var secretboxMetricsFixture string
+
+//go:embed testdata/secretbox-transformation-metrics-v1.29.prom
+var legacySecretboxMetricsFixture string
 
 func TestValidateKubeadmEncryptionConfig(t *testing.T) {
 	t.Parallel()
@@ -549,6 +849,125 @@ kind: ClusterConfiguration
 			}
 			if !test.wantErr && err != nil {
 				t.Fatalf("validateKubeadmEncryptionConfig() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestEtcdEncryptionVerifyScript(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		environment     []string
+		wantSuccess     bool
+		wantLogContains []string
+		wantProviders   string
+	}{
+		{
+			name:            "encrypted Secret succeeds",
+			wantSuccess:     true,
+			wantLogContains: []string{"raw etcd Secret encryption verified"},
+		},
+		{
+			name:            "etcd value read fails",
+			environment:     []string{"FAKE_ETCD_READ_STATUS=1"},
+			wantLogContains: []string{"failed to read the raw etcd Secret value"},
+		},
+		{
+			name:            "etcd key is missing or empty",
+			environment:     []string{"FAKE_ETCD_VALUE=empty"},
+			wantLogContains: []string{"raw etcd Secret key is missing or its value is empty"},
+		},
+		{
+			name:            "plaintext marker is present",
+			environment:     []string{"FAKE_ETCD_VALUE=plaintext"},
+			wantLogContains: []string{"raw etcd Secret contains the plaintext marker"},
+		},
+		{
+			name:            "etcd value uses an unrecognized encoding",
+			environment:     []string{"FAKE_ETCD_VALUE=unrecognized"},
+			wantLogContains: []string{"raw etcd Secret does not contain the secretbox encryption prefix"},
+		},
+		{
+			name:            "different effective provider remains visible",
+			environment:     []string{"FAKE_ETCD_VALUE=unrecognized", "FAKE_PROVIDER_0=other"},
+			wantLogContains: []string{"raw etcd Secret does not contain the secretbox encryption prefix"},
+			wantProviders:   "kube-apiserver-0=other; kube-apiserver-1=identity",
+		},
+		{
+			name:            "Kubernetes 1.29 metrics remain supported",
+			environment:     []string{"FAKE_ETCD_VALUE=unrecognized", "FAKE_PROVIDER_0=secretbox-legacy"},
+			wantLogContains: []string{"raw etcd Secret does not contain the secretbox encryption prefix"},
+		},
+		{
+			name:            "missing transformation metric suggests absent config",
+			environment:     []string{"FAKE_ETCD_VALUE=unrecognized", "FAKE_PROVIDER_0=none"},
+			wantLogContains: []string{"raw etcd Secret does not contain the secretbox encryption prefix"},
+			wantProviders:   "kube-apiserver-0=no-observed-transform(config-may-be-absent); kube-apiserver-1=identity",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			tempDir := t.TempDir()
+			kubectlPath := filepath.Join(tempDir, "kubectl")
+			if err := os.WriteFile(kubectlPath, []byte(fakeEtcdVerifierKubectl), 0o700); err != nil {
+				t.Fatalf("writing fake kubectl: %v", err)
+			}
+			terminationLogPath := filepath.Join(tempDir, "termination.log")
+			command := exec.CommandContext(t.Context(), "sh", "-c", etcdEncryptionVerifyScript)
+			command.Env = append(os.Environ(),
+				"PATH="+tempDir+":"+os.Getenv("PATH"),
+				"E2E_KUBECONFIG_PATH="+filepath.Join(tempDir, "kubeconfig"),
+				"E2E_TERMINATION_LOG="+terminationLogPath,
+				"TMPDIR="+tempDir,
+				"FAKE_STATE_DIR="+tempDir,
+				"FAKE_SECRETBOX_METRICS="+secretboxMetricsFixture,
+				"FAKE_SECRETBOX_LEGACY_METRICS="+legacySecretboxMetricsFixture,
+				"FAKE_PROVIDER_0=secretbox",
+				"FAKE_PROVIDER_1=identity",
+			)
+			command.Env = append(command.Env, test.environment...)
+			command.Env = command.Environ()
+
+			err := command.Run()
+			if test.wantSuccess && err != nil {
+				t.Fatalf("etcdEncryptionVerifyScript failed: %v", err)
+			}
+			if !test.wantSuccess && err == nil {
+				t.Fatal("etcdEncryptionVerifyScript succeeded, want failure")
+			}
+
+			terminationLog, readErr := os.ReadFile(terminationLogPath)
+			if readErr != nil {
+				t.Fatalf("reading termination log: %v", readErr)
+			}
+			logText := string(terminationLog)
+			for _, want := range test.wantLogContains {
+				if !strings.Contains(logText, want) {
+					t.Errorf("termination log %q does not contain %q", logText, want)
+				}
+			}
+			if !test.wantSuccess {
+				wantProviders := test.wantProviders
+				if wantProviders == "" {
+					wantProviders = "kube-apiserver-0=secretbox; kube-apiserver-1=identity"
+				}
+				if !strings.Contains(logText, wantProviders) {
+					t.Errorf("termination log %q does not contain exact provider sequence %q", logText, wantProviders)
+				}
+			}
+			for _, secretMaterial := range []string{
+				"RAW_SECRET_SENTINEL",
+				"nke-e2e-plaintext-e2e-etcd-encryption-",
+				"nke-key-1",
+			} {
+				if strings.Contains(logText, secretMaterial) {
+					t.Errorf("termination log exposes Secret material %q: %q", secretMaterial, logText)
+				}
 			}
 		})
 	}

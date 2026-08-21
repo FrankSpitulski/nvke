@@ -20,6 +20,8 @@ on:
       - "controller/**"
       - "agent/**"
       - Makefile
+      # Without this a change to the suite's own workflow does not run it.
+      - .github/workflows/capd-e2e.yml
   workflow_dispatch:
 
 permissions: {}
@@ -39,7 +41,10 @@ jobs:
     env:
       CAPD_E2E_RUN_ID: github-${{ github.run_id }}-${{ github.run_attempt }}
       CAPD_E2E_DOCKERHUB_MIRROR: dc.local.gha-runners.nvidia.com
-      CAPD_E2E_LABEL_FILTER: ${{ startsWith(github.ref, 'refs/heads/pull-request/') && 'capd && happy-path && (readiness || (lifecycle && !(post-ready || scale || reboot)))' || 'capd' }}
+      # One filter for pull requests and main. Excluding post-ready, scale and
+      # reboot on a pull request meant a break in those only showed up on main,
+      # in a job nothing requires.
+      CAPD_E2E_LABEL_FILTER: capd
       KIND_CLUSTER_NAME: cwe-capi-${{ github.run_id }}-${{ github.run_attempt }}
       GOPROXY: "off"
     steps:

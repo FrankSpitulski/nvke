@@ -10,9 +10,9 @@
 # none.
 #
 # Not covered by the test job, deliberately: controller/api and
-# controller/hack/capd-reboot-controller have no _test.go files at all, and
-# controller/test/e2e needs a live cluster in KUBECONFIG -- `make test-e2e`
-# drives it, and it does not belong in a pull-request lane.
+# controller/hack/capd-reboot-controller have no _test.go files at all. The
+# root controller/test/e2e package mixes ordinary unit tests with TestE2E,
+# which needs a live cluster in KUBECONFIG; the job below skips only TestE2E.
 #
 # The `compile` job below covers those heavier suites in the one way a pull
 # request can: it type-checks them without running them. See its own comment.
@@ -101,6 +101,12 @@ jobs:
             run: make test
           - module: cli
             run: make test
+          # The e2e module mixes the live Ginkgo suite with ordinary root and
+          # internal unit tests. Skip only TestE2E so every current and future
+          # root-package unit test runs without needing an allowlist. That is
+          # how the bare-binary fixture-path regression is caught cheaply.
+          - module: controller/test/e2e
+            run: go test ${GO_TEST_FLAGS} -skip '^TestE2E$' . ./internal/...
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -133,20 +139,17 @@ jobs:
           GO_TEST_FLAGS: -race
         run: ${{ matrix.run }}
 
-  # Type-checks the test code that nothing in CI compiles. These suites need a
-  # cluster, a live API, real VMs or a fault-injection build, so a pull request
-  # cannot run them -- but it can prove they still build, which is the failure
-  # they actually suffer from: they are written against packages that keep
-  # moving, and they rot silently.
+  # Type-checks the heavier test variants that pull-request CI cannot execute.
+  # These suites need a cluster, a live API, real VMs or a fault-injection
+  # build, but CI can still prove they build against packages that keep moving.
   #
   # `go build ./...` does not cover this. It ignores _test.go entirely, and
   # ignores any file behind a build tag nothing sets. So:
   #
   #   - controller/test/e2e is a separate module of 21 test files and no
-  #     non-test package. Nothing compiles it. Worse, controller-test.yml
-  #     filters on `paths: controller/**`, which MATCHES controller/test/e2e/**
-  #     -- so editing an e2e spec triggers a green "Controller Unit Tests" run
-  #     that never read the edited file.
+  #     non-test package. The unit job above compiles the root package and runs
+  #     everything except the live TestE2E entrypoint; vet keeps an explicit
+  #     compile-only assertion for the whole suite.
   #   - controller/e2e/... is behind `-tags gofail`; `go list ./e2e/...`
   #     reports "matched no packages" without it.
   #   - the teleport and forge-vms integration suites are behind

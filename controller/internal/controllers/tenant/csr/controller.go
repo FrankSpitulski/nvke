@@ -19,8 +19,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -71,6 +73,7 @@ func NewRegistrar(database database, logger *slog.Logger) tenant.Registrar {
 		logger = slog.Default()
 	}
 	return func(clusterID uuid.UUID, manager ctrl.Manager) error {
+		controllerName, controllerOptions := tenantCSRControllerRegistration(clusterID)
 		reconciler := &Reconciler{
 			clusterID: clusterID,
 			database:  database,
@@ -78,12 +81,24 @@ func NewRegistrar(database database, logger *slog.Logger) tenant.Registrar {
 			logger:    logger,
 		}
 		return ctrl.NewControllerManagedBy(manager).
-			Named("tenant-csr").
+			Named(controllerName).
+			WithOptions(controllerOptions).
 			For(
 				&certificatesv1.CertificateSigningRequest{},
 				builder.WithPredicates(kubeletServingCSRPredicate()),
 			).
 			Complete(reconciler)
+	}
+}
+
+func tenantCSRControllerRegistration(clusterID uuid.UUID) (string, controller.Options) {
+	// controller-runtime retains controller names for the lifetime of the
+	// process, even after their manager stops. ManagerSet serializes manager
+	// generations for a cluster, so the same name is never active concurrently;
+	// skipping validation permits kubeconfig rotation and runtime recovery while
+	// the cluster-scoped name keeps metrics and logs attributable.
+	return "tenant-csr-" + clusterID.String(), controller.Options{
+		SkipNameValidation: ptr.To(true),
 	}
 }
 

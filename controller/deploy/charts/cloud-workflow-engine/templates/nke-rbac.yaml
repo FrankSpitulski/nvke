@@ -61,6 +61,12 @@ data:
       - apiGroups: [""]
         resources: ["nodes"]
         verbs: ["get", "list", "watch", "patch", "update", "delete"]
+      # nodes/status is a separate subresource, so "patch" on nodes does not
+      # cover it. ApplyNodeCondition patches node conditions through it. patch
+      # only: it is the controller's one status write and never updates.
+      - apiGroups: [""]
+        resources: ["nodes/status"]
+        verbs: ["patch"]
       - apiGroups: [""]
         resources: ["nodes/status"]
         verbs: ["patch"]

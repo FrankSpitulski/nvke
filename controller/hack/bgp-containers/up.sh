@@ -51,8 +51,12 @@ die()   { echo "[bgp-containers:up] ERROR: $*" >&2; exit 1; }
 if ! docker network inspect "${NETWORK_NAME}" &>/dev/null; then
   die "Docker network '${NETWORK_NAME}' not found. Start the kind management cluster first."
 fi
-KIND_GW="$(docker network inspect "${NETWORK_NAME}" -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' | awk '{for (i = 1; i <= NF; i++) if ($i !~ /:/) {print $i; exit}}')"
-KIND_SUBNET="$(docker network inspect "${NETWORK_NAME}" -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | awk '{for (i = 1; i <= NF; i++) if ($i !~ /:/) {print $i; exit}}')"
+# Match an IPv4 address rather than "anything without a colon". A newer Docker
+# CLI renders an absent Gateway as the string "invalid IP" (Go's zero netip.Addr),
+# and the kind network lists its IPv6 subnet, which has no gateway, first. The
+# old test then picked the word "invalid".
+KIND_GW="$(docker network inspect "${NETWORK_NAME}" -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' | awk '{for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+(\.[0-9]+){3}$/) {print $i; exit}}')"
+KIND_SUBNET="$(docker network inspect "${NETWORK_NAME}" -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | awk '{for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+(\.[0-9]+){3}\/[0-9]+$/) {print $i; exit}}')"
 [[ -n "${KIND_GW}" ]] || die "Could not detect kind network gateway."
 [[ -n "${KIND_SUBNET}" ]] || die "Could not detect kind network subnet."
 info "kind network: subnet=${KIND_SUBNET} gateway=${KIND_GW}"
