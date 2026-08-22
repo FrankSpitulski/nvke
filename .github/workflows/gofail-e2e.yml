@@ -1,0 +1,121 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Runs the gofail fault-injection suite, which nothing ran before this. It is the
+# largest body of test code in the repository that never executed: two scenarios
+# over roughly 1,850 lines, and the only thing that exercises cmd/worker as a
+# built binary rather than as a package.
+#
+# It is a separate workflow rather than another job in an existing lane, which
+# breaks the usual rule of extending a lane instead of adding one. Nothing else
+# needs PostgreSQL, the envtest binaries, or a Temporal dev server, so folding
+# this into another lane would slow every job there for setup none of them use.
+#
+# Called from merge-gate.yml and listed in the gate's `needs`, so a red run
+# blocks a merge. It takes about six minutes against a gate whose wall clock is
+# about nine, set by golangci-lint (controller), so it does not extend the
+# critical path.
+#
+# It is the only gate member that needs a database, and the only one that runs a
+# built binary rather than a package, so it is the most likely to fail for
+# environmental reasons rather than for a real regression. Read a failure here
+# before assuming the change caused it.
+
+name: Gofail E2E
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'controller/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - 'vendor/**'
+      - '.github/workflows/gofail-e2e.yml'
+  workflow_call:
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  # The sha is part of the group on main so back-to-back merges keep their
+  # results, matching every other workflow here.
+  group: Gofail E2E-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  gofail:
+    name: Gofail E2E
+    runs-on: ubuntu-latest
+    if: github.repository == 'NVIDIA/nke'
+    # The two scenarios took 158s and 188s when measured, and both wait on real
+    # heartbeat timeouts, so the budget is deliberately loose.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # cache: false, deliberately. setup-go's cache only SAVES on a key miss, so
+      # once go.sum settles it restores a stale entry and never refreshes it.
+      # This lane's expensive artefact is a `-tags gofail` build, which shares no
+      # cache entries with the untagged builds every other lane does, so it would
+      # never be written back. The two explicit caches below always save.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.work
+          cache: false
+
+      # Unique key, so this always saves; restore-keys take the most recent
+      # match. That is the difference from setup-go's behaviour above.
+      - name: Cache Go build and module cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: gofail-go-${{ runner.os }}-${{ hashFiles('go.work.sum', '**/go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            gofail-go-${{ runner.os }}-${{ hashFiles('go.work.sum', '**/go.sum') }}-
+            gofail-go-${{ runner.os }}-
+
+      # 160 MB of etcd, kube-apiserver and kubectl. The Makefile pins the store
+      # to controller/.go/envtest with --bin-dir, so this path is exact rather
+      # than a guess at setup-envtest's platform-dependent default.
+      # Keyed on the Makefile, which is where ENVTEST_K8S_VERSION lives.
+      - name: Cache envtest binaries
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: controller/.go/envtest
+          key: envtest-${{ runner.os }}-${{ hashFiles('controller/Makefile') }}
+          restore-keys: envtest-${{ runner.os }}-
+
+      # The runner image already ships PostgreSQL, so start that rather than
+      # pull a service container. Same approach as NVIDIA/infra-controller.
+      #
+      # Starting it also avoids `initdb`, which the framework runs only when no
+      # DSN is set, and which refuses to run as root.
+      #
+      # Durability off: this database is thrown away with the runner.
+      - name: Start PostgreSQL
+        run: |
+          set -euo pipefail
+          printf 'fsync = off\nsynchronous_commit = off\nfull_page_writes = off\n' \
+            | sudo tee -a /etc/postgresql/*/main/postgresql.conf >/dev/null
+          sudo systemctl start postgresql
+          sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'gofail';"
+          sudo -u postgres psql -c "CREATE DATABASE gofail_e2e;"
+          pg_isready
+
+      # Builds the worker with -tags gofail, resolves the envtest binaries with
+      # setup-envtest, starts Temporal and PostgreSQL, and asserts no generated
+      # *.fail.go file is left behind.
+      - name: Run the gofail suite
+        working-directory: controller
+        env:
+          CWE_GOFAIL_E2E_DB_CONNECTION_STRING: postgres://postgres:gofail@127.0.0.1:5432/gofail_e2e?sslmode=disable
+        run: make e2e-gofail

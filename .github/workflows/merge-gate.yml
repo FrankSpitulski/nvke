@@ -132,6 +132,15 @@ jobs:
     permissions:
       contents: read
 
+  # The fault-injection suite. It starts PostgreSQL, an envtest API server and a
+  # Temporal dev server and runs the worker as a built binary, so it is the
+  # slowest member here at about six minutes. That still sits under the gate's
+  # wall clock, which golangci-lint (controller) sets at about nine.
+  gofail:
+    uses: ./.github/workflows/gofail-e2e.yml
+    permissions:
+      contents: read
+
   # govulncheck needs more than contents:read -- it uploads SARIF. A called
   # workflow cannot be granted less than its jobs request, or the whole file
   # fails to start with no jobs and no error message.
@@ -160,6 +169,7 @@ jobs:
       - actionlint
       - shellcheck
       - lint
+      - gofail
       - govulncheck
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -158,30 +158,12 @@ func StartCWEWorkerBinary(t testing.TB, cfg CWEWorkerBinaryConfig) *Process {
 	})
 }
 
-// WriteKubeconfig writes enough client configuration for the normal worker bootstrap.
-// The tested workflow does not call the Kubernetes API.
+// WriteKubeconfig returns client configuration for the normal worker bootstrap.
+// StartAPIServer explains why a placeholder address no longer works.
 func WriteKubeconfig(t testing.TB) string {
 	t.Helper()
 
-	path := filepath.Join(t.TempDir(), "kubeconfig")
-	contents := []byte(`apiVersion: v1
-kind: Config
-clusters:
-- name: gofail-e2e
-  cluster:
-    server: http://127.0.0.1:1
-contexts:
-- name: gofail-e2e
-  context:
-    cluster: gofail-e2e
-    user: gofail-e2e
-current-context: gofail-e2e
-users:
-- name: gofail-e2e
-  user: {}
-`)
-	require.NoError(t, os.WriteFile(path, contents, 0o600))
-	return path
+	return StartAPIServer(t)
 }
 
 // SetGofail enables a failpoint through gofail's HTTP control plane.

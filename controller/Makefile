@@ -4,6 +4,13 @@ WORKER_BIN_NAME			?= cloud-workflow-engine
 TEMPORAL_CLI_DOWNLOAD_DIR	?= $(CURDIR)/.go/temporal-cli
 CWE_GOFAIL_E2E_WORKER_BINARY	?= $(CURDIR)/.go/bin/cwe-worker-gofail
 GOFAIL				?= $(shell go env GOPATH)/bin/gofail
+SETUP_ENVTEST			?= $(shell go env GOPATH)/bin/setup-envtest
+SETUP_ENVTEST_VERSION		?= release-0.24
+# Explicit store, so CI can cache a known path instead of guessing setup-envtest's
+# platform-dependent default.
+ENVTEST_BIN_DIR			?= $(CURDIR)/.go/envtest
+# Kubernetes version for the envtest kube-apiserver and etcd binaries.
+ENVTEST_K8S_VERSION		?= 1.34.1
 
 # The licence header template lives once, at the repository root.
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel)
@@ -174,17 +181,31 @@ test-e2e-forge-vms-os-profiles: ## Run the opt-in Forge VMs OS profile provision
 .PHONY: e2e-gofail
 e2e-gofail: ## Execute gofail e2e tests against a local Temporal dev server.
 	@bash -euo pipefail -c '\
+		start=$$SECONDS; last=$$start; \
+		phase() { \
+			now=$$SECONDS; \
+			printf "[gofail] %-22s %4ds (total %4ds)\n" "$$1" "$$((now - last))" "$$((now - start))"; \
+			last=$$now; \
+		}; \
 		mkdir -p "$(TEMPORAL_CLI_DOWNLOAD_DIR)" "$$(dirname "$(CWE_GOFAIL_E2E_WORKER_BINARY)")"; \
 		go install go.etcd.io/gofail@v0.2.0; \
+		go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION); \
+		phase "install-tools"; \
+		KUBEBUILDER_ASSETS="$$("$(SETUP_ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(ENVTEST_BIN_DIR)" -p path)"; \
+		export KUBEBUILDER_ASSETS; \
+		phase "envtest-assets"; \
 		"$(GOFAIL)" enable internal/temporal/activities; \
 		cleanup() { \
 			"$(GOFAIL)" disable internal/temporal/activities; \
 		}; \
 		trap cleanup EXIT; \
+		phase "gofail-enable"; \
 		go build -tags gofail -o "$(CWE_GOFAIL_E2E_WORKER_BINARY)" ./cmd/worker; \
+		phase "build-worker"; \
 		TEMPORAL_CLI_DOWNLOAD_DIR="$(TEMPORAL_CLI_DOWNLOAD_DIR)" \
 			CWE_GOFAIL_E2E_WORKER_BINARY="$(CWE_GOFAIL_E2E_WORKER_BINARY)" \
 			go test -v -tags gofail ./e2e/gofail -timeout 30m -count=1; \
+		phase "run-tests"; \
 		cleanup; \
 		trap - EXIT; \
 		test -z "$$(find . -name "*.fail.go" -print)" \
