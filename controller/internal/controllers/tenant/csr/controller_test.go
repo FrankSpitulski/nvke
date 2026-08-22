@@ -26,11 +26,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -44,25 +45,54 @@ type staticDatabase struct {
 	nodesErr   error
 }
 
-func TestTenantCSRControllerRegistrationSupportsMultipleTenantsAndRestart(t *testing.T) {
+func TestTenantCSRControllerRegistrationUsesClusterScopedNamesAndRestartOptions(t *testing.T) {
 	clusterA := uuid.New()
 	clusterB := uuid.New()
-	nameA, _ := tenantCSRControllerRegistration(clusterA)
-	nameB, _ := tenantCSRControllerRegistration(clusterB)
-	require.NotEqual(t, nameA, nameB)
+	nameA, optionsA := tenantCSRControllerRegistration(clusterA)
+	nameB, optionsB := tenantCSRControllerRegistration(clusterB)
 
-	register := func(clusterID uuid.UUID) error {
-		name, options := tenantCSRControllerRegistration(clusterID)
-		options.Reconciler = reconcile.Func(func(context.Context, ctrl.Request) (ctrl.Result, error) {
-			return ctrl.Result{}, nil
-		})
-		_, err := controller.NewUnmanaged(name, options)
-		return err
-	}
+	require.Equal(t, "tenant-csr-"+clusterA.String(), nameA)
+	require.Equal(t, "tenant-csr-"+clusterB.String(), nameB)
+	require.NotEqual(t, nameA, nameB)
+	require.NotNil(t, optionsA.SkipNameValidation)
+	require.True(t, *optionsA.SkipNameValidation)
+	require.NotNil(t, optionsB.SkipNameValidation)
+	require.True(t, *optionsB.SkipNameValidation)
+}
+
+func TestNewRegistrarSupportsMultipleTenantsAndRestart(t *testing.T) {
+	clusterA := uuid.New()
+	clusterB := uuid.New()
+
+	// Register through NewRegistrar, not the helper. Asserting on the helper
+	// alone stays green when the call site drops the name or the options.
+	register := newRegistrarForTest(t)
 
 	require.NoError(t, register(clusterA), "first tenant should register")
 	require.NoError(t, register(clusterB), "second tenant should register")
 	require.NoError(t, register(clusterA), "restarted tenant manager should register")
+}
+
+// newRegistrarForTest runs the registrar against a fresh manager per call, as
+// ManagerSet does per generation. Nothing dials: the RESTMapper is lazy and the
+// manager is never started.
+func newRegistrarForTest(t *testing.T) func(uuid.UUID) error {
+	t.Helper()
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, certificatesv1.AddToScheme(scheme))
+
+	registrar := NewRegistrar(staticDatabase{}, nil)
+
+	return func(clusterID uuid.UUID) error {
+		t.Helper()
+		mgr, err := manager.New(&rest.Config{Host: "https://127.0.0.1:1"}, manager.Options{
+			Scheme:  scheme,
+			Metrics: metricsserver.Options{BindAddress: "0"},
+		})
+		require.NoError(t, err)
+		return registrar(clusterID, mgr)
+	}
 }
 
 func (d staticDatabase) GetCluster(context.Context, uuid.UUID) (db.Cluster, error) {

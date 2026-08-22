@@ -122,8 +122,8 @@ jobs:
       # a fixture, not the chart, so a missing rule only showed up in the CAPD
       # E2E suite, which skips this scenario on a pull request.
       #
-      # Add a case below whenever an activity calls a new tenant API.
-      - name: Assert the tenant ClusterRole grants what the activities need
+      # Add a case below whenever an activity or controller calls a new tenant API.
+      - name: Assert the tenant ClusterRole grants required permissions
         shell: bash
         run: |
           set -euo pipefail
@@ -152,29 +152,48 @@ jobs:
           if cr is None:
               sys.exit("::error::no nke:cwe ClusterRole in the nke-rbac manifest")
 
-          def granted(rule_set, resource, verb):
+          def granted(rule_set, api_group, resource, verb, resource_name=None):
               for r in rule_set:
-                  if resource in (r.get("resources") or []) and verb in (r.get("verbs") or []):
-                      return True
+                  if api_group not in (r.get("apiGroups") or []):
+                      continue
+                  if resource not in (r.get("resources") or []):
+                      continue
+                  if verb not in (r.get("verbs") or []):
+                      continue
+                  if resource_name is not None and r.get("resourceNames") != [resource_name]:
+                      continue
+                  return True
               return False
 
-          # resource, verb, and the activity that breaks without it.
+          # API group, resource, verb, optional resource name, and the caller
+          # that breaks without it. Keep the signer permission restricted to
+          # kubelet-serving rather than accepting approval of every signer.
           required = [
-              ("nodes",         "patch",  "node updates"),
-              ("nodes",         "delete", "node teardown"),
-              ("nodes/status",  "patch",  "ApplyNodeCondition"),
-              ("pods/eviction", "create", "node drain"),
+              ("", "nodes", "patch", None, "node updates"),
+              ("", "nodes", "delete", None, "node teardown"),
+              ("", "nodes/status", "patch", None, "ApplyNodeCondition"),
+              ("", "pods/eviction", "create", None, "node drain"),
+              ("certificates.k8s.io", "certificatesigningrequests", "get", None,
+               "CSR reconciliation"),
+              ("certificates.k8s.io", "certificatesigningrequests", "list", None,
+               "CSR controller cache"),
+              ("certificates.k8s.io", "certificatesigningrequests", "watch", None,
+               "CSR controller watch"),
+              ("certificates.k8s.io", "certificatesigningrequests/approval", "update", None,
+               "CSR approval update"),
+              ("certificates.k8s.io", "signers", "approve", "kubernetes.io/kubelet-serving",
+               "kubelet-serving approval"),
           ]
           missing = [
-              f"{res} ({verb}) — needed by {why}"
-              for res, verb, why in required
-              if not granted(cr.get("rules") or [], res, verb)
+              f"{group or '<core>'}/{res} ({verb}) — needed by {why}"
+              for group, res, verb, resource_name, why in required
+              if not granted(cr.get("rules") or [], group, res, verb, resource_name)
           ]
           if missing:
               for m in missing:
                   print(f"::error::nke:cwe ClusterRole is missing {m}")
               sys.exit(1)
-          print(f"nke:cwe ClusterRole grants all {len(required)} required resource/verb pairs")
+          print(f"nke:cwe ClusterRole grants all {len(required)} required permissions")
           PY
 
       # Chart.yaml carries version and appVersion 0.0.0 and says in a comment
