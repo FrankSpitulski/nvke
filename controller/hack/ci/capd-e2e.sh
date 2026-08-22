@@ -710,7 +710,11 @@ runner_exec kubectl get --raw \
   /api/v1/namespaces/cloud-workflow-engine/services/cloud-workflow-engine:8080/proxy/api/version \
   >"${STATE_DIR}/cwe-version.json"
 
-CAPD_E2E_LABEL_FILTER="${CAPD_E2E_LABEL_FILTER:-capd}"
+# `health` rides along with `capd`. Those specs need a cluster running CWE in
+# namespace cloud-workflow-engine on port 8080, which this script has already
+# built and waited on by line 700. They are three HTTP probes through a service
+# proxy, so they cost seconds rather than minutes.
+CAPD_E2E_LABEL_FILTER="${CAPD_E2E_LABEL_FILTER:-capd || health}"
 CAPD_E2E_FOCUS="${CAPD_E2E_FOCUS:-}"
 ginkgo_focus_args=()
 if [[ -n "${CAPD_E2E_FOCUS}" ]]; then
@@ -721,7 +725,11 @@ else
 fi
 start_state_monitor
 set +e
-runner_exec /state/cwe-e2e.test \
+# CWE_EXPECTED_VERSION turns the third health spec from a self-skip into a real
+# assertion: the deployed CWE reports the version baked into the image this run
+# built, so a stale image being tested fails here rather than passing quietly.
+runner_exec env "CWE_EXPECTED_VERSION=${CWE_BUILD_VERSION}" \
+  /state/cwe-e2e.test \
   -test.v \
   -test.timeout=105m \
   -e2e.config=/state/e2e-config.json \

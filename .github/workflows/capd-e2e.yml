@@ -44,7 +44,7 @@ jobs:
       # One filter for pull requests and main. Excluding post-ready, scale and
       # reboot on a pull request meant a break in those only showed up on main,
       # in a job nothing requires.
-      CAPD_E2E_LABEL_FILTER: capd
+      CAPD_E2E_LABEL_FILTER: capd || health
       KIND_CLUSTER_NAME: cwe-capi-${{ github.run_id }}-${{ github.run_attempt }}
       GOPROXY: "off"
     steps:
