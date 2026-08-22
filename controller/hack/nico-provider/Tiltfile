@@ -51,12 +51,22 @@ def register(ctx):
     mock_dir = os.path.join(ctx.main_dir, "hack", "nico-mock")
     labels = ["2-nico"]
 
+    # CI builds this image before Tilt starts, against a local bundle mirror and
+    # the agent source in the tree. Rebuilding it here would reach the public
+    # bundle server instead, which the runner cannot fetch from (403), and would
+    # discard the locally built agent. CAPD_KINDEST_NODE_IMAGE_PREBUILT lets that
+    # caller say so; local development leaves it unset and still builds.
     kind_node_image_script = """
           set -euo pipefail
 
-          bash "%s"
+          if [ "${CAPD_KINDEST_NODE_IMAGE_PREBUILT:-false}" = "true" ]; then
+            echo "reusing prebuilt %s"
+          else
+            bash "%s"
+          fi
           kind load docker-image --name "%s" "%s"
     """ % (
+        capd_kindest_node_image,
         build_capd_kindest_node_image_script,
         kind_cluster_name,
         capd_kindest_node_image,

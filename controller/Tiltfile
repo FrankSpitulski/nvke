@@ -957,7 +957,7 @@ _cwe_compile_script = """
 
 # Default to the sanitized fixture that ships in this repository. It is
 # Apache-2.0, builds from a Docker Hub base, and is what CI already uses
-# (hack/ci/capd-e2e.sh). Defaulting to the nke-site-deploy sibling instead meant
+# (hack/ci/backend-e2e.sh). Defaulting to the nke-site-deploy sibling instead meant
 # a plain `tilt up` failed for anyone without that checkout, even though a
 # working profiles tree was one directory away.
 #

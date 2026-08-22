@@ -4,11 +4,11 @@
 
 set -euo pipefail
 
-HELM_REAL_BIN="${CAPD_E2E_HELM_REAL_BIN:-/usr/local/bin/helm-real}"
-MIRROR_HOST="${CAPD_E2E_DOCKERHUB_MIRROR:-}"
+HELM_REAL_BIN="${NKE_E2E_HELM_REAL_BIN:-/usr/local/bin/helm-real}"
+MIRROR_HOST="${NKE_E2E_DOCKERHUB_MIRROR:-}"
 
 if [[ -n "${MIRROR_HOST}" && ! "${MIRROR_HOST}" =~ ^[a-zA-Z0-9.-]+(:[0-9]{1,5})?$ ]]; then
-  printf 'invalid CAPD_E2E_DOCKERHUB_MIRROR: %s\n' "${MIRROR_HOST}" >&2
+  printf 'invalid NKE_E2E_DOCKERHUB_MIRROR: %s\n' "${MIRROR_HOST}" >&2
   exit 1
 fi
 

@@ -5,11 +5,11 @@
 set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-state_dir="${LOCAL_CAPD_E2E_STATE_DIR:-${repo_root}/.local/capd-e2e}"
+state_dir="${LOCAL_NKE_E2E_STATE_DIR:-${repo_root}/.local/backend-e2e}"
 tmp_dir="$(mktemp -d)"
 kind_cluster_name="${KIND_CLUSTER_NAME:-cwe-capi}"
 runner_name="cwe-capd-local-e2e-${$}"
-runner_image="${LOCAL_CAPD_E2E_RUNNER_IMAGE:-alpine:3.22}"
+runner_image="${LOCAL_NKE_E2E_RUNNER_IMAGE:-alpine:3.22}"
 tilt_config="${repo_root}/tilt_config.json"
 tilt_config_backup="${tmp_dir}/tilt_config.json"
 host_kubeconfig="${tmp_dir}/management-host.kubeconfig"
@@ -180,7 +180,7 @@ docker cp "${e2e_binary}" "${runner_name}:/state/cwe-e2e.test"
 docker cp "${internal_kubeconfig}" "${runner_name}:/state/management.kubeconfig"
 docker cp "${e2e_config}" "${runner_name}:/state/e2e-config.json"
 
-label_filter="${LOCAL_CAPD_E2E_LABEL_FILTER:-capd}"
+label_filter="${LOCAL_NKE_E2E_LABEL_FILTER:-capd}"
 log "running E2E specs matching ${label_filter}"
 set +e
 docker exec "${runner_name}" \

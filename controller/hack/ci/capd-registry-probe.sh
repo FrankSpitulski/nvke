@@ -4,8 +4,8 @@
 
 set -Eeuo pipefail
 
-MIRROR_HOST="${CAPD_E2E_DOCKERHUB_MIRROR:-dc.local.gha-runners.nvidia.com}"
-POSTGRES_CHART_VERSION="${CAPD_E2E_POSTGRES_CHART_VERSION:-18.5.15}"
+MIRROR_HOST="${NKE_E2E_DOCKERHUB_MIRROR:-dc.local.gha-runners.nvidia.com}"
+POSTGRES_CHART_VERSION="${NKE_E2E_POSTGRES_CHART_VERSION:-18.5.15}"
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-capd-registry-probe}"
 BUILDER_NAME="capd-registry-probe-${GITHUB_RUN_ID:-$$}"
 BUILDER_NAME="${BUILDER_NAME//[^a-zA-Z0-9_.-]/-}"

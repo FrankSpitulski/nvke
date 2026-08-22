@@ -161,7 +161,7 @@ test-e2e-capd: ## Run CAPD happy-path e2e tests
 
 .PHONY: test-e2e-capd-local
 test-e2e-capd-local: ## Bootstrap Colima and run all CAPD e2e tests with local CWE and agent source
-	./hack/local-capd-e2e.sh
+	./hack/local-backend-e2e.sh
 
 .PHONY: test-e2e-forge-vms
 test-e2e-forge-vms: ## Run Forge VMs happy-path e2e tests

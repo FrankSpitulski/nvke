@@ -247,7 +247,7 @@ Full local run (Colima + kind + Tilt + CAPD), only this spec:
 
 ```bash
 # from the repo root, with an agent checkout at ../agent
-LOCAL_CAPD_E2E_LABEL_FILTER="oidc-enable" make test-e2e-capd-local
+LOCAL_NKE_E2E_LABEL_FILTER="oidc-enable" make test-e2e-capd-local
 ```
 
 Against an already-running, OIDC-enabled CWE cluster (KUBECONFIG set):

@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# NICo containers integration test. The body lives in backend-e2e.yml, shared
+# with capd-e2e.yml; this file is the NICo trigger and configuration.
+#
+# The nico-containers spec was one of 60 Ginkgo specs no workflow selected. It
+# needs CAPNICo, which lives in NVIDIA/cluster-api-provider-nico, an internal
+# repository. NKE_INTERNAL_RO_TOKEN reads it, the same secret go-work-check.yml
+# already uses for the internal module in controller/go.mod.
+#
+# nico-mock stands in for the NICo and Forge APIs. It is Docker-backed and
+# provisions kind-style node containers, so this needs no real infrastructure,
+# and it reuses the CAPD kindest node image the CAPD lane already builds.
+#
+# NOT in merge-gate.yml, and deliberately so. The nico entry allows 15 minutes to
+# provision and 10 to delete, so this lane's cost is unknown until it has run a
+# few times. The gofail lane taught that lesson: it was added to the gate on an
+# estimate and turned out to set the wall clock. Measure first, gate later.
+#
+# Self-hosted runners do not receive pull_request events, so this triggers on the
+# copy-pr-bot mirror branch like the CAPD lane. That also puts the run on a push
+# to an in-repo branch, which is what makes NKE_INTERNAL_RO_TOKEN available.
+
+name: NICo E2E
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+    paths:
+      - "controller/**"
+      - "agent/**"
+      - Makefile
+      - .github/workflows/nico-e2e.yml
+      - .github/workflows/backend-e2e.yml
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: NICo E2E-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  nico-e2e:
+    uses: ./.github/workflows/backend-e2e.yml
+    permissions:
+      contents: read
+    secrets:
+      NKE_INTERNAL_RO_TOKEN: ${{ secrets.NKE_INTERNAL_RO_TOKEN }}
+    with:
+      backend: nico
+      label-filter: nico-containers
+      # No capd here: the Tiltfile rejects nico alongside forge-vms, and the
+      # NICo provider brings its own node image step. capi_core is required.
+      providers: '["capi_core", "bgp-containers", "nico"]'
+      # 15m provision + 10m delete for the spec itself, plus building CAPNICo
+      # and the node image. Generous until there is real data.
+      timeout-minutes: 120
+      needs-nico-provider: true
