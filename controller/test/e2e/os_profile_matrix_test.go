@@ -226,9 +226,13 @@ func loadActiveOSProfileMetadata() (osProfileMetadataIndex, error) {
 
 // resolveOSProfileMetadataPath finds fleet OS profile metadata (NKX-13910 moved
 // profiles to nke-site-deploy). Order: CWE_PROFILES_DIR, PROFILES_DIR, sibling
-// nke-site-deploy checkout.
+// nke-site-deploy checkout, in-repo mirror.
+//
+// The mirror is last so a real checkout always wins. It is a separate tree from
+// test/fixtures/profiles, which holds synthetic entries that are not OS profiles
+// and would otherwise turn into matrix specs.
 func resolveOSProfileMetadataPath() (string, error) {
-	candidates := make([]string, 0, 3)
+	candidates := make([]string, 0, 4)
 	if dir := os.Getenv("CWE_PROFILES_DIR"); dir != "" {
 		candidates = append(candidates, filepath.Join(dir, "osProfiles", "metadata.yaml"))
 	}
@@ -243,6 +247,7 @@ func resolveOSProfileMetadataPath() (string, error) {
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
 	candidates = append(candidates,
 		filepath.Join(repoRoot, "..", "nke-site-deploy", "cwe-profiles", "profiles", "osProfiles", "metadata.yaml"),
+		filepath.Join(repoRoot, "test", "fixtures", "fleet-profiles", "osProfiles", "metadata.yaml"),
 	)
 
 	var missing []string
