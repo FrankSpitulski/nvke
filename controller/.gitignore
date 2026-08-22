@@ -52,7 +52,6 @@ bin/
 
 # Coverage reports.
 coverage.txt
-cobertura.xml
 cover.html
 
 # CI: list of changed files for osProfiles URL validation (MR-only).
