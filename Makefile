@@ -29,15 +29,12 @@ ADDLICENSE       ?= $(GO) run github.com/google/addlicense@v1.1.1
 # and would give Dockerfile.proto C-style `//` comments, which Docker cannot
 # parse.
 #
-# The exclusions are the union of what the per-module targets already ignore --
-# vendored and generated trees, testdata, fixtures, build tooling, and the
-# chart templates the chart ships. This set is exactly the files stamped today.
-# Widening it is a separate change: this one fixes headers that are WRONG, and
-# mixing that with headers that are MISSING would hide both.
+# The exclusions cover vendored and generated trees, testdata, fixtures, build
+# tooling, and the chart templates the chart ships. Files under hack/ are
+# deliberately included: they are source and must carry the repository licence.
 LICENSE_FILES = git ls-files -- '*.go' '*.sh' '*.py' '*.js' '*.css' '*.html' '*.yaml' '*.yml' \
 	| grep -vE '(^|/)vendor/' \
 	| grep -vE '(^|/)testdata/' \
-	| grep -vE '(^|/)hack/' \
 	| grep -vE '^generated/' \
 	| grep -vE '\.pb\.go$$' \
 	| grep -vE '^controller/deploy/charts/' \

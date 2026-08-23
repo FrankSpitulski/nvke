@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
 #
 # Inject the SPIRE exec-auth plugin into CAPI/CAPD controller Deployments.
 # Applied after clusterctl init/upgrade. Missing Deployments are skipped so
