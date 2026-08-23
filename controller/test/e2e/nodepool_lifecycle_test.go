@@ -6,12 +6,14 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/NVIDIA/nke/controller/api"
 	"github.com/NVIDIA/nke/controller/test/e2e/internal/nke"
 )
 
@@ -128,13 +130,24 @@ func validateManualScaleDownStability(test *tenantTest) {
 // deletes it and confirms it is gone.
 func validateAdditionalNodePool(test *tenantTest) {
 	It("creates, scales, and deletes an additional worker node pool", func(ctx context.Context) {
-		_, primaryPool := expectScalePools(ctx, test)
+		controlPlanePool, primaryPool := expectScalePools(ctx, test)
 		primaryBefore := expectNodeIDs(ctx, test, primaryPool.ID)
 
+		By("Verifying the only joined control-plane pool cannot be deleted")
+		resp, err := test.nke.API().DeleteNodePoolWithResponse(ctx, controlPlanePool.ID)
+		Expect(err).NotTo(HaveOccurred(), "should receive a response when deleting the control-plane pool")
+		Expect(resp.StatusCode()).To(Equal(http.StatusBadRequest), "response body: %s", resp.Body)
+		Expect(resp.JSON400).NotTo(BeNil(), "400 response should contain a structured error")
+		Expect(resp.JSON400.Message).To(ContainSubstring("last joined control-plane node pool"))
+
+		poolAfterRejection, status, err := test.nke.GetNodePool(ctx, controlPlanePool.ID)
+		Expect(err).NotTo(HaveOccurred(), "should get the control-plane pool after its deletion is rejected")
+		Expect(status).To(Equal(http.StatusOK))
+		Expect(poolAfterRejection).NotTo(BeNil())
+		Expect(poolAfterRejection.ID).To(Equal(controlPlanePool.ID), "rejected deletion should preserve the control-plane pool")
+
 		By("Creating an additional worker node pool")
-		spec := forgeNodePoolSpec(nke.NodePoolSpec{Name: extraPoolName, NodeNamePrefix: "wx", DesiredNodeCount: 1},
-			extraPoolName, "wx", forgeOSProfile, forgeWConfigProfile)
-		req := expectSucceed(nke.ForgeNodePoolRequest(test.cluster.ID, spec))
+		req := expectSucceed(workerNodePoolRequest(test, extraPoolName, "wx"))
 		extra := expectSucceed(test.nke.CreateNodePool(ctx, req))
 		Expect(extra.Name).To(Equal(extraPoolName))
 		Expect(extra.ControlPlane).To(BeFalse())
@@ -163,9 +176,7 @@ func validateAdditionalNodePool(test *tenantTest) {
 // deletion cascades to it. It records the pool ID on the shared test state.
 func validateNodePoolCascadePostCreate(test *tenantTest) {
 	It("creates a worker node pool that stays active until cluster deletion", func(ctx context.Context) {
-		spec := forgeNodePoolSpec(nke.NodePoolSpec{Name: cascadePoolName, NodeNamePrefix: "wc", DesiredNodeCount: 1},
-			cascadePoolName, "wc", forgeOSProfile, forgeWConfigProfile)
-		req := expectSucceed(nke.ForgeNodePoolRequest(test.cluster.ID, spec))
+		req := expectSucceed(workerNodePoolRequest(test, cascadePoolName, "wc"))
 		pool := expectSucceed(test.nke.CreateNodePool(ctx, req))
 		Expect(test.nke.WaitForProvisionedNodeCount(ctx, pool.ID, 1)).To(Succeed())
 		test.cascadePoolID = pool.ID
@@ -187,4 +198,17 @@ func validateNodePoolCascadePostDelete(test *tenantTest) {
 		By("Verifying the node pool retains no nodes")
 		Expect(expectSucceed(test.nke.ListNodePoolNodes(ctx, test.cascadePoolID))).To(BeEmpty())
 	}, Label("cascade"), NodeTimeout(10*time.Minute))
+}
+
+func workerNodePoolRequest(test *tenantTest, name, nodeNamePrefix string) (api.CreateNodePoolRequest, error) {
+	base := nke.NodePoolSpec{Name: name, NodeNamePrefix: nodeNamePrefix, DesiredNodeCount: 1}
+	if test.spec.Backend == nke.BackendCAPD {
+		spec := capdNodePoolSpec(base, name, nodeNamePrefix)
+		return nke.CAPDNodePoolRequest(test.cluster.ID, spec, test.spec.CAPDNodeImage)
+	}
+	if test.spec.Backend == nke.BackendForgeVMS {
+		spec := forgeNodePoolSpec(base, name, nodeNamePrefix, forgeOSProfile, forgeWConfigProfile)
+		return nke.ForgeNodePoolRequest(test.cluster.ID, spec)
+	}
+	return api.CreateNodePoolRequest{}, fmt.Errorf("node pool lifecycle is unsupported for backend %q", test.spec.Backend)
 }

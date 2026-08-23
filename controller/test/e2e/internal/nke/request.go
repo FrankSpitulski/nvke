@@ -273,6 +273,16 @@ func buildCAPDNodePool(spec NodePoolSpec, nodeImage string) (api.NodePoolCreateC
 	return pool, nil
 }
 
+// CAPDNodePoolRequest builds a standalone create-node-pool request for a CAPD
+// cluster from spec.
+func CAPDNodePoolRequest(clusterID uuid.UUID, spec NodePoolSpec, nodeImage string) (api.CreateNodePoolRequest, error) {
+	pool, err := buildCAPDNodePool(spec, nodeImage)
+	if err != nil {
+		return api.CreateNodePoolRequest{}, err
+	}
+	return nodePoolRequest(clusterID, pool), nil
+}
+
 // buildForgeRequest builds a Forge-backed create request (no CAPI manifests).
 // The Forge identifiers come from spec; see test/e2e/oidc_test.go for the
 // forge-vms seed values.
@@ -370,21 +380,40 @@ func ForgeNodePoolRequest(clusterID uuid.UUID, spec NodePoolSpec) (api.CreateNod
 	if err != nil {
 		return api.CreateNodePoolRequest{}, err
 	}
+	return nodePoolRequest(clusterID, pool), nil
+}
+
+func nodePoolRequest(clusterID uuid.UUID, pool api.NodePoolCreateConfig) api.CreateNodePoolRequest {
+	//exhaustruct:enforce
 	return api.CreateNodePoolRequest{
-		ClusterID:             clusterID,
-		Name:                  pool.Name,
-		NodeNamePrefix:        pool.NodeNamePrefix,
-		ControlPlane:          pool.ControlPlane,
-		DesiredNodeCount:      pool.DesiredNodeCount,
-		InstanceTypeID:        pool.InstanceTypeID,
-		VpcPrefixIDs:          pool.VpcPrefixIDs,
-		SSHKeyGroupIDs:        pool.SSHKeyGroupIDs,
-		OSProfile:             pool.OSProfile,
-		ConfigProfile:         pool.ConfigProfile,
-		DiskSelectionStrategy: pool.DiskSelectionStrategy,
-		SystemReservedMemory:  pool.SystemReservedMemory,
-		KubeReservedMemory:    pool.KubeReservedMemory,
-	}, nil
+		ClusterID:                   clusterID,
+		Name:                        pool.Name,
+		SubnetIDs:                   pool.SubnetIDs,
+		VpcPrefixIDs:                pool.VpcPrefixIDs,
+		InstanceTypeID:              pool.InstanceTypeID,
+		InfinibandPartitionID:       pool.InfinibandPartitionID,
+		SSHKeyGroupIDs:              pool.SSHKeyGroupIDs,
+		OSProfile:                   pool.OSProfile,
+		ConfigProfile:               pool.ConfigProfile,
+		SystemReservedMemory:        pool.SystemReservedMemory,
+		KubeReservedMemory:          pool.KubeReservedMemory,
+		ControlPlane:                pool.ControlPlane,
+		NodeLabels:                  pool.NodeLabels,
+		DesiredNodeCount:            pool.DesiredNodeCount,
+		Description:                 pool.Description,
+		AutoProvisionDisabled:       pool.AutoProvisionDisabled,
+		AutoModeDisabled:            pool.AutoModeDisabled,
+		ProvisioningMonitorDisabled: pool.ProvisioningMonitorDisabled,
+		RecycleBudget:               pool.RecycleBudget,
+		TeleportEnabled:             pool.TeleportEnabled,
+		NvLinkLogicalPartitionID:    pool.NvLinkLogicalPartitionID,
+		CapiSpireAttestationMethod:  pool.CapiSpireAttestationMethod,
+		DiskSelectionStrategy:       pool.DiskSelectionStrategy,
+		NodeNamePrefix:              pool.NodeNamePrefix,
+		CapiInfraMachineTemplate:    pool.CapiInfraMachineTemplate,
+		CapiBootstrapFiles:          pool.CapiBootstrapFiles,
+		CapiPreKubeadmCommands:      pool.CapiPreKubeadmCommands,
+	}
 }
 
 // orderedPools returns the control-plane pools (forced controlPlane=true) first,

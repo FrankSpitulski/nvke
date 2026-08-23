@@ -56,6 +56,52 @@ func TestBuildForgeNodePoolKubeReservedMemory(t *testing.T) {
 	}
 }
 
+func TestCAPDNodePoolRequest(t *testing.T) {
+	clusterID := uuid.New()
+	req, err := CAPDNodePoolRequest(clusterID, NodePoolSpec{
+		Name:                 "worker-extra",
+		NodeNamePrefix:       "wx",
+		DesiredNodeCount:     1,
+		SystemReservedMemory: "2Gi",
+		KubeReservedMemory:   "512Mi",
+	}, "capd-node:test")
+	if err != nil {
+		t.Fatalf("building CAPD node pool request: %v", err)
+	}
+	if req.ClusterID != clusterID {
+		t.Errorf("cluster ID = %s, want %s", req.ClusterID, clusterID)
+	}
+	if req.Name != "worker-extra" || req.NodeNamePrefix != "wx" || req.DesiredNodeCount != 1 {
+		t.Errorf("node pool identity/count = (%q, %q, %d), want (worker-extra, wx, 1)", req.Name, req.NodeNamePrefix, req.DesiredNodeCount)
+	}
+	if req.SystemReservedMemory != "2Gi" || req.KubeReservedMemory != "512Mi" {
+		t.Errorf("reserved memory = (%q, %q), want (2Gi, 512Mi)", req.SystemReservedMemory, req.KubeReservedMemory)
+	}
+	if req.InstanceTypeID != uuid.Nil || req.OSProfile != "" || req.ConfigProfile != "" {
+		t.Errorf("CAPD request contains Forge fields: instanceTypeID=%s osProfile=%q configProfile=%q", req.InstanceTypeID, req.OSProfile, req.ConfigProfile)
+	}
+	if req.CapiSpireAttestationMethod != api.SpireAttestationMethodCreateJoinToken {
+		t.Errorf("SPIRE attestation method = %q, want %q", req.CapiSpireAttestationMethod, api.SpireAttestationMethodCreateJoinToken)
+	}
+	assertBootstrapSuccessCommands(t, req.CapiPreKubeadmCommands)
+
+	spec, ok := req.CapiInfraMachineTemplate["spec"].(map[string]any)
+	if !ok {
+		t.Fatalf("CAPI machine template spec = %#v, want an object", req.CapiInfraMachineTemplate["spec"])
+	}
+	template, ok := spec["template"].(map[string]any)
+	if !ok {
+		t.Fatalf("CAPI machine template payload = %#v, want an object", spec["template"])
+	}
+	machineSpec, ok := template["spec"].(map[string]any)
+	if !ok {
+		t.Fatalf("CAPI machine template machine spec = %#v, want an object", template["spec"])
+	}
+	if got := machineSpec["customImage"]; got != "capd-node:test" {
+		t.Errorf("custom image = %#v, want capd-node:test", got)
+	}
+}
+
 func TestUnit_BuildForgeRequestControlPlaneVIP(t *testing.T) {
 	type parameters struct {
 		spec    ClusterSpec

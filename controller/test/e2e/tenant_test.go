@@ -183,7 +183,7 @@ var _ = DescribeTableSubtree("NKE with backend", withForgeVMSOSProfileEntries(
 			controlPlaneVIP:   capdControlPlaneVIP,
 		},
 		options:  nke.Options{Provision: 10 * time.Minute, Delete: 5 * time.Minute, Poll: 5 * time.Second},
-		validate: validations{scale: true, reboot: true, postReadyChecks: true, csrApproval: true},
+		validate: validations{scale: true, reboot: true, postReadyChecks: true, csrApproval: true, nodePoolLifecycle: true},
 	}),
 	Entry("nico-containers", Ordered, ContinueOnFailure, Label("nico-containers", "happy-path"), testSpec{
 		buildSpec: nicoSpec,
@@ -438,6 +438,11 @@ func (t *tenantTest) initCluster(ctx context.Context, b testSpec) {
 	Expect(err).NotTo(HaveOccurred(), "should create the cluster")
 	t.log.Info("Created cluster", "name", cluster.Name, "id", cluster.ID)
 
+	By("Verifying the tenant cluster appears in the cluster list")
+	listedCluster, err := t.nke.GetByName(ctx, cluster.Name)
+	Expect(err).NotTo(HaveOccurred(), "should list the created cluster by name")
+	Expect(listedCluster.ID).To(Equal(cluster.ID), "listed cluster should match the created cluster")
+
 	By("Waiting for the tenant cluster to be provisioned")
 	start := time.Now()
 	cluster, err = t.nke.WaitForClusterReady(ctx, cluster.ID)
@@ -479,6 +484,7 @@ func capdSpec(cfg config.Config, name string, shape clusterShape) nke.ClusterSpe
 		KubernetesVersion: defaultString(shape.kubernetesVersion, defaultKubernetesVersion),
 		CNIPlugin:         defaultString(shape.cniPlugin, CNIPluginCalico),
 		CAPDNodeImage:     cfg.Cluster.CAPDNodeImage,
+		SiteID:            uuid.Nil.String(),
 		ControlPlane: nke.ControlPlane{
 			Pools:           capdNodePoolSpecs(shape.controlPlanePools, "control-plane", "cp"),
 			EtcdEncrypted:   shape.etcdEncrypted,
@@ -488,7 +494,7 @@ func capdSpec(cfg config.Config, name string, shape clusterShape) nke.ClusterSpe
 	}
 }
 
-func TestUnit_CAPDSpecControlPlaneVIP(t *testing.T) {
+func TestUnit_CAPDSpec(t *testing.T) {
 	tests := map[string]string{
 		"explicit VIP": capdControlPlaneVIP,
 		"empty VIP":    "",
@@ -497,6 +503,9 @@ func TestUnit_CAPDSpecControlPlaneVIP(t *testing.T) {
 	for name, wantVIP := range tests {
 		t.Run(name, func(t *testing.T) {
 			spec := capdSpec(config.Config{}, "capd-test", clusterShape{controlPlaneVIP: wantVIP})
+			if spec.SiteID != uuid.Nil.String() {
+				t.Fatalf("SiteID = %q, want %q", spec.SiteID, uuid.Nil.String())
+			}
 			if spec.ControlPlane.ControlPlaneVIP != wantVIP {
 				t.Fatalf("ControlPlaneVIP = %q, want %q", spec.ControlPlane.ControlPlaneVIP, wantVIP)
 			}
