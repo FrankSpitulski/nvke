@@ -169,7 +169,7 @@ func (s *NodeAgentServer) runK8sControlPlaneNodeGracefulShutdown(
 
 	if shouldStopKubeAPIServer {
 		return s.stopStaticPod(ctx, runner, progress, staticPodStopSpec{
-			containerName: "kube-apiserver",
+			containerName: kubeAPIServerContainerName,
 			manifestName:  defaultKubeAPIServerManifestName,
 			stoppingStep:  "stopping_kube_apiserver",
 			waitingStep:   "waiting_for_kube_apiserver_exit",

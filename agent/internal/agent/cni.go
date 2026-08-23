@@ -313,7 +313,7 @@ func (s *NodeAgentServer) installOvnK8sCNIPlugin(req *pb.InstallCNIPluginRequest
 		RequestID:   requestID,
 		Name:        ovnBundle.Name,
 		Version:     ovnBundle.Version,
-		Status:      "pending",
+		Status:      PendingStatus,
 		InstallTime: time.Now().Format(time.RFC3339),
 	}
 	defer s.AppendBundleToStatus(bundleStatus)

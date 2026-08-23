@@ -175,7 +175,7 @@ func SetNodeStatus(status *NodeStatus) error {
 	}
 	status.Status = "ready"
 	// Default to worker if it has a kubelet config
-	status.Role = "worker"
+	status.Role = WorkerRole
 
 	// Now check to see if it's a controlplane...
 	manifests := []string{
@@ -191,7 +191,7 @@ func SetNodeStatus(status *NodeStatus) error {
 		}
 	}
 	if allExist {
-		status.Role = "controlplane"
+		status.Role = ControlPlaneRole
 	}
 	return nil
 }

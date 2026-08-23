@@ -218,12 +218,12 @@ func (s *NodeAgentServer) UpdateState() {
 	s.mu.Lock()
 	s.NodeStatus.KubeadmVersion = v
 
-	if strings.EqualFold(s.NodeStatus.Role, "controlplane") {
-		s.NodeStatus.Role = "controlplane"
+	if strings.EqualFold(s.NodeStatus.Role, ControlPlaneRole) {
+		s.NodeStatus.Role = ControlPlaneRole
 	}
 
-	if strings.EqualFold(s.NodeStatus.Role, "worker") {
-		s.NodeStatus.Role = "worker"
+	if strings.EqualFold(s.NodeStatus.Role, WorkerRole) {
+		s.NodeStatus.Role = WorkerRole
 	}
 	s.mu.Unlock()
 }
