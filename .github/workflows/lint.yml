@@ -172,6 +172,57 @@ jobs:
         working-directory: controller/hack/nico-mock
         run: make lint
 
+  # controller/api has no Makefile of its own, unlike every other module here,
+  # so this job runs golangci-lint directly rather than through `make lint`.
+  # It is the generated oapi-codegen client plus its models; it lints clean
+  # today and this job is what keeps it that way.
+  lint-api:
+    name: golangci-lint (controller/api)
+    runs-on: ubuntu-latest
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    # WORKSPACE mode, for the same reason the controller job above uses it, and
+    # arrived at the hard way: this job failed with "inconsistent vendoring in
+    # controller/api" listing fourteen of its own direct requirements.
+    #
+    # controller/api has no .golangci.yml, so golangci-lint walks up and finds
+    # controller/.golangci.yml, which sets `modules-download-mode: vendor`. That
+    # setting is right for controller/ and is inherited here by accident. With
+    # the workflow-level GOWORK=off, -mod=vendor then resolves against the root
+    # vendor/ tree while treating controller/api as a lone main module, and the
+    # tree is a workspace-level construct whose explicit markers do not describe
+    # any single member. Turning the workspace back on makes the two agree.
+    env:
+      GOWORK: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # go.work, not controller/api/go.mod: workspace mode requires the
+      # workspace's Go, and setup-go pins GOTOOLCHAIN=local so the installed
+      # version is the only one available. Same block as the controller job.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.work
+          cache: true
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
+
+      # Pinned to the version controller/ and cli/ already use, so the whole
+      # workspace reports against one linter release.
+      - name: Run golangci-lint
+        working-directory: controller/api
+        run: |
+          set -euo pipefail
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          "$(go env GOPATH)/bin/golangci-lint" run --timeout 10m
+
   lint-forge-vms:
     name: golangci-lint (forge-vms)
     runs-on: ubuntu-latest
