@@ -146,7 +146,7 @@ jobs:
   # `go build ./...` does not cover this. It ignores _test.go entirely, and
   # ignores any file behind a build tag nothing sets. So:
   #
-  #   - controller/test/e2e is a separate module of 21 test files and no
+  #   - controller/test/e2e is a separate module of test files with no
   #     non-test package. The unit job above compiles the root package and runs
   #     everything except the live TestE2E entrypoint; vet keeps an explicit
   #     compile-only assertion for the whole suite.
