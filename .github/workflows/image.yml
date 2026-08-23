@@ -89,9 +89,12 @@ jobs:
         run: |
           set -euo pipefail
           status=0
+          # $1 is the Dockerfile, $2 the context. Anything after that is passed
+          # to docker, which is how a Dockerfile whose default base is built
+          # locally gets a resolvable one for the parse.
           check() {
             echo "::group::docker build --check $1"
-            docker build --check -f "$1" "$2" || status=1
+            docker build --check "${@:3}" -f "$1" "$2" || status=1
             echo "::endgroup::"
           }
           # The controller Dockerfile builds from the repository root: the
@@ -106,6 +109,14 @@ jobs:
           check controller/hack/capd-reboot-controller/Dockerfile controller/hack/capd-reboot-controller
           check controller/hack/capd-kindest-node/Dockerfile      controller/hack/capd-kindest-node
           check agent/internal-scripts/docker/Dockerfile.proto    agent/internal-scripts/docker
+
+          # The nkectl bootstrap substrate node. Its default base,
+          # cwe-capd-kindest-node:local, is built by the e2e lane and is not
+          # pullable, so --check cannot resolve it and the file went unchecked.
+          # Any resolvable node image parses it, and kindest/node is the image
+          # capd-kindest-node derives that local one from in the first place.
+          check cli/e2e/bootstrap/substrate/node/Dockerfile       cli/e2e/bootstrap/substrate/node \
+                --build-arg BASE_IMAGE=kindest/node:v1.34.8
           # Tiltfile builds cwe.tilt from a temporary directory holding bin/,
           # profiles/ and ui/, so its real context does not exist in the tree.
           # Using controller/ instead fails on CopyIgnoredFile, because
