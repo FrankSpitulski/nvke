@@ -671,6 +671,19 @@ fi
 # the CAPD set this script has always used; nico-e2e.yml passes the NICo one.
 # capi_core is not optional: the Tiltfile refuses a list without it.
 : "${NKE_E2E_PROVIDERS:=[\"capi_core\", \"bgp-containers\", \"capd\", \"capd-reboot-controller\"]}"
+
+# Where the suite reads the OS profile index it builds the forge-vms matrix
+# from. This has to be a path on the inner runner. The suite is compiled on the
+# outer runner, so the fallback resolveOSProfileMetadataPath derives from
+# runtime.Caller names a directory that does not exist where the binary runs,
+# and without this the matrix soft-skips and 21 specs never register.
+#
+# fleet-profiles, not profiles. The latter is the synthetic index the CWE
+# deployment serves below, and it omits the profiles the matrix documents as
+# exclusions, so building the matrix from it panics the suite.
+#
+# A lane with a real nke-site-deploy checkout can point this at that instead.
+: "${NKE_E2E_PROFILES_DIR:=/workspace/cloud-workflow-engine/test/fixtures/fleet-profiles}"
 if ! jq -e 'type == "array" and length > 0' <<<"${NKE_E2E_PROVIDERS}" >/dev/null 2>&1; then
   log "NKE_E2E_PROVIDERS must be a non-empty JSON array, got: ${NKE_E2E_PROVIDERS}"
   exit 1
@@ -771,6 +784,7 @@ set +e
 # assertion: the deployed CWE reports the version baked into the image this run
 # built, so a stale image being tested fails here rather than passing quietly.
 runner_exec env "CWE_EXPECTED_VERSION=${CWE_BUILD_VERSION}" \
+  "CWE_PROFILES_DIR=${NKE_E2E_PROFILES_DIR}" \
   /state/cwe-e2e.test \
   -test.v \
   -test.timeout=105m \
