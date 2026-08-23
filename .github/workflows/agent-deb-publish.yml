@@ -360,6 +360,18 @@ jobs:
           merge-multiple: true
           path: agent/bin
 
+      # Only for agent/THIRD_PARTY_NOTICES.md, which is attached below and
+      # cannot be produced from the build artifacts. It runs AFTER the download
+      # on purpose: actions/checkout cleans the workspace, so the reverse order
+      # would delete the packages.
+      - name: Checkout for the notices file
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          clean: false
+          sparse-checkout: agent/THIRD_PARTY_NOTICES.md
+          sparse-checkout-cone-mode: false
+
       - name: Inspect packages
         id: meta
         run: |
@@ -372,6 +384,23 @@ jobs:
             exit 1
           fi
           ls -la "${debs[@]}"
+
+          # Attribution has to be present before the release is built, not
+          # discovered missing after it is sealed.
+          if [ ! -f agent/THIRD_PARTY_NOTICES.md ]; then
+            echo "::error::agent/THIRD_PARTY_NOTICES.md is missing; the checkout step above did not fetch it"
+            exit 1
+          fi
+
+          # Hash the packages and the notices together, so one file covers
+          # everything a consumer downloads. Names are relative because
+          # `sha256sum -c` resolves them against the working directory, and a
+          # consumer runs it from wherever they unpacked the release.
+          ( cd agent/bin && sha256sum -- *.deb > checksums.txt )
+          cp agent/THIRD_PARTY_NOTICES.md agent/bin/THIRD_PARTY_NOTICES.md
+          ( cd agent/bin && sha256sum -- THIRD_PARTY_NOTICES.md >> checksums.txt )
+          echo "checksums.txt:"
+          sed 's/^/    /' agent/bin/checksums.txt
 
           # Tag is agent/vX.Y.Z; title uses "agent vX.Y.Z" to match AGENTS.md.
           version="${GITHUB_REF_NAME#agent/}"
@@ -398,7 +427,14 @@ jobs:
             nke-agent ${{ steps.meta.outputs.version }} Debian packages (amd64 and arm64).
 
             Apt install path is the apt-publisher intake from this same workflow; these assets are the same `.deb`s attached for direct download.
-          files: agent/bin/*.deb
+
+            Verify a download with `sha256sum -c checksums.txt`. That proves the
+            file arrived intact; it does not prove provenance, because nke does
+            not sign release artifacts yet.
+          files: |
+            agent/bin/*.deb
+            agent/bin/checksums.txt
+            agent/bin/THIRD_PARTY_NOTICES.md
           fail_on_unmatched_files: true
           prerelease: ${{ contains(github.ref_name, '-rc.') }}
           make_latest: false
