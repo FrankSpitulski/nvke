@@ -132,3 +132,11 @@ jobs:
         env:
           GOWORK: ""
         run: make notices-check
+
+      # os-image needs the workspace for the same reason cli and controller do:
+      # it requires github.com/NVIDIA/nke/agent, which resolves only there.
+      - name: Verify nke-os-image-check THIRD_PARTY_NOTICES.md is up to date
+        working-directory: os-image
+        env:
+          GOWORK: ""
+        run: make notices-check

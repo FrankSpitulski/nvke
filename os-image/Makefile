@@ -90,3 +90,33 @@ boot-smoke: ## Boot the packer/output qcow2 in QEMU and confirm cloud-init compl
 
 clean:
 	rm -rf bin
+
+.PHONY: notices
+notices: ## Regenerate THIRD_PARTY_NOTICES.md for the nke-os-image-check binary.
+	@# The tool and the script both live in controller/, a sibling of this
+	@# module. `go-licenses`, not `bin/go-licenses`: the real rule's target is an
+	@# absolute path, so a relative name does not match it.
+	@#
+	@# GOWORK is deliberately NOT set to off here, unlike the other targets in
+	@# this file. os-image requires github.com/NVIDIA/nke/agent, which resolves
+	@# only through the workspace; with the workspace off, go-licenses cannot
+	@# load the module and fails before it collects anything.
+	@$(MAKE) --no-print-directory -C ../controller go-licenses
+	@MODULE_ROOT="$(CURDIR)" \
+		OUTPUT="$(CURDIR)/THIRD_PARTY_NOTICES.md" \
+		PACKAGES="./cmd/nke-os-image-check" \
+		GO_LICENSES="$(CURDIR)/../controller/bin/go-licenses" \
+		bash ../controller/hack/generate-notices
+
+.PHONY: notices-check
+notices-check: ## Verify THIRD_PARTY_NOTICES.md is up to date.
+	@# git diff says nothing about an untracked path, so check tracking first --
+	@# otherwise a deleted or never-committed notices file passes silently.
+	@git ls-files --error-unmatch THIRD_PARTY_NOTICES.md > /dev/null 2>&1 \
+		|| { echo "THIRD_PARTY_NOTICES.md is not tracked by git. Run 'make notices' and commit it."; exit 1; }
+	@$(MAKE) --no-print-directory notices
+	@if ! git diff --exit-code -- THIRD_PARTY_NOTICES.md > /dev/null 2>&1; then \
+		echo "THIRD_PARTY_NOTICES.md is out of date. Please run 'make notices' locally and commit the changes."; \
+		git diff --name-only -- THIRD_PARTY_NOTICES.md; \
+		exit 1; \
+	fi

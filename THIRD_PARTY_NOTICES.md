@@ -16,19 +16,24 @@ where those notices are, and which do not yet — and why.
 | `agent/` — the node agent | [agent/THIRD_PARTY_NOTICES.md](agent/THIRD_PARTY_NOTICES.md) | the import closure of `./cmd/...` for `linux/amd64` and `linux/arm64` | the `Third-Party Notices` workflow, on every push |
 | `controller/` — the Cloud Workflow Engine | [controller/THIRD_PARTY_NOTICES.md](controller/THIRD_PARTY_NOTICES.md) — **156 modules** | the import closure of `./cmd/worker` for `linux/amd64`, read from the committed `vendor/` tree | the `Third-Party Notices` workflow, on every push |
 | `cli/` — the `nkectl` CLI | [cli/THIRD_PARTY_NOTICES.md](cli/THIRD_PARTY_NOTICES.md) — **24 modules** | the import closure of `./cmd/nkectl` for `linux/amd64` | the `Third-Party Notices` workflow, on every push |
+| `os-image/` — the `nke-os-image-check` binary | [os-image/THIRD_PARTY_NOTICES.md](os-image/THIRD_PARTY_NOTICES.md) — **9 modules** | the import closure of `./cmd/nke-os-image-check` for `linux/amd64` | the `Third-Party Notices` workflow, on every push |
 
 Regenerate with:
 
 ```bash
-cd agent            && make notices
-cd controller       && make notices
-cd cli && make notices
+cd agent      && make notices
+cd controller && make notices
+cd cli        && make notices
+cd os-image   && make notices
 ```
 
-⚠️ **The controller and nkectl generators need the workspace on** (do not set
-`GOWORK=off`). They read the committed `vendor/` tree, which is a
-workspace-level construct — that is what lets them run without downloading the
-internal `cluster-api-provider-nico`.
+⚠️ **The controller, nkectl and os-image generators need the workspace on** (do
+not set `GOWORK=off`), for two different reasons. The controller and nkectl read
+the committed `vendor/` tree, which is a workspace-level construct — that is what
+lets them run without downloading the internal `cluster-api-provider-nico`.
+`os-image` requires `github.com/NVIDIA/nke/agent`, which resolves only through
+the workspace's `use` directive; with the workspace off, `go-licenses` fails with
+`go.mod file not found` before it collects anything.
 
 `make notices-check` regenerates the file and fails if the result differs from
 what is committed. CI runs it on every push, so the file cannot drift away from
@@ -37,7 +42,7 @@ the dependency tree without the build going red.
 ## Not yet covered
 
 **Nothing.** Every binary this repository redistributes now carries generated
-attribution, and CI regenerates and compares all three on every push.
+attribution, and CI regenerates and compares all four on every push.
 
 `capd-reboot-controller` and `nico-mock` are built by `make build` but shipped
 nowhere — no image, no artifact, no package. If either starts shipping, it needs
