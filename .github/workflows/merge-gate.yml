@@ -2,13 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # One check to require: `gate`.
+# Workflow authors: read .github/workflows/README.md before adding a member.
 #
 # WHY ONE AGGREGATE RATHER THAN A LIST OF JOB NAMES
 #
 # Two ways a required check blocks a pull request forever, and both apply here:
 #
-#   1. A check that never runs. Nine of this repository's workflows trigger on
-#      `push` to main or to pull-request/N, so they only appear when copy-pr-bot
+#   1. A check that never runs. Advisory workflows using NVIDIA runners trigger
+#      on a `push` to pull-request/N, so they only appear when copy-pr-bot
 #      mirrors the head -- which happens for vetted authors. Requiring one of
 #      those would block every unvetted contributor permanently.
 #
@@ -26,9 +27,9 @@
 #
 # Everything that runs on a GitHub-hosted runner and is fast enough not to hurt
 # pull-request latency. Deliberately NOT in it: codeql, image, notices-check,
-# secrets, security-scan and lint, which need NVIDIA runners, and deb, whose
-# two-architecture package build is slow and only matters to an agent release.
-# Those keep reporting on `push` as they do today; they are advisory.
+# secrets and security-scan, which keep reporting through mirror-branch pushes,
+# and deb, whose two-architecture package build is slow and only matters to an
+# agent release. Those remain advisory.
 #
 # `DCO` is not here either. It is a GitHub App rather than a workflow, it already
 # reports on every pull request regardless of author, and it should be required
@@ -40,6 +41,9 @@
 # workflow. Each called workflow gained `workflow_call:` and lost its own
 # `pull_request:` trigger in the same change, so it runs once -- through here --
 # rather than twice on every pull request.
+# Gate members also have no direct `pull-request/N` or Dependabot push trigger.
+# The underlying PR already reaches the same checks through this workflow;
+# triggering its head branch directly would run the work a second time.
 #
 # A called workflow does NOT apply its own `paths:` filter, so everything below
 # runs on every pull request. That is deliberate: preserving the filters would
@@ -50,24 +54,28 @@
 name: Merge gate
 
 on:
+  # Stacked pull requests target another feature branch and still need the same
+  # required checks before they retarget or merge onward. Mirror branches are
+  # bot-owned transport, never intentional PR bases; excluding them avoids an
+  # accidental full gate on a pull-request/N base.
+  #
+  # A base-branch retarget is an `edited` event, which is not in GitHub's
+  # default pull_request activity set. Include it so an unchanged head cannot
+  # carry a gate result evaluated against its old base into the new one.
   pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+    branches-ignore: ["pull-request/[0-9]+"]
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  # The sha is part of the group on main, so every commit gets its own.
-  # Without it, back-to-back merges lose CI results: GitHub allows one
-  # running and one pending run per group, and cancels the pending one
-  # when a third arrives -- whatever cancel-in-progress says, because that
-  # setting only protects a run that has already started.
+  # Pull-request updates share a group and cancel stale gate runs. A manual run
+  # on main includes the sha, so dispatching one commit cannot displace another.
   #
-  # This matters more here than anywhere else: once `gate` is required, a
-  # cancelled run is indistinguishable from one still in progress, and the
-  # pull request simply never becomes mergeable.
+  # This matters here because `gate` is required: a cancelled current run is
+  # indistinguishable from one still in progress, and the pull request never
+  # becomes mergeable.
   # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
   # expression is the CALLER's name, so any workflow merge-gate.yml calls would
   # share a group with its siblings and cancel them. 8 of 9 calls died that way,

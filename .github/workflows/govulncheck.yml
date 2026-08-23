@@ -58,27 +58,14 @@
 
 name: govulncheck
 
-# workflow_call so merge-gate.yml can call this, and ubuntu-latest so the call
-# works on a real pull_request event -- self-hosted runners do not receive fork
-# pull_request events, so a gate member left on one would queue forever.
-#
 # Nothing here needs an NVIDIA runner: the whole workspace resolves from the
-# committed vendor/ tree, so this is ordinary Go work with no credentials.
-#
-# Lands ahead of the gate change on purpose. A local `uses: ./.github/...`
-# reference resolves against the BASE branch, so a workflow whose workflow_call
-# trigger exists only on a pull-request head cannot be called from it -- the call
-# fails with no jobs and no error message.
+# committed vendor/ tree, so merge-gate.yml calls this on the real pull_request
+# event, including fork and Dependabot pull requests. The standalone push
+# trigger is post-merge coverage on main; naming the mirrored PR branches here
+# too would run the same scan a second time.
 on:
   push:
-    branches:
-      - main
-      - "pull-request/[0-9]+"
-      # Dependabot branches are mirrored to neither main nor
-      # pull-request/N, so without this line a dependency bump gets none
-      # of this check -- and a check that cannot report on a pull request
-      # cannot be required. Same list as notices-check.yml.
-      - "dependabot/**"
+    branches: [main]
   schedule:
     # Monday 06:30 UTC. New advisories land without the code changing.
     - cron: '30 6 * * 1'

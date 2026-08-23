@@ -57,10 +57,18 @@ permissions: {}
 # file would share a group on a tag push: the caller holds it, the called
 # workflow queues behind its own caller, and the release never finishes.
 #
-# Not cancelled on a tag either. release.yml calls this as its publish gate,
-# and cancelling the gate fails the release.
+# The sha suffix on main is necessary even with cancel-in-progress false.
+# GitHub keeps at most one running and one pending entry in a concurrency group;
+# consecutive direct pushes all use refs/heads/main, so a third push cancels the
+# pending entry. Each merged commit needs its own result from this workflow's
+# retained push trigger. Tags and pull-request refs remain keyed by ref: tag
+# refs are already unique, and a new update should replace a stale pull-request
+# run.
+#
+# Not cancelled on a tag. release.yml calls this as its publish gate, and
+# cancelling the gate fails the release.
 concurrency:
-  group: license-checks-${{ github.ref }}
+  group: license-checks-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 # header-check works one module at a time, as this whole workflow did before the

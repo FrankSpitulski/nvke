@@ -32,9 +32,8 @@
 
 name: Controller Unit Tests
 
-# The two path lists are duplicated by hand. github.com has supported YAML
-# anchors since August 2025, but GitHub Enterprise Server does not, and merge
-# keys are still unsupported everywhere. Keep the two lists identical.
+# Keep the push paths aligned with the test matrix below. `cli/**` is explicit
+# because that module sits outside `controller/**`.
 # workflow_call is what merge-gate.yml uses to call this as a reusable workflow.
 # Its own `pull_request:` trigger is gone: pull requests reach it through the
 # gate, so it runs once per pull request rather than twice.
@@ -47,6 +46,7 @@ on:
     branches: [main]
     paths:
       - 'controller/**'
+      - 'cli/**'
       - 'go.work'
       - 'go.work.sum'
       - 'vendor/**'

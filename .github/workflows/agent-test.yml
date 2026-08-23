@@ -6,19 +6,16 @@
 # unrelated monorepo PRs are not blocked by it.
 #
 # GitHub-hosted runners, not the self-hosted linux-*-cpu16 pool, deliberately.
-# Self-hosted runners do not receive pull_request events -- see the header of
-# lint.yml -- so using them would cost coverage of fork and Dependabot pull
-# requests. The agent module resolves from the committed root vendor/ tree
-# (workspace mode), so this needs no NVIDIA runner and no credentials.
+# This repository does not dispatch fork or Dependabot pull_request jobs to the
+# NVIDIA runner pool, so using it would cost that coverage. The agent module
+# resolves from the committed root vendor/ tree (workspace mode), so this needs
+# no NVIDIA runner and no credentials.
 #
 # Go Build already compiles the workspace; this job is the missing `go test`
 # half for agent/.
 
 name: Agent Unit Tests
 
-# The two path lists are duplicated by hand. github.com has supported YAML
-# anchors since August 2025, but GitHub Enterprise Server does not, and merge
-# keys are still unsupported everywhere. Keep the two lists identical.
 # workflow_call is what merge-gate.yml uses to call this as a reusable workflow.
 # Its own `pull_request:` trigger is gone: pull requests reach it through the
 # gate, so it runs once per pull request rather than twice.

@@ -25,9 +25,9 @@ on:
       # elsewhere; nke was assumed covered by its pull_request-triggered
       # workflows, but only three of its twelve are, and this is not one.
       #
-      # Self-hosted runners do not receive pull_request events -- see the header
-      # of lint.yml -- so this job cannot switch triggers. It has to name the
-      # branch.
+      # This repository does not dispatch unvetted pull_request jobs to the
+      # NVIDIA runner pool, so this self-hosted job cannot switch triggers. It
+      # has to name the trusted Dependabot branch directly.
       - "dependabot/**"
   workflow_dispatch:
 

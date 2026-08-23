@@ -18,24 +18,12 @@
 
 name: Generate Check
 
-# workflow_call is declared so merge-gate.yml can call this as a reusable
-# workflow. Adding the trigger changes nothing on its own: this workflow still
-# runs exactly as it did, on the same events.
-#
-# It lands ahead of the gate on purpose. A local `uses: ./.github/workflows/...`
-# reference resolves against the BASE branch, so a workflow whose workflow_call
-# trigger exists only on a pull-request head cannot be called from that same
-# pull request -- the call fails with no jobs and no error message.
+# All pull requests, including forks and Dependabot, reach this through
+# merge-gate.yml. The standalone push trigger is post-merge coverage on main;
+# naming mirror or Dependabot branches here too would run it a second time.
 on:
   push:
-    branches:
-      - main
-      - "pull-request/[0-9]+"
-      # Dependabot branches are mirrored to neither of the above. A bump to the
-      # generator or to kin-openapi changes the output, so this is precisely a
-      # pull request where the check needs to run. Same list as
-      # notices-check.yml.
-      - "dependabot/**"
+    branches: [main]
   workflow_call:
   workflow_dispatch: {}
 

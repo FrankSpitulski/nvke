@@ -33,11 +33,11 @@
 # both, both link against libc, and `Depends: libc6` is correct for both.
 #
 # GitHub-hosted runners, not the self-hosted linux-*-cpu16 pool, deliberately.
-# Self-hosted runners do not receive pull_request events -- see the header of
-# lint.yml -- so using them would cost coverage of fork and Dependabot pull
-# requests, which is most of the reason this workflow exists. dpkg-deb and
-# fakeroot are ordinary Debian tooling and the agent builds from public
-# dependencies, so no NVIDIA runner and no credentials are needed.
+# This repository does not dispatch fork or Dependabot pull_request jobs to the
+# NVIDIA runner pool, so using it would cost that coverage, which is most of the
+# reason this workflow exists. dpkg-deb and fakeroot are ordinary Debian tooling
+# and the agent builds from public dependencies, so no NVIDIA runner and no
+# credentials are needed.
 
 name: Debian Package
 
