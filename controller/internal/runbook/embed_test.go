@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Assert that one random runbook is embedded.
-// The actual runbook chosen is not important.
 func TestScript(t *testing.T) {
 	script, err := Script("", "reboot")
 
@@ -55,5 +53,7 @@ func TestNames(t *testing.T) {
 
 	require.NotEmpty(t, names)
 	require.Contains(t, names, "reboot")
+	require.Contains(t, names, "uptime")
+	require.Contains(t, names, "etcd-member-remove")
 	require.True(t, sort.StringsAreSorted(names))
 }
