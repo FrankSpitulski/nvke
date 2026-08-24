@@ -38,18 +38,19 @@
 #
 # Since cli/internal/cwedeploy (NKX-13889), the job also deploys Postgres,
 # Temporal and CWE onto the ephemeral cluster and asserts CWE reports healthy
-# on /readyz -- see run.sh's Stage 2. The CWE image comes from
-# image-nvcr.yml, which publishes nvcr.io/<NKE_NGC_ORG>/controller:edge on
-# every push to main; there is no other canonical build of it yet (the
-# GitLab spike this was ported from, cloud-workflow-engine!995, has not
-# merged, so there is nothing there to pull either). This job logs in to
-# nvcr.io using the same `nvcr` environment and NGC_REGISTRY_TOKEN_NKE secret
-# image-nvcr.yml uses, and pulls the image on the runner's Docker daemon --
-# nkectl itself never authenticates to a registry; it only `kind
-# load`s an image already present locally (see cmd/nkectl/bootstrap.go's
-# ensureImageAvailable). `edge` is a moving tag, not a version pin; this is a
-# known rough edge until controller/v* release tags exist and this can pin a
-# real version instead (see NKX-13889).
+# on /readyz -- see run.sh's Stage 2. The CWE image is pulled from GHCR with
+# the built-in GITHUB_TOKEN.
+#
+# GHCR, not the nvcr.io `edge` tag this job first used: NGC_REGISTRY_TOKEN_NKE
+# lives in the `nvcr` environment, which a pull_request run does not get. The
+# job died at the login step in 35 seconds and reported failure without
+# testing anything, so the gate could not block a real bug -- and did not,
+# on #244. GITHUB_TOKEN is available to every run.
+#
+# CWE_IMAGE pins a release tag rather than tracking a moving one, which is
+# what run.sh asks for and what promote-ghcr publishes (image-nvcr.yml copies
+# each controller/v* tag to GHCR; `edge` stays on nvcr.io alone). Bump it when
+# the suite needs something newer than the pinned controller.
 name: nkectl bootstrap e2e
 
 # See go-build.yml for why the push path list is duplicated by hand instead of
@@ -78,15 +79,15 @@ jobs:
     name: e2e
     runs-on: ubuntu-latest
     if: github.repository == 'NVIDIA/nke'
-    # Grants secrets.NGC_REGISTRY_TOKEN_NKE and vars.NKE_NGC_ORG, same as
-    # image-nvcr.yml -- this job only reads from nvcr.io, it never publishes.
-    environment: nvcr
     # Generous margin: building the CAPD base node image (TPM tooling, SPIRE
     # bundle fetch, local agent compile) plus the thin derivation on top has
     # not yet been timed end to end in this CI lane.
     timeout-minutes: 45
     permissions:
       contents: read
+      packages: read
+    env:
+      CWE_IMAGE: ghcr.io/nvidia/nke/controller:v0.1.1-rc.2
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -121,37 +122,25 @@ jobs:
           kubectl_version: v1.36.0
           install_only: true
 
-      # `$oauthtoken` is NGC's literal username, not a variable reference.
-      # Same login image-nvcr.yml performs to publish; this job only pulls.
-      - name: Log in to NVCR
+      - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
-          registry: nvcr.io
-          username: "$oauthtoken"
-          password: ${{ secrets.NGC_REGISTRY_TOKEN_NKE }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Pulled here, once, on the runner's own Docker daemon -- nkectl itself
       # never talks to a registry. cmd/nkectl/bootstrap.go's
       # ensureImageAvailable finds this image already cached and `kind
       # load`s it straight into the ephemeral cluster.
-      - name: Resolve and pull the CWE image
-        id: cwe-image
+      - name: Pull the CWE image
         shell: bash
-        env:
-          NKE_NGC_ORG: ${{ vars.NKE_NGC_ORG }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${NKE_NGC_ORG}" ]]; then
-            echo "::error::NKE_NGC_ORG is not set in the nvcr environment"
-            exit 1
-          fi
-          image="nvcr.io/${NKE_NGC_ORG}/controller:edge"
-          echo "Pulling ${image} (published by image-nvcr.yml on every push to main)"
-          docker pull "${image}"
-          echo "image=${image}" >> "${GITHUB_OUTPUT}"
+        run: docker pull "${CWE_IMAGE}"
 
+      # The profiles image needs no registry: run.sh builds it from
+      # controller/test/fixtures.
       - name: Run nkectl bootstrap e2e
         working-directory: cli
         env:
-          NKECTL_CWE_IMAGE: ${{ steps.cwe-image.outputs.image }}
+          NKECTL_CWE_IMAGE: ${{ env.CWE_IMAGE }}
         run: make test-e2e-bootstrap

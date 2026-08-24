@@ -6,13 +6,13 @@
 # (the chart's own local-dev override), trimmed to what this single-purpose
 # ephemeral deployment needs: no SPIFFE/SPIRE (no SPIRE server exists on the
 # bootstrap cluster, and the csi.spiffe.io CSI driver isn't installed either),
-# no OIDC, no fleet-profiles init container (no profiles image is built for
-# this path), no ServiceMonitor (no Prometheus Operator CRDs on a vanilla Kind
+# no OIDC, no ServiceMonitor (no Prometheus Operator CRDs on a vanilla Kind
 # cluster).
 #
-# image.repository/tag are NOT set here -- Engine.Deploy passes them via
-# --set-string from Config.CWEImage, since the image reference (and whether
-# it needs `kind load`'d in first) is a runtime decision, not a static value.
+# image.* and profiles.* are NOT set here -- Engine.Deploy passes them via
+# --set-string from Config.CWEImage and Config.ProfilesImage, since an image
+# reference (and whether it needs `kind load`'d in first) is a runtime
+# decision, not a static value.
 #
 # appDb.postgresPassword is supplied on the `helm upgrade --install` command
 # line, not hardcoded here, matching postgres-values.yaml/temporal-values.yaml.
@@ -60,9 +60,6 @@ secrets:
 temporal:
   host: temporal-frontend.temporal.svc.cluster.local
   port: 7233
-
-profiles:
-  path: ""
 
 spiffe:
   enabled: false

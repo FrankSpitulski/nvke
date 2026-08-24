@@ -61,7 +61,7 @@ NKECTL_LDFLAGS := \
 	-X '$(NKECTL_PKG).buildDate=$(NKECTL_DATE)'
 
 .PHONY: build build-cross test test-e2e-bootstrap fmt lint license file-license-check \
-	ensure-capd-image nodes-up nodes-down nodes-status
+	ensure-capd-image ensure-profiles-image nodes-up nodes-down nodes-status
 
 # The platforms shipped on a release. nkectl is the one binary here a human
 # downloads, so it is cross-built; the others are deployed, not fetched.
@@ -147,6 +147,16 @@ ensure-capd-image:
 	  CAPD_NODE_AGENT_LOCAL_BUILD=true NODE_AGENT_REPO_PATH=$(CURDIR)/../agent \
 	  CAPD_KINDEST_NODE_IMAGE=$(CAPD_KINDEST_NODE_IMAGE) \
 	  bash ../controller/hack/capd-kindest-node/build-image.sh
+
+# OS profiles for the CWE deployment, without which CWE fails its schema
+# migration. controller/test/fixtures is the sanitized tree the Tiltfile and
+# capd-e2e already use. A no-op once the image exists locally.
+CWE_PROFILES_IMAGE ?= cwe-profiles:local
+
+ensure-profiles-image:
+	@docker image inspect $(CWE_PROFILES_IMAGE) >/dev/null 2>&1 || \
+	  docker build -t $(CWE_PROFILES_IMAGE) \
+	    -f ../controller/test/fixtures/Dockerfile ../controller/test/fixtures
 
 nodes-up: ensure-capd-image
 	$(GO) run ./e2e/bootstrap/substrate/cmd/nodes up

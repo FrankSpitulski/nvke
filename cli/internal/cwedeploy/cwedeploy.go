@@ -67,6 +67,10 @@ const (
 	// itself: DB Ping + Temporal CheckHealth both have to succeed.
 	readyzPath = "/readyz"
 	cweSvcPort = "http"
+
+	// profilesPath is where the init container lands the profiles tree and
+	// where CWE reads it from (PROFILES_DIR).
+	profilesPath = "/profiles"
 )
 
 // waitReadyPollInterval is the delay between /readyz polls. A var, not a
@@ -83,6 +87,13 @@ type Config struct {
 	// default it; a registry org identifier does not belong hardcoded in a
 	// tracked file of a repository being prepared to go public.
 	CWEImage string
+
+	// ProfilesImage holds the OS/config profiles tree at /profiles, which the
+	// chart's materialize-profiles init container copies into CWE. Required:
+	// a schema migration reads osProfiles/metadata.yaml, so CWE crash-loops
+	// without it. Fleet profiles come from nke-site-deploy;
+	// controller/test/fixtures is the sanitized stand-in.
+	ProfilesImage string
 
 	// ChartPath is the local filesystem path to
 	// controller/deploy/charts/cloud-workflow-engine. Empty triggers
@@ -109,10 +120,11 @@ type Config struct {
 // bootstrapengine.DefaultConfig's env-driven shape.
 func DefaultConfig() Config {
 	return Config{
-		CWEImage:     os.Getenv("NKECTL_CWE_IMAGE"),
-		ChartPath:    os.Getenv("NKECTL_CWE_CHART_PATH"),
-		HelmTimeout:  envDuration("NKECTL_CWE_HELM_TIMEOUT", 5*time.Minute),
-		ReadyTimeout: envDuration("NKECTL_CWE_READY_TIMEOUT", 5*time.Minute),
+		CWEImage:      os.Getenv("NKECTL_CWE_IMAGE"),
+		ProfilesImage: os.Getenv("NKECTL_CWE_PROFILES_IMAGE"),
+		ChartPath:     os.Getenv("NKECTL_CWE_CHART_PATH"),
+		HelmTimeout:   envDuration("NKECTL_CWE_HELM_TIMEOUT", 5*time.Minute),
+		ReadyTimeout:  envDuration("NKECTL_CWE_READY_TIMEOUT", 5*time.Minute),
 	}
 }
 
@@ -168,6 +180,10 @@ func (e *Engine) Deploy(ctx context.Context, kubeconfigPath string, cfg Config) 
 	if cfg.CWEImage == "" {
 		return errors.New("cwedeploy: Config.CWEImage is required " +
 			"(e.g. nvcr.io/<org>/controller:edge -- see .github/workflows/image-nvcr.yml)")
+	}
+	if cfg.ProfilesImage == "" {
+		return errors.New("cwedeploy: Config.ProfilesImage is required; CWE fails " +
+			"its schema migration without an OS profiles tree (see Config.ProfilesImage)")
 	}
 
 	chartPath := cfg.ChartPath
@@ -237,8 +253,12 @@ func (e *Engine) Deploy(ctx context.Context, kubeconfigPath string, cfg Config) 
 	}
 	defer cleanup()
 
-	imageRepo, imageTag := splitImageRef(cfg.CWEImage)
-	e.log.Info("installing cwe", "namespace", cweNamespace, "image", cfg.CWEImage, "chart", chartPath)
+	// tag and digest are always set, empty when unused: the chart reads an
+	// empty tag as "use appVersion" and an empty digest as "pull by tag".
+	imageRepo, imageTag, imageDigest := splitImageRef(cfg.CWEImage)
+	profRepo, profTag, profDigest := splitImageRef(cfg.ProfilesImage)
+	e.log.Info("installing cwe", "namespace", cweNamespace, "image", cfg.CWEImage,
+		"profilesImage", cfg.ProfilesImage, "chart", chartPath)
 	if _, err := e.helm(ctx, kubeconfigPath,
 		"upgrade", "--install", cweReleaseName, chartPath,
 		"--namespace", cweNamespace, "--create-namespace",
@@ -246,7 +266,13 @@ func (e *Engine) Deploy(ctx context.Context, kubeconfigPath string, cfg Config) 
 		"--set-string", "appDb.postgresPassword="+password,
 		"--set-string", "image.repository="+imageRepo,
 		"--set-string", "image.tag="+imageTag,
+		"--set-string", "image.digest="+imageDigest,
 		"--set-string", "image.pullPolicy=IfNotPresent",
+		"--set", "profiles.image.enabled=true",
+		"--set-string", "profiles.path="+profilesPath,
+		"--set-string", "profiles.image.repository="+profRepo,
+		"--set-string", "profiles.image.tag="+profTag,
+		"--set-string", "profiles.image.digest="+profDigest,
 		"--wait", "--timeout", helmTimeout.String(),
 	); err != nil {
 		return fmt.Errorf("cwedeploy: installing cwe: %w", err)
@@ -365,15 +391,23 @@ func resolveChartPath() (string, error) {
 	}
 }
 
-// splitImageRef splits "repo:tag" on the last colon, tolerating a
-// repo that itself contains a colon (a registry port, e.g.
-// "localhost:5000/controller:edge").
-func splitImageRef(ref string) (repo, tag string) {
+// splitImageRef splits "repo:tag", "repo@sha256:..." or "repo:tag@sha256:..."
+// into the parts the chart's image.repository/tag/digest values expect. The
+// digest comes off first, or the colon inside "sha256:..." reads as a tag
+// separator. A registry port ("localhost:5000/controller") is not a tag.
+func splitImageRef(ref string) (repo, tag, digest string) {
+	if idx := strings.LastIndex(ref, "@"); idx >= 0 {
+		digest = ref[idx+1:]
+		ref = ref[:idx]
+	}
 	idx := strings.LastIndex(ref, ":")
 	if idx < 0 || strings.Contains(ref[idx:], "/") {
-		return ref, "latest"
+		if digest != "" {
+			return ref, "", digest
+		}
+		return ref, "latest", ""
 	}
-	return ref[:idx], ref[idx+1:]
+	return ref[:idx], ref[idx+1:], digest
 }
 
 // randomPassword returns a 32-character hex string suitable for the shared

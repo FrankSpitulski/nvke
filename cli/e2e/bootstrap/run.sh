@@ -60,6 +60,11 @@ export NKECTL_BOOTSTRAP_PROVIDER="${NKECTL_BOOTSTRAP_PROVIDER:-docker}"
 : "${NKECTL_CWE_IMAGE:?NKECTL_CWE_IMAGE must name the CWE image to deploy, already pulled locally (see comment above)}"
 export NKECTL_CWE_IMAGE
 
+# OS profiles, without which CWE fails its schema migration. Built from
+# controller/test/fixtures rather than pulled: the fleet image lives in
+# nke-site-deploy, which this suite does not depend on.
+export NKECTL_CWE_PROFILES_IMAGE="${NKECTL_CWE_PROFILES_IMAGE:-cwe-profiles:local}"
+
 log() { printf '[nkectl-bootstrap-e2e] %s\n' "$*"; }
 
 nodes_up=false
@@ -87,8 +92,12 @@ log "PASS: all fake nodes are up and node-agent is reachable"
 
 # ── Stage 2: CWE deploys and reports healthy, then the dispatch stub ────
 
+log "building the profiles image (${NKECTL_CWE_PROFILES_IMAGE})"
+make -C "${CLI_DIR}" ensure-profiles-image CWE_PROFILES_IMAGE="${NKECTL_CWE_PROFILES_IMAGE}"
+
 log "running: nkectl bootstrap site -i ${INVENTORY}" \
-  "(NKECTL_BOOTSTRAP_PROVIDER=${NKECTL_BOOTSTRAP_PROVIDER}, NKECTL_CWE_IMAGE=${NKECTL_CWE_IMAGE})"
+  "(NKECTL_BOOTSTRAP_PROVIDER=${NKECTL_BOOTSTRAP_PROVIDER}, NKECTL_CWE_IMAGE=${NKECTL_CWE_IMAGE}," \
+  "NKECTL_CWE_PROFILES_IMAGE=${NKECTL_CWE_PROFILES_IMAGE})"
 set +e
 output="$("${NKECTL}" bootstrap site -i "${INVENTORY}" 2>&1)"
 status=$?

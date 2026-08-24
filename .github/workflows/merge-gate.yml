@@ -98,6 +98,9 @@ jobs:
     uses: ./.github/workflows/nkectl-bootstrap-e2e.yml
     permissions:
       contents: read
+      # The suite pulls the CWE image from GHCR. A called workflow cannot ask
+      # for more than its caller grants, so this has to be here too.
+      packages: read
 
   agent-test:
     uses: ./.github/workflows/agent-test.yml

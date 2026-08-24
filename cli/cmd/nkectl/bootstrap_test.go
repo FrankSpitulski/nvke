@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -127,6 +128,7 @@ registry:
 // real kind binary or container runtime.
 func TestRunBootstrapSiteValidReachesStub(t *testing.T) {
 	t.Setenv("NKECTL_CWE_IMAGE", "nvcr.io/org/controller:edge")
+	t.Setenv("NKECTL_CWE_PROFILES_IMAGE", "nvcr.io/org/cwe-profiles:v1")
 
 	runner := &recordingRunner{next: fakeBootstrapRunner{}}
 	err := runBootstrapSite(&bootstrapSiteOptions{
@@ -146,6 +148,27 @@ func TestRunBootstrapSiteValidReachesStub(t *testing.T) {
 	}
 	if !runner.sawArgs("delete", "cluster") {
 		t.Errorf("runBootstrapSite did not tear down the bootstrap kind cluster; calls: %v", runner.calls)
+	}
+}
+
+// The image lookup must run against the runtime kind loads from. nerdctl is
+// the default provider, and such a host need not have Docker at all.
+func TestRunBootstrapSiteUsesTheProviderCLI(t *testing.T) {
+	t.Setenv("NKECTL_CWE_IMAGE", "nvcr.io/org/controller:edge")
+	t.Setenv("NKECTL_CWE_PROFILES_IMAGE", "nvcr.io/org/cwe-profiles:v1")
+
+	// --bootstrap-provider value -> the CLI the lookup must use.
+	for provider, wantCLI := range map[string]string{"": "nerdctl", "docker": "docker"} {
+		runner := &recordingRunner{next: fakeBootstrapRunner{}}
+		_ = runBootstrapSite(&bootstrapSiteOptions{
+			inventory:       writeInventory(t, validInventory),
+			provider:        provider,
+			bootstrapRunner: runner,
+			cweRunner:       fakeCWERunner{},
+		})
+		if !slices.Contains(runner.names, wantCLI) {
+			t.Errorf("provider %q: no %s call; ran %v", provider, wantCLI, runner.names)
+		}
 	}
 }
 
@@ -173,15 +196,18 @@ func TestRunBootstrapSiteMissingCWEImage(t *testing.T) {
 	}
 }
 
-// recordingRunner wraps another CommandRunner and records the args of every
-// call, so a test can assert the bootstrap cluster was actually created and
-// torn down without depending on bootstrapengine's own internals.
+// recordingRunner wraps another CommandRunner and records the command name
+// and args of every call, so a test can assert the bootstrap cluster was
+// actually created and torn down without depending on bootstrapengine's own
+// internals.
 type recordingRunner struct {
 	next  bootstrapengine.CommandRunner
+	names []string
 	calls [][]string
 }
 
 func (r *recordingRunner) Run(ctx context.Context, env map[string]string, name string, args ...string) (string, error) {
+	r.names = append(r.names, name)
 	r.calls = append(r.calls, args)
 	return r.next.Run(ctx, env, name, args...)
 }
