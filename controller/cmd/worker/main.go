@@ -23,6 +23,7 @@ import (
 	nicov1 "github.com/NVIDIA/cluster-api-provider-nico/api/v1alpha1"
 
 	"github.com/NVIDIA/nke/controller/internal/agent"
+	"github.com/NVIDIA/nke/controller/internal/auth"
 	"github.com/NVIDIA/nke/controller/internal/config"
 	"github.com/NVIDIA/nke/controller/internal/controllers"
 	"github.com/NVIDIA/nke/controller/internal/controllers/automode"
@@ -113,6 +114,18 @@ func main() {
 			logger.Error("Error during OpenTelemetry shutdown", "error", err)
 		}
 	}()
+
+	// Before the SPIFFE wait and the migrations: a bad configuration should cost a
+	// restart, not a migrated schema.
+	authenticator, err := auth.Setup(ctx, auth.Options{
+		ConfigPath: cfg.AuthConfigPath,
+		Permissive: cfg.PermissiveMode,
+		Recorder:   metrics.RecordAuthRequest,
+	}, logger)
+	if err != nil {
+		logger.Error("Failed to set up API authentication", "error", err)
+		os.Exit(1)
+	}
 
 	// Get cloud-workflow-engine workload trust domain and bundle
 	trustDomain, err := getSpiffeTrustDomain(ctx, cfg, logger)
@@ -382,7 +395,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	httpServer, err := server.NewServer(cfg, serverLogger, dbInstance, forgeProvider, temporalClient)
+	httpServer, err := server.NewServer(cfg, serverLogger, dbInstance, forgeProvider, temporalClient, authenticator)
 	if err != nil {
 		logger.Error("Failed to construct HTTP server", "error", err)
 		os.Exit(1)

@@ -296,6 +296,18 @@ type Config struct {
 	// not gate that writer.
 	TenantAccessEnabled bool `env:"TENANT_ACCESS_ENABLED" default:"false"`
 
+	// AuthConfigPath is the mounted YAML file holding the API authentication
+	// configuration. Unset disables authentication. A set-but-unreadable path is
+	// a startup failure, never "disabled"; see auth.Load.
+	//
+	// Validate() does not check it: unset is the valid default.
+	AuthConfigPath string `env:"AUTH_CONFIG_PATH"`
+
+	// PermissiveMode evaluates and logs authentication and admission decisions
+	// without enforcing them, so no request is rejected. No effect when
+	// AuthConfigPath is unset.
+	PermissiveMode bool `env:"PERMISSIVE_MODE" default:"false"`
+
 	// Tracing configures OpenTelemetry distributed tracing. When Enabled and
 	// Endpoint are set, CWE exports OTLP gRPC spans. Endpoint and related OTEL_*
 	// vars may be injected by the OpenTelemetry Operator (inject-sdk + sidecar);
