@@ -97,6 +97,14 @@ updates:
       docker-images:
         patterns:
           - "*"
+    ignore:
+      # Keep the Go minor version fixed. Patch bumps such as 1.26.6 to 1.26.7
+      # still come through. A minor bump such as 1.26 to 1.27 also needs the
+      # go directive in every go.mod to move, so we do that by hand.
+      - dependency-name: "golang"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
     # Note: golang RC tags (e.g. golang:1.27rc1) do not follow semver, so
     # Dependabot's `versions` filter cannot match them with a range expression.
     # Close any RC-bump PRs manually; they resolve on their own once the stable
