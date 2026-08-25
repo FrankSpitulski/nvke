@@ -91,6 +91,12 @@ jobs:
           echo "rendered ${count} resources"
           echo "### Chart renders ${count} resources" >> "${GITHUB_STEP_SUMMARY}"
 
+      # Checks what apiAuth renders in each state: that enabling it produces a
+      # deployment which can authenticate, and that disabling it omits
+      # AUTH_CONFIG_PATH rather than setting it empty.
+      - name: Assert what apiAuth renders
+        run: ./controller/hack/chart-auth-assertions.sh
+
       # Helm never parses its own output, so `helm lint` and `helm template`
       # both pass on a manifest Kubernetes would reject. A duplicate
       # app.kubernetes.io/name in the ServiceMonitor selector survived both for

@@ -460,10 +460,51 @@ rules keep every service account on the cluster from being an NKE administrator.
 NKE does no authorization: every admitted caller can do everything. That is a
 platform responsibility.
 
+### Local Development
+
+You don't need identity infrastructure to work on this. The cluster's own API
+server is an issuer, and the service account tokens it signs are JWTs, so NKE
+verifies them like any other issuer. The e2e suite takes the same path.
+
+`tilt up` applies the config in `deploy/k8s/nke-auth-dev.yaml`, two client
+identities (one admitted, one not), and the binding described under RBAC
+Prerequisite. Authentication itself is off by default, because the e2e suite
+cannot present a credential yet; `NKE_AUTH_ENABLED=true tilt up` deploys an
+enforcing NKE.
+
+```bash
+./hack/nke-auth-demo.sh    # four credentials, prints the status code for each
+```
+
+Mint a token yourself:
+
+```bash
+kubectl create token nke-client -n nke-clients \
+  --audience=https://nke.tilt.local --duration=10m
+```
+
+Permissive mode is a different deployment, not a runtime switch:
+
+```bash
+NKE_PERMISSIVE_MODE=true tilt up
+```
+
 ### Enabling Authentication
 
-Two environment variables, read at startup. Changing either, or the configuration
-file, needs a pod restart.
+With the Helm chart, set the `apiAuth` values:
+
+```yaml
+apiAuth:
+  enabled: true
+  permissive: false
+  configMap:
+    name: nke-auth-config       # you create this; the chart only mounts it
+  clusterIssuerDiscovery: true  # see RBAC Prerequisite below
+```
+
+The chart renders those into the two environment variables NKE reads. Set them
+directly if you deploy without the chart. Both are read at startup, so changing
+either, or the configuration file, needs a pod restart.
 
 | State | `AUTH_CONFIG_PATH` | `PERMISSIVE_MODE` | Result |
 | --- | --- | --- | --- |
@@ -484,8 +525,19 @@ starting with authentication disabled.
 
 ### Authentication Configuration
 
-One file, mounted at `AUTH_CONFIG_PATH`. The full schema and every validation
-rule live in `internal/auth/config.go`. The shape:
+One file, mounted at `AUTH_CONFIG_PATH` from a ConfigMap the chart mounts but
+does not create. Create it first, keyed `auth.yaml`, and point
+`apiAuth.configMap.name` at it:
+
+```bash
+# In the release namespace. The key must be auth.yaml: the chart mounts the
+# ConfigMap at /etc/nke/auth and points AUTH_CONFIG_PATH at auth.yaml within it.
+kubectl create configmap nke-auth-config -n "${RELEASE_NAMESPACE}" \
+  --from-file=auth.yaml=./auth.yaml
+```
+
+`deploy/k8s/nke-auth-dev.yaml` is a working example; the full schema and every
+validation rule live in `internal/auth/config.go`. The shape:
 
 ```yaml
 apiVersion: auth.nke.nvidia.com/v1alpha1
@@ -529,6 +581,49 @@ issuers:
         trustDomain: example.org     # bare host: no spiffe:// scheme, no path
         pathPrefixes: [/nke-e2e/]    # segment-wise; /nke-e2e/ never matches /nke-e2e-evil/
 ```
+
+### RBAC Prerequisite
+
+An issuer pointing at the cluster's own `/openid/v1/jwks` needs NKE's
+ServiceAccount bound to `system:service-account-issuer-discovery`. That endpoint
+is not anonymous, and Kubernetes ships the ClusterRole unbound, so an enforcing
+NKE will not start without this binding.
+
+The chart creates the binding when `apiAuth.clusterIssuerDiscovery` is true.
+Otherwise:
+
+```bash
+kubectl create clusterrolebinding nke-service-account-issuer-discovery \
+  --clusterrole=system:service-account-issuer-discovery \
+  --serviceaccount=cloud-workflow-engine:cloud-workflow-engine
+```
+
+### Calling the API from Scripts and CI
+
+`hack/nke-token.sh` prints a bearer token, or nothing when authentication is off,
+so the same call works either way:
+
+```bash
+TOKEN="$(hack/nke-token.sh)"
+curl ${TOKEN:+-H "Authorization: Bearer ${TOKEN}"} "${API_URL}/sites"
+```
+
+It reads the audience from the running Deployment and mints an audience-scoped
+token through the TokenRequest API, so the caller needs `create` on
+`serviceaccounts/token` for the service account being minted for.
+`deploy/k8s/nke-auth-dev.yaml` grants that locally.
+
+Useful overrides:
+
+| | |
+| --- | --- |
+| `NKE_AUTH_TOKEN` | Use this token and skip discovery. For CI that already holds one. |
+| `NKE_AUDIENCE` | Mint for this audience instead of reading it from the Deployment. |
+| `NKE_TOKEN_SERVICE_ACCOUNT`, `NKE_TOKEN_NAMESPACE` | Mint for a different identity. |
+| `NKE_TOKEN_TTL` | Requested lifetime. Defaults to 30m. |
+
+The bootstrap scripts under `hack/` call it themselves, so `create-capd-cluster.sh`
+and friends keep working whether authentication is on or off.
 
 ### Rejections and Status Codes
 

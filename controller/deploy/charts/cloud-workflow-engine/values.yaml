@@ -288,6 +288,22 @@ nkeOIDCAuth:
     # -- Key in the Secret containing the OIDC CA bundle.
     key: ""
 
+# NKE API authentication. The chart mounts the configuration ConfigMap; it does
+# not create it. See the README for the schema.
+apiAuth:
+  # -- Enable NKE API authentication.
+  enabled: false
+  # -- Count what enforcement would have refused but serve the request anyway.
+  # Watch nke_auth_requests_total{outcome="would_reject"} before enforcing.
+  permissive: false
+  configMap:
+    # -- ConfigMap holding the authentication configuration, keyed `auth.yaml`.
+    # Required when apiAuth.enabled=true; an empty name fails the render.
+    name: nke-auth-config
+  # -- Bind system:service-account-issuer-discovery so NKE can read the cluster's
+  # own JWKS. Needed only for an issuer using `keys: {kubernetes: {}}`.
+  clusterIssuerDiscovery: true
+
 nodeTeardown:
   # -- Allow the DeleteNode API to accept the dangerous etcd safety overrides
   # (allowQuorumLoss / allowSingleVoter). Disabled by default so production site
