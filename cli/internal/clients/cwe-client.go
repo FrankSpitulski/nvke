@@ -1,13 +1,14 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package client wraps the generated CWE API client with typed, error-parsed
+// Package clients wraps the generated CWE API client with typed, error-parsed
 // methods. Auth is intentionally a no-op for now — the design for how nkectl
 // authenticates with CWE is being decided with the team. The URL is the only
 // required config for local development.
-package client
+package clients
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -25,7 +26,7 @@ type CWEClient struct {
 // New builds a CWEClient from a SiteConfig.
 // The URL should be the site controller base URL (e.g. http://localhost:8080).
 // The /api prefix is added automatically so callers never need to include it.
-// FIXME: NKX-14307 — add mTLS support: accept cert/key paths from SiteConfig so
+// FIXME: NKX-15055 — add mTLS support: accept cert/key paths from SiteConfig so
 // operators can authenticate via Teleport app certs (tsh apps login → --cert/--key).
 func New(cfg config.SiteConfig) (*CWEClient, error) {
 	if cfg.URL == "" {
@@ -41,4 +42,15 @@ func New(cfg config.SiteConfig) (*CWEClient, error) {
 		return nil, fmt.Errorf("building CWE client: %w", err)
 	}
 	return &CWEClient{raw: raw}, nil
+}
+
+// apiError extracts a human-readable message from a non-2xx response body.
+// The CWE API returns {"message": "..."} for all error responses (GenericError).
+// Falls back to the raw body if the body isn't a GenericError.
+func apiError(status string, body []byte) error {
+	var e api.GenericError
+	if json.Unmarshal(body, &e) == nil && e.Message != "" {
+		return fmt.Errorf("%s: %s", status, e.Message)
+	}
+	return fmt.Errorf("%s: %s", status, body)
 }
