@@ -23,6 +23,9 @@ into three categories:
 ### Prerequisites
 
 - Go 1.26+ (`go version`) — the floor is set by `go.work`, not by any single module
+- GNU Make 4.0+ (`make --version`) — ⚠️ **macOS ships 3.81, which cannot run the
+  root `Makefile`.** Run `brew install make` and use `gmake` for the root commands
+  below. The module Makefiles work with either version.
 - [Flox](https://flox.dev/) for reproducible toolchains inside `controller/`
 - Docker (for local integration tests)
 - A running Temporal server (for controller development)

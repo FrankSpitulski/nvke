@@ -7,6 +7,14 @@
 #
 # See docs/go-workspace.md.
 
+# GNU Make 4.0+ is required. macOS ships 3.81, which fails on cmd_version below
+# with "unterminated call to function `shell'" and never says why. Fail here
+# instead, and say what to install.
+# filter-out, not `4.%`: this stays correct at Make 5.
+ifeq ($(filter-out 0 1 2 3,$(firstword $(subst ., ,$(MAKE_VERSION)))),)
+$(error GNU Make 4.0+ is required, but this is GNU Make $(MAKE_VERSION). On macOS: `brew install make`, then use `gmake` in place of `make`. See CONTRIBUTING.md)
+endif
+
 # The docs teach `GOWORK=off` for the modules outside the workspace. Inherited
 # here it would make every workspace target fail with "no go.work file found",
 # so it is dropped from the environment the recipes pass on.
