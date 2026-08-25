@@ -21,8 +21,13 @@ ifeq (,$(GOBIN))
 GOBIN = $(shell go env GOPATH)/bin
 endif
 
-GOLANGCI_LINT_REPO	?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint
-GOLANGCI_LINT_VERSION	?= v2.12.2
+# golangci-lint pin and bootstrap, shared with every other module.
+#
+# Empty, not "off", because this module lints against the root vendor/ tree, so
+# the workspace stays on. .golangci.yml says the same with
+# modules-download-mode: vendor, and lint.yml:92 does the same for this job.
+GOLANGCI_LINT_GOWORK :=
+include ../make/golangci.mk
 
 # Image URL to use all building/pushing image targets
 IMG_NAME ?= nvcr.io/j7sbcjl3qgta/cloud-workflow-engine
@@ -54,8 +59,7 @@ help: ## Display this help.
 
 .PHONY: lint
 lint: ## Lint source files.
-	go install $(GOLANGCI_LINT_REPO)@$(GOLANGCI_LINT_VERSION)
-	$(GOBIN)/golangci-lint run --timeout 20m --concurrency 4 --max-same-issues 0 --max-issues-per-linter 0 ./...
+	@$(GOLANGCI_LINT_RUN) run --timeout 20m --concurrency 4 --max-same-issues 0 --max-issues-per-linter 0 ./...
 
 .PHONY: license
 license: ## Ensure license headers at code.
@@ -101,8 +105,10 @@ generate-check: generate-api ## Verify generated API code is up to date.
 	fi
 
 .PHONY: build
-build:
-	go build -ldflags "-X github.com/NVIDIA/nke/controller/internal/version.Version=${BUILD_VERSION}" -o ./bin/$(WORKER_BIN_NAME) ./cmd/worker/
+# -buildvcs=false because the version comes from the -X ldflag below. See the note
+# on work-check-offline in the root Makefile.
+build: ## Build cloud-workflow-engine into bin/.
+	go build -buildvcs=false -ldflags "-X github.com/NVIDIA/nke/controller/internal/version.Version=${BUILD_VERSION}" -o ./bin/$(WORKER_BIN_NAME) ./cmd/worker/
 
 .PHONY: fmt
 fmt: ## Format code (gofumpt + goimports; matches .golangci.yml formatters).

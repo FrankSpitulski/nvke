@@ -56,8 +56,8 @@ LDFLAGS += -trimpath -ldflags="-X main.VERSION=$(VERSION)"
 
 ARCHES := amd64 arm64
 
-GOLANGCI_LINT_REPO      ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint
-GOLANGCI_LINT_VERSION   ?= v2.12.2
+# golangci-lint pin and bootstrap, shared with every other module.
+include ../make/golangci.mk
 
 BUF_VERSION := v1.65.0
 
@@ -168,12 +168,21 @@ vet: ## Run go vet
 
 .PHONY: lint
 lint: ## Lint source files.
-	go install $(GOLANGCI_LINT_REPO)@$(GOLANGCI_LINT_VERSION)
-	$(GOBIN)/golangci-lint run --timeout 10m --show-stats ./...
+	@$(GOLANGCI_LINT_RUN) run --timeout 10m --show-stats ./...
 
 # GO_TEST_FLAGS lets CI add -race without the workflow having to restate the
 # test command, so `make test` stays the one definition of what "the tests" are.
 GO_TEST_FLAGS ?=
+
+# macOS puts TMPDIR under /var/folders, and /var there is a symlink to
+# /private/var. internal/agent refuses a destination whose parent path contains a
+# symlink, so 23 tests failed on a Mac with "invalid destination ...: parent path
+# /var is a symlink". The agent was right, and the tests were only reading the
+# developer's TMPDIR. /private/tmp is the same directory with the symlink already
+# resolved. Linux and CI are unaffected.
+ifeq ($(shell uname -s),Darwin)
+export TMPDIR := /private/tmp
+endif
 
 test: ## Run tests
 	go test $(GO_TEST_FLAGS) ./...

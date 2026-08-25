@@ -4,16 +4,25 @@ Orchestrate NKE cluster creation and lifecycle operations.
 
 ## Tool Dependencies
 
-We use Flox to manage repo-scoped command line tools such as `go`, `make`, `kind`, `clusterctl`, `helm`, `ko`, `tilt`, `temporal`, and `spire-agent`, so you'll need to install Flox if you don't have it:
+The Flox environment is **repository-wide** and lives at the repository root, not
+here. One environment serves every module, so the tools this module needs and the
+tools `agent/`, `cli/` and `os-image/` need cannot drift apart. It pins `go`,
+`make`, `golangci-lint`, `kind`, `clusterctl`, `helm`, `ko`, `tilt`, `temporal`,
+`spire-agent`, `actionlint` and `shellcheck` to the versions CI uses.
+
+Install Flox if you do not have it:
 ```bash
 brew install flox colima
 ```
 
-The supported Flox CLI version is pinned in `.flox-cli-version`. If your installed version differs, install the pinned release using the [official Flox installation instructions](https://flox.dev/docs/install-flox/install). The direnv integration refuses to auto-activate a different version so it cannot migrate tracked environment files unexpectedly.
+The supported Flox CLI version is pinned in `.flox-cli-version` at the repository root. If your installed version differs, install the pinned release using the [official Flox installation instructions](https://flox.dev/docs/install-flox/install). The direnv integration refuses to auto-activate a different version so it cannot migrate tracked environment files unexpectedly.
 
-Then activate the Flox environment (this changes your `PATH` automatically, just within that terminal session):
+Then activate it. `flox activate` searches upwards, so this works from here or from
+any other module; the version check needs the root path because that is where the
+pin lives:
 ```bash
-test "$(flox --version)" = "$(cat .flox-cli-version)" && flox activate
+root="$(git rev-parse --show-toplevel)"
+test "$(flox --version)" = "$(cat "${root}/.flox-cli-version")" && flox activate
 ```
 
 You'll want to ensure Flox is activated before running CLI commands related to this repo so you're using the pinned tool versions from this repository instead of whatever happens to be installed globally.

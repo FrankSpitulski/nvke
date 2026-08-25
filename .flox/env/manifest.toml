@@ -14,19 +14,45 @@ schema-version = "1.11.0"
 ##  $ flox search gum   <- search for a package
 ##  $ flox show gum     <- show all versions of a package
 ## -------------------------------------------------------------------
+# Each version here mirrors a pin that already exists in a Makefile or a
+# workflow, so a developer and CI run the same tool. The comment beside each one
+# names where the matching pin lives.
+#
+# Every tightly pinned package needs its own pkg-group, because flox resolves one
+# nixpkgs revision per group. Pinning go, golangci-lint, helm and kind together
+# fails with "constraints for group 'toplevel' are too tight".
+#
+# Leaving a package unpinned is not neutral. Re-locking moved kubernetes-helm
+# from 3.19.1 to 4.2.4, a major release.
 [install]
-go = { pkg-path = "go", version = "1.25" }
+# go.work, and every go.mod except agent and nico-vms. CI reads go-version-file:
+# go.work with GOTOOLCHAIN=local. An older go here does not fail loudly, because
+# GOTOOLCHAIN=auto downloads 1.26.5 on top and hides the gap.
+go = { pkg-path = "go", version = "1.26.5", pkg-group = "go" }
+# GOLANGCI_LINT_VERSION in six module Makefiles, and lint.yml:223.
+golangci-lint = { pkg-path = "golangci-lint", version = "2.12.2", pkg-group = "golangci-lint" }
+# backend-e2e.yml:113 and nkectl-bootstrap-e2e.yml:113. The three chart workflows
+# still say v3.19.0, and unifying them is a separate change.
+kubernetes-helm = { pkg-path = "kubernetes-helm", version = "3.20.2", pkg-group = "helm" }
+# backend-e2e.yml:118 and nkectl-bootstrap-e2e.yml:121.
+kind = { pkg-path = "kind", version = "0.32.0", pkg-group = "kind" }
 oapi-codegen = { pkg-path = "oapi-codegen", version = "2.4.1", pkg-group = "oapi-codegen" }
 gnumake.pkg-path = "gnumake"
 gnumake.outputs = "all"
 temporal-cli.pkg-path = "temporal-cli"
 spire-agent.pkg-path = "spire-agent"
 spire-agent.outputs = "all"
-kind.pkg-path = "kind"
 clusterctl.pkg-path = "clusterctl"
-kubernetes-helm.pkg-path = "kubernetes-helm"
 ko.pkg-path = "ko"
 tilt.pkg-path = "tilt"
+
+# The tools CI installs inline today. Both install blocks are Linux only:
+# actionlint.yml:77 downloads a linux_amd64 tarball, and shellcheck.yml's
+# collector needs bash 4 `mapfile`, which macOS bash 3.2 lacks.
+actionlint.pkg-path = "actionlint"   # actionlint.yml:77 pins 1.7.12
+shellcheck.pkg-path = "shellcheck"   # shellcheck.yml pins no version at all
+yq-go.pkg-path = "yq-go"
+jq.pkg-path = "jq"
 
 
 ## Environment Variables ---------------------------------------------
@@ -78,11 +104,14 @@ on-activate = '''
 
 ## Other Environment Options -----------------------------------------
 [options]
-# Systems that environment is compatible with
+# Systems that environment is compatible with.
+#
+# x86_64-darwin is absent because nixpkgs builds neither go@1.26.5 nor
+# kind@0.32.0 for it, so keeping it would make the lock fail. The remaining three
+# resolve to identical versions.
 systems = [
   "aarch64-darwin",
   "aarch64-linux",
-  "x86_64-darwin",
   "x86_64-linux",
 ]
 # Uncomment to disable CUDA detection.

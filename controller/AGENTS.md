@@ -13,14 +13,18 @@ Cloud Workflow Engine (CWE) orchestrates NKE (NVIDIA Kubernetes Engine) cluster 
 
 ## Setup Commands
 
-Before running any CLI commands, activate the Flox environment:
+Before running any CLI commands, activate the Flox environment. It is
+repository-wide and lives at the repository root, so `flox activate` works from
+here by searching upwards; only the version check needs the root path:
 ```bash
-test "$(flox --version)" = "$(cat .flox-cli-version)" && flox activate
+root="$(git rev-parse --show-toplevel)"
+test "$(flox --version)" = "$(cat "${root}/.flox-cli-version")" && flox activate
 ```
 
 Do not activate the environment with a different Flox CLI version. The version
-is pinned in `.flox-cli-version`, and `.envrc` skips automatic activation on a
-mismatch so a local CLI cannot rewrite the tracked manifest and lockfile.
+is pinned in `.flox-cli-version` at the repository root, and the root `.envrc`
+skips automatic activation on a mismatch so a local CLI cannot rewrite the
+tracked manifest and lockfile.
 
 For non-interactive one-shot commands, prefer running them through Flox directly instead of assuming shell state persists:
 ```bash

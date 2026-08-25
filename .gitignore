@@ -17,6 +17,11 @@ os-image/packer/output/
 os-image/packer/artifacts/
 os-image/packer/.ssh/
 
+# Personal environment read by .envrc. It holds credentials, so the ignore has to
+# sit wherever .envrc does. The rule was in controller/.gitignore and scoped to
+# that directory.
+.env.local
+
 # Editor / OS
 .idea/
 .vscode/

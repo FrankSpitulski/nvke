@@ -128,16 +128,27 @@ LICENSE_DESTS := controller/licenses \
                  controller/deploy/charts/cloud-workflow-engine
 
 .DEFAULT_GOAL := help
-.PHONY: help test-e2e-backend-ci work work-sync work-check work-check-offline build test version-check clean licenses licenses-check
+.PHONY: help test-e2e-backend-ci work work-sync work-check work-check-offline build test preflight version-check clean licenses licenses-check license-header-check
 
+##@ Help
+
+# %-22s, not %-12s, because five target names are longer than twelve characters
+# and the descriptions had stopped lining up. license-header-check is the longest
+# at twenty.
+#
+# The ##@ line starts a section, and agent/Makefile and controller/Makefile
+# already use the same convention. Grouping this way is read from the file, so a
+# renamed or deleted target cannot leave a stale entry behind. Writing the groups
+# out as echo lines instead, the way some sibling repositories do, duplicates
+# every name and description and nothing checks the copy.
 help: ## Show the available targets.
 	@echo "Usage: make <target>"
-	@echo
-	@awk 'BEGIN { FS = ":.*## " } /^[a-z][a-z0-9-]*:.*## / { printf "  %-12s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@awk 'BEGIN { FS = ":.*## " } \
+		/^##@ / { printf "\n%s\n", substr($$0, 5) } \
+		/^[a-z][a-z0-9-]*:.*## / { printf "  %-22s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@echo
 
-test-e2e-backend-ci: ## Run a backend E2E suite (CAPD by default) with local controller and agent source.
-	./controller/hack/ci/backend-e2e.sh
+##@ Workspace
 
 work: ## Reset go.work to exactly the public modules, creating it if absent.
 	@test -f go.work || $(GO) work init
@@ -289,44 +300,171 @@ work-check: ## Verify go.work and go.work.sum are complete and current.
 # -mod=vendor is passed as a flag rather than through GOFLAGS, because setting
 # GOFLAGS here would discard whatever the caller already had in it. -C has to be
 # the first flag on the command line.
+#
+# -buildvcs=false because this lists rather than builds, so nothing is stamped
+# with a commit. Reading the VCS can also fail outright: Go searches upwards from
+# the module, and in a git worktree the search passes the worktree root, so a
+# broken repository above it exits 128 and Go reports only "error obtaining VCS
+# status".
+#
+# This target used to blame the vendor tree for that, and for any other `go list`
+# failure. It printed "vendor/ is inconsistent" and sent the reader to
+# `make work-sync`, which rewrites go.mod, go.sum and vendor/ across nine
+# modules. The case below reports what actually failed.
 work-check-offline: ## Verify vendor/ agrees with every go.mod. Needs no network.
 	@echo "- Checking vendor/ agrees with every go.mod (offline)..."
 	@for m in $(WORK_MODULES); do \
-		GOPROXY=off $(GO) list -C $$m -mod=vendor ./... >/dev/null \
-			|| { echo "ERROR: vendor/ is inconsistent with the workspace -- Go's own message is above."; \
-			     echo "  Detected from $$m; a root vendor tree is workspace-wide, so the module named"; \
-			     echo "  there is where it was noticed, not necessarily where it originates."; \
-			     echo "  Run 'make work-sync' and commit every file it changes."; exit 1; }; \
+		err=$$(GOPROXY=off $(GO) list -C $$m -mod=vendor -buildvcs=false ./... 2>&1 >/dev/null) || { \
+			printf '%s\n' "$$err" | sed 's/^/    /'; \
+			case "$$err" in \
+			  *vendor*|*"missing go.sum entry"*|*"inconsistent"*) \
+			    echo "ERROR: vendor/ is inconsistent with the workspace -- Go's own message is above."; \
+			    echo "  Detected from $$m; a root vendor tree is workspace-wide, so the module named"; \
+			    echo "  there is where it was noticed, not necessarily where it originates."; \
+			    echo "  Run 'make work-sync' and commit every file it changes." ;; \
+			  *) \
+			    echo "ERROR: 'go list' failed in $$m for a reason unrelated to vendoring."; \
+			    echo "  Go's own message is above. vendor/ was NOT assessed, so do not run"; \
+			    echo "  'make work-sync' on the strength of this failure -- fix the cause first." ;; \
+			esac; \
+			exit 1; }; \
 	done
 	@echo "  vendor/ is consistent with every module."
+
+##@ Build and test
 
 test: ## Run each module's own test suite.
 	@# The root builds every module but used to test none, which invites the
 	@# assumption that `make test` here does what `make test` in a module does.
 	@# Each module keeps its own exclusions, so defer to its Makefile when it
 	@# has one and fall back to `go test ./...` when it does not.
+	@#
+	@# -skip '^TestE2E$$' matches controller-test.yml:109. controller/test/e2e has
+	@# no Makefile, so it took the fallback and ran TestE2E, the live Ginkgo entry
+	@# point, which needs a cluster. Root `make test` therefore failed on every
+	@# machine. No workflow calls it, so CI never noticed. The other fallback
+	@# modules define no TestE2E.
 	@for m in $(WORK_MODULES); do \
 		echo "- testing $$m"; \
 		if [ -f $$m/Makefile ] && $(MAKE) -C $$m -n test >/dev/null 2>&1; then \
 			$(MAKE) -C $$m test || exit 1; \
 		else \
-			$(GO) test -C $$m ./... || exit 1; \
+			$(GO) test -C $$m -skip '^TestE2E$$' ./... || exit 1; \
 		fi; \
 	done
+
+# The modules that own a fmt, lint and test trio.
+#
+# Deepest first, so the first match wins. controller/nico-vms/x.go sits inside
+# both controller/nico-vms and controller, and only the first is right.
+#
+# controller/api, controller/test/e2e and controller/hack/capd-reboot-controller
+# have no Makefile, which is also why no CI lint job covers them.
+PREFLIGHT_MODULES := controller/hack/nico-mock \
+                     controller/nico-vms \
+                     agent \
+                     cli \
+                     controller \
+                     os-image
+
+# What "changed" is measured against.
+PREFLIGHT_BASE ?= origin/main
+
+# Answers "will my pull request be green?" without running the whole gate.
+#
+# The gate runs all thirteen members on every pull request whatever you touched,
+# because a called workflow ignores its own paths filter. See
+# .github/workflows/README.md, invariant 3. So this cannot narrow what runs. It
+# narrows what can newly fail: when main is green and you only changed cli/, only
+# the checks that read cli/ and the workspace-wide ones can go red.
+#
+# The slow members are left out, so controller's lint, the gofail suite and the
+# e2e lanes are not covered here. The target prints that list before it runs.
+#
+# The module match reads ("$$m"/*) because the case sits inside a $$( )
+# substitution. Without the leading parenthesis, /bin/sh reads the pattern's
+# closing ) as the end of the substitution and fails with "syntax error near
+# unexpected token ;;".
+preflight: ## Lint and test the modules you changed. MODULES=... to choose them yourself.
+	@set -e; \
+	base=$$(git merge-base $(PREFLIGHT_BASE) HEAD 2>/dev/null || true); \
+	if [ -z "$$base" ]; then \
+		echo "NOTE: no merge base with $(PREFLIGHT_BASE); using uncommitted changes only."; \
+		echo "      Fetch it, or pass PREFLIGHT_BASE=<ref>."; \
+	fi; \
+	changed=$$( { [ -n "$$base" ] && git diff --name-only "$$base"...HEAD; \
+	              git diff --name-only; \
+	              git ls-files --others --exclude-standard; } | sort -u ); \
+	if [ -n "$(MODULES)" ]; then \
+		mods="$(MODULES)"; \
+		echo "Modules (from MODULES=): $$mods"; \
+	else \
+		mods=$$(for f in $$changed; do \
+			for m in $(PREFLIGHT_MODULES); do \
+				case "$$f" in ("$$m"/*) echo "$$m"; break ;; esac; \
+			done; \
+		done | sort -u); \
+	fi; \
+	workspace=no; licences=no; \
+	printf '%s\n' "$$changed" | grep -qE '(^|/)(go\.mod|go\.sum)$$|^go\.work|^vendor/' && workspace=yes || true; \
+	printf '%s\n' "$$changed" | grep -qE '\.(go|sh|py|js|css|html|ya?ml)$$' && licences=yes || true; \
+	echo "Will run:"; \
+	if [ -n "$$mods" ]; then \
+		for m in $$mods; do echo "  lint + test   $$m"; done; \
+	else \
+		echo "  (nothing: no changed module has its own lint/test)"; \
+	fi; \
+	[ "$$workspace" = yes ] && echo "  work-check-offline   (the workspace moved)" || true; \
+	[ "$$licences" = yes ] && echo "  license-header-check (source files changed)" || true; \
+	echo; \
+	echo "Will NOT run, and is not covered:"; \
+	echo "  - the e2e lanes (kind, Docker; CAPD additionally needs Linux amd64)"; \
+	echo "  - the gofail suite  -- make -C controller e2e-gofail"; \
+	echo "  - govulncheck       -- needs GOTOOLCHAIN=go1.26.6 to agree with CI."; \
+	echo "                         Under the workspace's own go1.26.5, controller"; \
+	echo "                         reports 7 reachable stdlib findings and agent 4;"; \
+	echo "                         under 1.26.6 both report none. That version is"; \
+	echo "                         written only in codeql.yml and govulncheck.yml."; \
+	echo "  - actionlint, shellcheck, chart -- no target yet; CI still owns them"; \
+	echo; \
+	failed=""; \
+	for m in $$mods; do \
+		echo "==> $$m lint"; \
+		$(MAKE) --no-print-directory -C $$m lint || failed="$$failed $$m:lint"; \
+		echo "==> $$m test"; \
+		$(MAKE) --no-print-directory -C $$m test || failed="$$failed $$m:test"; \
+	done; \
+	if [ "$$workspace" = yes ]; then \
+		echo "==> work-check-offline"; \
+		$(MAKE) --no-print-directory work-check-offline || failed="$$failed workspace"; \
+	fi; \
+	if [ "$$licences" = yes ]; then \
+		echo "==> license-header-check"; \
+		$(MAKE) --no-print-directory license-header-check || failed="$$failed licences"; \
+	fi; \
+	echo; \
+	if [ -n "$$failed" ]; then \
+		echo "preflight FAILED:$$failed"; \
+		exit 1; \
+	fi; \
+	echo "preflight passed."
 
 build: ## Build every workspace package, and the released commands into bin/.
 	@# Compile everything first. Building only ./cmd/... left controller/api and
 	@# controller/test/e2e with no compile coverage anywhere in CI, and this
 	@# change re-versioned both of them.
+	@# -buildvcs=false because every binary here takes its version from the -X
+	@# ldflags below, not from Go's VCS stamp. See the note on work-check-offline
+	@# for how reading the VCS can fail in a git worktree.
 	@for m in $(WORK_MODULES); do \
 		echo "- checking $$m"; \
-		$(GO) build -C $$m ./... || exit 1; \
+		$(GO) build -C $$m -buildvcs=false ./... || exit 1; \
 	done
 	@mkdir -p $(BIN_DIR)
 	@# foreach, not a shell loop: $(call) cannot read a shell variable.
 	@$(foreach m,$(CMD_MODULES), \
 		echo "- building $(m) $(call cmd_version,$(m))"; \
-		$(GO) build -C $(m) -ldflags "$(call cmd_ldflags,$(m))" -o $(BIN_DIR)/ ./cmd/... || exit 1; \
+		$(GO) build -C $(m) -buildvcs=false -ldflags "$(call cmd_ldflags,$(m))" -o $(BIN_DIR)/ ./cmd/... || exit 1; \
 	)
 	@# controller/Makefile owns this binary's name and its version ldflag, so
 	@# delegate rather than repeat either here. See CMD_MODULES above.
@@ -397,6 +535,8 @@ version-check: build ## Verify every built binary reports a real version.
 		echo "ERROR: a binary does not report a build version. See the -X notes on cmd_ldflags."; \
 		exit 1; }
 
+##@ Licences
+
 licenses: ## Copy LICENSE and NOTICE everywhere an artefact ships them from.
 	@for d in $(LICENSE_DESTS); do \
 		mkdir -p $$d && cp LICENSE NOTICE $$d/ || exit 1; \
@@ -453,5 +593,12 @@ license-header-check: ## Verify every source file carries the Apache-2.0 SPDX he
 	 fi
 	@echo "Licence headers: every tracked source file declares Apache-2.0."
 
+##@ Housekeeping
+
 clean: ## Remove the built binaries.
 	@rm -rf $(BIN_DIR)
+
+##@ End-to-end
+
+test-e2e-backend-ci: ## Run a backend E2E suite (CAPD by default) with local controller and agent source.
+	./controller/hack/ci/backend-e2e.sh
