@@ -1496,6 +1496,7 @@ components:
 
     UpdateNodePoolRequest:
       type: object
+      additionalProperties: false
       # No required fields since all fields are optional
       properties:
         autoProvisionDisabled:
