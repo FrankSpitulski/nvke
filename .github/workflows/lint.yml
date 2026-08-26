@@ -107,6 +107,11 @@ jobs:
             goversion: controller/test/e2e/go.mod
             gowork: "off"
             timeout: 15
+          - name: capd-reboot-controller
+            dir: controller/hack/capd-reboot-controller
+            goversion: go.work
+            gowork: ""
+            timeout: 15
           - name: os-image
             dir: os-image
             goversion: os-image/go.mod
