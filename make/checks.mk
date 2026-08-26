@@ -1,11 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# The merge-gate checks that had no Make target.
-#
-# Four of the gate's thirteen members existed only as inline workflow shell, so a
-# developer could not run them without copying YAML. Every tool comes from PATH,
-# and a missing one reports which tool and two ways to get it.
+# Local entry points for merge-gate checks. Every tool comes from PATH, and a
+# missing one reports which tool and two ways to get it.
 
 CHART ?= controller/deploy/charts/cloud-workflow-engine
 
@@ -103,13 +100,13 @@ vulncheck: ## Report vulnerabilities reachable from each module. (run by the mer
 # repository: `make lint` at the root failed with "No rule to make target". CI
 # still calls the module targets directly, so its seven lint jobs stay parallel.
 fmt: ## Format every module.
-	@for m in $(PREFLIGHT_MODULES); do \
+	@for m in $(FORMAT_MODULES); do \
 		echo "- fmt $$m"; \
 		$(MAKE) --no-print-directory -C $$m fmt || exit 1; \
 	 done
 
 lint: ## Lint every module. (run by the merge gate)
-	@for m in $(PREFLIGHT_MODULES); do \
+	@for m in $(LINT_MODULES); do \
 		echo "- lint $$m"; \
 		$(MAKE) --no-print-directory -C $$m lint || exit 1; \
 	 done

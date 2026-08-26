@@ -368,19 +368,25 @@ test: ## Run each module's own test suite.
 		fi; \
 	done
 
-# The modules that own a fmt, lint and test trio.
+# The modules that own lint and test targets.
 #
 # Deepest first, so the first match wins. controller/nico-vms/x.go sits inside
 # both controller/nico-vms and controller, and only the first is right.
 #
-# controller/api, controller/test/e2e and controller/hack/capd-reboot-controller
-# have no Makefile, which is also why no CI lint job covers them.
+# controller/api has no fmt target because its Go is generated. The remaining
+# two modules without Makefiles gain their lint targets in separate changes.
 PREFLIGHT_MODULES := controller/hack/nico-mock \
                      controller/nico-vms \
+                     controller/api \
                      agent \
                      cli \
                      controller \
                      os-image
+
+# Root lint covers every module CI lints. Root fmt excludes generated API code,
+# whose formatting belongs to controller's generator.
+LINT_MODULES := $(PREFLIGHT_MODULES)
+FORMAT_MODULES := $(filter-out controller/api,$(PREFLIGHT_MODULES))
 
 # What "changed" is measured against.
 PREFLIGHT_BASE ?= origin/main
@@ -393,8 +399,8 @@ PREFLIGHT_BASE ?= origin/main
 # narrows what can newly fail: when main is green and you only changed cli/, only
 # the checks that read cli/ and the workspace-wide ones can go red.
 #
-# The slow members are left out, so controller's lint, the gofail suite and the
-# e2e lanes are not covered here. The target prints that list before it runs.
+# Whole-workspace and environment-dependent members stay opt-in. The target
+# prints that list before it runs.
 #
 # The module match reads ("$$m"/*) because the case sits inside a $$( )
 # substitution. Without the leading parenthesis, /bin/sh reads the pattern's
@@ -408,11 +414,27 @@ preflight: ## Lint and test the modules you changed. MODULES=... to choose them 
 		echo "      Fetch it, or pass PREFLIGHT_BASE=<ref>."; \
 	fi; \
 	changed=$$( { [ -n "$$base" ] && git diff --name-only "$$base"...HEAD; \
+	              git diff --cached --name-only; \
 	              git diff --name-only; \
 	              git ls-files --others --exclude-standard; } | sort -u ); \
+	build_system=no; workflows=no; shell=no; chart=no; \
+	printf '%s\n' "$$changed" | grep -qE '^Makefile$$|^make/[^/]+\.mk$$' && build_system=yes || true; \
+	printf '%s\n' "$$changed" | grep -qE '^\.github/workflows/.*\.ya?ml$$' && workflows=yes || true; \
+	printf '%s\n' "$$changed" | grep -qE '^controller/deploy/charts/|^controller/hack/chart-.*-assertions\.(py|sh)$$|^\.github/workflows/chart\.yml$$' && chart=yes || true; \
+	for f in $$changed; do \
+		case "$$f" in \
+			*.sh) shell=yes ;; \
+			*) [ -f "$$f" ] && head -n 1 "$$f" | grep -qE '^#!.*(bash|dash|ksh|/sh| sh)([[:space:]]|$$)' && shell=yes || true ;; \
+		esac; \
+	done; \
+	if [ "$$build_system" = yes ]; then \
+		workflows=yes; shell=yes; chart=yes; \
+	fi; \
 	if [ -n "$(MODULES)" ]; then \
 		mods="$(MODULES)"; \
 		echo "Modules (from MODULES=): $$mods"; \
+	elif [ "$$build_system" = yes ]; then \
+		mods="$(PREFLIGHT_MODULES)"; \
 	else \
 		mods=$$(for f in $$changed; do \
 			for m in $(PREFLIGHT_MODULES); do \
@@ -431,16 +453,15 @@ preflight: ## Lint and test the modules you changed. MODULES=... to choose them 
 	fi; \
 	[ "$$workspace" = yes ] && echo "  work-check-offline   (the workspace moved)" || true; \
 	[ "$$licences" = yes ] && echo "  license-header-check (source files changed)" || true; \
+	[ "$$workflows" = yes ] && echo "  lint-workflows       (workflow or build-system changes)" || true; \
+	[ "$$shell" = yes ] && echo "  lint-shell           (shell or build-system changes)" || true; \
+	[ "$$chart" = yes ] && echo "  chart-check          (chart or build-system changes)" || true; \
 	echo; \
 	echo "Will NOT run, and is not covered:"; \
 	echo "  - the e2e lanes (kind, Docker; CAPD additionally needs Linux amd64)"; \
 	echo "  - the gofail suite  -- make -C controller e2e-gofail"; \
-	echo "  - govulncheck       -- needs GOTOOLCHAIN=go1.26.6 to agree with CI."; \
-	echo "                         Under the workspace's own go1.26.5, controller"; \
-	echo "                         reports 7 reachable stdlib findings and agent 4;"; \
-	echo "                         under 1.26.6 both report none. That version is"; \
-	echo "                         written only in codeql.yml and govulncheck.yml."; \
-	echo "  - actionlint, shellcheck, chart -- no target yet; CI still owns them"; \
+	echo "  - govulncheck       -- make vulncheck (whole workspace and slow)"; \
+	echo "  - dependency licences -- CI checks every module; no root target yet"; \
 	echo; \
 	failed=""; \
 	for m in $$mods; do \
@@ -456,6 +477,18 @@ preflight: ## Lint and test the modules you changed. MODULES=... to choose them 
 	if [ "$$licences" = yes ]; then \
 		echo "==> license-header-check"; \
 		$(MAKE) --no-print-directory license-header-check || failed="$$failed licences"; \
+	fi; \
+	if [ "$$workflows" = yes ]; then \
+		echo "==> lint-workflows"; \
+		$(MAKE) --no-print-directory lint-workflows || failed="$$failed workflows"; \
+	fi; \
+	if [ "$$shell" = yes ]; then \
+		echo "==> lint-shell"; \
+		$(MAKE) --no-print-directory lint-shell || failed="$$failed shell"; \
+	fi; \
+	if [ "$$chart" = yes ]; then \
+		echo "==> chart-check"; \
+		$(MAKE) --no-print-directory chart-check || failed="$$failed chart"; \
 	fi; \
 	echo; \
 	if [ -n "$$failed" ]; then \
