@@ -74,25 +74,22 @@ chart-package-check: ## Assert that chart packaging replaces placeholder version
 
 chart-check: lint-chart chart-rbac-check chart-package-check ## Run every chart check enforced by CI.
 
-# Not the workspace's Go. Under go.work's 1.26.5 controller reports 7 reachable
-# findings and agent 4; under CI's pin both report none. Exit 3 means "found
-# something", any other non-zero means it could not run, which is not a finding.
+# Use the same tool, Go version, offline scan, waiver, and stale-waiver guard as
+# CI. The helper returns 3 for an unwaived finding and preserves tool failures.
 vulncheck: ## Report vulnerabilities reachable from each module. (run by the merge gate)
-	@$(call require_tool,govulncheck,latest,go install golang.org/x/vuln/cmd/govulncheck@latest)
+	@$(call require_tool,govulncheck,$(GOVULNCHECK_VERSION),go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION))
 	@echo "- govulncheck under Go $(GOVULNCHECK_GO_VERSION), the version CI uses"
 	@fail=0; \
 	 for m in $(WORK_MODULES); do \
 		echo "- $$m"; \
-		( cd $$m && GOTOOLCHAIN=go$(GOVULNCHECK_GO_VERSION) govulncheck ./... ); \
+		GOTOOLCHAIN=go$(GOVULNCHECK_GO_VERSION) \
+		GOVULNCHECK_WAIVED_MODULES="$(GOVULNCHECK_WAIVED_MODULES)" \
+			./hack/govulncheck-gate.sh "$$m"; \
 		rc=$$?; \
-		if [ $$rc -ne 0 ] && [ $$rc -ne 3 ]; then \
-			echo "  ERROR: govulncheck could not run in $$m (exit $$rc)"; fail=1; \
-		elif [ $$rc -eq 3 ]; then \
-			echo "  reachable vulnerabilities reported in $$m"; fail=1; \
-		fi; \
+		[ $$rc -eq 0 ] || fail=1; \
 	 done; \
 	 [ $$fail -eq 0 ] || exit 1
-	@echo "  govulncheck: nothing reachable"
+	@echo "  govulncheck gate passed"
 
 ##@ Everything
 

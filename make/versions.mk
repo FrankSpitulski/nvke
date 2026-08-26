@@ -25,6 +25,11 @@
 # sees findings CI does not, which is why this number has to be reachable from
 # outside the workflow that hardcodes it.
 GOVULNCHECK_GO_VERSION ?= 1.26.6
+GOVULNCHECK_VERSION    ?= v1.6.0
+
+# Known reachable finding with no fixed upstream release. govulncheck.yml
+# documents the advisory and the shared gate fails when this waiver is stale.
+GOVULNCHECK_WAIVED_MODULES ?= controller/nico-vms
 
 # Static analysis. actionlint.yml:77 and secrets.yml:88 install these by hand,
 # each from a linux_amd64 tarball, which is why neither runs on a Mac. The Flox
@@ -69,8 +74,10 @@ print-%:
 
 show-versions: ## Print every pinned tool version.
 	@echo "Tool versions (make/versions.mk):"
-	@printf '  %-24s %s\n' \
+	@printf '  %-32s %s\n' \
 		"GOVULNCHECK_GO_VERSION" "$(GOVULNCHECK_GO_VERSION)" \
+		"GOVULNCHECK_VERSION"    "$(GOVULNCHECK_VERSION)" \
+		"GOVULNCHECK_WAIVED_MODULES" "$(GOVULNCHECK_WAIVED_MODULES)" \
 		"ACTIONLINT_VERSION"     "$(ACTIONLINT_VERSION)" \
 		"GITLEAKS_VERSION"       "$(GITLEAKS_VERSION)" \
 		"KUBECONFORM_VERSION"    "$(KUBECONFORM_VERSION)" \
