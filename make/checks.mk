@@ -82,6 +82,15 @@ chart-check: lint-chart chart-rbac-check chart-package-check ## Run every chart 
 vulncheck: ## Report vulnerabilities reachable from each module. (run by the merge gate)
 	@$(call require_tool,govulncheck,$(GOVULNCHECK_VERSION))
 	@echo "- govulncheck under Go $(GOVULNCHECK_GO_VERSION), the version CI uses"
+	@# The scan runs with GOPROXY=off, and a toolchain switch fetches through the
+	@# proxy. Download the toolchain first, or a machine that does not already
+	@# have it fails inside the scan with an error naming neither GOPROXY nor
+	@# this pin. CI is unaffected: setup-go leaves the toolchain in place.
+	@GOTOOLCHAIN=go$(GOVULNCHECK_GO_VERSION) go version >/dev/null 2>&1 || { \
+		echo "ERROR: could not obtain Go $(GOVULNCHECK_GO_VERSION), which this check pins to match CI." >&2; \
+		echo "       It downloads once through the module proxy, so this step needs network access." >&2; \
+		exit 1; \
+	 }
 	@fail=0; \
 	 for m in $(WORK_MODULES); do \
 		echo "- $$m"; \

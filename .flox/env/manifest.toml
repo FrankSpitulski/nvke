@@ -53,6 +53,15 @@ shellcheck.pkg-path = "shellcheck"   # shellcheck.yml pins no version at all
 yq-go.pkg-path = "yq-go"
 jq.pkg-path = "jq"
 
+# The chart checks, which `make gate` reaches through chart-check. lint-chart
+# requires kubeconform by version, and the RBAC assertions need python3 with
+# PyYAML. Without these, `make gate` stops on its first step for anyone working
+# from this environment alone.
+# Interpreter and module share a pkg-group so the module matches the python.
+kubeconform = { pkg-path = "kubeconform", version = "0.7.0", pkg-group = "kubeconform" }
+python3 = { pkg-path = "python313", pkg-group = "python" }
+pyyaml = { pkg-path = "python313Packages.pyyaml", pkg-group = "python" }
+
 
 ## Environment Variables ---------------------------------------------
 ##  ... available for use in the activated environment
