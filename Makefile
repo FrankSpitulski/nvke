@@ -395,6 +395,15 @@ PREFLIGHT_MODULES := controller/hack/capd-reboot-controller \
                      controller \
                      os-image
 
+# controller/api ships no tests of its own, so linting and testing it alone
+# compiles nothing that uses it. These are the modules that import it, and a
+# change to the API has to build them to mean anything.
+API_DEPENDENTS := controller cli controller/test/e2e
+
+# The modules CI tests with -race, from agent-test.yml and controller-test.yml.
+# Only these, because -race needs cgo and some modules build with CGO_ENABLED=0.
+RACE_MODULES := agent controller
+
 # Root lint covers every module CI lints. Root fmt excludes generated API code,
 # whose formatting belongs to controller's generator.
 LINT_MODULES := $(PREFLIGHT_MODULES)
@@ -429,10 +438,12 @@ preflight: ## Lint and test the modules you changed. MODULES=... to choose them 
 	              git diff --cached --name-only; \
 	              git diff --name-only; \
 	              git ls-files --others --exclude-standard; } | sort -u ); \
-	build_system=no; workflows=no; shell=no; chart=no; \
+	build_system=no; workflows=no; shell=no; chart=no; workspace=no; licences=no; \
 	printf '%s\n' "$$changed" | grep -qE '^Makefile$$|^make/[^/]+\.mk$$' && build_system=yes || true; \
 	printf '%s\n' "$$changed" | grep -qE '^\.github/workflows/.*\.ya?ml$$' && workflows=yes || true; \
 	printf '%s\n' "$$changed" | grep -qE '^controller/deploy/charts/|^controller/hack/chart-.*-assertions\.(py|sh)$$|^\.github/workflows/chart\.yml$$' && chart=yes || true; \
+	printf '%s\n' "$$changed" | grep -qE '(^|/)(go\.mod|go\.sum)$$|^go\.work|^vendor/' && workspace=yes || true; \
+	printf '%s\n' "$$changed" | grep -qE '\.(go|sh|py|js|css|html|ya?ml)$$' && licences=yes || true; \
 	for f in $$changed; do \
 		case "$$f" in \
 			*.sh) shell=yes ;; \
@@ -440,7 +451,7 @@ preflight: ## Lint and test the modules you changed. MODULES=... to choose them 
 		esac; \
 	done; \
 	if [ "$$build_system" = yes ]; then \
-		workflows=yes; shell=yes; chart=yes; \
+		workflows=yes; shell=yes; chart=yes; workspace=yes; licences=yes; \
 	fi; \
 	if [ -n "$(MODULES)" ]; then \
 		mods="$(MODULES)"; \
@@ -453,10 +464,13 @@ preflight: ## Lint and test the modules you changed. MODULES=... to choose them 
 				case "$$f" in ("$$m"/*) echo "$$m"; break ;; esac; \
 			done; \
 		done | sort -u); \
+		mods=$$(for m in $$mods; do \
+			echo "$$m"; \
+			case "$$m" in \
+				(controller/api) printf '%s\n' $(API_DEPENDENTS) ;; \
+			esac; \
+		done | sort -u); \
 	fi; \
-	workspace=no; licences=no; \
-	printf '%s\n' "$$changed" | grep -qE '(^|/)(go\.mod|go\.sum)$$|^go\.work|^vendor/' && workspace=yes || true; \
-	printf '%s\n' "$$changed" | grep -qE '\.(go|sh|py|js|css|html|ya?ml)$$' && licences=yes || true; \
 	echo "Will run:"; \
 	if [ -n "$$mods" ]; then \
 		for m in $$mods; do echo "  lint + test   $$m"; done; \
@@ -474,13 +488,17 @@ preflight: ## Lint and test the modules you changed. MODULES=... to choose them 
 	echo "  - the e2e lanes (kind, Docker; CAPD additionally needs Linux amd64)"; \
 	echo "  - the gofail suite  -- make -C controller e2e-gofail"; \
 	echo "  - govulncheck       -- make vulncheck (whole workspace and slow)"; \
+	echo "  - generate-check, version-check, test-compile, licenses-check"; \
+	echo "                      -- make gate runs all four"; \
 	echo; \
 	failed=""; \
 	for m in $$mods; do \
 		echo "==> $$m lint"; \
 		$(MAKE) --no-print-directory -C $$m lint || failed="$$failed $$m:lint"; \
 		echo "==> $$m test"; \
-		$(MAKE) --no-print-directory -C $$m test || failed="$$failed $$m:test"; \
+		$(MAKE) --no-print-directory -C $$m test \
+			GO_TEST_FLAGS="$$(case " $(RACE_MODULES) " in *" $$m "*) echo -race ;; esac)" \
+			|| failed="$$failed $$m:test"; \
 	done; \
 	if [ "$$workspace" = yes ]; then \
 		echo "==> work-check-offline"; \
