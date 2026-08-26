@@ -69,9 +69,16 @@ jobs:
         with:
           persist-credentials: false
 
+      # Version pins come from make/versions.mk, so `make show-versions` and CI
+      # cannot disagree.
+      - name: Read pinned tool versions
+        id: versions
+        run: |
+          echo "helm_chart_version=$(make --no-print-directory print-HELM_CHART_VERSION)" >> "$GITHUB_OUTPUT"
+
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
-          version: v3.19.0
+          version: ${{ steps.versions.outputs.helm_chart_version }}
 
       - name: Lint
         run: helm lint "${CHART}"
@@ -108,7 +115,8 @@ jobs:
           # Recomputed, not inherited: a shell variable set in the Render step
           # does not survive into this one. Same expression as there.
           out="${RUNNER_TEMP}/rendered.yaml"
-          ver=v0.7.0
+          # One definition, in make/versions.mk.
+          ver="$(make --no-print-directory print-KUBECONFORM_VERSION)"
           curl -sSfL --retry 3 \
             "https://github.com/yannh/kubeconform/releases/download/${ver}/kubeconform-linux-amd64.tar.gz" \
             | tar -xz -C "${RUNNER_TEMP}" kubeconform

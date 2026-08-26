@@ -127,8 +127,12 @@ PRIVATE_MODULES :=
 LICENSE_DESTS := controller/licenses \
                  controller/deploy/charts/cloud-workflow-engine
 
+# Tool versions that CI pins, in one place. Included rather than repeated here so
+# `make show-versions` and the workflows read the same definitions.
+include make/versions.mk
+
 .DEFAULT_GOAL := help
-.PHONY: help test-e2e-backend-ci work work-sync work-check work-check-offline build test preflight version-check clean licenses licenses-check license-header-check
+.PHONY: help show-versions test-e2e-backend-ci work work-sync work-check work-check-offline build test preflight version-check clean licenses licenses-check license-header-check
 
 ##@ Help
 
@@ -146,6 +150,14 @@ help: ## Show the available targets.
 	@awk 'BEGIN { FS = ":.*## " } \
 		/^##@ / { printf "\n%s\n", substr($$0, 5) } \
 		/^[a-z][a-z0-9-]*:.*## / { printf "  %-22s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@echo
+	@# Resolved by make at the moment you ask, so it cannot disagree with what
+	@# the build will do. `make show-versions` prints the rest.
+	@echo "Toolchain in use:"
+	@printf '  %s, %s, golangci-lint %s\n' \
+		"$$(command -v go >/dev/null && go version | awk '{print $$3}' || echo 'go not on PATH')" \
+		"GNU Make $(MAKE_VERSION)" \
+		"$$(command -v golangci-lint >/dev/null && golangci-lint --version | awk '{print $$4}' || echo 'not on PATH')"
 	@echo
 
 ##@ Workspace

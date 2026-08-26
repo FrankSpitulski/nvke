@@ -107,10 +107,21 @@ jobs:
       # out to `helm` directly, so this action installs the binary rather
       # than the Helm chart-testing tooling `helm/kind-action` below would
       # otherwise pull in.
+      # Version pins come from make/versions.mk, so `make show-versions` and CI
+      # cannot disagree.
+      - name: Read pinned tool versions
+        id: versions
+        run: |
+          {
+            echo "helm_version=$(make --no-print-directory print-HELM_VERSION)"
+            echo "kind_version=$(make --no-print-directory print-KIND_VERSION)"
+            echo "kubectl_version=$(make --no-print-directory print-KUBECTL_VERSION)"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
-          version: v3.20.2
+          version: ${{ steps.versions.outputs.helm_version }}
 
       # Same pinned version and install pattern as capd-e2e.yml, for the same
       # reason: install_only, since this suite drives kind itself rather than
@@ -118,8 +129,8 @@ jobs:
       - name: Set up Kind and kubectl
         uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
         with:
-          version: v0.32.0
-          kubectl_version: v1.36.0
+          version: ${{ steps.versions.outputs.kind_version }}
+          kubectl_version: ${{ steps.versions.outputs.kubectl_version }}
           install_only: true
 
       - name: Log in to GHCR

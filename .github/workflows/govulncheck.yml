@@ -154,6 +154,13 @@ jobs:
         with:
           persist-credentials: false
 
+      # Read the pin from make/versions.mk rather than repeating it here. It was
+      # written in this file and in codeql.yml and nowhere a developer could
+      # reach it, so `make govulncheck` locally could not match this job.
+      - name: Read pinned Go version
+        id: versions
+        run: echo "go=$(make --no-print-directory print-GOVULNCHECK_GO_VERSION)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           # Pin the version the Dockerfiles build with, so the scan reports on
@@ -167,7 +174,7 @@ jobs:
           # This is not cosmetic. On 2026-08-13 the same controller/ tree
           # reported 7 reachable standard-library vulnerabilities under 1.26.5
           # and 0 under 1.26.6.
-          go-version: '1.26.6'
+          go-version: ${{ steps.versions.outputs.go }}
           cache: true
           # go.work.sum holds only the hashes NOT already in a member's go.sum,
           # so the versions actually linked often appear in it zero times. Keyed
