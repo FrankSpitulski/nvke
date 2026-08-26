@@ -81,59 +81,25 @@ jobs:
       #
       # Built once and read by both steps below, which previously kept identical
       # `find` lines by hand.
-      #
-      # Match shebangs narrowly: sibling files start `#!/usr/bin/env python3`
-      # and `#!ipxe`. Take the word after `env` when present, so `#!/bin/bash -e`
-      # and `#!/usr/bin/env bash` both resolve.
-      - name: Collect shell scripts
-        shell: bash
-        run: |
-          set -euo pipefail
-          list="${RUNNER_TEMP}/shell-scripts.list"
-          {
-            git ls-files -z -- '*.sh' ':(exclude)vendor/*'
-            while IFS= read -r -d '' path; do
-              # Extension-bearing files are already covered by the glob above.
-              case "${path##*/}" in *.*) continue ;; esac
-              [ -f "${path}" ] || continue
-              interp=$(
-                sed -n '1s/^#![[:space:]]*//p' "${path}" \
-                  | awk 'NR == 1 { if ($1 ~ /\/env$/) print $2; else print $1 }'
-              )
-              case "${interp##*/}" in
-                sh|bash|dash|ksh) printf '%s\0' "${path}" ;;
-              esac
-            done < <(git ls-files -z -- ':(exclude)vendor/*')
-          } | sort -zu > "${list}"
-          echo "SHELL_SCRIPT_LIST=${list}" >> "${GITHUB_ENV}"
-
       - name: Lint shell scripts
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -d '' -t scripts < "${SHELL_SCRIPT_LIST}"
-          echo "Checking ${#scripts[@]} shell scripts at severity=error"
-          shellcheck --severity=error --format=tty "${scripts[@]}"
+        run: make lint-shell
 
-      # Reported, not enforced, so the size of the backlog is visible in the
-      # log without gating on it. Remove this step when the gate above moves
-      # to -S warning.
+      # Reported, not enforced, so the size of the backlog is visible without
+      # gating on it. Remove when the gate above moves to -S warning.
       - name: Report the warning-level backlog
         if: always()
         shell: bash
         run: |
           set -uo pipefail
-          mapfile -d '' -t scripts < "${SHELL_SCRIPT_LIST}"
-          # `|| true` is required, not defensive. shellcheck exits non-zero
-          # when it finds anything, and the runner invokes this step with
-          # `bash -e -o pipefail` whatever the script itself sets -- so without
-          # it, a non-empty backlog fails a step whose entire job is to count
-          # the backlog.
-          count=$( { shellcheck --severity=warning --format=gcc "${scripts[@]}" 2>/dev/null || true; } | wc -l | tr -d ' ')
+          n=$(./hack/shell-scripts.sh | tr -dc '\\0' | wc -c | tr -d ' ')
+          # `|| true` is required. shellcheck exits non-zero on any finding, and
+          # the runner invokes this step with `bash -e -o pipefail`, so without
+          # it a non-empty backlog fails the step that counts the backlog.
+          count=$( { ./hack/shell-scripts.sh | xargs -0 shellcheck --severity=warning --format=gcc 2>/dev/null || true; } | wc -l | tr -d ' ')
           {
             echo "## shellcheck"
             echo
-            echo "Gate: \`--severity=error\` over ${#scripts[@]} scripts."
+            echo "Gate: \`--severity=error\` over ${n} scripts."
             echo
             echo "Not yet enforced: **${count}** finding(s) at \`--severity=warning\`."
           } >> "${GITHUB_STEP_SUMMARY}"

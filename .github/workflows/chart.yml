@@ -80,57 +80,23 @@ jobs:
         with:
           version: ${{ steps.versions.outputs.helm_chart_version }}
 
-      - name: Lint
-        run: helm lint "${CHART}"
-
-      - name: Render
-        shell: bash
+      # helm lint, helm template with a resource count, the apiAuth
+      # assertions and kubeconform, in one target so a developer runs what
+      # CI runs.
+      # make lint-chart skips kubeconform when it is absent, and says so. On a
+      # runner that would silently drop a real check, so install it first.
+      - name: Install kubeconform
         run: |
           set -euo pipefail
-          out="${RUNNER_TEMP}/rendered.yaml"
-          helm template cwe "${CHART}" > "${out}"
-          # A chart that renders to nothing passes `helm template` silently.
-          count=$(grep -c '^kind:' "${out}" || true)
-          if [ "${count}" -eq 0 ]; then
-            echo "::error::the chart rendered no resources"
-            exit 1
-          fi
-          echo "rendered ${count} resources"
-          echo "### Chart renders ${count} resources" >> "${GITHUB_STEP_SUMMARY}"
-
-      # Checks what apiAuth renders in each state: that enabling it produces a
-      # deployment which can authenticate, and that disabling it omits
-      # AUTH_CONFIG_PATH rather than setting it empty.
-      - name: Assert what apiAuth renders
-        run: ./controller/hack/chart-auth-assertions.sh
-
-      # Helm never parses its own output, so `helm lint` and `helm template`
-      # both pass on a manifest Kubernetes would reject. A duplicate
-      # app.kubernetes.io/name in the ServiceMonitor selector survived both for
-      # exactly that reason. kubeconform parses what was rendered.
-      - name: Validate the rendered manifests
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Recomputed, not inherited: a shell variable set in the Render step
-          # does not survive into this one. Same expression as there.
-          out="${RUNNER_TEMP}/rendered.yaml"
-          # One definition, in make/versions.mk.
           ver="$(make --no-print-directory print-KUBECONFORM_VERSION)"
           curl -sSfL --retry 3 \
             "https://github.com/yannh/kubeconform/releases/download/${ver}/kubeconform-linux-amd64.tar.gz" \
             | tar -xz -C "${RUNNER_TEMP}" kubeconform
-          # -strict rejects duplicate keys and unknown fields. ServiceMonitor is
-          # a CRD, so its schema comes from the datreeio catalogue; -ignore-missing-schemas
-          # keeps an unpublished CRD from failing the build while still
-          # validating everything with a schema.
-          "${RUNNER_TEMP}/kubeconform" \
-            -strict \
-            -summary \
-            -ignore-missing-schemas \
-            -schema-location default \
-            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-            "${out}"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+
+      - name: Lint and render the chart
+        run: make lint-chart
+
 
       # Nothing asserted the tenant RBAC before: the tenantaccess unit tests read
       # a fixture, not the chart, so a missing rule only showed up in the CAPD

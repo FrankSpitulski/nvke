@@ -102,4 +102,4 @@ jobs:
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       - name: Lint the workflows
-        run: actionlint
+        run: make lint-workflows

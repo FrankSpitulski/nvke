@@ -131,8 +131,11 @@ LICENSE_DESTS := controller/licenses \
 # `make show-versions` and the workflows read the same definitions.
 include make/versions.mk
 
+# The merge-gate checks that had no target, plus root fmt, lint and gate.
+include make/checks.mk
+
 .DEFAULT_GOAL := help
-.PHONY: help show-versions test-e2e-backend-ci work work-sync work-check work-check-offline build test preflight version-check clean licenses licenses-check license-header-check
+.PHONY: help show-versions lint-workflows lint-shell lint-chart vulncheck fmt lint gate test-e2e-backend-ci work work-sync work-check work-check-offline build test preflight version-check clean licenses licenses-check license-header-check
 
 ##@ Help
 
