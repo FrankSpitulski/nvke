@@ -189,7 +189,10 @@ jobs:
           GOTOOLCHAIN: local
           MODULE: ${{ matrix.module }}
         run: |
-          go install github.com/google/go-licenses/v2@latest
+          # v2.0.1, matching GO_LICENSES_VERSION in agent/Makefile and
+          # controller/Makefile. @latest let this job and those Makefiles reach
+          # different verdicts on the same tree, and change without a commit.
+          go install github.com/google/go-licenses/v2@v2.0.1
           # cluster-api-provider-nico is first-party NVIDIA code carried in
           # vendor/, not a third-party dependency, and it ships no LICENSE of its
           # own. Same ignore list as controller/Makefile's license-policy-check.

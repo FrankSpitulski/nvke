@@ -279,7 +279,11 @@ define build_deb
 		sed "s/{{VERSION}}/$(DEB_VERSION)/g" $$s > $(ARCH_BUILD_DIR)/etc/systemd/system/$$(basename $$s); \
 	done
 
-	sed -i "s/Architecture: .*/Architecture: $(1)/" $(ARCH_BUILD_DIR)/DEBIAN/control
+	@# Not `sed -i "s/..."`: BSD sed reads the script as the -i backup suffix and
+	@# the filename as the script, so this failed on a stock Mac before
+	@# `make deb-amd64` reached fakeroot.
+	sed "s/Architecture: .*/Architecture: $(1)/" $(ARCH_BUILD_DIR)/DEBIAN/control > $(ARCH_BUILD_DIR)/DEBIAN/control.new
+	mv $(ARCH_BUILD_DIR)/DEBIAN/control.new $(ARCH_BUILD_DIR)/DEBIAN/control
 
 	chmod 755 $(ARCH_BUILD_DIR)/DEBIAN/postinst
 	chmod 755 $(ARCH_BUILD_DIR)/DEBIAN/prerm

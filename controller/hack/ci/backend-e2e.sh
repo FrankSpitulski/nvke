@@ -78,7 +78,9 @@ redact_diagnostics() {
   fi
   while IFS= read -r -d '' file; do
     files+=("${file}")
-    sed -E -i \
+    # -i.bak, not bare -i: BSD sed reads the next argument as the backup suffix,
+    # so a bare -i with several -e leaves the file unredacted and exits 1.
+    sed -E -i.bak \
       -e 's/[a-z0-9]{6}\.[a-z0-9]{16}/REDACTED-KUBEADM-TOKEN/g' \
       -e 's/(--certificate-key[=[:space:]]+)[0-9a-fA-F]{64}/\1REDACTED/g' \
       -e 's/(discovery-token-ca-cert-hash[=[:space:]]+sha256:)[0-9a-fA-F]{64}/\1REDACTED/g' \
@@ -86,6 +88,7 @@ redact_diagnostics() {
       -e 's/((spireJoinToken|spire_join_token|joinToken|join_token)[" ]*[:=][" ]*)[^",[:space:]]+/\1REDACTED/g' \
       -e 's/(-joinToken[=[:space:]]+)[^[:space:]]+/\1REDACTED/g' \
       "${file}" || return 1
+    rm -f "${file}.bak"
   done <"${file_list}"
 
   if ((${#files[@]} == 0)); then
