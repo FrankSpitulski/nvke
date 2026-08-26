@@ -25,6 +25,8 @@ endif
 GOLANGCI_LINT_GOWORK :=
 include ../../make/golangci.mk
 
+GO_TEST_FLAGS ?=
+
 .PHONY: help lint test
 
 ##@ Help
@@ -41,4 +43,4 @@ lint: ## Run golangci-lint over this module. (run by the merge gate)
 	@$(GOLANGCI_LINT_RUN) run --timeout 10m
 
 test: ## Run this module's tests.
-	$(GO) test ./...
+	$(GO) test $(GO_TEST_FLAGS) ./...

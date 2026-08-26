@@ -120,23 +120,25 @@ lint: ## Lint every module. (run by the merge gate)
 		$(MAKE) --no-print-directory -C $$m lint || exit 1; \
 	 done
 
-# Not every gate member: three need Docker, kind, PostgreSQL or Linux on amd64.
-# They are named at the end rather than run, so this stays something a developer
-# will wait for. `make preflight` is the change-scoped version.
+# Two merge-gate jobs need Docker or live services. They are listed below.
 gate: ## Run the merge-gate checks that work on a laptop.
-	@$(MAKE) --no-print-directory build
-	@$(MAKE) --no-print-directory test
+	@$(MAKE) --no-print-directory tools-check
+	@$(MAKE) --no-print-directory version-check
+	@CGO_ENABLED=1 $(MAKE) --no-print-directory GO_TEST_FLAGS=-race test
+	@$(MAKE) --no-print-directory test-compile
 	@$(MAKE) --no-print-directory lint
-	@$(MAKE) --no-print-directory work-check-offline
+	@$(MAKE) --no-print-directory work-check
+	@$(MAKE) --no-print-directory license-deps-check
 	@$(MAKE) --no-print-directory licenses-check
 	@$(MAKE) --no-print-directory license-header-check
 	@$(MAKE) --no-print-directory lint-workflows
 	@$(MAKE) --no-print-directory lint-shell
 	@$(MAKE) --no-print-directory chart-check
 	@$(MAKE) --no-print-directory -C controller generate-check
+	@$(MAKE) --no-print-directory vulncheck
 	@echo
-	@echo "Not run here, because they need more than a laptop:"
-	@echo "  nkectl-bootstrap-e2e   make -C cli test-e2e-bootstrap   docker, kind"
-	@echo "  gofail                 make -C controller e2e-gofail    postgres, envtest"
-	@echo "  govulncheck            make vulncheck                   slow"
-	@echo "  CAPD e2e               make test-e2e-backend-ci         Linux amd64 only"
+	@echo "Merge-gate jobs not run locally:"
+	@echo "  nkectl bootstrap e2e   make -C cli test-e2e-bootstrap   Docker and kind"
+	@echo "  gofail e2e             make -C controller e2e-gofail    PostgreSQL, envtest and Temporal"
+	@echo "Workspace re-derivation needs access to the internal provider; work-check reports if it skips."
+	@echo "CAPD backend e2e is advisory, not part of the merge gate: make test-e2e-backend-ci"

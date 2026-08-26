@@ -138,7 +138,7 @@ include make/versions.mk
 include make/checks.mk
 
 .DEFAULT_GOAL := help
-.PHONY: help show-versions tools-check lint-workflows lint-shell lint-chart chart-rbac-check chart-package-check chart-check vulncheck fmt lint gate test-e2e-backend-ci work work-sync work-check work-check-offline build test preflight version-check clean licenses licenses-check license-deps-check notices notices-check license-header-check
+.PHONY: help show-versions tools-check lint-workflows lint-shell lint-chart chart-rbac-check chart-package-check chart-check vulncheck fmt lint gate test-compile test-e2e-backend-ci work work-sync work-check work-check-offline build test preflight version-check clean licenses licenses-check license-deps-check notices notices-check license-header-check
 
 ##@ Help
 
@@ -357,28 +357,37 @@ test: ## Run each module's own test suite.
 	@# Each module keeps its own exclusions, so defer to its Makefile when it
 	@# has one and fall back to `go test ./...` when it does not.
 	@#
-	@# -skip '^TestE2E$$' matches controller-test.yml:109. controller/test/e2e has
-	@# no Makefile, so it took the fallback and ran TestE2E, the live Ginkgo entry
-	@# point, which needs a cluster. Root `make test` therefore failed on every
-	@# machine. No workflow calls it, so CI never noticed. The other fallback
-	@# modules define no TestE2E.
+	@# The fallback keeps the live Ginkgo TestE2E entry point out of local tests.
 	@for m in $(WORK_MODULES); do \
 		echo "- testing $$m"; \
 		if [ -f $$m/Makefile ] && $(MAKE) -C $$m -n test >/dev/null 2>&1; then \
 			$(MAKE) -C $$m test || exit 1; \
 		else \
-			$(GO) test -C $$m -skip '^TestE2E$$' ./... || exit 1; \
+			$(GO) -C $$m test $(GO_TEST_FLAGS) -skip '^TestE2E$$' ./... || exit 1; \
 		fi; \
 	done
+
+test-compile: ## Type-check test variants that need external services to run.
+	@echo "- compile controller/test/e2e"
+	@cd controller/test/e2e && CGO_ENABLED=1 $(GO) vet ./...
+	@echo "- compile controller/e2e with gofail"
+	@cd controller && CGO_ENABLED=1 $(GO) vet -tags gofail ./e2e/...
+	@echo "- compile controller Teleport integration tests"
+	@cd controller && CGO_ENABLED=1 $(GO) vet -tags integration ./internal/teleport/...
+	@echo "- compile nico-vms integration tests"
+	@cd controller/nico-vms && CGO_ENABLED=1 $(GO) vet -tags integration ./test/integration/...
+	@echo "- compile controller integration tests"
+	@cd controller && CGO_ENABLED=1 $(GO) vet -tags integration_test ./integration-test/...
 
 # The modules that own lint and test targets.
 #
 # Deepest first, so the first match wins. controller/nico-vms/x.go sits inside
 # both controller/nico-vms and controller, and only the first is right.
 #
-# controller/api has no fmt target because its Go is generated. The remaining
-# two modules without Makefiles gain their lint targets in separate changes.
-PREFLIGHT_MODULES := controller/hack/nico-mock \
+# controller/api has no fmt target because its Go is generated.
+PREFLIGHT_MODULES := controller/hack/capd-reboot-controller \
+                     controller/hack/nico-mock \
+                     controller/test/e2e \
                      controller/nico-vms \
                      controller/api \
                      agent \
