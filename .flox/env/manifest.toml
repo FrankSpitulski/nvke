@@ -31,8 +31,7 @@ schema-version = "1.11.0"
 go = { pkg-path = "go", version = "1.26.5", pkg-group = "go" }
 # GOLANGCI_LINT_VERSION in six module Makefiles, and lint.yml:223.
 golangci-lint = { pkg-path = "golangci-lint", version = "2.12.2", pkg-group = "golangci-lint" }
-# backend-e2e.yml:113 and nkectl-bootstrap-e2e.yml:113. The three chart workflows
-# still say v3.19.0, and unifying them is a separate change.
+# Shared by local checks and workflows through make/tool-versions.mk.
 kubernetes-helm = { pkg-path = "kubernetes-helm", version = "3.20.2", pkg-group = "helm" }
 # backend-e2e.yml:118 and nkectl-bootstrap-e2e.yml:121.
 kind = { pkg-path = "kind", version = "0.32.0", pkg-group = "kind" }

@@ -38,7 +38,7 @@ lint-shell: ## Lint every tracked shell script. (run by the merge gate)
 # kubeconform parses what was rendered. A chart that renders nothing also passes
 # helm template silently, hence the count.
 lint-chart: ## Lint and render the Helm chart, then validate it. (run by the merge gate)
-	@$(call require_tool,helm,$(HELM_CHART_VERSION))
+	@$(call require_tool,helm,$(HELM_VERSION))
 	@$(call require_tool,kubeconform,$(KUBECONFORM_VERSION))
 	@helm lint $(CHART)
 	@# A directory, not `mktemp -t`: kubeconform selects files by extension, and
@@ -62,7 +62,7 @@ lint-chart: ## Lint and render the Helm chart, then validate it. (run by the mer
 	@./controller/hack/chart-auth-assertions.sh
 
 chart-rbac-check: ## Assert that tenant RBAC grants every permission the controller uses.
-	@$(call require_tool,helm,$(HELM_CHART_VERSION))
+	@$(call require_tool,helm,$(HELM_VERSION))
 	@$(call require_command,python3)
 	@python3 -c 'import yaml' >/dev/null 2>&1 || { \
 		echo "ERROR: Python module PyYAML is required for chart RBAC assertions."; \
@@ -72,7 +72,7 @@ chart-rbac-check: ## Assert that tenant RBAC grants every permission the control
 	@python3 ./controller/hack/chart-rbac-assertions.py --chart "$(CHART)"
 
 chart-package-check: ## Assert that chart packaging replaces placeholder versions.
-	@$(call require_tool,helm,$(HELM_CHART_VERSION))
+	@$(call require_tool,helm,$(HELM_VERSION))
 	@CHART="$(CHART)" ./controller/hack/chart-package-assertions.sh
 
 chart-check: lint-chart chart-rbac-check chart-package-check ## Run every chart check enforced by CI.
@@ -98,7 +98,7 @@ tools-check: ## Check the versions of tools used by local merge-gate targets.
 	@fail=0; \
 	 ./hack/check-tool-version.sh actionlint "$(ACTIONLINT_VERSION)" || fail=1; \
 	 ./hack/check-tool-version.sh shellcheck "$(SHELLCHECK_VERSION)" || fail=1; \
-	 ./hack/check-tool-version.sh helm "$(HELM_CHART_VERSION)" || fail=1; \
+	 ./hack/check-tool-version.sh helm "$(HELM_VERSION)" || fail=1; \
 	 ./hack/check-tool-version.sh kubeconform "$(KUBECONFORM_VERSION)" || fail=1; \
 	 ./hack/check-tool-version.sh govulncheck "$(GOVULNCHECK_VERSION)" || fail=1; \
 	 [ $$fail -eq 0 ]

@@ -40,7 +40,6 @@ show-versions: ## Print every pinned tool version.
 		"GITLEAKS_VERSION"       "$(GITLEAKS_VERSION)" \
 		"KUBECONFORM_VERSION"    "$(KUBECONFORM_VERSION)" \
 		"HELM_VERSION"           "$(HELM_VERSION)" \
-		"HELM_CHART_VERSION"     "$(HELM_CHART_VERSION)" \
 		"KIND_VERSION"           "$(KIND_VERSION)" \
 		"KUBECTL_VERSION"        "$(KUBECTL_VERSION)" \
 		"ORAS_VERSION"           "$(ORAS_VERSION)" \

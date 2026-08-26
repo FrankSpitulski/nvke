@@ -78,11 +78,11 @@ jobs:
       - name: Read pinned tool versions
         id: versions
         run: |
-          echo "helm_chart_version=$(make --no-print-directory print-HELM_CHART_VERSION)" >> "$GITHUB_OUTPUT"
+          echo "helm_version=$(make --no-print-directory print-HELM_VERSION)" >> "$GITHUB_OUTPUT"
 
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
-          version: ${{ steps.versions.outputs.helm_chart_version }}
+          version: ${{ steps.versions.outputs.helm_version }}
 
       # Install kubeconform before running the fail-closed chart target.
       - name: Install kubeconform
