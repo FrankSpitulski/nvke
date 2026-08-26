@@ -127,6 +127,9 @@ PRIVATE_MODULES :=
 LICENSE_DESTS := controller/licenses \
                  controller/deploy/charts/cloud-workflow-engine
 
+# Redistributed binaries with generated third-party attribution.
+NOTICE_MODULES := agent controller cli os-image
+
 # Tool versions that CI pins, in one place. Included rather than repeated here so
 # `make show-versions` and the workflows read the same definitions.
 include make/versions.mk
@@ -135,7 +138,7 @@ include make/versions.mk
 include make/checks.mk
 
 .DEFAULT_GOAL := help
-.PHONY: help show-versions tools-check lint-workflows lint-shell lint-chart chart-rbac-check chart-package-check chart-check vulncheck fmt lint gate test-e2e-backend-ci work work-sync work-check work-check-offline build test preflight version-check clean licenses licenses-check license-header-check
+.PHONY: help show-versions tools-check lint-workflows lint-shell lint-chart chart-rbac-check chart-package-check chart-check vulncheck fmt lint gate test-e2e-backend-ci work work-sync work-check work-check-offline build test preflight version-check clean licenses licenses-check license-deps-check notices notices-check license-header-check
 
 ##@ Help
 
@@ -452,6 +455,7 @@ preflight: ## Lint and test the modules you changed. MODULES=... to choose them 
 		echo "  (nothing: no changed module has its own lint/test)"; \
 	fi; \
 	[ "$$workspace" = yes ] && echo "  work-check-offline   (the workspace moved)" || true; \
+	[ "$$workspace" = yes ] && echo "  license-deps-check   (dependencies changed)" || true; \
 	[ "$$licences" = yes ] && echo "  license-header-check (source files changed)" || true; \
 	[ "$$workflows" = yes ] && echo "  lint-workflows       (workflow or build-system changes)" || true; \
 	[ "$$shell" = yes ] && echo "  lint-shell           (shell or build-system changes)" || true; \
@@ -461,7 +465,6 @@ preflight: ## Lint and test the modules you changed. MODULES=... to choose them 
 	echo "  - the e2e lanes (kind, Docker; CAPD additionally needs Linux amd64)"; \
 	echo "  - the gofail suite  -- make -C controller e2e-gofail"; \
 	echo "  - govulncheck       -- make vulncheck (whole workspace and slow)"; \
-	echo "  - dependency licences -- CI checks every module; no root target yet"; \
 	echo; \
 	failed=""; \
 	for m in $$mods; do \
@@ -473,6 +476,8 @@ preflight: ## Lint and test the modules you changed. MODULES=... to choose them 
 	if [ "$$workspace" = yes ]; then \
 		echo "==> work-check-offline"; \
 		$(MAKE) --no-print-directory work-check-offline || failed="$$failed workspace"; \
+		echo "==> license-deps-check"; \
+		$(MAKE) --no-print-directory license-deps-check || failed="$$failed dependency-licenses"; \
 	fi; \
 	if [ "$$licences" = yes ]; then \
 		echo "==> license-header-check"; \
@@ -584,6 +589,31 @@ version-check: build ## Verify every built binary reports a real version. (run b
 		exit 1; }
 
 ##@ Licences
+
+license-deps-check: ## Check dependency licenses in every workspace module. (run by the merge gate)
+	@$(MAKE) --no-print-directory -C controller go-licenses
+	@modules="$(MODULE)"; \
+	 if [ -z "$$modules" ]; then modules="$$(./hack/workspace-modules.sh)"; fi; \
+	 for module in $$modules; do \
+		module="$${module#./}"; \
+		echo "- dependency licences: $$module"; \
+		GOTOOLCHAIN=local ./controller/bin/go-licenses check "./$$module/..." \
+			--disallowed_types=restricted,reciprocal,forbidden,unknown \
+			--ignore github.com/NVIDIA/nke \
+			--ignore github.com/NVIDIA/cluster-api-provider-nico || exit 1; \
+	 done
+
+notices: ## Regenerate third-party notices for redistributed binaries.
+	@for module in $(NOTICE_MODULES); do \
+		echo "- notices: $$module"; \
+		$(MAKE) --no-print-directory -C "$$module" notices || exit 1; \
+	 done
+
+notices-check: ## Verify all redistributed binaries have current notices.
+	@for module in $(NOTICE_MODULES); do \
+		echo "- notices-check: $$module"; \
+		$(MAKE) --no-print-directory -C "$$module" notices-check || exit 1; \
+	 done
 
 licenses: ## Copy LICENSE and NOTICE everywhere an artefact ships them from.
 	@for d in $(LICENSE_DESTS); do \

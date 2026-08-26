@@ -110,19 +110,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The use(...) block, one ./path per line. Reading go.work keeps this
-          # in step with the workspace by construction. `go list -m` would need
-          # a toolchain on a job that otherwise needs none.
-          mods=$(sed -n '/^use (/,/^)/p' go.work \
-            | sed -n 's#^[[:space:]]*\./##p' \
-            | sed 's/[[:space:]]*$//' \
-            | grep -v '^$' \
-            | sort)
-
-          if [ -z "$mods" ]; then
-            echo "::error::no modules found in go.work; the use() block did not parse"
-            exit 1
-          fi
+          mods="$(./hack/workspace-modules.sh)"
 
           # id is the category suffix and the job name: SARIF categories must be
           # distinct or each upload overwrites the last, which would silently
