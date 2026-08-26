@@ -39,29 +39,43 @@ lint-shell: ## Lint every tracked shell script. (run by the merge gate)
 # helm template silently, hence the count.
 lint-chart: ## Lint and render the Helm chart, then validate it. (run by the merge gate)
 	@$(call require_tool,helm,$(HELM_CHART_VERSION),brew install helm)
+	@$(call require_tool,kubeconform,$(KUBECONFORM_VERSION),brew install kubeconform)
 	@helm lint $(CHART)
 	@# A directory, not `mktemp -t`: kubeconform selects files by extension, and
 	@# macOS mktemp appends random characters after the template, so a file named
 	@# nke-chart-XXXXXX.qlKjrjG4RL is skipped and the summary reads
 	@# "0 resource found in 0 file" while the target reports success.
-	@dir=$$(mktemp -d); out="$$dir/rendered.yaml"; \
+	@set -eu; \
+	 dir=$$(mktemp -d); \
+	 trap 'rm -rf "$$dir"' EXIT HUP INT TERM; \
+	 out="$$dir/rendered.yaml"; \
 	 helm template cwe $(CHART) > "$$out"; \
 	 count=$$(grep -c '^kind:' "$$out" || true); \
 	 if [ "$$count" -eq 0 ]; then \
-		echo "ERROR: the chart rendered no resources."; rm -rf "$$dir"; exit 1; \
+		echo "ERROR: the chart rendered no resources."; exit 1; \
 	 fi; \
 	 echo "  rendered $$count resources"; \
-	 if command -v kubeconform >/dev/null 2>&1; then \
-		kubeconform -strict -summary -ignore-missing-schemas \
-			-schema-location default \
-			-schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-			"$$out"; \
-	 else \
-		echo "  NOTE: kubeconform not on PATH, so the rendered manifests were not"; \
-		echo "        validated. CI uses $(KUBECONFORM_VERSION). brew install kubeconform"; \
-	 fi; \
-	 rm -rf "$$dir"
+	 kubeconform -strict -summary -ignore-missing-schemas \
+		-schema-location default \
+		-schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+		"$$out"
 	@./controller/hack/chart-auth-assertions.sh
+
+chart-rbac-check: ## Assert that tenant RBAC grants every permission the controller uses.
+	@$(call require_tool,helm,$(HELM_CHART_VERSION),brew install helm)
+	@$(call require_tool,python3,3,brew install python)
+	@python3 -c 'import yaml' >/dev/null 2>&1 || { \
+		echo "ERROR: Python module PyYAML is required for chart RBAC assertions."; \
+		echo "  install: python3 -m pip install PyYAML"; \
+		exit 1; \
+	 }
+	@python3 ./controller/hack/chart-rbac-assertions.py --chart "$(CHART)"
+
+chart-package-check: ## Assert that chart packaging replaces placeholder versions.
+	@$(call require_tool,helm,$(HELM_CHART_VERSION),brew install helm)
+	@CHART="$(CHART)" ./controller/hack/chart-package-assertions.sh
+
+chart-check: lint-chart chart-rbac-check chart-package-check ## Run every chart check enforced by CI.
 
 # Not the workspace's Go. Under go.work's 1.26.5 controller reports 7 reachable
 # findings and agent 4; under CI's pin both report none. Exit 3 means "found
@@ -112,7 +126,7 @@ gate: ## Run the merge-gate checks that work on a laptop.
 	@$(MAKE) --no-print-directory license-header-check
 	@$(MAKE) --no-print-directory lint-workflows
 	@$(MAKE) --no-print-directory lint-shell
-	@$(MAKE) --no-print-directory lint-chart
+	@$(MAKE) --no-print-directory chart-check
 	@$(MAKE) --no-print-directory -C controller generate-check
 	@echo
 	@echo "Not run here, because they need more than a laptop:"

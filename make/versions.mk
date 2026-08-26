@@ -32,7 +32,8 @@ GOVULNCHECK_GO_VERSION ?= 1.26.6
 ACTIONLINT_VERSION ?= 1.7.12
 GITLEAKS_VERSION   ?= 8.30.1
 
-# Chart rendering and validation. chart.yml:111 downloads kubeconform inline.
+# Chart rendering and validation. chart.yml downloads kubeconform before the
+# fail-closed chart-check target runs.
 KUBECONFORM_VERSION ?= v0.7.0
 
 # Helm, and the one genuine disagreement in this file.
