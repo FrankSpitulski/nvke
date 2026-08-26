@@ -43,28 +43,28 @@ a target that needs a missing tool says which one and how to install it.
 ### Build
 
 ```bash
-make build          # → ./bin/cloud-workflow-engine
+make -C controller build          # → controller/bin/cloud-workflow-engine
 ```
 
 ### Lint
 
 ```bash
-make lint           # golangci-lint (5 min timeout)
-make fmt            # gofmt + goimports
+make -C controller lint           # golangci-lint (20 min timeout)
+make -C controller fmt            # gofumpt + goimports
 ```
 
 ### Test
 
 ```bash
-make test           # unit tests with coverage
+make -C controller test           # unit tests with coverage
 ```
 
 ### Code generation
 
-If you change `api/openapi.yaml`, regenerate Go bindings:
+If you change `controller/api/openapi.yaml`, regenerate Go bindings:
 
 ```bash
-flox activate -- make generate
+flox activate -- make -C controller generate
 ```
 
 Never hand-edit `*.gen.go` files — they will be overwritten.
@@ -84,7 +84,7 @@ temporal server start-dev
 Then run CWE:
 
 ```bash
-FWE_API_KEY=<your-NGC-api-key> make run
+FWE_API_KEY=<your-NGC-api-key> make -C controller run
 # UI:      http://localhost:8080
 # Swagger: http://localhost:8080/api/docs
 ```
@@ -94,7 +94,7 @@ self-signed JWT rather than authenticating against NGC, so it needs no
 `FWE_API_KEY`:
 
 ```bash
-FORGE_ENVIRONMENT=test make run
+FORGE_ENVIRONMENT=test make -C controller run
 ```
 
 ## agent (nke-agent)
@@ -107,9 +107,6 @@ cd agent
 go build ./cmd/...
 go test ./...          # or: make test
 ```
-
-> The tests assume a Linux filesystem. Several fail on macOS, where `/var` is
-> a symlink to `/private/var` and the kubeadm file checks reject it.
 
 `nke-agent` and `spire-agent` must be present on each managed node before
 the NKE controller can communicate with it. The binaries are typically

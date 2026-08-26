@@ -103,7 +103,8 @@ wider local setup, see **[docs/getting-started.md](docs/getting-started.md)**.
 |---|---|
 | Go | 1.26+ |
 | Docker | 24+ |
-| Flox | optional, for a reproducible controller toolchain |
+| GNU Make | 4.0+ |
+| Flox | optional, for a reproducible repository toolchain |
 
 Running NKE against real infrastructure additionally requires hosts already
 booted on an NKE-compatible OS image with the agent installed. NKE does not

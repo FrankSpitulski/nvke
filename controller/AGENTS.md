@@ -42,8 +42,8 @@ make build        # Build the worker binary to ./bin/cloud-workflow-engine
 
 ### Lint
 ```bash
-make lint         # Run golangci-lint (5 minute timeout)
-make fmt          # Format code with gofmt and goimports
+make lint         # Run golangci-lint (20 minute timeout)
+make fmt          # Format code with gofumpt and goimports
 ```
 
 ### Test
@@ -74,10 +74,10 @@ make debug        # Run with delve debugger on :12345
 - Function length limit: 500 lines (excluding comments)
 
 ### License Headers
-All Go files must have the NVIDIA proprietary license header. Run `make license` to add/update headers automatically.
+All Go files must use the repository's Apache-2.0 SPDX header. Run `make license` to add missing headers.
 
 ### Linting Notes
-- Use `FIXME:` for things to address in a future MR (with Jira link, e.g., `FIXME: https://jirasw.nvidia.com/browse/NKX-1234`)
+- Use `FIXME:` for things to address in a future PR, with a tracking link
 - `TODO:` comments will cause lint failures - resolve before merging
 - Test files have relaxed linting rules
 - Workflow files (`internal/temporal/workflows/`) allow naked returns and named returns
@@ -189,7 +189,7 @@ make test
 These run against a live CWE deployment and use real Forge resources:
 ```bash
 cd integration-test
-CWE_API_URL=http://localhost:8080/api go test -v -timeout=3h
+CWE_API_URL=http://localhost:8080/api go test -tags integration_test -v -timeout=3h
 ```
 
 ## Temporal Workflows
@@ -205,28 +205,9 @@ Activities are in `internal/temporal/activities/`.
 
 ## Release & Deployment
 
-Releases are **fully automatic on merge to `main`** — there is no manual
-version tag, image push, chart bump, or `nke-site-deploy` edit to make. The
-CI pipeline (`.gitlab/ci/`) handles the whole chain:
-
-1. **`gen-version`** derives `BUILD_VERSION` from `git describe`
-   (auto-incrementing `v0.0.x`).
-2. **`publish-image-nvcr`** builds and pushes the multi-arch image to
-   `nvcr.io/j7sbcjl3qgta/cloud-workflow-engine:<BUILD_VERSION>`.
-3. **`publish-chart-nvcr`** packages `deploy/charts/cloud-workflow-engine`
-   with `version`/`appVersion` derived from `BUILD_VERSION` and pushes it to
-   `oci://nvcr.io/j7sbcjl3qgta/cloud-workflow-engine:<BUILD_VERSION>`. The
-   chart and image are versioned 1:1.
-4. **`update-environment-templates`** triggers the `nke/nke-site-deploy`
-   `main` pipeline, which auto-bumps the environment templates to the new
-   `BUILD_VERSION`. Those templates are the source of truth ArgoCD rolls out
-   to the site-controller fleet.
-
-Because the environment templates auto-bump to latest on every merge, MR
-review is the gate: feature branches must be well tested before merge. To
-ship a change (e.g. a CVE-reduction dependency bump), merge the MR to `main`
-and the new image + chart reach the fleet without further action; confirm
-the result on the scanning/deploy dashboard afterward.
+Controller releases use signed `controller/vX.Y.Z` tags. GitHub Actions builds
+the release and publishes the controller image and Helm chart. Follow the root
+[`RELEASE.md`](../RELEASE.md); do not create releases by hand.
 
 ## PR Guidelines
 
@@ -235,7 +216,6 @@ the result on the scanning/deploy dashboard afterward.
 - Add license headers: `make license`
 - Regenerate API code if OpenAPI spec changed: `flox activate -- make generate`
 
-### MR Format
-- **Title**: `JIRA-KEY: Brief description` (e.g., `NKE-1234: Add node pool scaling`)
-- **Description**: Start with `Closes JIRA-KEY`, followed by a summary of changes
-
+### PR Format
+- Use a Conventional Commit title, such as `fix: handle node reset timeout`
+- Reference the issue with `Closes #<number>` when applicable
