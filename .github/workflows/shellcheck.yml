@@ -10,8 +10,7 @@
 # executed on nodes, and that never detected a missing tool. All three parsed
 # fine under `bash -n`; only shellcheck saw them.
 #
-# Runs on ubuntu-latest. shellcheck is preinstalled on GitHub runners, so this
-# needs no download, no NVIDIA runner and no credentials.
+# Runs on ubuntu-latest with the pinned shellcheck release.
 #
 # Deliberately NOT path-filtered, for the reason recorded in actionlint.yml: a
 # filtered check does not report on a pull request that misses the filter, and
@@ -62,6 +61,22 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Install shellcheck
+        run: |
+          set -euo pipefail
+          version="$(make --no-print-directory print-SHELLCHECK_VERSION)"
+          archive="shellcheck-v${version}.linux.x86_64.tar.xz"
+          url="https://github.com/koalaman/shellcheck/releases/download/v${version}/${archive}"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "${tmp}"' EXIT
+
+          curl -fsSL -o "${tmp}/${archive}" "${url}"
+          echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  ${tmp}/${archive}" | sha256sum --check
+          tar -xJf "${tmp}/${archive}" -C "${tmp}"
+          mkdir -p "${HOME}/.local/bin"
+          install -m 0755 "${tmp}/shellcheck-v${version}/shellcheck" "${HOME}/.local/bin/shellcheck"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       # -S error, not -S warning. The tree is clean at error severity as of
       # this commit, so the gate starts green and any new error-level bug fails

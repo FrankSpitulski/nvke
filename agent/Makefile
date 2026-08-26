@@ -57,6 +57,7 @@ LDFLAGS += -trimpath -ldflags="-X main.VERSION=$(VERSION)"
 ARCHES := amd64 arm64
 
 # golangci-lint pin and bootstrap, shared with every other module.
+include ../make/tool-versions.mk
 include ../make/golangci.mk
 
 BUF_VERSION := v1.65.0
@@ -362,10 +363,6 @@ deb-all: deb-amd64 deb-arm64 ## Build all Debian packages
 debs: deb-all
 
 ##@ Third-party notices
-
-# go-licenses is pinned here rather than taken from PATH so CI and a laptop
-# generate the same file. It installs into ./bin, not the shared GOBIN.
-GO_LICENSES_VERSION ?= v2.0.1
 
 # go-licenses embeds go/packages, and must be built with the *same* toolchain
 # that `go list` actually runs inside this module. A module's `go` directive can

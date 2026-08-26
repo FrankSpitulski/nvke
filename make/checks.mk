@@ -6,18 +6,21 @@
 
 CHART ?= controller/deploy/charts/cloud-workflow-engine
 
-define require_tool
+define require_command
 command -v $(1) >/dev/null 2>&1 || { \
-	echo "ERROR: $(1) not found (CI uses $(2))."; \
-	echo "  with flox:  flox activate"; \
-	echo "  without:    $(3)"; \
+	echo "ERROR: $(1) is missing."; \
+	echo "Use 'flox activate', or install $(1) with your OS package manager."; \
 	exit 1; }
+endef
+
+define require_tool
+./hack/check-tool-version.sh "$(1)" "$(2)"
 endef
 
 ##@ Checks
 
 lint-workflows: ## Lint the GitHub Actions workflows. (run by the merge gate)
-	@$(call require_tool,actionlint,$(ACTIONLINT_VERSION),brew install actionlint)
+	@$(call require_tool,actionlint,$(ACTIONLINT_VERSION))
 	@actionlint -color
 	@echo "  workflows: no findings"
 
@@ -25,7 +28,7 @@ lint-workflows: ## Lint the GitHub Actions workflows. (run by the merge gate)
 # clean at warning, so raising it here would fail on a backlog the gate does not
 # block on. xargs -0, never mapfile: see hack/shell-scripts.sh.
 lint-shell: ## Lint every tracked shell script. (run by the merge gate)
-	@$(call require_tool,shellcheck,0.11.0,brew install shellcheck)
+	@$(call require_tool,shellcheck,$(SHELLCHECK_VERSION))
 	@n=$$(./hack/shell-scripts.sh | tr -dc '\0' | wc -c | tr -d ' '); \
 	 echo "  checking $$n shell scripts at severity=error"; \
 	 ./hack/shell-scripts.sh | xargs -0 shellcheck --severity=error --format=tty
@@ -35,8 +38,8 @@ lint-shell: ## Lint every tracked shell script. (run by the merge gate)
 # kubeconform parses what was rendered. A chart that renders nothing also passes
 # helm template silently, hence the count.
 lint-chart: ## Lint and render the Helm chart, then validate it. (run by the merge gate)
-	@$(call require_tool,helm,$(HELM_CHART_VERSION),brew install helm)
-	@$(call require_tool,kubeconform,$(KUBECONFORM_VERSION),brew install kubeconform)
+	@$(call require_tool,helm,$(HELM_CHART_VERSION))
+	@$(call require_tool,kubeconform,$(KUBECONFORM_VERSION))
 	@helm lint $(CHART)
 	@# A directory, not `mktemp -t`: kubeconform selects files by extension, and
 	@# macOS mktemp appends random characters after the template, so a file named
@@ -59,8 +62,8 @@ lint-chart: ## Lint and render the Helm chart, then validate it. (run by the mer
 	@./controller/hack/chart-auth-assertions.sh
 
 chart-rbac-check: ## Assert that tenant RBAC grants every permission the controller uses.
-	@$(call require_tool,helm,$(HELM_CHART_VERSION),brew install helm)
-	@$(call require_tool,python3,3,brew install python)
+	@$(call require_tool,helm,$(HELM_CHART_VERSION))
+	@$(call require_command,python3)
 	@python3 -c 'import yaml' >/dev/null 2>&1 || { \
 		echo "ERROR: Python module PyYAML is required for chart RBAC assertions."; \
 		echo "  install: python3 -m pip install PyYAML"; \
@@ -69,7 +72,7 @@ chart-rbac-check: ## Assert that tenant RBAC grants every permission the control
 	@python3 ./controller/hack/chart-rbac-assertions.py --chart "$(CHART)"
 
 chart-package-check: ## Assert that chart packaging replaces placeholder versions.
-	@$(call require_tool,helm,$(HELM_CHART_VERSION),brew install helm)
+	@$(call require_tool,helm,$(HELM_CHART_VERSION))
 	@CHART="$(CHART)" ./controller/hack/chart-package-assertions.sh
 
 chart-check: lint-chart chart-rbac-check chart-package-check ## Run every chart check enforced by CI.
@@ -77,7 +80,7 @@ chart-check: lint-chart chart-rbac-check chart-package-check ## Run every chart 
 # Use the same tool, Go version, offline scan, waiver, and stale-waiver guard as
 # CI. The helper returns 3 for an unwaived finding and preserves tool failures.
 vulncheck: ## Report vulnerabilities reachable from each module. (run by the merge gate)
-	@$(call require_tool,govulncheck,$(GOVULNCHECK_VERSION),go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION))
+	@$(call require_tool,govulncheck,$(GOVULNCHECK_VERSION))
 	@echo "- govulncheck under Go $(GOVULNCHECK_GO_VERSION), the version CI uses"
 	@fail=0; \
 	 for m in $(WORK_MODULES); do \
@@ -90,6 +93,15 @@ vulncheck: ## Report vulnerabilities reachable from each module. (run by the mer
 	 done; \
 	 [ $$fail -eq 0 ] || exit 1
 	@echo "  govulncheck gate passed"
+
+tools-check: ## Check the versions of tools used by local merge-gate targets.
+	@fail=0; \
+	 ./hack/check-tool-version.sh actionlint "$(ACTIONLINT_VERSION)" || fail=1; \
+	 ./hack/check-tool-version.sh shellcheck "$(SHELLCHECK_VERSION)" || fail=1; \
+	 ./hack/check-tool-version.sh helm "$(HELM_CHART_VERSION)" || fail=1; \
+	 ./hack/check-tool-version.sh kubeconform "$(KUBECONFORM_VERSION)" || fail=1; \
+	 ./hack/check-tool-version.sh govulncheck "$(GOVULNCHECK_VERSION)" || fail=1; \
+	 [ $$fail -eq 0 ]
 
 ##@ Everything
 

@@ -27,6 +27,7 @@ endif
 # the workspace stays on. .golangci.yml says the same with
 # modules-download-mode: vendor, and lint.yml:92 does the same for this job.
 GOLANGCI_LINT_GOWORK :=
+include ../make/tool-versions.mk
 include ../make/golangci.mk
 
 # Image URL to use all building/pushing image targets
@@ -298,7 +299,6 @@ run: ## Runs the worker.
 debug: ## Runs the worker with the delve debugger (attach on :12345).
 	dlv debug --headless --listen=:12345 ./cmd/worker/main.go
 
-GO_LICENSES_VERSION ?= v2.0.1
 # Installed into ./bin rather than the shared GOBIN so a stale global binary
 # cannot leak in — see the toolchain note below for why that matters.
 GO_LICENSES         ?= $(CURDIR)/bin/go-licenses

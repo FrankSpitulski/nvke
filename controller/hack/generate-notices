@@ -95,8 +95,7 @@ if [[ ! -x "${GO_LICENSES}" ]]; then
         GO_LICENSES="$(command -v go-licenses)"
     else
         echo "ERROR: go-licenses not found." >&2
-        echo "Install it with 'make notices', which runs:" >&2
-        echo "  go install github.com/google/go-licenses/v2@v2.0.1" >&2
+        echo "Run 'make go-licenses' first." >&2
         exit 1
     fi
 fi
