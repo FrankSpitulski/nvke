@@ -226,11 +226,32 @@ clean: ## Remove all build artifacts except protos
 ##@ Build
 .PHONY: build-amd64 build-arm64 build-all build
 
+# cgo is left to Go on a native host and turned off when cross-compiling.
+#
+# On a native Linux runner this is a no-op: cgo stays on, the binary links
+# against libc, and `Depends: libc6` in scripts/control is true. That is what
+# deb.yml relies on by giving each architecture a runner of its own arch.
+#
+# Cross-compiling is where it matters. Go turns cgo off by itself when there is
+# no C toolchain for the target, but an environment that exports CC -- the
+# repository's Flox environment sets CC=clang -- makes it try anyway, and the
+# build then fails against the host SDK:
+#
+#   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/unistd.h:609:6:
+#   note: 'setreuid' declared here
+#   make: *** [Makefile:230: build-amd64] Error 1
+#
+# So `make build` worked on a Mac outside Flox and failed inside it, for the same
+# checkout. Deciding here makes the result the same either way.
+GOHOSTOS   := $(shell go env GOHOSTOS)
+GOHOSTARCH := $(shell go env GOHOSTARCH)
+agent_cgo = $(if $(and $(filter linux,$(GOHOSTOS)),$(filter $(1),$(GOHOSTARCH))),,CGO_ENABLED=0)
+
 build-amd64:
-	GOOS=linux GOARCH=amd64 go build ${LDFLAGS} -o bin/linux_amd64/nke-agent ./cmd/agent/main.go
+	$(call agent_cgo,amd64) GOOS=linux GOARCH=amd64 go build ${LDFLAGS} -o bin/linux_amd64/nke-agent ./cmd/agent/main.go
 
 build-arm64:
-	GOOS=linux GOARCH=arm64 go build ${LDFLAGS} -o bin/linux_arm64/nke-agent ./cmd/agent/main.go
+	$(call agent_cgo,arm64) GOOS=linux GOARCH=arm64 go build ${LDFLAGS} -o bin/linux_arm64/nke-agent ./cmd/agent/main.go
 
 build-all: build-amd64 build-arm64
 build: build-all ## Default build = all arches
@@ -292,12 +313,49 @@ define build_deb
 endef
 
 ##@ Debian Packaging
+
+# The .deb declares `Depends: libc6` (scripts/control), so the binary inside it
+# must link against libc. That happens only when cgo is on, and Go turns cgo off
+# by itself when cross-compiling, because there is no C toolchain for the target.
+#
+# Nothing in this file sets CGO_ENABLED, so what you get is decided by the host:
+# native builds are dynamic and correct, cross builds are static and ship a
+# Depends that is false for them. deb.yml:24-33 records the same thing and solves
+# it by building each architecture on a runner of that architecture.
+#
+# The same build-amd64 and build-arm64 targets also feed the OCI artifact, which
+# wants the opposite: agent-artifact.yml sets CGO_ENABLED=0 and asserts
+# "statically linked". One pair of targets, two callers, opposite requirements,
+# and the Makefile said nothing about either.
+#
+# It says something now. assert_dynamic runs the check CI runs, so a cross build
+# fails here with the reason rather than producing a package whose Depends is
+# wrong. Set AGENT_SKIP_LINKAGE_CHECK=1 to build a deb you know is not for
+# release.
+define assert_dynamic
+	@if [ -z "$(AGENT_SKIP_LINKAGE_CHECK)" ] && command -v file >/dev/null 2>&1; then \
+		linkage=$$(file bin/linux_$(1)/nke-agent); \
+		case "$$linkage" in \
+			*"dynamically linked"*) ;; \
+			*) echo "ERROR: bin/linux_$(1)/nke-agent is not dynamically linked, so"; \
+			   echo "  'Depends: libc6' in scripts/control is wrong for it."; \
+			   echo "  Go disables cgo when cross-compiling, so build the $(1) package"; \
+			   echo "  on a $(1) host, as deb.yml does. Override with"; \
+			   echo "  AGENT_SKIP_LINKAGE_CHECK=1 for a package you will not release."; \
+			   echo "  file said: $$linkage"; \
+			   exit 1 ;; \
+		esac; \
+	fi
+endef
+
 .PHONY: deb-amd64 deb-arm64 deb-all debs
 
-deb-amd64: build-amd64 ## Build the amd64 Debian package
+deb-amd64: build-amd64 ## Build the amd64 Debian package (advisory; not in the merge gate)
+	$(call assert_dynamic,amd64)
 	$(call build_deb,amd64)
 
-deb-arm64: build-arm64 ## Build the arm64 Debian package
+deb-arm64: build-arm64 ## Build the arm64 Debian package (advisory; not in the merge gate)
+	$(call assert_dynamic,arm64)
 	$(call build_deb,arm64)
 
 deb-all: deb-amd64 deb-arm64 ## Build all Debian packages
