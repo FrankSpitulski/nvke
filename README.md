@@ -88,12 +88,14 @@ make test           # unit tests
 make lint
 ```
 
-The controller pins its toolchain with [Flox](https://flox.dev/). If you have it
-installed, `flox activate` inside `controller/` before running the above; it is
-optional but keeps your toolchain matching CI.
+The repository pins its toolchain with [Flox](https://flox.dev/) in an
+environment at the root that covers every module. `flox activate` gives you the
+versions CI uses, including the GNU Make 4 that macOS lacks. It is optional, and
+every target runs from whatever is on your `PATH` without it.
 
-For the full local development setup, including the end-to-end suites, see
-**[docs/getting-started.md](docs/getting-started.md)**.
+For building, testing and what to run before opening a pull request, see
+**[docs/development.md](docs/development.md)**. For the end-to-end suites and the
+wider local setup, see **[docs/getting-started.md](docs/getting-started.md)**.
 
 ## Requirements
 

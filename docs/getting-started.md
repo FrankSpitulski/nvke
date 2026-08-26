@@ -9,7 +9,8 @@ for nke and verifying that both modules build and test cleanly.
 |---|---|---|
 | Go | 1.26+ | https://go.dev/dl/ |
 | Docker | 24+ | https://docs.docker.com/get-docker/ |
-| Flox (optional) | latest | https://flox.dev/ — used for reproducible controller toolchain |
+| Flox (optional) | latest | https://flox.dev/ — pins the whole toolchain, repository-wide |
+| GNU Make | 4.0+ | macOS ships 3.81; `brew install make` gives you `gmake` |
 
 ## Clone the repository
 
@@ -28,13 +29,16 @@ cd nke
 > `GOPROXY=off make build` compiles all nine modules and proves it. See
 > [AGENTS.md](../AGENTS.md).
 
-The controller uses [Flox](https://flox.dev/) to pin its toolchain. For
-day-to-day work, activate the Flox environment first:
+The repository uses [Flox](https://flox.dev/) to pin its toolchain, in one
+environment at the root that serves every module. Activate it from anywhere in
+the tree:
 
 ```bash
-cd controller
 flox activate
 ```
+
+It is optional. Every target runs from whatever is on your `PATH` without it, and
+a target that needs a missing tool says which one and how to install it.
 
 ### Build
 

@@ -2,6 +2,7 @@
 
 | Document | Description |
 |---|---|
+| [development.md](development.md) | Building, testing, and what to run before opening a pull request |
 | [architecture.md](architecture.md) | System overview — modules, data flows, deployment model |
 | [getting-started.md](getting-started.md) | Local dev setup for controller and agent |
 | [go-workspace.md](go-workspace.md) | The Go workspace: which modules are in it, and how to keep `go.work.sum` current |
