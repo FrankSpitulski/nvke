@@ -209,7 +209,7 @@ work-sync: work ## Refresh go.work.sum and the modules' go.mod and go.sum.
 	@echo "Workspace refreshed. Commit go.work, go.work.sum, vendor/ and every"
 	@echo "go.mod and go.sum this changed, together."
 
-work-check: ## Verify go.work and go.work.sum are complete and current.
+work-check: ## Verify go.work and go.work.sum are complete and current. (run by the merge gate)
 	@# git diff reports nothing for an untracked path, so an uncommitted
 	@# workspace file would otherwise pass this check in silence.
 	@git ls-files --error-unmatch go.work go.work.sum >/dev/null 2>&1 \
@@ -508,7 +508,7 @@ VERSION_CMDS := agent:--version \
                 nke-os-image-check:--version \
                 nkectl:version
 
-version-check: build ## Verify every built binary reports a real version.
+version-check: build ## Verify every built binary reports a real version. (run by the merge gate)
 	@# Two tests. The name list catches a placeholder version. The emptiness test
 	@# catches a variable with no default, which prints a label and nothing else.
 	@# A shell function, because a `case` pattern inside $(foreach) would end it
@@ -558,7 +558,7 @@ licenses: ## Copy LICENSE and NOTICE everywhere an artefact ships them from.
 	done
 	@echo "LICENSE and NOTICE copied to: $(LICENSE_DESTS)"
 
-licenses-check: licenses ## Verify the shipped LICENSE and NOTICE copies match the root files.
+licenses-check: licenses ## Verify the shipped LICENSE and NOTICE copies match the root files. (run by the merge gate)
 	@# The image and the chart redistribute this work, so they carry its terms.
 	@# Both read from a copy inside their own build context, and a copy is a
 	@# thing that goes stale -- this is the assertion that it has not.
@@ -571,7 +571,7 @@ licenses-check: licenses ## Verify the shipped LICENSE and NOTICE copies match t
 		|| { echo "ERROR: these shipped licence files are not tracked:"; printf '%s\n' "$$untracked" | sed 's/^/    /'; exit 1; }
 	@echo "Shipped LICENSE and NOTICE copies are current."
 
-license-header-check: ## Verify every source file carries the Apache-2.0 SPDX header.
+license-header-check: ## Verify every source file carries the Apache-2.0 SPDX header. (run by the merge gate)
 	@# Two assertions, because either one alone passes while the tree is wrong.
 	@#
 	@# addlicense only ADDS a header to a file that has none. It never rewrites

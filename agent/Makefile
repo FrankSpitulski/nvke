@@ -167,7 +167,7 @@ vet: ## Run go vet
 	go vet ./...
 
 .PHONY: lint
-lint: ## Lint source files.
+lint: ## Lint source files. (run by the merge gate)
 	@$(GOLANGCI_LINT_RUN) run --timeout 10m --show-stats ./...
 
 # GO_TEST_FLAGS lets CI add -race without the workflow having to restate the
@@ -184,7 +184,7 @@ ifeq ($(shell uname -s),Darwin)
 export TMPDIR := /private/tmp
 endif
 
-test: ## Run tests
+test: ## Run tests (run by the merge gate)
 	go test $(GO_TEST_FLAGS) ./...
 
 # Sources in this module carry the repository's Apache-2.0 identifier, per the
@@ -388,7 +388,7 @@ notices: bin/go-licenses ## Regenerate THIRD_PARTY_NOTICES.md.
 	@bash hack/generate-notices.sh
 
 .PHONY: notices-check
-notices-check: ## Verify THIRD_PARTY_NOTICES.md matches the dependency tree.
+notices-check: ## Verify THIRD_PARTY_NOTICES.md matches the dependency tree. (advisory; not in the merge gate)
 	@echo "- Checking THIRD_PARTY_NOTICES.md is up to date..."
 	@# Cheap gate first, before spending minutes regenerating. git diff reports
 	@# nothing for an untracked path, so an uncommitted notices file would

@@ -75,13 +75,13 @@ build: ## Build nke-os-image-check into bin/.
 compile: ## Type-check every package, including the ones with no binary.
 	$(GO) build ./...
 
-test: ## Run this module's tests.
+test: ## Run this module's tests. (run by the merge gate)
 	$(GO) test $(GO_TEST_FLAGS) ./...
 
 fmt: ## Format the source with golangci-lint's formatters.
 	@$(GOLANGCI_LINT_RUN) fmt ./...
 
-lint: ## Run golangci-lint over this module.
+lint: ## Run golangci-lint over this module. (run by the merge gate)
 	@$(GOLANGCI_LINT_RUN) run --timeout 10m --max-same-issues 0 --max-issues-per-linter 0 ./...
 
 license: ## Ensure license headers at code.
@@ -119,7 +119,7 @@ notices: ## Regenerate THIRD_PARTY_NOTICES.md for the nke-os-image-check binary.
 		bash ../controller/hack/generate-notices
 
 .PHONY: notices-check
-notices-check: ## Verify THIRD_PARTY_NOTICES.md is up to date.
+notices-check: ## Verify THIRD_PARTY_NOTICES.md is up to date. (advisory; not in the merge gate)
 	@# git diff says nothing about an untracked path, so check tracking first --
 	@# otherwise a deleted or never-committed notices file passes silently.
 	@git ls-files --error-unmatch THIRD_PARTY_NOTICES.md > /dev/null 2>&1 \

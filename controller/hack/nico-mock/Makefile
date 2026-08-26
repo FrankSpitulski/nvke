@@ -45,7 +45,7 @@ GO_TEST_FLAGS ?=
 build: ## Build the nico-mock binary.
 	$(GO) build ./...
 
-test: ## Run this module's tests.
+test: ## Run this module's tests. (run by the merge gate)
 	$(GO) test $(GO_TEST_FLAGS) ./...
 
 # golangci-lint applies the formatters enabled in .golangci.yml (gci, gofumpt),
@@ -53,7 +53,7 @@ test: ## Run this module's tests.
 fmt: ## Format the source with golangci-lint's formatters.
 	@$(GOLANGCI_LINT_RUN) fmt ./...
 
-lint: ## Run golangci-lint over this module.
+lint: ## Run golangci-lint over this module. (run by the merge gate)
 	@$(GOLANGCI_LINT_RUN) run --timeout 10m --max-same-issues 0 --max-issues-per-linter 0 ./...
 
 license: ## Ensure license headers at code.

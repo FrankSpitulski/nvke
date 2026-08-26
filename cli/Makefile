@@ -129,7 +129,7 @@ build: ## Build nkectl into bin/, and assert the version stamp took.
 # the race detector and nothing would say so.
 GO_TEST_FLAGS ?=
 
-test: ## Run this module's tests.
+test: ## Run this module's tests. (run by the merge gate)
 	$(GO) test $(GO_TEST_FLAGS) ./...
 
 # e2e coverage for "nkectl bootstrap site" specifically -- e2e/bootstrap/ is
@@ -188,7 +188,7 @@ fmt: ## Format the source with golangci-lint's formatters.
 	@$(GOLANGCI_LINT_RUN) fmt ./...
 
 # One recipe for CI and local, pinned by version, as in the sibling modules.
-lint: ## Run golangci-lint over this module.
+lint: ## Run golangci-lint over this module. (run by the merge gate)
 	@$(GOLANGCI_LINT_RUN) run --timeout 10m --max-same-issues 0 --max-issues-per-linter 0 ./...
 
 license: ## Ensure license headers at code.
@@ -210,7 +210,7 @@ notices: ## Regenerate THIRD_PARTY_NOTICES.md for the nkectl binary.
 		GO_LICENSES="$(CURDIR)/../controller/bin/go-licenses" \
 		bash ../controller/hack/generate-notices
 
-notices-check: ## Verify THIRD_PARTY_NOTICES.md is up to date.
+notices-check: ## Verify THIRD_PARTY_NOTICES.md is up to date. (advisory; not in the merge gate)
 	@# git diff says nothing about an untracked path, so check tracking first --
 	@# otherwise a deleted or never-committed notices file passes silently.
 	@git ls-files --error-unmatch THIRD_PARTY_NOTICES.md > /dev/null 2>&1 \

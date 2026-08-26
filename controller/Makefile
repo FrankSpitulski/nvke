@@ -58,7 +58,7 @@ help: ## Display this help.
 ##@ Build
 
 .PHONY: lint
-lint: ## Lint source files.
+lint: ## Lint source files. (run by the merge gate)
 	@$(GOLANGCI_LINT_RUN) run --timeout 20m --concurrency 4 --max-same-issues 0 --max-issues-per-linter 0 ./...
 
 .PHONY: license
@@ -96,7 +96,7 @@ generate-api: ## Regenerate the OpenAPI client, server and models.
 # un-pinned/wrong generator or an openapi.yaml edit that was not regenerated.
 # Expected to be run on a clean working directory.
 .PHONY: generate-check
-generate-check: generate-api ## Verify generated API code is up to date.
+generate-check: generate-api ## Verify generated API code is up to date. (run by the merge gate)
 	@if ! git diff --exit-code -- api/models.gen.go api/server.gen.go api/client.gen.go > /dev/null 2>&1; then \
 		echo "Generated API code is out of date. Please run 'make generate' locally and commit the changes."; \
 		echo "Out-of-date files:"; \
@@ -126,7 +126,7 @@ GO_TEST_FLAGS ?=
 GO_COVER_MODE ?= atomic
 
 .PHONY: test
-test: ## Execute unit tests (excludes integration tests).
+test: ## Execute unit tests (excludes integration tests). (run by the merge gate)
 	# coverage.txt is kept: `go tool cover` reads it, and producing it is free.
 	# The cobertura.xml conversion that used to follow is gone. It existed for
 	# GitLab's coverage visualisation, and that pipeline is gone -- no
@@ -372,7 +372,7 @@ notices: $(GO_LICENSES) ## Regenerate THIRD_PARTY_NOTICES.md for the released wo
 # Not declared as depending on `notices`: the tracked-file gate below is cheap
 # and must run before spending minutes regenerating.
 .PHONY: notices-check
-notices-check: ## Verify THIRD_PARTY_NOTICES.md is up to date.
+notices-check: ## Verify THIRD_PARTY_NOTICES.md is up to date. (advisory; not in the merge gate)
 	@# git diff reports nothing for an untracked path, so without this an
 	@# uncommitted or accidentally-removed notices file would pass silently.
 	@git ls-files --error-unmatch THIRD_PARTY_NOTICES.md > /dev/null 2>&1 \

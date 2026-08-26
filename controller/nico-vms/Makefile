@@ -61,7 +61,7 @@ GO_TEST_FLAGS ?=
 # valid either way. Same setting as controller/Makefile.
 GO_COVER_MODE ?= atomic
 
-test: ## Run this module's tests.
+test: ## Run this module's tests. (run by the merge gate)
 	$(GO) test $(GO_TEST_FLAGS) ./... -coverprofile=coverage.txt -covermode=$(GO_COVER_MODE)
 
 # All backends (mock + real VMs) in a single invocation.
@@ -121,7 +121,7 @@ teardown:
 fmt: ## Format the source with go fmt.
 	$(GO) fmt ./...
 
-lint: ## Run golangci-lint over this module.
+lint: ## Run golangci-lint over this module. (run by the merge gate)
 	@$(GOLANGCI_LINT_RUN) run --timeout 10m --max-same-issues 0 --max-issues-per-linter 0 ./...
 
 license: ## Ensure license headers at code.
