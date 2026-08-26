@@ -25,6 +25,8 @@ const (
 	defaultProvision = 75 * time.Minute
 	defaultDelete    = 40 * time.Minute
 	defaultPoll      = 30 * time.Second
+	// Matches hack/register-default-site.sh and does not overlap nico-vms.
+	defaultSiteVIPRange = "172.31.1.0/24"
 )
 
 // Options tunes the waiter loops. Zero values fall back to the defaults above.
@@ -131,12 +133,6 @@ func (c *Client) ProvisionedNodeCount(ctx context.Context, nodePoolID openapi_ty
 	return provisioned, nil
 }
 
-// CreateCluster builds a create request from spec and posts it. It requires a
-// 201 response and returns the created cluster.
-// DefaultSiteVIPRanges matches hack/register-default-site.sh: distinct from the
-// nico-vms range and off the kind Docker subnet.
-var DefaultSiteVIPRanges = []string{"172.31.1.0/24"}
-
 // EnsureSite registers a site if it is not already there.
 //
 // Nothing is scheduled for a site that does not exist, and the provisioning
@@ -162,6 +158,7 @@ func (c *Client) EnsureSite(ctx context.Context, id openapi_types.UUID, vipRange
 	}
 }
 
+// CreateCluster builds and submits a cluster request.
 func (c *Client) CreateCluster(ctx context.Context, spec ClusterSpec) (*api.Cluster, error) {
 	req, err := buildCreateRequest(spec)
 	if err != nil {
@@ -170,8 +167,8 @@ func (c *Client) CreateCluster(ctx context.Context, spec ClusterSpec) (*api.Clus
 	// Note the nil UUID is a legitimate site ID here, so this keys off the spec
 	// string being set rather than the parsed value being non-zero.
 	if spec.SiteID != "" {
-		if err := c.EnsureSite(ctx, req.SiteID, DefaultSiteVIPRanges); err != nil {
-			return nil, err
+		if ensureErr := c.EnsureSite(ctx, req.SiteID, []string{defaultSiteVIPRange}); ensureErr != nil {
+			return nil, ensureErr
 		}
 	}
 	resp, err := c.api.CreateClusterWithResponse(ctx, req)

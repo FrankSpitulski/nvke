@@ -21,6 +21,7 @@ import (
 
 const (
 	oidcEnabledEnvVar = "NKE_OIDC_AUTH_ENABLED"
+	enabledValue      = "true"
 )
 
 // OIDCEnabled reports whether the CWE deployment on the management cluster has
@@ -40,7 +41,7 @@ func OIDCEnabled(ctx context.Context, c client.Client) (bool, error) {
 			if env.ValueFrom != nil && env.ValueFrom.ConfigMapKeyRef != nil {
 				return oidcEnabledFromConfigMap(ctx, c, deploy.Namespace, env.ValueFrom.ConfigMapKeyRef.Name, env.ValueFrom.ConfigMapKeyRef.Key)
 			}
-			return env.Value == "true", nil
+			return env.Value == enabledValue, nil
 		}
 		for _, envFrom := range container.EnvFrom {
 			if envFrom.ConfigMapRef == nil {
@@ -168,7 +169,7 @@ func oidcEnabledFromConfigMap(ctx context.Context, c client.Client, namespace, n
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cm); err != nil {
 		return false, fmt.Errorf("getting ConfigMap %s/%s: %w", namespace, name, err)
 	}
-	return cm.Data[key] == "true", nil
+	return cm.Data[key] == enabledValue, nil
 }
 
 func oidcEnabledFromConfigMapData(ctx context.Context, c client.Client, namespace, name string) (bool, bool, error) {
@@ -177,5 +178,5 @@ func oidcEnabledFromConfigMapData(ctx context.Context, c client.Client, namespac
 		return false, false, fmt.Errorf("getting ConfigMap %s/%s: %w", namespace, name, err)
 	}
 	value, found := cm.Data[oidcEnabledEnvVar]
-	return value == "true", found, nil
+	return value == enabledValue, found, nil
 }

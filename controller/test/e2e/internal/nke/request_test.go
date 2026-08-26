@@ -203,12 +203,13 @@ func TestBuildNicoRequestNodePools(t *testing.T) {
 
 func assertBootstrapSuccessCommands(t *testing.T, got []string) {
 	t.Helper()
-	if len(got) != len(containerCAPIReadyCommands) {
-		t.Fatalf("bootstrap success command count = %d, want %d", len(got), len(containerCAPIReadyCommands))
+	want := containerCAPIReadyCommands()
+	if len(got) != len(want) {
+		t.Fatalf("bootstrap success command count = %d, want %d", len(got), len(want))
 	}
-	for i := range containerCAPIReadyCommands {
-		if got[i] != containerCAPIReadyCommands[i] {
-			t.Fatalf("bootstrap success command %d = %q, want %q", i, got[i], containerCAPIReadyCommands[i])
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("bootstrap success command %d = %q, want %q", i, got[i], want[i])
 		}
 	}
 }

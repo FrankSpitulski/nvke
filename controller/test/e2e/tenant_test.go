@@ -614,7 +614,7 @@ func nicoVMSSpec(_ config.Config, name string, shape clusterShape) nke.ClusterSp
 
 func nicoVMSControlPlaneVIPAtOffset(offset int) string {
 	vip := netip.MustParseAddr(nicoVMSControlPlaneVIP)
-	for i := 0; i < offset; i++ {
+	for range offset {
 		vip = vip.Next()
 	}
 	return vip.String()

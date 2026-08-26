@@ -106,7 +106,7 @@ jobs:
           # root-package unit test runs without needing an allowlist. That is
           # how the bare-binary fixture-path regression is caught cheaply.
           - module: controller/test/e2e
-            run: go test ${GO_TEST_FLAGS} -skip '^TestE2E$' . ./internal/...
+            run: make test
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -102,6 +102,11 @@ jobs:
             goversion: controller/nico-vms/go.mod
             gowork: "off"
             timeout: 15
+          - name: controller/test/e2e
+            dir: controller/test/e2e
+            goversion: controller/test/e2e/go.mod
+            gowork: "off"
+            timeout: 15
           - name: os-image
             dir: os-image
             goversion: os-image/go.mod

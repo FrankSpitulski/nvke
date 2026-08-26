@@ -25,6 +25,10 @@ const (
 	BackendNicoContainers Backend = "nico-containers"
 	// BackendNicoVMS is the local nico-vms Forge emulator backend.
 	BackendNicoVMS Backend = "nico-vms"
+
+	capiSpecKey          = "spec"
+	nodeRoleWorker       = "worker"
+	nodeRoleControlPlane = "control-plane"
 )
 
 // NodePoolSpec describes a single node pool to create.
@@ -89,9 +93,11 @@ var (
 	capdNodePoolJSON []byte
 )
 
-var containerCAPIReadyCommands = []string{
-	"mkdir -p /run/cluster-api",
-	"echo success > /run/cluster-api/bootstrap-success.complete",
+func containerCAPIReadyCommands() []string {
+	return []string{
+		"mkdir -p /run/cluster-api",
+		"echo success > /run/cluster-api/bootstrap-success.complete",
+	}
 }
 
 // buildCreateRequest dispatches to the backend-specific request builder.
@@ -135,7 +141,7 @@ func buildNicoRequest(spec ClusterSpec) (api.CreateClusterRequest, error) {
 			"metadata": map[string]any{
 				"name": name,
 			},
-			"spec": map[string]any{
+			capiSpecKey: map[string]any{
 				"siteID": siteID.String(),
 			},
 		},
@@ -181,9 +187,9 @@ func buildNicoNodePool(clusterName string, vpcID uuid.UUID, spec NodePoolSpec) (
 	for _, sshKeyGroupID := range sshKeyGroupIDs {
 		sshKeyGroups = append(sshKeyGroups, sshKeyGroupID.String())
 	}
-	role := "worker"
+	role := nodeRoleWorker
 	if spec.ControlPlane {
-		role = "control-plane"
+		role = nodeRoleControlPlane
 	}
 
 	pool := api.NodePoolCreateConfig{
@@ -193,16 +199,16 @@ func buildNicoNodePool(clusterName string, vpcID uuid.UUID, spec NodePoolSpec) (
 		DesiredNodeCount:           spec.DesiredNodeCount,
 		SystemReservedMemory:       spec.SystemReservedMemory,
 		CapiSpireAttestationMethod: api.SpireAttestationMethodCreateJoinToken,
-		CapiPreKubeadmCommands:     append([]string(nil), containerCAPIReadyCommands...),
+		CapiPreKubeadmCommands:     containerCAPIReadyCommands(),
 		CapiInfraMachineTemplate: map[string]any{
 			"apiVersion": "infrastructure.cluster.x-k8s.io/v1alpha1",
 			"kind":       "NicoMachineTemplate",
 			"metadata": map[string]any{
 				"name": fmt.Sprintf("%s-%s-template", clusterName, spec.Name),
 			},
-			"spec": map[string]any{
+			capiSpecKey: map[string]any{
 				"template": map[string]any{
-					"spec": map[string]any{
+					capiSpecKey: map[string]any{
 						"vpcID":                   vpcID.String(),
 						"instanceTypeID":          instanceTypeID.String(),
 						"cloudInitInjectHostname": true,
@@ -266,7 +272,7 @@ func buildCAPDNodePool(spec NodePoolSpec, nodeImage string) (api.NodePoolCreateC
 	if spec.KubeReservedMemory != "" {
 		pool.KubeReservedMemory = spec.KubeReservedMemory
 	}
-	if err := setMapPath(pool.CapiInfraMachineTemplate, nodeImage, "spec", "template", "spec", "customImage"); err != nil {
+	if err := setMapPath(pool.CapiInfraMachineTemplate, nodeImage, capiSpecKey, "template", capiSpecKey, "customImage"); err != nil {
 		return api.NodePoolCreateConfig{}, fmt.Errorf("setting custom image: %w", err)
 	}
 

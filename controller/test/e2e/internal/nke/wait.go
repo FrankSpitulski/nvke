@@ -13,6 +13,11 @@ import (
 	"github.com/NVIDIA/nke/controller/api"
 )
 
+const (
+	// nodeRebootStartTimeout bounds how long CWE may take to observe a reboot.
+	nodeRebootStartTimeout = 5 * time.Minute
+)
+
 // WaitForClusterReady polls the cluster until its Provisioned condition is True,
 // erroring if Provisioning flips to False, the deadline passes, or ctx is done.
 func (c *Client) WaitForClusterReady(ctx context.Context, id openapi_types.UUID) (*api.Cluster, error) {
@@ -139,18 +144,18 @@ func (c *Client) WaitForProvisionedNodeCount(ctx context.Context, nodePoolID ope
 	defer ticker.Stop()
 
 	lastProvisionedCount := 0
-	var lastErr error
+	lastError := "<none>"
 
 	for {
 		select {
 		case <-deadline:
-			return fmt.Errorf("timeout after %v waiting for node pool %s to have %d provisioned nodes (last reported: %d; last error: %v)", c.opts.Provision, nodePoolID, desired, lastProvisionedCount, lastErr)
+			return fmt.Errorf("timeout after %v waiting for node pool %s to have %d provisioned nodes (last reported: %d; last error: %s)", c.opts.Provision, nodePoolID, desired, lastProvisionedCount, lastError)
 		case <-ctx.Done():
-			return fmt.Errorf("waiting for node pool %s to have %d provisioned nodes (last reported: %d; last error: %v): %w", nodePoolID, desired, lastProvisionedCount, lastErr, ctx.Err())
+			return fmt.Errorf("waiting for node pool %s to have %d provisioned nodes (last reported: %d; last error: %s): %w", nodePoolID, desired, lastProvisionedCount, lastError, ctx.Err())
 		case <-ticker.C:
 			nodes, err := c.ListNodePoolNodes(ctx, nodePoolID)
-			lastErr = err
 			if err != nil {
+				lastError = err.Error()
 				continue // ignore potentially transient errors
 			}
 			provisioned := 0
@@ -320,10 +325,6 @@ func conditionIsTrue(condition *api.Condition) bool {
 	return condition != nil && condition.Status == api.ConditionStatusTrue
 }
 
-// nodeRebootStartTimeout is how long we wait for CWE to observe the reboot
-// label and flip Rebooting=True. Much shorter than the full reboot budget.
-const nodeRebootStartTimeout = 5 * time.Minute
-
 // WaitForReadyNodeInPool polls until some node in the pool reports
 // KubernetesReady=True and returns it. A cluster reporting Provisioned=True does
 // not imply its worker nodes have joined yet, so callers that need a live node
@@ -333,17 +334,17 @@ func (c *Client) WaitForReadyNodeInPool(ctx context.Context, nodePoolID openapi_
 	ticker := time.NewTicker(c.opts.Poll)
 	defer ticker.Stop()
 
-	var lastErr error
+	lastError := "<none>"
 	for {
 		select {
 		case <-deadline:
-			return nil, fmt.Errorf("timeout after %v waiting for a KubernetesReady node in pool %s (last error: %v)", c.opts.Provision, nodePoolID, lastErr)
+			return nil, fmt.Errorf("timeout after %v waiting for a KubernetesReady node in pool %s (last error: %s)", c.opts.Provision, nodePoolID, lastError)
 		case <-ctx.Done():
 			return nil, fmt.Errorf("waiting for a KubernetesReady node in pool %s: %w", nodePoolID, ctx.Err())
 		case <-ticker.C:
 			nodes, err := c.ListNodePoolNodes(ctx, nodePoolID)
 			if err != nil {
-				lastErr = err
+				lastError = err.Error()
 				continue
 			}
 			for _, node := range nodes {
@@ -351,7 +352,7 @@ func (c *Client) WaitForReadyNodeInPool(ctx context.Context, nodePoolID openapi_
 					return &node, nil
 				}
 			}
-			lastErr = fmt.Errorf("none of %d nodes report KubernetesReady=True", len(nodes))
+			lastError = fmt.Sprintf("none of %d nodes report KubernetesReady=True", len(nodes))
 		}
 	}
 }
