@@ -56,6 +56,9 @@ exist.
 | Generated API | [../controller/api/README.md](../controller/api/README.md) |
 | VM manager for tests | [../controller/nico-vms/README.md](../controller/nico-vms/README.md) |
 | Reference node OS image | [../os-image/README.md](../os-image/README.md) |
+| Cluster API provider | [../cluster-api-provider-provisioned/README.md](../cluster-api-provider-provisioned/README.md) |
+| NICo and Forge stand-in | [../controller/hack/nico-mock/README.md](../controller/hack/nico-mock/README.md) |
+| CAPD reboot test helper | [../controller/hack/capd-reboot-controller/README.md](../controller/hack/capd-reboot-controller/README.md) |
 
 Deeper module documentation:
 
@@ -67,6 +70,8 @@ Deeper module documentation:
 | [../controller/profiles/README.md](../controller/profiles/README.md) | External profiles |
 | [../controller/docs/remote-colossus-tilt.md](../controller/docs/remote-colossus-tilt.md) | Developing against remote hardware with Tilt |
 | [../controller/deploy/charts/cloud-workflow-engine/README.md](../controller/deploy/charts/cloud-workflow-engine/README.md) | The engine's Helm chart and its values |
+| [../build/README.md](../build/README.md) | The per-component build and publish scripts |
+| [../node-images/README.md](../node-images/README.md) | Node image build inputs |
 
 ## Tests
 
@@ -99,6 +104,12 @@ is one at the repository root, and one in
 
 ## Not indexed here
 
-The generated `THIRD_PARTY_NOTICES.md` files, the bundles under `generated/`,
-and the working notes under `controller/hack/` are left out on purpose. They are
-either machine written or scoped to one piece of work.
+Left out on purpose, because they are machine written or scoped to one piece of
+work rather than to a reader:
+
+- the generated `THIRD_PARTY_NOTICES.md` files, and the bundles under `generated/`
+- the working notes under `controller/hack/bgp-containers/`
+- package-level notes that sit beside the code they describe, such as
+  `controller/internal/rollout/README.md`. They are for whoever is editing that
+  package, and indexing every one of them here would bury the documents that are
+  written for a reader.
