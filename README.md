@@ -64,6 +64,32 @@ independently buildable. `make build` links six binaries: `agent`,
 See [docs/go-workspace.md](docs/go-workspace.md) for how the workspace fits
 together and why `vendor/` is committed.
 
+What each binary is, and where it ends up running:
+
+| Binary | Module | What it does | Runs on |
+|---|---|---|---|
+| `cloud-workflow-engine` | `controller/` | The control plane: REST API, Temporal workflows, and the Kubernetes reconcilers | The site controller cluster |
+| `agent` | `agent/` | gRPC server the control plane drives to run `kubeadm`, install a CNI, and configure encryption | Every managed node |
+| `nkectl` | `cli/` | Validates a site inventory and drives bootstrap | Your machine |
+| `nke-os-image-check` | `os-image/` | Checks a node image against the contract in `os-image/SPEC.md` | Your machine, or an image build |
+| `capd-reboot-controller` | `controller/hack/capd-reboot-controller/` | Test helper that reboots CAPD machines | Test clusters |
+| `nico-mock` | `controller/hack/nico-mock/` | Stand-in for the NICo provider, so tests need no real hardware | Your machine |
+
+### Platforms
+
+Development works on Linux and on Apple Silicon. CI runs on Linux amd64 only, so
+that is the platform with the most coverage: there is no macOS runner, and the
+Flox environment targets `x86_64-linux`, `aarch64-linux` and `aarch64-darwin`,
+which leaves Intel macOS out.
+
+Two things are Linux amd64 only whatever machine you develop on. The agent build
+cross-compiles for `linux/amd64` and `linux/arm64`, because that is where the
+agent runs. The end-to-end bundles that
+`controller/hack/ci/prepare-capd-bundles.sh` fetches are amd64 Linux archives, so
+the CAPD end-to-end path does not run on Apple Silicon.
+
+Flox is offered, not required. Every target runs from whatever is on your `PATH`.
+
 ## Getting started
 
 ```bash
@@ -79,6 +105,10 @@ make build
 make test
 make lint
 ```
+
+The agent runs on cluster nodes, so `make build` cross-compiles it for Linux on
+amd64 and arm64 and writes to `agent/bin/linux_*`. The tests and the lint run
+against your own machine, but on macOS the binaries it produces will not.
 
 **Build and test the controller:**
 
@@ -97,6 +127,13 @@ every target runs from whatever is on your `PATH` without it.
 For building, testing and what to run before opening a pull request, see
 **[docs/development.md](docs/development.md)**. For the end-to-end suites and the
 wider local setup, see **[docs/getting-started.md](docs/getting-started.md)**.
+[docs/README.md](docs/README.md) indexes everything else.
+
+The controller has its own guide in
+[controller/README.md](controller/README.md). For a worked `nkectl` input, see
+[cli/examples/inventory.yaml](cli/examples/inventory.yaml), which describes a
+site, and [cli/examples/capd-cluster.yaml](cli/examples/capd-cluster.yaml),
+which requests a cluster.
 
 ## Requirements
 

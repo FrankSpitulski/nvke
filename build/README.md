@@ -27,5 +27,5 @@ Supported Kubernetes versions and their package collections are listed in `pkg-b
 
 - [Architecture](../docs/architecture.md)
 - [Node Images](../node-images/README.md)
-- [node-agent](../node-agent/README.md)
+- [node-agent](../agent/README.md)
 - [Pre-Provisioned Nodes](../docs/site-bootstrap/pre-provisioned-nodes.md)

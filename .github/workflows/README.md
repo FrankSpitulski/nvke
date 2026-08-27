@@ -245,7 +245,10 @@ Before submitting a workflow change:
 Run the static checks from the repository root:
 
 ```bash
-actionlint -color
+# Runs actionlint, and first checks it is the version CI pins.
+make lint-workflows
+
+# Not covered by that target:
 for workflow in .github/workflows/*.yml; do
   yq eval '.' "${workflow}" >/dev/null
 done
