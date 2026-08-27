@@ -162,7 +162,7 @@ publish OS images; it publishes the recipes for building them.
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | System overview — modules, data flows, deployment model |
 | [docs/getting-started.md](docs/getting-started.md) | Local development setup for the controller and the agent |
-| [docs/branch-protection-settings.md](docs/branch-protection-settings.md) | Admin guide to the required GitHub branch protection rules |
+| [docs/branch-protection-settings.md](docs/branch-protection-settings.md) | What `main` requires of a pull request, and which checks block a merge |
 
 Module-specific documentation lives alongside the code, in `controller/docs/`,
 `agent/docs/` and the `AGENTS.md` files.
