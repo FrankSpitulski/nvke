@@ -138,6 +138,11 @@ jobs:
     permissions:
       contents: read
 
+  docs-check:
+    uses: ./.github/workflows/docs-check.yml
+    permissions:
+      contents: read
+
   lint:
     uses: ./.github/workflows/lint.yml
     permissions:
@@ -179,6 +184,7 @@ jobs:
       - generated
       - actionlint
       - shellcheck
+      - docs-check
       - lint
       - gofail
       - govulncheck

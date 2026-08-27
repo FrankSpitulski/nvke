@@ -46,7 +46,7 @@ cd nke
 make build   # builds agent, controller, nkectl, and helper binaries
 ```
 
-The repository holds nine Go modules, and `go.work` ties together **all nine**.
+The repository is a Go workspace, and `go.work` ties **every module** together.
 `make build` compiles every one of them, so you do not need to build any module
 from its own directory. `controller/` and `controller/nico-vms` used to be
 outside the workspace because they needed `gitlab-master.nvidia.com`; #76

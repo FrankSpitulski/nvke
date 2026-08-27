@@ -34,6 +34,14 @@ lint-shell: ## Lint every tracked shell script. (run by the merge gate)
 	 ./hack/shell-scripts.sh | xargs -0 shellcheck --severity=error --format=tty
 	@echo "  shell scripts: no error-level findings"
 
+# Facts that live in the tree and were restated in prose: the module count, the
+# binary names, the merge-gate member count, and every relative link. Each is
+# read back from go.work, the Makefile and merge-gate.yml rather than from a
+# second copy. Needs nothing beyond bash, git, awk and grep, so there is no
+# version to pin and no require_tool line.
+docs-check: ## Check the documented facts against the repository. (run by the merge gate)
+	@./hack/docs-check.sh
+
 # helm lint and helm template both pass on a manifest Kubernetes would reject, so
 # kubeconform parses what was rendered. A chart that renders nothing also passes
 # helm template silently, hence the count.
@@ -142,6 +150,7 @@ gate: ## Run the merge-gate checks that work on a laptop.
 	@$(MAKE) --no-print-directory license-header-check
 	@$(MAKE) --no-print-directory lint-workflows
 	@$(MAKE) --no-print-directory lint-shell
+	@$(MAKE) --no-print-directory docs-check
 	@$(MAKE) --no-print-directory chart-check
 	@$(MAKE) --no-print-directory -C controller generate-check
 	@$(MAKE) --no-print-directory vulncheck

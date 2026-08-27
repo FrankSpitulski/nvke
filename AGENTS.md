@@ -297,4 +297,4 @@ which checks fall into which group.
 - [agent/AGENTS.md](agent/AGENTS.md) — proto generation, the state file, Debian
   packaging, gRPC reflection, and the mTLS story
 - [docs/getting-started.md](docs/getting-started.md) — the local development setup
-  for both modules
+  for the modules

@@ -85,7 +85,7 @@ committed `vendor/` tree with no credentials at all.
 
 ## What you cannot reproduce locally
 
-The merge gate runs all thirteen of its members on every pull request whatever you
+The merge gate runs all of its members on every pull request whatever you
 touched, because a called workflow ignores its own `paths:` filter. See
 [the workflow guide](../.github/workflows/README.md). So a local run narrows what
 can newly fail, not what runs.
