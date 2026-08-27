@@ -420,6 +420,7 @@ ${health_check_env}
     volumeMounts:
     - mountPath: /etc/kubernetes/admin.conf
       name: kubeconfig
+      readOnly: true
 ${health_check_vmount}
   hostAliases:
   - hostnames:
