@@ -77,16 +77,24 @@ What each binary is, and where it ends up running:
 
 ### Platforms
 
-Development works on Linux and on Apple Silicon. CI runs on Linux amd64 only, so
-that is the platform with the most coverage: there is no macOS runner, and the
-Flox environment targets `x86_64-linux`, `aarch64-linux` and `aarch64-darwin`,
-which leaves Intel macOS out.
+Development works on Linux and on Apple Silicon. Most of CI is Linux amd64, so
+that is the platform with the most coverage. Packaging and image builds also run
+on Linux arm64 runners: `deb.yml` and `agent-deb-publish.yml` build the Debian
+packages on `ubuntu-24.04-arm`, and `image-nvcr.yml` builds images on
+`linux-arm64-cpu16`.
 
-Two things are Linux amd64 only whatever machine you develop on. The agent build
-cross-compiles for `linux/amd64` and `linux/arm64`, because that is where the
-agent runs. The end-to-end bundles that
-`controller/hack/ci/prepare-capd-bundles.sh` fetches are amd64 Linux archives, so
-the CAPD end-to-end path does not run on Apple Silicon.
+There is no macOS runner, so nothing in CI exercises macOS. The Flox environment
+targets `x86_64-linux`, `aarch64-linux` and `aarch64-darwin`, which leaves Intel
+macOS out.
+
+The agent is built for Linux on both architectures, `linux/amd64` and
+`linux/arm64`, because that is where the agent runs. It is not built for macOS at
+all.
+
+The end-to-end path is the part that is amd64 only. `backend-e2e.yml` runs on
+`linux-amd64-cpu16`, and the bundles `controller/hack/ci/prepare-capd-bundles.sh`
+fetches are amd64 Linux binaries, so the CAPD end-to-end path does not run on
+Apple Silicon.
 
 Flox is offered, not required. Every target runs from whatever is on your `PATH`.
 

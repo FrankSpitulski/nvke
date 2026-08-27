@@ -114,6 +114,10 @@ NUMBERS='both|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thi
 
 # Up to three words may sit between the number and the noun, which is what
 # lets "two independently deployable Go modules" be found.
+#
+# The match needs a word boundary in front of the number, or an architecture name
+# supplies one. Without it, "amd64 Linux binaries" reads as a claim of 64
+# binaries, and this repository writes amd64 and arm64 constantly.
 GAP='([[:space:]]+[a-zA-Z-]+){0,3}[[:space:]]+'
 
 number_word() {
@@ -169,8 +173,8 @@ check_count() {
 			other | more | additional | remaining | further | extra) continue ;;
 			esac
 			error "${loc}: \"${phrase}\", but this repository has ${expected}${word:+ (${word})} ${what}"
-		done < <(printf '%s' "${text}" | grep -oEi "(${NUMBERS})${GAP}${noun}" || true)
-	done < <(prose_blocks | grep -Ei "(${NUMBERS})${GAP}${noun}" || true)
+		done < <(printf '%s' "${text}" | grep -oEi "\\b(${NUMBERS})${GAP}${noun}" || true)
+	done < <(prose_blocks | grep -Ei "\\b(${NUMBERS})${GAP}${noun}" || true)
 }
 
 # One row per counted fact. To check another, add a row whose noun regex matches
