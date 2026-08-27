@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/NVIDIA/nke/controller/api"
@@ -16,6 +17,8 @@ import (
 const (
 	// nodeRebootStartTimeout bounds how long CWE may take to observe a reboot.
 	nodeRebootStartTimeout = 5 * time.Minute
+	// noLastError is the placeholder used before a poll loop records a failure.
+	noLastError = "<none>"
 )
 
 // WaitForClusterReady polls the cluster until its Provisioned condition is True,
@@ -144,7 +147,7 @@ func (c *Client) WaitForProvisionedNodeCount(ctx context.Context, nodePoolID ope
 	defer ticker.Stop()
 
 	lastProvisionedCount := 0
-	lastError := "<none>"
+	lastError := noLastError
 
 	for {
 		select {
@@ -284,6 +287,62 @@ func (c *Client) WaitForProvisionedNodeCountStable(ctx context.Context, nodePool
 	}
 }
 
+// WaitForControlPlaneNodesRolled polls until the controller-managed control-plane
+// node set (NodePoolID == uuid.Nil) contains exactly desired KubernetesReady
+// nodes and none of oldNodeIDs remain. It asserts a config-revision rolling
+// replacement fully rolled the control plane onto new nodes at the same desired
+// count, rather than merely that the count recovered.
+func (c *Client) WaitForControlPlaneNodesRolled(ctx context.Context, clusterID openapi_types.UUID, desired int, oldNodeIDs map[openapi_types.UUID]struct{}) error {
+	deadline := time.After(c.opts.Provision)
+	ticker := time.NewTicker(c.opts.Poll)
+	defer ticker.Stop()
+
+	lastError := noLastError
+	for {
+		select {
+		case <-deadline:
+			return fmt.Errorf("timeout after %v waiting for control-plane roll on cluster %s (last error: %s)", c.opts.Provision, clusterID, lastError)
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for control-plane roll on cluster %s (last error: %s): %w", clusterID, lastError, ctx.Err())
+		case <-ticker.C:
+			nodes, err := c.ListClusterNodes(ctx, clusterID)
+			if err != nil {
+				lastError = err.Error()
+				continue
+			}
+			controlPlaneNodes := make([]api.Node, 0, desired)
+			for _, node := range nodes {
+				if node.NodePoolID == uuid.Nil {
+					controlPlaneNodes = append(controlPlaneNodes, node)
+				}
+			}
+			if len(controlPlaneNodes) != desired {
+				lastError = fmt.Sprintf("%d control-plane nodes present; want %d", len(controlPlaneNodes), desired)
+				continue
+			}
+			if err := controlPlaneNodesRolled(controlPlaneNodes, oldNodeIDs); err != nil {
+				lastError = err.Error()
+				continue
+			}
+			return nil
+		}
+	}
+}
+
+// controlPlaneNodesRolled reports an error unless every node in controlPlaneNodes
+// is absent from oldNodeIDs and KubernetesReady.
+func controlPlaneNodesRolled(controlPlaneNodes []api.Node, oldNodeIDs map[openapi_types.UUID]struct{}) error {
+	for _, node := range controlPlaneNodes {
+		if _, old := oldNodeIDs[node.ID]; old {
+			return fmt.Errorf("old control-plane node %q still present", node.Name)
+		}
+		if ready, reason := IsNodeReady(node); !ready {
+			return fmt.Errorf("replacement control-plane node %q not ready: %s", node.Name, reason)
+		}
+	}
+	return nil
+}
+
 // WaitForControlPlaneUpgradeComplete polls until the cluster reports the target
 // control-plane version and upgrade/recycling conditions are no longer active.
 func (c *Client) WaitForControlPlaneUpgradeComplete(ctx context.Context, id openapi_types.UUID, targetVersion string) (*api.Cluster, error) {
@@ -334,7 +393,7 @@ func (c *Client) WaitForReadyNodeInPool(ctx context.Context, nodePoolID openapi_
 	ticker := time.NewTicker(c.opts.Poll)
 	defer ticker.Stop()
 
-	lastError := "<none>"
+	lastError := noLastError
 	for {
 		select {
 		case <-deadline:
