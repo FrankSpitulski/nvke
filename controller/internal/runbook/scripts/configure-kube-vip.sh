@@ -413,6 +413,8 @@ ${health_check_env}
       limits:
         memory: 128Mi
     securityContext:
+      seccompProfile:
+        type: RuntimeDefault
       capabilities:
         add:
         - NET_ADMIN
