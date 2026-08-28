@@ -1,39 +1,69 @@
-# CODEOWNERS — GitHub requests review from the owners listed here whenever a
-# pull request touches a matching path. The last matching rule wins, so the
-# default sits first and the per-path rules follow.
+# CODEOWNERS — the last rule that matches wins. A ruleset on `main` sets
+# `require_code_owner_review`. See docs/branch-protection-settings.md.
 #
-# This both requests review and requires it. A ruleset on `main` turns on
-# `require_code_owner_review`, so a pull request needs an approval from an owner
-# of the paths it touches. See docs/branch-protection-settings.md.
+# Every rule keeps @NVIDIA/nke-write, so any team member can still approve and no
+# rule here blocks a pull request. Remove the team from a line to make it a gate.
 #
-# Every rule names the same team for now, so any other nke-write member can
-# satisfy the requirement. They are kept as the seam for when a
-# module gets its own owner, and as a record of the module boundaries. Keep the
-# paths honest: the previous `/node-agent/` rule pointed at a directory renamed
-# to `agent/` in #36 and matched nothing until this was fixed.
+# Sections mirror the components in .github/labeler.yml. Order matters: labeler
+# gives a file every component it matches, CODEOWNERS gives it one owner set and
+# has no `!`, so chart, docs and the second deps block win by coming later.
 
-# Default owner for everything not matched below
+# Default owner
 * @NVIDIA/nke-write
 
-# Cloud Workflow Engine (controller module)
-/controller/ @NVIDIA/nke-write
+# component/deps
+# First, so a module rule wins for its own go.mod. vendor/ repeats at the end.
+go.mod @NVIDIA/nke-write @TerryHowe @rbever-nvidia
+go.sum @NVIDIA/nke-write @TerryHowe @rbever-nvidia
+/go.work @NVIDIA/nke-write @TerryHowe @rbever-nvidia
+/go.work.sum @NVIDIA/nke-write @TerryHowe @rbever-nvidia
 
-# Agent module — renamed from node-agent in #36
-/agent/ @NVIDIA/nke-write
+# component/controller — Cloud Workflow Engine
+/controller/ @NVIDIA/nke-write @TerryHowe @vwilson-nvidia @rbever-nvidia @danbudris
+/cluster-api-provider-provisioned/ @NVIDIA/nke-write @jonathanmeier5 @rbever-nvidia @TerryHowe
 
-# Build scripts
-/build/ @NVIDIA/nke-write
+# component/agent — renamed from node-agent in #36
+/agent/ @NVIDIA/nke-write @TerryHowe @j-griffith @chaochn47
 
-# CI/CD and automation
-/.github/ @NVIDIA/nke-write
+# component/cli
+/cli/ @NVIDIA/nke-write @lia-campbell @jonathanmeier5 @TerryHowe
 
-# Documentation
-/docs/ @NVIDIA/nke-write
+# component/os-image
+/os-image/ @NVIDIA/nke-write @j-griffith @jdubs @pdmack
+/node-images/ @NVIDIA/nke-write @j-griffith @jdubs @pdmack
 
-# Policy files. Same owner as the default today, listed so that routing them
-# elsewhere later is a one-line change.
-/SECURITY.md @NVIDIA/nke-write
-/GOVERNANCE.md @NVIDIA/nke-write
-/MAINTAINERS.md @NVIDIA/nke-write
-/CODE_OF_CONDUCT.md @NVIDIA/nke-write
-/LICENSE @NVIDIA/nke-write
+# component/generated — vendored AICR charts
+/generated/ @NVIDIA/nke-write @nhammernik @TerryHowe
+
+# component/chart
+/controller/deploy/ @NVIDIA/nke-write @TerryHowe @vwilson-nvidia @danbudris @rbever-nvidia
+/controller/hack/chart-*-assertions.* @NVIDIA/nke-write @TerryHowe @vwilson-nvidia @danbudris @rbever-nvidia
+
+# component/docs
+# `docs/` has no leading slash, so it matches any depth, like labeler's
+# `**/docs/**`. `/*.md` does not cross a `/`, so a module README stays put.
+docs/ @NVIDIA/nke-write @TerryHowe @j-griffith @danbudris
+/docs/ @NVIDIA/nke-write @TerryHowe @j-griffith @danbudris
+/fern/ @NVIDIA/nke-write @TerryHowe @j-griffith @danbudris
+/*.md @NVIDIA/nke-write @TerryHowe @j-griffith @danbudris
+/LICENSE @NVIDIA/nke-write @TerryHowe @j-griffith @danbudris
+/NOTICE @NVIDIA/nke-write @TerryHowe @j-griffith @danbudris
+
+# component/ci-build
+/.github/ @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
+/Makefile @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
+/make/ @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
+/hack/ @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
+/build/ @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
+/.flox/ @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
+/.* @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
+/*.toml @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
+/*.yaml @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
+
+# component/deps again: vendor/ beats the bare `docs/` rule, dependabot.yml
+# beats /.github/.
+/vendor/ @NVIDIA/nke-write @TerryHowe @rbever-nvidia
+/.github/dependabot.yml @NVIDIA/nke-write @TerryHowe @rbever-nvidia
+
+# SECURITY.md, GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md and LICENSE are
+# component/docs, covered by `/*.md` and `/LICENSE` above.
