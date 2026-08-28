@@ -3,20 +3,36 @@
 
 name: OS Image Artifact
 
-# Builds the Packer reference node qcow2 on an os-image/v* tag, boots it for the
-# smoke test, and only then publishes. The GitHub Release is created here (not
-# in release.yml) so a failed bake or smoke test never cuts a release.
+# Builds and validates the FDE and non-FDE Packer node images on an
+# os-image/v* tag (or a manual dispatch), pushes both qcow2s to GHCR as OCI
+# artifacts, and on a real tag cuts a GitHub Release carrying
+# nke-os-image-check + checksums covering all three files. The GitHub
+# Release is created here (not in release.yml) so a failed bake or
+# validation never cuts a release.
+#
+# FDE security note: its build-time LUKS_PASSPHRASE defaults to a shared,
+# documented placeholder ("changeit", see
+# os-image/docs/full-disk-encryption.md) baked into both a LUKS passphrase
+# slot and GRUB's luks.key= kernel parameter until a node's first real boot
+# completes a verified TPM bind -- anyone with console/physical access to an
+# unbound node can read it and unlock the volume with it. This is a known,
+# accepted tradeoff for publishing a build-and-go FDE image without a
+# per-node secret-provisioning story: operators deploying this image to real
+# hardware are relying on prompt first-boot TPM binding to close that
+# window (verify with luks-tpm-verify; see
+# os-image/docs/full-disk-encryption.md).
 #
 # The payload is an OCI artifact, not a container image:
 #
-#   ghcr.io/nvidia/nke/os-image:v0.1.0
-#     `-- platform linux/amd64   layer: nke-node.qcow2
+#   ghcr.io/nvidia/nke/os-image-fde:v0.1.0
+#   ghcr.io/nvidia/nke/os-image-non-fde:v0.1.0
+#     `-- platform linux/amd64   layer: nke-node-{fde,non-fde}.qcow2
 #
-#   oras pull ghcr.io/nvidia/nke/os-image:v0.1.0 --platform linux/amd64
+#   oras pull ghcr.io/nvidia/nke/os-image-fde:v0.1.0 --platform linux/amd64
 #
 # Distinct from image.yml, which compiles controller Dockerfiles and pushes
 # nothing. Distinct from image-nvcr.yml, which publishes the controller
-# container. This is the Ubuntu node disk the site controller boots.
+# container.
 on:
   push:
     tags:
@@ -29,6 +45,11 @@ on:
         required: false
         default: "edge"
         type: string
+      dry_run:
+        description: "Build and validate everything, but skip the GHCR push. The tag trigger always publishes; this only applies to a manual run."
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -42,19 +63,29 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REPO: ghcr.io/nvidia/nke/os-image
   PACKER_SHA256: "cfefdea4ac580eba7b254ef34d25b756d4961741004e3e701a1476594d13e64a"
+  REPO_FDE: ghcr.io/nvidia/nke/os-image-fde
+  REPO_NON_FDE: ghcr.io/nvidia/nke/os-image-non-fde
 
 jobs:
   publish:
     if: github.repository == 'NVIDIA/nke'
-    name: Build, verify, and publish
-    # Packer QEMU needs /dev/kvm. The GitHub-hosted 2-core runners do not
-    # expose it; this label is the same class image.yml already uses.
-    runs-on: linux-amd64-cpu16
-    # Sized for the emulated path. A KVM bake is well under 30 minutes; TCG
-    # boots the guest one interpreted instruction at a time and needs the room.
-    timeout-minutes: 240
+    name: Build, verify, and release
+    # Packer QEMU needs /dev/kvm. linux-amd64-cpu16 (a container-based pool)
+    # never exposed it, forcing every bake onto QEMU's tcg software emulation
+    # — confirmed directly: a full FDE bake took 1h39m under tcg vs a few
+    # minutes locally under real KVM, and tcg's much slower, less predictable
+    # timing was implicated in several failures (a GRUB boot-menu race, an
+    # intermittent overlayfs kernel oops under curtin's install). This label
+    # is expected to expose /dev/kvm; "Enable KVM access" below fails the job
+    # immediately if that assumption turns out wrong, rather than silently
+    # falling back to the ~10x-slower emulated path the way this job used to.
+    runs-on: linux-amd64-gpu-l4-latest-1
+    # Sized for real KVM: FDE bake + demo-fde.sh + non-FDE bake + boot-smoke,
+    # each a few minutes, with real headroom. If this ever regresses to tcg
+    # somehow, the KVM gate below fails fast instead of burning the timeout
+    # finding out.
+    timeout-minutes: 120
     permissions:
       contents: write
       packages: write
@@ -123,33 +154,40 @@ jobs:
           make test
           make build
 
-      - name: Install QEMU and cloud-localds
+      - name: Install QEMU, cloud-localds, swtpm, OVMF, 7z, and xorriso
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq qemu-system-x86 qemu-utils cloud-image-utils genisoimage unzip
+          sudo apt-get install -y -qq qemu-system-x86 qemu-utils cloud-image-utils genisoimage unzip swtpm ovmf p7zip-full xorriso
           qemu-system-x86_64 --version | head -1
           qemu-img --version | head -1
+          swtpm --version
 
-      # Not a gate. These runners are containers with no /dev/kvm, and neither
-      # do GitHub-hosted standard runners (Azure VMs without nested
-      # virtualization), so requiring it here failed every tag before Packer
-      # started. packer/Makefile and boot-smoke.sh probe the device themselves
-      # and fall back to TCG; this step only makes the device usable when it is
-      # there, and says which mode the bake will run in.
-      #
-      # FIXME: https://github.com/NVIDIA/nke/issues/219 — move this job to a
-      # bare-metal runner and drop the emulated path, which costs ~10x.
-      - name: Report the accelerator
+      # A gate, deliberately: this runner label is chosen specifically for
+      # /dev/kvm (see the comment on runs-on above). A missing device means
+      # something about the runner pool changed and every subsequent step
+      # would silently fall back to tcg (packer/Makefile and boot-smoke.sh
+      # both probe and fall back on their own) -- better to fail here in
+      # seconds than rediscover it 1-2 hours into a tcg bake. Same pattern
+      # NVIDIA/OpenShell uses for its own KVM-backed e2e VM tests.
+      - name: Enable KVM access
         run: |
           set -euo pipefail
-          if [[ -c /dev/kvm ]]; then
-            # Membership in group kvm does not apply until a new login.
-            sudo chmod 666 /dev/kvm
-            echo "::notice::/dev/kvm present; building with hardware acceleration"
-          else
-            echo "::warning::/dev/kvm is missing on this runner; building under QEMU software emulation (much slower)"
+          if [[ ! -c /dev/kvm ]]; then
+            echo "::error::This runner did not expose /dev/kvm (expected on linux-amd64-gpu-l4-latest-1)"
+            lscpu
+            grep -m1 -E '^(flags|Features)' /proc/cpuinfo || true
+            ls -la /dev
+            exit 1
           fi
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --settle --name-match=kvm
+          ls -l /dev/kvm
+          exec 3<>/dev/kvm
+          exec 3>&-
+          echo "::notice::/dev/kvm present and writable; building with hardware acceleration"
 
       - name: Install Packer
         env:
@@ -170,6 +208,8 @@ jobs:
           sudo install -m 0755 "${tmp}/packer" /usr/local/bin/packer
           packer version
 
+      # fetch-artifacts.sh (run by every `make os-image-*` build below) pulls
+      # nke-agent/spire-agent from GHCR via oras.
       - name: Log in to GHCR
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -178,38 +218,59 @@ jobs:
           echo "${GHCR_TOKEN}" | oras login ghcr.io \
             --username "${{ github.actor }}" --password-stdin
 
-      - name: Build the node image
+      - name: Build the FDE node image
         env:
           PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: make -C os-image/packer os-image NKE_AGENT_VERSION="${NKE_AGENT_VERSION}"
+        run: make -C os-image/packer os-image-fde NKE_AGENT_VERSION="${NKE_AGENT_VERSION}"
 
-      - name: Boot-smoke the qcow2
-        run: make -C os-image boot-smoke
+      # Full acceptance run: LUKS2+TPM-sealed, wrong-TPM-fails,
+      # reboot-auto-unlocks. No manual/scripted console interaction needed —
+      # the image auto-unlocks its own first boot via a build-time luks.key=
+      # GRUB parameter (see os-image/docs/full-disk-encryption.md).
+      - name: Validate FDE TPM unlock (demo-fde.sh)
+        working-directory: os-image
+        run: ./demo-fde.sh
 
-      - name: Compress the qcow2 for publish
-        id: disk
+      - name: Build the non-FDE node image
+        env:
+          PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: make -C os-image/packer os-image-non-fde NKE_AGENT_VERSION="${NKE_AGENT_VERSION}"
+
+      - name: Boot-smoke the non-FDE qcow2
+        run: |
+          make -C os-image boot-smoke OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
+
+      # Runs regardless of outcome: this runner has no VNC/monitor access to
+      # inspect a stuck or failed FDE/non-FDE build interactively, so the
+      # guest's own serial console (boot + autoinstall output, see
+      # console=ttyS0 in nke-node-fde.pkr.hcl / nke-node-non-fde.pkr.hcl) is
+      # the only way to see what happened. No-op if the dir is empty/missing
+      # (e.g. a failure before either build reached prepare-installer-iso).
+      - name: Upload FDE/non-FDE install console logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fde-install-console-logs
+          path: os-image/packer/build-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Compress the qcow2s for publish
         run: |
           set -euo pipefail
-          src="os-image/packer/output/nke-node"
-          if [[ ! -f "${src}" ]]; then
-            echo "::error::Packer did not write ${src}"
-            ls -la os-image/packer/output || true
-            exit 1
-          fi
           mkdir -p dist
-          qemu-img convert -p -c -O qcow2 "${src}" dist/nke-node.qcow2
-          qemu-img info dist/nke-node.qcow2
-          cp os-image/bin/nke-os-image-check dist/nke-os-image-check
-          ( cd dist && sha256sum nke-node.qcow2 nke-os-image-check > checksums.txt )
-          echo "::group::checksums"
-          cat dist/checksums.txt
-          echo "::endgroup::"
-          echo "qcow=dist/nke-node.qcow2" >> "${GITHUB_OUTPUT}"
+          fde_src="$(ls os-image/packer/output-fde/*.qcow2)"
+          non_fde_src="$(ls os-image/packer/output-non-fde/*.qcow2)"
+          qemu-img convert -p -c -O qcow2 "${fde_src}" dist/nke-node-fde.qcow2
+          qemu-img convert -p -c -O qcow2 "${non_fde_src}" dist/nke-node-non-fde.qcow2
+          qemu-img info dist/nke-node-fde.qcow2
+          qemu-img info dist/nke-node-non-fde.qcow2
 
       # --artifact-platform is still marked experimental in the ORAS CLI. It is
       # load-bearing: without it the manifest has no platform in its config and
       # `oras pull --platform linux/amd64` cannot select this disk.
-      - name: Push the qcow2 to GHCR
+      - name: Push the qcow2s to GHCR
+        if: github.event.inputs.dry_run != 'true'
         env:
           VERSION: ${{ steps.meta.outputs.version }}
           ALIASES: ${{ steps.meta.outputs.aliases }}
@@ -221,20 +282,37 @@ jobs:
             tags="${tags:+${tags},}${alias}"
           done
 
-          ( cd dist && oras push "${REPO}:${tags}" \
-              --artifact-type application/vnd.nvidia.nke.node.qcow2.v1 \
-              --artifact-platform linux/amd64 \
-              --annotation "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
-              --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
-              --annotation "org.opencontainers.image.version=${VERSION}" \
-              --annotation "org.opencontainers.image.licenses=Apache-2.0" \
-              --annotation "org.opencontainers.image.title=nke-node.qcow2" \
-              nke-node.qcow2:application/vnd.qemu.qcow2 )
+          for variant in fde non-fde; do
+            case "${variant}" in
+              fde) repo="${REPO_FDE}" ;;
+              non-fde) repo="${REPO_NON_FDE}" ;;
+            esac
+            ( cd dist && oras push "${repo}:${tags}" \
+                --artifact-type application/vnd.nvidia.nke.node.qcow2.v1 \
+                --artifact-platform linux/amd64 \
+                --annotation "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+                --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
+                --annotation "org.opencontainers.image.version=${VERSION}" \
+                --annotation "org.opencontainers.image.licenses=Apache-2.0" \
+                --annotation "org.opencontainers.image.title=nke-node-${variant}.qcow2" \
+                "nke-node-${variant}.qcow2:application/vnd.qemu.qcow2" )
+          done
 
-      - name: Show published manifest
+      - name: Show published manifests
+        if: github.event.inputs.dry_run != 'true'
         run: |
           set -euo pipefail
-          oras manifest fetch --pretty "${REPO}:sha-${GITHUB_SHA}"
+          oras manifest fetch --pretty "${REPO_FDE}:sha-${GITHUB_SHA}"
+          oras manifest fetch --pretty "${REPO_NON_FDE}:sha-${GITHUB_SHA}"
+
+      - name: Prepare release assets
+        run: |
+          set -euo pipefail
+          cp os-image/bin/nke-os-image-check dist/nke-os-image-check
+          ( cd dist && sha256sum nke-node-fde.qcow2 nke-node-non-fde.qcow2 nke-os-image-check > checksums.txt )
+          echo "::group::checksums"
+          cat dist/checksums.txt
+          echo "::endgroup::"
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/os-image/')
@@ -245,18 +323,29 @@ jobs:
           name: os-image ${{ steps.meta.outputs.version }}
           draft: true
           body: |
-            Reference node OS image ${{ steps.meta.outputs.version }} (Ubuntu 26.04, linux/amd64).
+            os-image ${{ steps.meta.outputs.version }}: the FDE and non-FDE Packer
+            node images, built and validated against nke-agent `${{ env.NKE_AGENT_VERSION }}`
+            (Ubuntu 26.04, linux/amd64).
 
-            Baked nke-agent: `${{ env.NKE_AGENT_VERSION }}`.
-
-            Pull the qcow2 with oras (not docker):
+            Pull the qcow2s with oras (not docker):
 
             ```
-            oras pull ghcr.io/nvidia/nke/os-image:${{ steps.meta.outputs.version }} --platform linux/amd64
+            oras pull ghcr.io/nvidia/nke/os-image-fde:${{ steps.meta.outputs.version }} --platform linux/amd64
+            oras pull ghcr.io/nvidia/nke/os-image-non-fde:${{ steps.meta.outputs.version }} --platform linux/amd64
             ```
 
-            The GitHub Release attaches `nke-os-image-check` and checksums. The disk
-            itself is the OCI artifact above; it is too large to attach here.
+            **FDE security note**: this image's `LUKS_PASSPHRASE` is the shared,
+            documented build-time placeholder (`changeit`), baked into both a LUKS
+            passphrase slot and GRUB's `luks.key=` kernel parameter until a node's
+            first real boot completes a verified TPM bind (see
+            `os-image/docs/full-disk-encryption.md`). Anyone with console/physical
+            access to an unbound node can read it and unlock the volume with it.
+            Verify a node closed that window with `luks-tpm-verify` before trusting
+            TPM-only unlock in production.
+
+            The GitHub Release attaches `nke-os-image-check` and checksums covering
+            both qcow2s and the checker binary. The disks themselves are the OCI
+            artifacts above; they are too large to attach here.
           files: |
             dist/nke-os-image-check
             dist/checksums.txt

@@ -14,7 +14,11 @@ controller/hack/nico-mock/nico-mock
 
 # Reference-image Packer output and build-only SSH keys / pulled binaries.
 os-image/packer/output/
+os-image/packer/output-fde/
+os-image/packer/output-non-fde/
 os-image/packer/artifacts/
+os-image/packer/iso-cache/
+os-image/packer/build-logs/
 os-image/packer/.ssh/
 
 # Personal environment read by .envrc. It holds credentials, so the ignore has to

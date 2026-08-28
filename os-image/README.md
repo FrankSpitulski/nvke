@@ -8,6 +8,10 @@ controller can reach the node over SPIFFE mTLS. The contract is [SPEC.md](SPEC.m
 | `SPEC.md` | Image contract (bake vs first-boot, ports, identity) |
 | `packer/` | Packer + QEMU recipe that produces a qcow2 |
 | `files/` | systemd units, SPIRE template, first-boot script |
+| `files/luks/` | LUKS/TPM2 first-boot binding assets for the FDE variant |
+| `files/lvm/` | First-boot storage-growth assets for the non-FDE (no encryption) variant |
+| `docs/full-disk-encryption.md` | FDE variant: build, verify, failure modes |
+| `demo-fde.sh` | Runs the host-FDE acceptance scenarios against a built image |
 | `cmd/nke-os-image-check` | Connectivity checker (Go) |
 
 ## Build the OS image
@@ -19,14 +23,23 @@ Prereqs, on a Linux host:
 | [Packer](https://developer.hashicorp.com/packer) | >= 1.10.0 | https://developer.hashicorp.com/packer/install |
 | [ORAS](https://oras.land/) | any | https://oras.land/docs/installation |
 | `curl` | any | via your package manager |
+| `qemu-system-x86_64`, `cloud-localds`, `swtpm`, OVMF | any | via your package manager |
+| `xorriso`, `p7zip-full` (`7z`) | any | via your package manager |
+
+Both variants boot the Ubuntu Server installer (not a prebuilt cloud image),
+so all of the above are needed even for a first build — see
+`.github/workflows/os-image-artifact.yml`'s install step for the exact
+package list on Ubuntu. `xorriso`/`7z` are for `prepare-installer-iso.sh`'s
+ISO patching (see its header comment for why).
 
 `/dev/kvm` is preferred, not required. `packer/Makefile` probes for it and picks
 `accelerator = kvm` when it is usable, `tcg` (software emulation) otherwise —
 correct but roughly an order of magnitude slower. Force either mode with
-`make os-image ACCELERATOR=tcg`. `boot-smoke.sh` does the same probe.
+`make os-image-fde ACCELERATOR=tcg`. `boot-smoke.sh` does the same probe.
 
-`make os-image` checks for `oras` on `PATH` before it boots the build VM and
-fails fast with the install link above if it's missing.
+`make os-image-fde`/`make os-image-non-fde` check for `oras` on `PATH` before
+they boot the build VM and fail fast with the install link above if it's
+missing.
 
 If `ghcr.io/nvidia/nke/agent-deb` (or the binary fallback `ghcr.io/nvidia/nke/agent`) is private, log in first with a GitHub PAT
 (`read:packages` scope):
@@ -38,39 +51,121 @@ echo "<github-pat>" | oras login ghcr.io -u <your-github-username> --password-st
 Credentials are cached (`~/.docker/config.json` by default), so `oras pull`
 in `fetch-artifacts.sh` picks them up automatically.
 
-```bash
-cd packer
-make os-image NKE_AGENT_VERSION=edge
-# or a release tag, without the agent/ prefix: NKE_AGENT_VERSION=v0.3.0
-```
-
-`edge` (the default) is tip of `main`. The recipe **prefers** the nke-agent
-`.deb` from `ghcr.io/nvidia/nke/agent-deb` (published on `agent/v*` tags) and
-falls back to the OCI **binary** at `ghcr.io/nvidia/nke/agent` when no package
-exists for that tag. Pass a release tag without the `agent/` prefix to pull a
-`.deb`: `NKE_AGENT_VERSION=v0.3.0`. SPIRE agent is pinned (version + sha256)
-from GitHub Releases.
-
-Output: `packer/output/nke-node` (qcow2, Packer's `vm_name`).
+`edge` (the default `NKE_AGENT_VERSION`, used below) is tip of `main`. The
+recipe **prefers** the nke-agent `.deb` from `ghcr.io/nvidia/nke/agent-deb`
+(published on `agent/v*` tags) and falls back to the OCI **binary** at
+`ghcr.io/nvidia/nke/agent` when no package exists for that tag. Pass a
+release tag without the `agent/` prefix to pull a `.deb`:
+`NKE_AGENT_VERSION=v0.3.0`. SPIRE agent is pinned (version + sha256) from
+GitHub Releases.
 
 The build-time cloud-init seed is only for Packer's SSH. The provisioner runs
-`cloud-init clean` and drops the build key, so the qcow2 is a golden image.
+`cloud-init clean` and drops the build key, so each qcow2 is a golden image.
+
+## Full-disk-encryption (FDE) variant
+
+An opt-in build that lays down an LVM-on-LUKS2 root volume via the Ubuntu
+Server installer + autoinstall, then defers TPM 2.0 binding to first boot on
+the target hardware. See [docs/full-disk-encryption.md](docs/full-disk-encryption.md)
+for the full design, verification steps, and (unrecoverable-by-design)
+failure modes.
+
+```bash
+cd packer
+make os-image-fde NKE_AGENT_VERSION=edge
+```
+
+Output: `packer/output-fde/nke-node-fde-ubuntu-<version>-<arch>.qcow2` (e.g.
+`nke-node-fde-ubuntu-26.04-amd64.qcow2`). `LUKS_PASSPHRASE` (default
+`changeit` — **set this to a real value for any build that will run on real
+hardware**; see [docs/full-disk-encryption.md](docs/full-disk-encryption.md))
+sets the build-time-only passphrase, which the shipped image never retains
+once a node's first boot completes a verified TPM bind.
+
+## Non-FDE variant (no encryption)
+
+The same installer + autoinstall + LVM flow as the FDE variant, with
+encryption turned off entirely — no LUKS, no Clevis, no TPM binding. Useful
+for telling FDE-specific issues apart from issues in the installer flow
+itself (partitioning, identity/SSH setup, first-boot storage growth), or as
+a starting point if you want the installer-based LVM layout without opting
+into encryption.
+
+```bash
+cd packer
+make os-image-non-fde NKE_AGENT_VERSION=edge
+```
+
+Output: `packer/output-non-fde/nke-node-non-fde-ubuntu-<version>-<arch>.qcow2`
+(e.g. `nke-node-non-fde-ubuntu-26.04-amd64.qcow2`). Boot it with
+`boot-smoke.sh` (it needs `OVMF_CODE` set, since this variant boots UEFI —
+see the comment at the top of that script; `QCOW` defaults to the single
+qcow2 under `output-non-fde/`, so it usually doesn't need to be passed):
+
+```bash
+OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd ./scripts/boot-smoke.sh
+```
+
+## Interactive VM
+
+`make run-vm QCOW=<path>` boots any qcow2 this repo produces and leaves it
+running with SSH forwarded, for poking around manually — unlike
+`boot-smoke`/`demo-fde.sh`, it runs no checks and doesn't tear itself down.
+**To quit, use `Ctrl-A` then `X`, not plain `Ctrl-C`**: QEMU runs with
+`-nographic`, so your terminal is the guest's serial console, and plain
+`Ctrl-C` is sent to the guest as literal input (garbling a login prompt)
+instead of stopping QEMU. See the comment at the top of
+[`packer/scripts/run-vm.sh`](packer/scripts/run-vm.sh) for the full env var
+list (`OVMF_CODE` for the UEFI variants, `TPM=1` to attach a TPM for the FDE
+image). Examples:
+
+```bash
+make run-vm QCOW=packer/output-non-fde/nke-node-non-fde-ubuntu-26.04-amd64.qcow2 OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
+make run-vm QCOW=packer/output-fde/nke-node-fde-ubuntu-26.04-amd64.qcow2 OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd TPM=1
+```
 
 ## Release
 
 An `os-image/vX.Y.Z` tag (or `os-image/vX.Y.Z-rc.N`) runs
-`.github/workflows/os-image-artifact.yml` on a KVM runner. The job builds the
-qcow2, boots it (`make boot-smoke`), and **only then** publishes:
+`.github/workflows/os-image-artifact.yml`, which builds and validates both
+the FDE and non-FDE images and, only if that succeeds, pushes both qcow2s to
+GHCR as OCI artifacts and cuts a GitHub Release for the tag attaching
+`nke-os-image-check` and `checksums.txt` (covering both qcow2s and the
+checker binary).
 
 ```bash
-oras pull ghcr.io/nvidia/nke/os-image:v0.1.0 --platform linux/amd64
+oras pull ghcr.io/nvidia/nke/os-image-fde:vX.Y.Z --platform linux/amd64
+oras pull ghcr.io/nvidia/nke/os-image-non-fde:vX.Y.Z --platform linux/amd64
 ```
 
-The GitHub Release for that tag attaches `nke-os-image-check` and `checksums.txt`.
-The disk stays on GHCR; it is not a GitHub Release asset.
+**FDE security note**: the published image's `LUKS_PASSPHRASE` is the
+shared, documented build-time placeholder (`changeit`), baked into both a
+LUKS passphrase slot and GRUB's `luks.key=` kernel parameter until a node's
+first real boot completes a verified TPM bind (see
+[docs/full-disk-encryption.md](docs/full-disk-encryption.md)). Anyone with
+console/physical access to an unbound node can read it and unlock the
+volume with it — this is a known, accepted tradeoff for publishing a
+build-and-go FDE image without a per-node secret-provisioning story.
+Verify a node closed that window with `luks-tpm-verify` before trusting
+TPM-only unlock in production.
+
+The workflow runs on `linux-amd64-gpu-l4-latest-1`, chosen specifically for
+real `/dev/kvm` — a container-based pool tried earlier had none, forcing
+every bake onto `tcg` software emulation (confirmed directly: a full FDE
+bake took 1h39m under `tcg` vs a few minutes locally under real KVM). The
+job's "Enable KVM access" step fails immediately if that assumption turns
+out wrong, rather than silently falling back to the ~10x-slower emulated
+path.
+
+If the FDE/non-FDE build or boot-smoke steps fail in CI, download the
+`fde-install-console-logs` artifact from the run — it's the guest's own
+serial console output (boot + autoinstall), uploaded regardless of outcome
+since there's no VNC/monitor access on the runner to inspect a stuck build
+interactively.
 
 Default bake uses `NKE_AGENT_VERSION=edge`. Override on a `workflow_dispatch`
-run, or by passing `NKE_AGENT_VERSION=v0.3.0` to `make os-image` locally.
+run, or by passing `NKE_AGENT_VERSION=v0.3.0` to `make os-image-fde`/
+`make os-image-non-fde` locally.
 
 ## First boot (cloud-init)
 

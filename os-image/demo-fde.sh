@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Runs the host-FDE (full disk encryption) acceptance scenarios against a
+# built FDE image, under QEMU with swtpm as the virtual TPM. Prints
+# pass/fail per scenario and exits non-zero if any scenario fails.
+#
+# Scope: os-image/ Linux host disk encryption only. Kubernetes Secrets/etcd
+# encryption-at-rest is a separate controller/agent concern and is not
+# covered by this script.
+#
+# Usage: ./demo-fde.sh [--help]
+#
+# Env overrides:
+#   QCOW          path to the FDE qcow2 (default: the single *.qcow2 under
+#                 packer/output-fde/, e.g. nke-node-fde-ubuntu-26.04-amd64.qcow2)
+#   SSH_KEY       ssh key used for the build (default: packer/.ssh/id_ed25519)
+#   SSH_PORT      host port to forward to guest :22 (default: 2222)
+#   BOOT_TIMEOUT  seconds to wait for SSH per boot (default: 360 kvm / 1800 tcg)
+#   CPU_MODEL     QEMU -cpu model (default: host kvm / max tcg)
+#
+# No interactive/blind console typing is needed: autoinstall-lvm.pkrtpl bakes
+# a build-time luks.key=<passphrase> GRUB parameter, so even the very first
+# real boot of a freshly built image unlocks itself via
+# files/luks/luks-cmdline-script — the same mechanism production uses via an
+# iPXE luks.key= kernel parameter. luks-tpm-firstboot.sh strips luks.key=
+# from GRUB once the TPM bind succeeds, so a later boot against a different
+# TPM (scenario 2) has no fallback and correctly fails to unlock.
+
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  sed -n '2,29p' "${BASH_SOURCE[0]}"
+  exit 0
+fi
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+QCOW="${QCOW:-}"
+if [[ -z "${QCOW}" ]]; then
+  # The output filename encodes the Ubuntu version/arch (see vm_name in
+  # nke-node-fde.pkr.hcl), so glob for it instead of hardcoding it here.
+  shopt -s nullglob
+  fde_qcows=("${ROOT}/packer/output-fde"/*.qcow2)
+  shopt -u nullglob
+  if [[ ${#fde_qcows[@]} -eq 1 ]]; then
+    QCOW="${fde_qcows[0]}"
+  else
+    echo "demo-fde: QCOW not set and found ${#fde_qcows[@]} qcow2 files under packer/output-fde/ (need exactly 1); run 'make os-image-fde' or set QCOW explicitly" >&2
+    exit 1
+  fi
+fi
+SSH_KEY="${SSH_KEY:-${ROOT}/packer/.ssh/id_ed25519}"
+SSH_PORT="${SSH_PORT:-2222}"
+
+# machine_type/cpu_model matter here for the same reason they do in
+# nke-node-fde.pkr.hcl: this image boots via OVMF/UEFI, and QEMU's default
+# "pc" (i440fx) machine type is a known-fragile pairing with OVMF that
+# produced intermittent guest-kernel instability while developing this
+# variant. q35 + an explicit cpu_model avoids it.
+if [[ -c /dev/kvm && -w /dev/kvm ]]; then
+  ACCEL_ARGS=(-enable-kvm)
+  CPU_MODEL="${CPU_MODEL:-host}"
+  # The first real boot does partition/LUKS/PV/LV growth, a TPM bind+verify,
+  # and two full initramfs regens before it ever reaches cloud-init/sshd —
+  # comfortably past 180s in practice, so the default here is generous
+  # rather than tuned to the fast-path boots.
+  BOOT_TIMEOUT="${BOOT_TIMEOUT:-360}"
+else
+  echo "demo: no usable /dev/kvm, booting under software emulation (slower)" >&2
+  ACCEL_ARGS=(-accel tcg)
+  CPU_MODEL="${CPU_MODEL:-max}"
+  BOOT_TIMEOUT="${BOOT_TIMEOUT:-1800}"
+fi
+
+for tool in qemu-system-x86_64 qemu-img swtpm cloud-localds ssh; do
+  command -v "${tool}" >/dev/null 2>&1 || { echo "demo: required tool '${tool}' not found" >&2; exit 3; }
+done
+if [[ ! -f "${QCOW}" ]]; then
+  echo "demo: no image at ${QCOW}; run 'make -C packer os-image-fde' first" >&2
+  exit 1
+fi
+if [[ ! -f "${SSH_KEY}" ]]; then
+  echo "demo: no ssh key at ${SSH_KEY}; run 'make -C packer ssh-key' first" >&2
+  exit 1
+fi
+
+OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
+OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
+
+WORKDIR="$(mktemp -d)"
+DISK="${WORKDIR}/nke-node-fde-demo.qcow2"
+trap 'rm -rf "${WORKDIR}"' EXIT
+
+qemu-img create -f qcow2 -F qcow2 -b "${QCOW}" "${DISK}" >/dev/null
+
+RESULTS=()
+report() {
+  local scenario="$1" verdict="$2" detail="${3:-}"
+  RESULTS+=("${verdict}: ${scenario}${detail:+ — ${detail}}")
+  echo "[${verdict}] ${scenario}${detail:+ — ${detail}}"
+}
+
+ssh_guest() {
+  # timeout, not just ConnectTimeout: ConnectTimeout only bounds the SSH
+  # handshake, not the remote command actually returning. Several callers
+  # use this inside `until ssh_guest ...; do ...; done` retry loops with
+  # their own deadline check in the loop body -- a remote command that
+  # connects but never returns would block forever in the loop condition,
+  # where that deadline check never runs.
+  timeout 30 ssh -i "${SSH_KEY}" -p "${SSH_PORT}" \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o ConnectTimeout=5 -o BatchMode=yes \
+    ubuntu@127.0.0.1 "$@"
+}
+
+# Boots $DISK against the swtpm state dir at $1 and leaves it running. Sets
+# VM_RUNWORK/VM_TPMDIR/VM_QPID for wait_ssh/stop_vm to use — deliberately
+# does NOT tear the VM down itself, so a caller that needs to run more than
+# one ssh_guest command after boot (scenario 1's firstboot-marker and
+# luks-tpm-verify checks) has a still-live VM to run them against. Call
+# stop_vm once done with a given boot.
+VM_RUNWORK=""
+VM_TPMDIR=""
+VM_QPID=""
+start_vm() {
+  local tpmdir="$1"
+  VM_TPMDIR="${tpmdir}"
+  VM_RUNWORK="$(mktemp -d)"
+  local runwork="${VM_RUNWORK}"
+  local efivars="${runwork}/OVMF_VARS.fd"
+  cp "${OVMF_VARS_TEMPLATE}" "${efivars}"
+
+  cat >"${runwork}/user-data" <<EOF
+#cloud-config
+ssh_authorized_keys:
+  - $(cat "${SSH_KEY}.pub")
+EOF
+  echo "instance-id: nke-fde-demo-$$-${RANDOM}
+local-hostname: nke-fde-demo" >"${runwork}/meta-data"
+  cloud-localds "${runwork}/seed.iso" "${runwork}/user-data" "${runwork}/meta-data"
+
+  rm -f "${tpmdir}/swtpm-sock" "${tpmdir}/.lock"
+  swtpm socket --tpmstate "dir=${tpmdir}" \
+    --ctrl "type=unixio,path=${tpmdir}/swtpm-sock" \
+    --tpm2 --daemon --pid "file=${tpmdir}/swtpm.pid"
+
+  local qemu_args=(
+    -machine type=q35
+    -cpu "${CPU_MODEL}"
+    -m 4096 -smp 2
+    "${ACCEL_ARGS[@]}"
+    -nographic
+    -drive if=pflash,format=raw,readonly=on,file="${OVMF_CODE}"
+    -drive if=pflash,format=raw,file="${efivars}"
+    -drive if=virtio,file="${DISK}",format=qcow2
+    -drive if=virtio,file="${runwork}/seed.iso",format=raw
+    -chardev "socket,id=chrtpm,path=${tpmdir}/swtpm-sock"
+    -tpmdev emulator,id=tpm0,chardev=chrtpm
+    -device tpm-tis,tpmdev=tpm0
+    -netdev "user,id=net0,hostfwd=tcp::${SSH_PORT}-:22"
+    -device virtio-net,netdev=net0
+  )
+
+  qemu-system-x86_64 "${qemu_args[@]}" >"${runwork}/qemu.log" 2>&1 &
+  VM_QPID=$!
+  echo "${VM_QPID}" > "${runwork}/qemu.pid"
+}
+
+# Polls for SSH up to BOOT_TIMEOUT. Prints "up" or "timeout" to stdout.
+wait_ssh() {
+  local deadline=$((SECONDS + BOOT_TIMEOUT)) up=0
+  until ssh_guest true 2>/dev/null; do
+    if (( SECONDS > deadline )); then
+      up=1
+      break
+    fi
+    sleep 5
+  done
+  [[ "${up}" -eq 0 ]] && echo "up" || echo "timeout"
+}
+
+# Tears down the VM started by the most recent start_vm.
+stop_vm() {
+  kill "${VM_QPID}" 2>/dev/null || true
+  # Fallback by disk path in case $VM_QPID somehow isn't qemu's own pid (e.g.
+  # a future refactor backgrounds it indirectly again).
+  pkill -f "qemu-system-x86_64.*${DISK}" 2>/dev/null || true
+  local swtpm_pid
+  swtpm_pid="$(cat "${VM_TPMDIR}/swtpm.pid" 2>/dev/null)" || true
+  if [[ -n "${swtpm_pid}" ]] && kill -0 "${swtpm_pid}" 2>/dev/null; then
+    kill "${swtpm_pid}" 2>/dev/null || true
+  fi
+  rm -rf "${VM_RUNWORK}"
+}
+
+# Convenience wrapper for scenarios that don't need to run extra ssh_guest
+# commands between boot and teardown.
+boot_and_wait() {
+  start_vm "$1"
+  local state
+  state="$(wait_ssh)"
+  stop_vm
+  echo "${state}"
+}
+
+echo "=== Scenario: host volumes are LUKS2, sealed to the node TPM ==="
+TPM_A="${WORKDIR}/tpm-a"
+mkdir -p "${TPM_A}"
+start_vm "${TPM_A}"
+STATE="$(wait_ssh)"
+if [[ "${STATE}" != "up" ]]; then
+  report "host-volumes-luks2-tpm-sealed" "FAIL" "VM did not become SSH-reachable within ${BOOT_TIMEOUT}s (first-boot TPM bind may have failed)"
+else
+  # VM is still running here (stop_vm hasn't been called yet) — these
+  # checks need a live guest, unlike the pass/fail-only scenarios below.
+  #
+  # sshd/cloud-init's SSH-key injection isn't ordered against
+  # luks-tpm-firstboot.service, so SSH can (and does, in practice) become
+  # reachable a bit before that service — still mid partition-grow / dual
+  # initramfs-regen — finishes. Poll for the marker rather than assuming
+  # SSH-up means firstboot-done.
+  FIRSTBOOT_DEADLINE=$((SECONDS + 180))
+  until ssh_guest 'sudo test -f /root/.luks-tpm-firstboot-done' 2>/dev/null; do
+    if (( SECONDS > FIRSTBOOT_DEADLINE )); then
+      break
+    fi
+    sleep 5
+  done
+  if ssh_guest 'sudo test -f /root/.luks-tpm-firstboot-done' 2>/dev/null; then
+    if ssh_guest 'sudo /usr/local/bin/luks-tpm-verify' 2>/dev/null; then
+      SLOTS="$(ssh_guest "LUKS_DEV=\$(lsblk -ln -o NAME,FSTYPE | grep crypto_LUKS | awk '{print \"/dev/\" \$1}' | head -1); sudo cryptsetup luksDump \"\${LUKS_DEV}\" | grep -cE '^[[:space:]]+[0-9]+: luks2'" 2>/dev/null || echo "?")"
+      if [[ "${SLOTS}" == "1" ]]; then
+        report "host-volumes-luks2-tpm-sealed" "PASS" "TPM-bound, unsealable now, passphrase slot removed (1 active key slot)"
+      else
+        report "host-volumes-luks2-tpm-sealed" "FAIL" "expected exactly 1 key slot (TPM-only) after bind, got: ${SLOTS}"
+      fi
+    else
+      report "host-volumes-luks2-tpm-sealed" "FAIL" "luks-tpm-verify reported an unsealable or missing TPM binding"
+    fi
+  else
+    report "host-volumes-luks2-tpm-sealed" "FAIL" "/root/.luks-tpm-firstboot-done missing — first-boot binding never completed"
+  fi
+fi
+stop_vm
+
+echo "=== Scenario: an encrypted volume cannot be read off the node ==="
+TPM_B="${WORKDIR}/tpm-b"
+mkdir -p "${TPM_B}"
+STATE="$(boot_and_wait "${TPM_B}")"
+if [[ "${STATE}" == "timeout" ]]; then
+  report "moved-to-different-tpm-fails" "PASS" "boot against a different TPM did not unlock within ${BOOT_TIMEOUT}s, as expected"
+else
+  report "moved-to-different-tpm-fails" "FAIL" "boot against a different TPM unexpectedly reached SSH — the LUKS key is not actually TPM-bound"
+fi
+
+echo "=== Scenario: encryption survives node replacement (fresh boot, same TPM, still unlocks) ==="
+STATE="$(boot_and_wait "${TPM_A}")"
+if [[ "${STATE}" == "up" ]]; then
+  report "replacement-node-fresh-seal" "PASS" "a later boot against the original TPM still auto-unlocks (stand-in for a replacement node sealing its own key)"
+else
+  report "replacement-node-fresh-seal" "FAIL" "a later boot against the original TPM failed to auto-unlock within ${BOOT_TIMEOUT}s"
+fi
+
+echo
+echo "=== Summary ==="
+FAILED=0
+for r in "${RESULTS[@]}"; do
+  echo "${r}"
+  [[ "${r}" == FAIL:* ]] && FAILED=1
+done
+
+exit "${FAILED}"
