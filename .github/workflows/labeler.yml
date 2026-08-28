@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Applies component/* labels from the changed paths. Rules in labeler.yml.
+# Applies area/* labels from the changed paths. Rules in labeler.yml.
 #
 # Advisory. Not a merge-gate member.
 
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
         with:
           pr-number: ${{ steps.pick.outputs.numbers }}
-          # The component axis is derived from paths, so let the action own it.
+          # The area axis is derived from paths, so let the action own it.
           # It only removes labels this config defines, leaving needs-rebase,
           # dependencies and the type labels alone.
           sync-labels: true

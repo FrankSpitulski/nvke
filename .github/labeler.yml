@@ -7,7 +7,7 @@
 # `any-glob-to-any-file` a negation is satisfied by any file outside the
 # excluded path, so the label would fire on nearly every pull request.
 
-component/controller:
+area/controller:
   - changed-files:
       - all-globs-to-any-file:
           - "controller/**"
@@ -17,29 +17,29 @@ component/controller:
       - any-glob-to-any-file:
           - "cluster-api-provider-provisioned/**"
 
-component/agent:
+area/agent:
   - changed-files:
       - any-glob-to-any-file:
           - "agent/**"
 
-component/cli:
+area/cli:
   - changed-files:
       - any-glob-to-any-file:
           - "cli/**"
 
-component/chart:
+area/chart:
   - changed-files:
       - any-glob-to-any-file:
           - "controller/deploy/**"
           - "controller/hack/chart-*-assertions.*"
 
-component/os-image:
+area/os-image:
   - changed-files:
       - any-glob-to-any-file:
           - "os-image/**"
           - "node-images/**"
 
-component/ci-build:
+area/ci-build:
   - changed-files:
       - any-glob-to-any-file:
           - ".github/**"
@@ -52,7 +52,7 @@ component/ci-build:
           - "*.toml"
           - "*.yaml"
 
-component/docs:
+area/docs:
   # Root prose only: "*.md" does not cross a "/", so a module README stays with
   # its module. Matching "**/*.md" adds 47 rider firings and routes nothing new.
   - changed-files:
@@ -66,7 +66,7 @@ component/docs:
           - "**/docs/**"
           - "!vendor/**"
 
-component/deps:
+area/deps:
   - changed-files:
       - any-glob-to-any-file:
           - "vendor/**"
@@ -76,7 +76,7 @@ component/deps:
           - "**/go.sum"
           - ".github/dependabot.yml"
 
-component/generated:
+area/generated:
   - changed-files:
       - any-glob-to-any-file:
           - "generated/**"
