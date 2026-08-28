@@ -1,0 +1,118 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Labels open pull requests that no longer merge cleanly into `main`.
+#
+# Advisory, not a gate: git already refuses a conflicted merge. This just says
+# so earlier.
+
+name: PR Merge Conflict Check
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+  # Covers a head push or base retarget, which no push trigger sees for a fork
+  # author with no mirror branch. Safe only because this workflow has no
+  # checkout and runs no pull request code. Do not add a checkout.
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  conflicts:
+    name: Check open PRs for conflicts
+    if: github.repository == 'NVIDIA/nke'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    timeout-minutes: 10
+    steps:
+      - name: Label pull requests that need a rebase
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            // Label exists already; recreate as #e11d21 if it is ever deleted,
+            // since addLabels would otherwise invent a colour.
+            const LABEL = 'needs-rebase';
+            const ATTEMPTS = 4;
+            const DELAY_MS = 5000;
+
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+            // GitHub computes `mergeable` lazily and a push to `main` clears it,
+            // so the first read usually returns null and also starts the job.
+            async function mergeableState(number) {
+              for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
+                const { data } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
+                if (data.mergeable !== null) {
+                  return data;
+                }
+                if (attempt < ATTEMPTS) {
+                  await sleep(DELAY_MS);
+                }
+              }
+              return null;
+            }
+
+            const mirrored = context.ref.match(/^refs\/heads\/pull-request\/([0-9]+)$/);
+            const single = context.payload.pull_request?.number
+              ?? (mirrored ? Number(mirrored[1]) : null);
+            const open = single !== null
+              ? [{ number: single }]
+              : await github.paginate(github.rest.pulls.list, {
+                  ...context.repo,
+                  state: 'open',
+                  per_page: 100,
+                });
+
+            let labelled = 0;
+            let cleared = 0;
+            let undetermined = 0;
+
+            for (const pr of open) {
+              const full = await mergeableState(pr.number);
+
+              // Unknown state: acting would raise a false alarm or clear a true one.
+              if (full === null) {
+                undetermined += 1;
+                core.info(`#${pr.number}: mergeable still null, left unchanged`);
+                continue;
+              }
+
+              const hasLabel = full.labels.some((l) => l.name === LABEL);
+
+              if (full.mergeable === false && !hasLabel) {
+                await github.rest.issues.addLabels({
+                  ...context.repo,
+                  issue_number: pr.number,
+                  labels: [LABEL],
+                });
+                labelled += 1;
+              } else if (full.mergeable === true && hasLabel) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    ...context.repo,
+                    issue_number: pr.number,
+                    name: LABEL,
+                  });
+                  cleared += 1;
+                } catch (error) {
+                  // 404 means someone removed it by hand first.
+                  if (error.status !== 404) {
+                    throw error;
+                  }
+                }
+              }
+            }
+
+            core.info(`${open.length} checked: ${labelled} labelled, ${cleared} cleared, ${undetermined} undetermined`);
