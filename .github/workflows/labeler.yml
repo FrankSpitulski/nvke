@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Applies component/* labels from the changed paths. Rules in labeler.yml.
+#
+# Advisory. Not a merge-gate member.
+
+name: Labeler
+
+on:
+  # Runs against the base repository, so a fork pull request is labelled too.
+  # Safe because nothing here checks out or runs pull request code.
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+  # Manual run. Give one or more pull request numbers, or leave blank to
+  # relabel every open pull request.
+  workflow_dispatch:
+    inputs:
+      pr-numbers:
+        description: "Pull request numbers, whitespace separated. Blank means all open."
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  label:
+    name: Apply component labels
+    if: github.repository == 'NVIDIA/nke'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      # v7 applies labels with issues.setLabels, which needs this to create a
+      # label that does not exist yet.
+      issues: write
+    timeout-minutes: 5
+    steps:
+      - name: Choose the pull requests to label
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ inputs.pr-numbers }}
+        run: |
+          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+            numbers="${{ github.event.pull_request.number }}"
+          elif [[ -n "${REQUESTED}" ]]; then
+            numbers="${REQUESTED}"
+          else
+            numbers="$(gh pr list --repo "${{ github.repository }}" \
+              --state open --limit 200 --json number --jq '.[].number')"
+          fi
+          # One number per line, whichever way they arrived.
+          {
+            echo "numbers<<EOF"
+            printf '%s' "${numbers}" | tr -s ' \t\n' '\n' | sed '/^$/d'
+            echo ""
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
+        with:
+          pr-number: ${{ steps.pick.outputs.numbers }}
+          # The component axis is derived from paths, so let the action own it.
+          # It only removes labels this config defines, leaving needs-rebase,
+          # dependencies and the type labels alone.
+          sync-labels: true

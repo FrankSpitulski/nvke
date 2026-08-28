@@ -1,0 +1,82 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Path rules for actions/labeler, consumed by workflows/labeler.yml.
+#
+# `all-globs-to-any-file` where a negation appears. Inside
+# `any-glob-to-any-file` a negation is satisfied by any file outside the
+# excluded path, so the label would fire on nearly every pull request.
+
+component/controller:
+  - changed-files:
+      - all-globs-to-any-file:
+          - "controller/**"
+          - "!controller/deploy/**"
+          - "!controller/docs/**"
+          - "!controller/hack/chart-*-assertions.*"
+      - any-glob-to-any-file:
+          - "cluster-api-provider-provisioned/**"
+
+component/agent:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "agent/**"
+
+component/cli:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "cli/**"
+
+component/chart:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "controller/deploy/**"
+          - "controller/hack/chart-*-assertions.*"
+
+component/os-image:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "os-image/**"
+          - "node-images/**"
+
+component/ci-build:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "Makefile"
+          - "make/**"
+          - "hack/**"
+          - "build/**"
+          - ".flox/**"
+          - ".*"
+          - "*.toml"
+          - "*.yaml"
+
+component/docs:
+  # Root prose only: "*.md" does not cross a "/", so a module README stays with
+  # its module. Matching "**/*.md" adds 47 rider firings and routes nothing new.
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "fern/**"
+          - "*.md"
+          - "LICENSE"
+          - "NOTICE"
+      - all-globs-to-any-file:
+          - "**/docs/**"
+          - "!vendor/**"
+
+component/deps:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "vendor/**"
+          - "go.work"
+          - "go.work.sum"
+          - "**/go.mod"
+          - "**/go.sum"
+          - ".github/dependabot.yml"
+
+component/generated:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "generated/**"
