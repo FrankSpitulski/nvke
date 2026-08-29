@@ -86,6 +86,11 @@ on:
       - 'controller/hack/capd-kindest-node/**'
       - '.github/workflows/nkectl-bootstrap-e2e.yml'
   workflow_call:
+  # Also twice a day, so a break the paths above filtered out, or one a flake
+  # hid, still surfaces within twelve hours. A schedule ignores those paths, so
+  # these runs always exercise the whole suite.
+  schedule:
+    - cron: '0 3,15 * * *'
   workflow_dispatch: {}
 
 permissions: {}

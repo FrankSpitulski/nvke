@@ -27,6 +27,11 @@ on:
       # body does not run it.
       - .github/workflows/capd-e2e.yml
       - .github/workflows/backend-e2e.yml
+  # Also twice a day, so a break the paths above filtered out, or one a flake
+  # hid, still surfaces within twelve hours. A schedule ignores those paths, so
+  # these runs always exercise the whole suite.
+  schedule:
+    - cron: '0 2,14 * * *'
   workflow_dispatch:
 
 permissions: {}

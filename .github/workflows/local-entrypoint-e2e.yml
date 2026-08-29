@@ -28,6 +28,11 @@ on:
       - controller/hack/local-backend-e2e.sh
       - controller/hack/backend-e2e-lib.sh
       - .github/workflows/local-entrypoint-e2e.yml
+  # Also twice a day, so a break the paths above filtered out, or one a flake
+  # hid, still surfaces within twelve hours. A schedule ignores those paths, so
+  # these runs always exercise the whole suite.
+  schedule:
+    - cron: '15 3,15 * * *'
   workflow_dispatch: {}
 
 permissions: {}
