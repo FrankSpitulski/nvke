@@ -96,6 +96,8 @@ kubeReserved:
   cpu: 100m
   ephemeral-storage: 256Mi
   memory: 256Mi
+maxParallelImagePulls: 4
+serializeImagePulls: false
 serverTLSBootstrap: true
 systemReserved:
   memory: 256Mi

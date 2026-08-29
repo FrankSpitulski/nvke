@@ -9,6 +9,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/nke/controller/internal/constants"
@@ -54,7 +55,11 @@ const (
 const (
 	const256Mi = "256Mi"
 	memoryKey  = "memory"
-	rootRoot   = "root:root"
+
+	// Kept modest: parallel pulls share the node's disk and network, and past
+	// four the contention costs more than the queueing it removes.
+	defaultMaxParallelImagePulls = 4
+	rootRoot                     = "root:root"
 )
 
 func renderYAMLDocuments(documents ...any) ([]byte, error) {
@@ -106,6 +111,11 @@ func initKubeletConfiguration(containerMode bool) kubeletconfigv1beta1.KubeletCo
 			Kind:       kubeletconfigv1beta1.KubeletConfigurationKind,
 		},
 		ServerTLSBootstrap: true,
+		// kubelet pulls one image at a time by default, so a node bringing up
+		// several workloads queues them and the last one can miss its readiness
+		// deadline.
+		SerializeImagePulls:   ptr.To(false),
+		MaxParallelImagePulls: ptr.To[int32](defaultMaxParallelImagePulls),
 		KubeReserved: map[string]string{
 			"cpu":               "1000m",
 			memoryKey:           defaultKubeReservedMemory,
@@ -144,7 +154,9 @@ func joinKubeletConfiguration() kubeletconfigv1beta1.KubeletConfiguration {
 			APIVersion: kubeletconfigv1beta1.APIVersion,
 			Kind:       kubeletconfigv1beta1.KubeletConfigurationKind,
 		},
-		ServerTLSBootstrap: true,
+		ServerTLSBootstrap:    true,
+		SerializeImagePulls:   ptr.To(false),
+		MaxParallelImagePulls: ptr.To[int32](defaultMaxParallelImagePulls),
 	}
 }
 

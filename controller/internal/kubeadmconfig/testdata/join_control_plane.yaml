@@ -28,4 +28,6 @@ metricsBindAddress: 0.0.0.0:10249
 ---
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
+maxParallelImagePulls: 4
+serializeImagePulls: false
 serverTLSBootstrap: true
