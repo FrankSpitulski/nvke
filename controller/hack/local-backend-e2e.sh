@@ -174,7 +174,9 @@ export KUBECONFIG="${host_kubeconfig}"
 management_ready=true
 
 log "building the CAPD bundle from public sources"
-bundle_dir="${state_dir}/bundles"
+# Not under state_dir: that directory is what CI uploads on failure, and these
+# tarballs are 22 MB of the 31 MB it collected, all of it re-downloadable.
+bundle_dir="${tmp_dir}/bundles"
 rm -rf "${bundle_dir}"
 BUNDLE_ARCH="${host_arch}" bash "${repo_root}/hack/ci/prepare-capd-bundles.sh" "${bundle_dir}"
 
@@ -264,11 +266,17 @@ docker cp "${e2e_config}" "${runner_name}:/state/e2e-config.json"
 
 # Run one Ginkgo leg against the already-deployed CWE. suffix keeps each leg's
 # log and JUnit report distinct (empty for a single-mode run).
+# Tilt builds CWE with `make build`, which bakes BUILD_VERSION in, so ask the
+# Makefile for the same value rather than deriving it again here. Without it the
+# health suite's version spec skips itself and the leg still reports success.
+cwe_expected_version="$(make -C "${repo_root}" -s --no-print-directory print-BUILD_VERSION)"
+
 # Exec adapter for the shared leg runner: locally the suite runs in a container
 # on the Kind network, reached with `docker exec`.
 local_e2e_exec() {
   local cp_flag="$1"; shift
   docker exec \
+    -e "CWE_EXPECTED_VERSION=${cwe_expected_version}" \
     -e "PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=${cp_flag}" \
     "${runner_name}" "$@"
 }

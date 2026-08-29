@@ -107,6 +107,12 @@ generate-check: generate-api ## Verify generated API code is up to date. (run by
 
 RELEASE_LDFLAGS ?= -s -w -buildid= -extldflags -static
 
+# Read one variable, so a caller that needs the same value this Makefile computes
+# does not recompute it. `make print-BUILD_VERSION` is the one the E2E uses.
+.PHONY: print-%
+print-%:
+	@echo '$($*)'
+
 .PHONY: build
 # -buildvcs=false because the version comes from the -X ldflag below. See the note
 # on work-check-offline in the root Makefile.

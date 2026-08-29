@@ -121,7 +121,39 @@ e2e_run_ginkgo_leg() {
     2>&1 | tee "${state_dir}/e2e${suffix}.log"
   local rc=${PIPESTATUS[0]}
   set -e
+
+  if ((rc == 0)); then
+    e2e_assert_no_new_skips "${log_fn}" "${state_dir}/e2e${suffix}.log" || rc=1
+  fi
   return "${rc}"
+}
+
+# Specs that call Skip() at run time for a reason we accept. Keyed by file, so
+# editing a spec does not churn this list, and adding or deleting specs never
+# touches it: a label-filter exclusion prints nothing, only a spec that started
+# and skipped does.
+E2E_EXPECTED_RUNTIME_SKIPS=(
+  pod_cidr_test.go # multi-CIDR rollover, encoded only by the nico-vms specs
+  oidc_test.go     # OIDC is off in the deployments this runs against
+)
+
+# Fails a leg on any runtime skip not listed above. Ginkgo reports these only
+# inside a "127 Skipped" total that is 126 label-filter exclusions, so a spec
+# that quietly stops running is indistinguishable from one that was never
+# selected.
+e2e_assert_no_new_skips() {
+  local log_fn="$1" log_file="$2" file unexpected=()
+  while read -r file; do
+    [[ -n "${file}" ]] || continue
+    # shellcheck disable=SC2076  # literal match is what we want here
+    [[ " ${E2E_EXPECTED_RUNTIME_SKIPS[*]} " =~ " ${file} " ]] || unexpected+=("${file}")
+  done < <(grep -oE '\[SKIPPED\] in \[It\] - [^ ]+' "${log_file}" |
+    sed -E 's#.*/##; s#:[0-9]+$##' | sort -u)
+
+  if ((${#unexpected[@]} > 0)); then
+    "${log_fn}" "specs skipped at run time that were expected to run: ${unexpected[*]}" >&2
+    return 1
+  fi
 }
 
 # Between the two CAPD legs the first leg's delete spec should have removed every
