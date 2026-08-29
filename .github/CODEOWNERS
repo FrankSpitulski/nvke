@@ -4,42 +4,42 @@
 # Every rule keeps @NVIDIA/nke-write, so any team member can still approve and no
 # rule here blocks a pull request. Remove the team from a line to make it a gate.
 #
-# Sections mirror the components in .github/labeler.yml. Order matters: labeler
-# gives a file every component it matches, CODEOWNERS gives it one owner set and
-# has no `!`, so chart, docs and the second deps block win by coming later.
+# Sections mirror the areas in .github/labeler.yml. Order matters: labeler gives
+# a file every area it matches, CODEOWNERS gives it one owner set and has no `!`,
+# so chart, docs and the second deps block win by coming later.
 
 # Default owner
 * @NVIDIA/nke-write
 
-# component/deps
+# area/deps
 # First, so a module rule wins for its own go.mod. vendor/ repeats at the end.
 go.mod @NVIDIA/nke-write @TerryHowe @rbever-nvidia
 go.sum @NVIDIA/nke-write @TerryHowe @rbever-nvidia
 /go.work @NVIDIA/nke-write @TerryHowe @rbever-nvidia
 /go.work.sum @NVIDIA/nke-write @TerryHowe @rbever-nvidia
 
-# component/controller — Cloud Workflow Engine
+# area/controller — Cloud Workflow Engine
 /controller/ @NVIDIA/nke-write @TerryHowe @vwilson-nvidia @rbever-nvidia @danbudris
 /cluster-api-provider-provisioned/ @NVIDIA/nke-write @jonathanmeier5 @rbever-nvidia @TerryHowe
 
-# component/agent — renamed from node-agent in #36
+# area/agent — renamed from node-agent in #36
 /agent/ @NVIDIA/nke-write @TerryHowe @j-griffith @chaochn47
 
-# component/cli
+# area/cli
 /cli/ @NVIDIA/nke-write @lia-campbell @jonathanmeier5 @TerryHowe
 
-# component/os-image
+# area/os-image
 /os-image/ @NVIDIA/nke-write @j-griffith @jdubs @pdmack
 /node-images/ @NVIDIA/nke-write @j-griffith @jdubs @pdmack
 
-# component/generated — vendored AICR charts
+# area/generated — vendored AICR charts
 /generated/ @NVIDIA/nke-write @nhammernik @TerryHowe
 
-# component/chart
+# area/chart
 /controller/deploy/ @NVIDIA/nke-write @TerryHowe @vwilson-nvidia @danbudris @rbever-nvidia
 /controller/hack/chart-*-assertions.* @NVIDIA/nke-write @TerryHowe @vwilson-nvidia @danbudris @rbever-nvidia
 
-# component/docs
+# area/docs
 # `docs/` has no leading slash, so it matches any depth, like labeler's
 # `**/docs/**`. `/*.md` does not cross a `/`, so a module README stays put.
 docs/ @NVIDIA/nke-write @TerryHowe @j-griffith @danbudris
@@ -49,7 +49,7 @@ docs/ @NVIDIA/nke-write @TerryHowe @j-griffith @danbudris
 /LICENSE @NVIDIA/nke-write @TerryHowe @j-griffith @danbudris
 /NOTICE @NVIDIA/nke-write @TerryHowe @j-griffith @danbudris
 
-# component/ci-build
+# area/ci-build
 /.github/ @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
 /Makefile @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
 /make/ @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
@@ -60,10 +60,10 @@ docs/ @NVIDIA/nke-write @TerryHowe @j-griffith @danbudris
 /*.toml @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
 /*.yaml @NVIDIA/nke-write @TerryHowe @j-griffith @junshun
 
-# component/deps again: vendor/ beats the bare `docs/` rule, dependabot.yml
+# area/deps again: vendor/ beats the bare `docs/` rule, dependabot.yml
 # beats /.github/.
 /vendor/ @NVIDIA/nke-write @TerryHowe @rbever-nvidia
 /.github/dependabot.yml @NVIDIA/nke-write @TerryHowe @rbever-nvidia
 
 # SECURITY.md, GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md and LICENSE are
-# component/docs, covered by `/*.md` and `/LICENSE` above.
+# area/docs, covered by `/*.md` and `/LICENSE` above.
