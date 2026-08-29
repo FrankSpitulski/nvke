@@ -44,6 +44,9 @@ spire-agent.outputs = "all"
 clusterctl.pkg-path = "clusterctl"
 ko.pkg-path = "ko"
 tilt.pkg-path = "tilt"
+# hack/ci/prepare-capd-bundles.sh packs the Calico manifests with dpkg-deb.
+# Linux hosts ship it; macOS does not.
+dpkg.pkg-path = "dpkg"
 
 # The tools CI installs inline today. Both install blocks are Linux only:
 # actionlint.yml:77 downloads a linux_amd64 tarball, and shellcheck.yml's

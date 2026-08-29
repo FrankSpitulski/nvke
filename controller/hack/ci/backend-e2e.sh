@@ -6,6 +6,8 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTROLLER_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# shellcheck source=controller/hack/backend-e2e-lib.sh
+source "${CONTROLLER_ROOT}/hack/backend-e2e-lib.sh"
 WORKSPACE_ROOT="$(cd "${CONTROLLER_ROOT}/.." && pwd)"
 cd "${CONTROLLER_ROOT}"
 
@@ -221,43 +223,25 @@ stop_state_monitor() {
 # suffix keeps each leg's e2e log and JUnit report distinct (empty for the
 # single-mode run, so its artifact names are unchanged). Returns the suite's
 # exit code rather than aborting, so the caller decides what a failure means.
-run_ginkgo_leg() {
-  local label_filter="$1"
-  local cp_flag="$2"
-  local suffix="$3"
-  local e2e_log="${STATE_DIR}/e2e${suffix}.log"
-  local junit_report="/state/junit${suffix}.xml"
-  local -a focus_args=()
-
-  if [[ -n "${NKE_E2E_FOCUS}" ]]; then
-    focus_args+=("-ginkgo.focus=${NKE_E2E_FOCUS}")
-    log "running CAPD E2E scenarios matching label ${label_filter} and focus ${NKE_E2E_FOCUS}"
-  else
-    log "running CAPD E2E scenarios matching label ${label_filter}"
-  fi
-
-  set +e
-  # CWE_EXPECTED_VERSION turns the third health spec from a self-skip into a real
-  # assertion: the deployed CWE reports the version baked into the image this run
-  # built, so a stale image being tested fails here rather than passing quietly.
-  runner_exec env "CWE_EXPECTED_VERSION=${CWE_BUILD_VERSION}" \
+# Exec adapter for the shared leg runner: CI runs the suite inside its runner
+# container, with two env vars the local path has no equivalent for.
+# CWE_EXPECTED_VERSION turns the third health spec from a self-skip into a real
+# assertion, so a stale image fails here rather than passing quietly.
+ci_e2e_exec() {
+  local cp_flag="$1"; shift
+  runner_exec env \
+    "CWE_EXPECTED_VERSION=${CWE_BUILD_VERSION}" \
     "CWE_PROFILES_DIR=${NKE_E2E_PROFILES_DIR}" \
     "PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=${cp_flag}" \
-    /state/cwe-e2e.test \
-    -test.v \
-    -test.timeout=105m \
-    -e2e.config=/state/e2e-config.json \
-    -ginkgo.v \
-    -ginkgo.no-color \
-    -ginkgo.fail-on-empty \
-    -ginkgo.timeout=100m \
-    "-ginkgo.label-filter=${label_filter}" \
-    "${focus_args[@]}" \
-    "-ginkgo.junit-report=${junit_report}" \
-    2>&1 | tee "${e2e_log}"
-  local rc=${PIPESTATUS[0]}
-  set -e
-  return "${rc}"
+    "$@"
+}
+
+run_ginkgo_leg() {
+  local label_filter="$1" cp_flag="$2" suffix="$3"
+  local -a extra=()
+  [[ -n "${NKE_E2E_FOCUS}" ]] && extra+=("-ginkgo.focus=${NKE_E2E_FOCUS}")
+  e2e_run_ginkgo_leg ci_e2e_exec log "${STATE_DIR}" \
+    "${label_filter}" "${cp_flag}" "${suffix}" -- "${extra[@]}"
 }
 
 # Cleanup gate between the two sequential legs: the cp-controller leg's delete
@@ -268,24 +252,13 @@ run_ginkgo_leg() {
 # /api/clusters probe. Every tenant owns a cluster.cluster.x-k8s.io object CWE
 # deletes on teardown, so zero of them is a faithful, auth-free "cluster is clean"
 # signal (no DB access needed).
+ci_kubectl() { runner_exec kubectl "$@"; }
+
 wait_for_zero_tenant_clusters() {
-  local deadline=$((SECONDS + 300))
-  local list count
-  while true; do
-    if list="$(runner_exec kubectl get clusters.cluster.x-k8s.io -A --no-headers 2>/dev/null)"; then
-      count="$(printf '%s' "${list}" | grep -c . || true)"
-      if [[ "${count}" == "0" ]]; then
-        log "cleanup gate: no tenant clusters remain"
-        return 0
-      fi
-    fi
-    if ((SECONDS >= deadline)); then
-      log "cleanup gate: ${count:-unknown} tenant cluster(s) still present after 5m; refusing the node-pool leg" >&2
-      runner_exec kubectl get clusters.cluster.x-k8s.io -A >&2 2>/dev/null || true
-      return 1
-    fi
-    sleep 10
-  done
+  e2e_wait_for_zero_tenant_clusters ci_kubectl log && return 0
+  log "refusing the node-pool leg" >&2
+  runner_exec kubectl get clusters.cluster.x-k8s.io -A >&2 2>/dev/null || true
+  return 1
 }
 
 # Flip the deployment-wide control-plane-controller flag via a light redeploy
@@ -637,12 +610,13 @@ if [[ "${e2e_built}" != true ]]; then
 fi
 
 log "building CAPD node image with agent source ${NODE_AGENT_VERSION}"
+log "SPIRE node attestation: $(e2e_attestation_method)"
 CAPD_NODE_AGENT_LOCAL_BUILD=true \
 NODE_AGENT_VERSION="${NODE_AGENT_VERSION}" \
 NODE_AGENT_REPO_PATH="${WORKSPACE_ROOT}/agent" \
 SPIRE_AGENT_BUNDLE_PATH="${BUNDLE_DIR}/spire-agent.tgz" \
 CAPD_CNI_MANIFESTS_DEB_PATH="${CALICO_MANIFESTS_DEB}" \
-CAPD_SPIRE_ATTESTATION_METHOD=joinToken \
+CAPD_SPIRE_ATTESTATION_METHOD="$(e2e_attestation_method)" \
 BUNDLE_SERVER_URL="http://${BUNDLE_MIRROR_NAME}/" \
 INDEX_FILE_URL="http://${BUNDLE_MIRROR_NAME}/index.json" \
 CAPD_KINDEST_NODE_IMAGE="${CAPD_NODE_IMAGE}" \
@@ -766,17 +740,16 @@ runner_exec kubectl rollout status deployment/capd-controller-manager -n capd-sy
 log "injecting SPIRE exec-auth plugin into CAPI/CAPD controllers"
 runner_exec bash /workspace/cloud-workflow-engine/hack/apply-capi-spiffe-exec-auth.sh
 
-management_vip="$(docker inspect \
-  --format '{{(index .NetworkSettings.Networks "kind").IPAddress}}' \
-  "${KIND_CLUSTER_NAME}-control-plane")"
-if [[ -z "${management_vip}" ]]; then
+if ! management_vip="$(e2e_management_vip "${KIND_CLUSTER_NAME}")"; then
   log "Kind control-plane IP was not found"
   exit 1
 fi
 # The provider list is the main thing that varies by backend. The default is
 # the CAPD set this script has always used; nico-e2e.yml passes the NICo one.
 # capi_core is not optional: the Tiltfile refuses a list without it.
-: "${NKE_E2E_PROVIDERS:=[\"capi_core\", \"bgp-containers\", \"capd\", \"capd-reboot-controller\"]}"
+# Default from the shared library so the two entrypoints cannot disagree about
+# which providers a CAPD run needs. The workflow may still override it.
+: "${NKE_E2E_PROVIDERS:=${E2E_CAPD_PROVIDERS}}"
 
 # Where the suite reads the OS profile index it builds the nico-vms matrix
 # from. This has to be a path on the inner runner. The suite is compiled on the
@@ -795,17 +768,8 @@ if ! jq -e 'type == "array" and length > 0' <<<"${NKE_E2E_PROVIDERS}" >/dev/null
   exit 1
 fi
 
-jq -n \
-  --arg cwe_image "${CWE_IMAGE}" \
-  --arg site_controller_vip "${management_vip}" \
-  --arg bgp_container_name "${BGP_CONTAINER_NAME}" \
-  --argjson providers "${NKE_E2E_PROVIDERS}" \
-  '{
-    providers: $providers,
-    cwe_image: $cwe_image,
-    site_controller_vip: $site_controller_vip,
-    bgp_containers_container_name: $bgp_container_name
-  }' >"${TMP_DIR}/tilt_config.json"
+e2e_write_tilt_config "${TMP_DIR}/tilt_config.json" \
+  "${NKE_E2E_PROVIDERS}" "${CWE_IMAGE}" "${management_vip}" "${BGP_CONTAINER_NAME}"
 docker cp "${TMP_DIR}/tilt_config.json" \
   "${RUNNER_NAME}:/workspace/cloud-workflow-engine/tilt_config.json"
 jq -n \
@@ -901,7 +865,7 @@ if [[ "${SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES}" == "true" ]]; then
   # version endpoints are probed against a flag-on deployment too.
   start_state_monitor
   leg_rc=0
-  run_ginkgo_leg "(capd && cp-controller) || health" "true" "-cp-controller" || leg_rc=$?
+  run_ginkgo_leg "${E2E_CAPD_CP_CONTROLLER_FILTER}" "true" "-cp-controller" || leg_rc=$?
   if ((leg_rc != 0)); then
     stop_state_monitor
     log "cp-controller leg failed with exit code ${leg_rc}; not running the node-pool leg" >&2
@@ -918,7 +882,7 @@ if [[ "${SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES}" == "true" ]]; then
   # ride along here -- both need a deployed, enforcing NKE, which this leg has;
   # authn-spire is excluded (needs SPIRE pod attestation not yet wired in CAPD).
   leg_rc=0
-  run_ginkgo_leg "((capd || health) && !cp-controller) || (authn && !authn-spire) || authn-permissive" "false" "-nodepool" || leg_rc=$?
+  run_ginkgo_leg "${E2E_CAPD_NODE_POOL_FILTER}" "false" "-nodepool" || leg_rc=$?
   stop_state_monitor
   if ((leg_rc != 0)); then
     log "node-pool leg failed with exit code ${leg_rc}" >&2

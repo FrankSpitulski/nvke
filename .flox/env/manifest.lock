@@ -9,6 +9,9 @@
       "clusterctl": {
         "pkg-path": "clusterctl"
       },
+      "dpkg": {
+        "pkg-path": "dpkg"
+      },
       "gnumake": {
         "pkg-path": "gnumake",
         "outputs": "all"
@@ -263,6 +266,93 @@
       },
       "system": "x86_64-linux",
       "group": "golangci-lint",
+      "priority": 5
+    },
+    {
+      "attr_path": "kubernetes-helm",
+      "broken": false,
+      "derivation": "/nix/store/rb6l5ni3cyw10sw84jd2hyd93gj8nkmv-kubernetes-helm-4.2.4.drv",
+      "description": "Package manager for kubernetes",
+      "install_id": "kubernetes-helm",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=56c02bc00adcf003215cc4bd996d6efaf4cff188",
+      "name": "kubernetes-helm-4.2.4",
+      "pname": "kubernetes-helm",
+      "rev": "56c02bc00adcf003215cc4bd996d6efaf4cff188",
+      "rev_count": 1060451,
+      "rev_date": "2026-08-23T15:22:48Z",
+      "scrape_date": "2026-08-25T04:56:54.495675Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "4.2.4",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/zzbd5kzhdq4xh99ykhmsk9gdr3sgsdv4-kubernetes-helm-4.2.4"
+      },
+      "system": "aarch64-darwin",
+      "group": "helm",
+      "priority": 5
+    },
+    {
+      "attr_path": "kubernetes-helm",
+      "broken": false,
+      "derivation": "/nix/store/mkw3nmd3dljdkaan9xxkk4jn2a3j3x1v-kubernetes-helm-4.2.4.drv",
+      "description": "Package manager for kubernetes",
+      "install_id": "kubernetes-helm",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=56c02bc00adcf003215cc4bd996d6efaf4cff188",
+      "name": "kubernetes-helm-4.2.4",
+      "pname": "kubernetes-helm",
+      "rev": "56c02bc00adcf003215cc4bd996d6efaf4cff188",
+      "rev_count": 1060451,
+      "rev_date": "2026-08-23T15:22:48Z",
+      "scrape_date": "2026-08-25T05:27:45.934146Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "4.2.4",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/m15s22fr1c74qc24bqsi14zmvmh3wa02-kubernetes-helm-4.2.4"
+      },
+      "system": "aarch64-linux",
+      "group": "helm",
+      "priority": 5
+    },
+    {
+      "attr_path": "kubernetes-helm",
+      "broken": false,
+      "derivation": "/nix/store/hpcpsg8n782wvim276zgfr6x2f253jda-kubernetes-helm-4.2.4.drv",
+      "description": "Package manager for kubernetes",
+      "install_id": "kubernetes-helm",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=56c02bc00adcf003215cc4bd996d6efaf4cff188",
+      "name": "kubernetes-helm-4.2.4",
+      "pname": "kubernetes-helm",
+      "rev": "56c02bc00adcf003215cc4bd996d6efaf4cff188",
+      "rev_count": 1060451,
+      "rev_date": "2026-08-23T15:22:48Z",
+      "scrape_date": "2026-08-25T06:01:01.138181Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "4.2.4",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/g48g9scy4mz49kwjsy0fb9kkbspvkcfi-kubernetes-helm-4.2.4"
+      },
+      "system": "x86_64-linux",
+      "group": "helm",
       "priority": 5
     },
     {
@@ -884,6 +974,93 @@
       "priority": 5
     },
     {
+      "attr_path": "dpkg",
+      "broken": false,
+      "derivation": "/nix/store/rw7mdbyw6bwh3v7p6d7i6ascgbhr9zxd-dpkg-1.23.7.drv",
+      "description": "Debian package manager",
+      "install_id": "dpkg",
+      "license": "GPL-2.0-or-later",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=56c02bc00adcf003215cc4bd996d6efaf4cff188",
+      "name": "dpkg-1.23.7",
+      "pname": "dpkg",
+      "rev": "56c02bc00adcf003215cc4bd996d6efaf4cff188",
+      "rev_count": 1060451,
+      "rev_date": "2026-08-23T15:22:48Z",
+      "scrape_date": "2026-08-25T04:56:37.216530Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.23.7",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/6r0ivf0hsm8lmcs0cf38m2xsp9hb45jk-dpkg-1.23.7"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "dpkg",
+      "broken": false,
+      "derivation": "/nix/store/ikkfq7ilzp41frs98v7f39ma64f21mci-dpkg-1.23.7.drv",
+      "description": "Debian package manager",
+      "install_id": "dpkg",
+      "license": "GPL-2.0-or-later",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=56c02bc00adcf003215cc4bd996d6efaf4cff188",
+      "name": "dpkg-1.23.7",
+      "pname": "dpkg",
+      "rev": "56c02bc00adcf003215cc4bd996d6efaf4cff188",
+      "rev_count": 1060451,
+      "rev_date": "2026-08-23T15:22:48Z",
+      "scrape_date": "2026-08-25T05:27:22.518226Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.23.7",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/r4yiy3m8hbblpw13wf5cwiynir715hfv-dpkg-1.23.7"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "dpkg",
+      "broken": false,
+      "derivation": "/nix/store/46sa6ch2087ll5q0idajwk481fq44xpy-dpkg-1.23.7.drv",
+      "description": "Debian package manager",
+      "install_id": "dpkg",
+      "license": "GPL-2.0-or-later",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=56c02bc00adcf003215cc4bd996d6efaf4cff188",
+      "name": "dpkg-1.23.7",
+      "pname": "dpkg",
+      "rev": "56c02bc00adcf003215cc4bd996d6efaf4cff188",
+      "rev_count": 1060451,
+      "rev_date": "2026-08-23T15:22:48Z",
+      "scrape_date": "2026-08-25T06:00:36.787980Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.23.7",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/71ba94v6n0ppv18mdz72skhxz2wj6fzk-dpkg-1.23.7"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
       "attr_path": "gnumake",
       "broken": false,
       "derivation": "/nix/store/55qqm9diqp1l8z6v5pxwwfks9bp6ldl1-gnumake-4.4.1.drv",
@@ -1005,6 +1182,7 @@
       "version": "1.8.2",
       "outputs_to_install": [
         "bin",
+        "bin",
         "man"
       ],
       "outputs": {
@@ -1040,6 +1218,7 @@
       "outputs_to_install": [
         "bin",
         "bin",
+        "bin",
         "man"
       ],
       "outputs": {
@@ -1073,6 +1252,7 @@
       "unfree": false,
       "version": "1.8.2",
       "outputs_to_install": [
+        "bin",
         "bin",
         "bin",
         "man"
@@ -1632,93 +1812,6 @@
       },
       "system": "x86_64-linux",
       "group": "toplevel",
-      "priority": 5
-    },
-    {
-      "attr_path": "kubernetes-helm",
-      "broken": false,
-      "derivation": "/nix/store/rb6l5ni3cyw10sw84jd2hyd93gj8nkmv-kubernetes-helm-4.2.4.drv",
-      "description": "Package manager for kubernetes",
-      "install_id": "kubernetes-helm",
-      "license": "Apache-2.0",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=56c02bc00adcf003215cc4bd996d6efaf4cff188",
-      "name": "kubernetes-helm-4.2.4",
-      "pname": "kubernetes-helm",
-      "rev": "56c02bc00adcf003215cc4bd996d6efaf4cff188",
-      "rev_count": 1060451,
-      "rev_date": "2026-08-23T15:22:48Z",
-      "scrape_date": "2026-08-25T04:56:54.495675Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "4.2.4",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/zzbd5kzhdq4xh99ykhmsk9gdr3sgsdv4-kubernetes-helm-4.2.4"
-      },
-      "system": "aarch64-darwin",
-      "group": "helm",
-      "priority": 5
-    },
-    {
-      "attr_path": "kubernetes-helm",
-      "broken": false,
-      "derivation": "/nix/store/mkw3nmd3dljdkaan9xxkk4jn2a3j3x1v-kubernetes-helm-4.2.4.drv",
-      "description": "Package manager for kubernetes",
-      "install_id": "kubernetes-helm",
-      "license": "Apache-2.0",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=56c02bc00adcf003215cc4bd996d6efaf4cff188",
-      "name": "kubernetes-helm-4.2.4",
-      "pname": "kubernetes-helm",
-      "rev": "56c02bc00adcf003215cc4bd996d6efaf4cff188",
-      "rev_count": 1060451,
-      "rev_date": "2026-08-23T15:22:48Z",
-      "scrape_date": "2026-08-25T05:27:45.934146Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "4.2.4",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/m15s22fr1c74qc24bqsi14zmvmh3wa02-kubernetes-helm-4.2.4"
-      },
-      "system": "aarch64-linux",
-      "group": "helm",
-      "priority": 5
-    },
-    {
-      "attr_path": "kubernetes-helm",
-      "broken": false,
-      "derivation": "/nix/store/hpcpsg8n782wvim276zgfr6x2f253jda-kubernetes-helm-4.2.4.drv",
-      "description": "Package manager for kubernetes",
-      "install_id": "kubernetes-helm",
-      "license": "Apache-2.0",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=56c02bc00adcf003215cc4bd996d6efaf4cff188",
-      "name": "kubernetes-helm-4.2.4",
-      "pname": "kubernetes-helm",
-      "rev": "56c02bc00adcf003215cc4bd996d6efaf4cff188",
-      "rev_count": 1060451,
-      "rev_date": "2026-08-23T15:22:48Z",
-      "scrape_date": "2026-08-25T06:01:01.138181Z",
-      "stabilities": [
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "4.2.4",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/g48g9scy4mz49kwjsy0fb9kkbspvkcfi-kubernetes-helm-4.2.4"
-      },
-      "system": "x86_64-linux",
-      "group": "helm",
       "priority": 5
     }
   ]

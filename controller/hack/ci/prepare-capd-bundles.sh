@@ -9,6 +9,23 @@ SPIRE_AGENT_VERSION="1.14.1"
 TPM_PLUGIN_VERSION="1.9.0"
 CALICO_VERSION="3.30.1"
 CALICO_MANIFESTS_PACKAGE="nke-cni-calico-manifests-${CALICO_VERSION}"
+# SPIRE and the TPM plugin ship real binaries, so they follow the node image's
+# architecture. amd64 keeps the CI runners on the bytes they already used.
+BUNDLE_ARCH="${BUNDLE_ARCH:-amd64}"
+case "${BUNDLE_ARCH}" in
+  amd64)
+    SPIRE_AGENT_SHA256="0278af1e083fda58a6dfd09f97d41b5c34b011dca2fd53dc79d0e418996ed0ba"
+    TPM_PLUGIN_SHA256="64c9ed83857e802571f9e4c8377994bfb9d220708bcefe6b50674b2eee4bfbd2"
+    ;;
+  arm64)
+    SPIRE_AGENT_SHA256="94ec569b697323b067db05565ff098eb3d8fa217dad40f367c961e239d54858d"
+    TPM_PLUGIN_SHA256="b85502354358cd919691be022eb0f5678f5fdb9e84d86a2d1819362e18e796ae"
+    ;;
+  *)
+    printf 'unsupported BUNDLE_ARCH: %s (amd64 or arm64)\n' "${BUNDLE_ARCH}" >&2
+    exit 1
+    ;;
+esac
 ASSET_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/assets" && pwd)"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -43,12 +60,12 @@ mkdir -p "${OUTPUT_DIR}"
 spire_archive="${TMP_DIR}/spire.tar.gz"
 tpm_archive="${TMP_DIR}/tpm-attestor.tar.gz"
 download_verified \
-  "https://github.com/spiffe/spire/releases/download/v${SPIRE_AGENT_VERSION}/spire-${SPIRE_AGENT_VERSION}-linux-amd64-musl.tar.gz" \
-  "0278af1e083fda58a6dfd09f97d41b5c34b011dca2fd53dc79d0e418996ed0ba" \
+  "https://github.com/spiffe/spire/releases/download/v${SPIRE_AGENT_VERSION}/spire-${SPIRE_AGENT_VERSION}-linux-${BUNDLE_ARCH}-musl.tar.gz" \
+  "${SPIRE_AGENT_SHA256}" \
   "${spire_archive}"
 download_verified \
-  "https://github.com/spiffe/spire-tpm-plugin/releases/download/v${TPM_PLUGIN_VERSION}/spire_tpm_plugin_tpm_attestor_agent_linux_amd64_v${TPM_PLUGIN_VERSION}.tar.gz" \
-  "64c9ed83857e802571f9e4c8377994bfb9d220708bcefe6b50674b2eee4bfbd2" \
+  "https://github.com/spiffe/spire-tpm-plugin/releases/download/v${TPM_PLUGIN_VERSION}/spire_tpm_plugin_tpm_attestor_agent_linux_${BUNDLE_ARCH}_v${TPM_PLUGIN_VERSION}.tar.gz" \
+  "${TPM_PLUGIN_SHA256}" \
   "${tpm_archive}"
 
 spire_extract="${TMP_DIR}/spire-extract"
@@ -66,7 +83,7 @@ printf 'TPM_PLUGIN_CHECKSUM=%s\n' "$(sha256sum "${spire_bundle}/bin/tpm_attestor
   >"${spire_bundle}/spire-agent.env"
 tar -czf "${OUTPUT_DIR}/spire-agent.tgz" -C "${TMP_DIR}" "${spire_bundle_name}"
 
-calico_bundle_name="calico_v${CALICO_VERSION}_amd64"
+calico_bundle_name="calico_v${CALICO_VERSION}_na"
 calico_bundle="${TMP_DIR}/${calico_bundle_name}"
 mkdir -p "${calico_bundle}/manifests"
 download_verified \
@@ -123,7 +140,7 @@ cat >"${OUTPUT_DIR}/index.json" <<EOF
   "calico": {
     "entries": [
       {
-        "arch": "amd64",
+        "arch": "na",
         "path": "${calico_bundle_name}.tgz",
         "version": "${CALICO_VERSION}"
       }

@@ -194,7 +194,7 @@ test-e2e-capd: ## Run CAPD happy-path e2e tests
 	make test-e2e ARGS='--label-filter="capd && happy-path && (lifecycle || readiness) && !scale && !upgrade && !reboot"'
 
 .PHONY: test-e2e-capd-local
-test-e2e-capd-local: ## Bootstrap Colima and run all CAPD e2e tests with local CWE and agent source
+test-e2e-capd-local: ## Run all CAPD e2e tests with local CWE and agent source. macOS bootstraps Colima; Linux uses the host Docker daemon.
 	./hack/local-backend-e2e.sh
 
 .PHONY: test-e2e-nico-vms

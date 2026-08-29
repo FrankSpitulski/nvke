@@ -109,6 +109,21 @@ modprobe \"\${vtpm_module}\"
 "
 }
 
+# Colima ignores --cpu and --memory when the profile already exists, so a VM
+# created smaller stays smaller and the E2E starves without saying why.
+verify_colima_size() {
+    local cpus mem_gib
+    cpus="$(colima ssh --profile "${COLIMA_PROFILE}" -- nproc 2>/dev/null || echo 0)"
+    mem_gib="$(colima ssh --profile "${COLIMA_PROFILE}" -- \
+        awk '/MemTotal/{printf "%d", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)"
+    # The VM reports a little less RAM than it was given, hence the slack.
+    if (( cpus < COLIMA_CPUS || mem_gib + 2 < COLIMA_MEMORY_GIB )); then
+        echo "colima-start: profile ${COLIMA_PROFILE} has ${cpus} CPUs and ${mem_gib} GiB, not the ${COLIMA_CPUS} CPUs and ${COLIMA_MEMORY_GIB} GiB requested." >&2
+        echo "colima-start: Colima cannot resize a VM that exists. Run: colima stop && colima start --cpu ${COLIMA_CPUS} --memory ${COLIMA_MEMORY_GIB} --disk ${COLIMA_DISK_GIB} --profile ${COLIMA_PROFILE}" >&2
+        return 1
+    fi
+}
+
 verify_colima_vm() {
     colima ssh -- sh -lc "
 set -eu
@@ -144,6 +159,7 @@ main() {
         configure_colima_vm
         ensure_colima_vtpm_proxy
         verify_colima_vm
+        verify_colima_size
     ); then
         echo "colima-start: failed to configure/start Docker in Colima" >&2
         echo "Try: colima ssh -- sudo systemctl reset-failed docker.service && colima ssh -- sudo systemctl start docker.service" >&2

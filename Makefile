@@ -728,3 +728,20 @@ clean: ## Remove the built binaries.
 
 test-e2e-backend-ci: ## Run a backend E2E suite (CAPD by default) with local controller and agent source.
 	./controller/hack/ci/backend-e2e.sh
+
+.PHONY: test-e2e-backend-local
+test-e2e-backend-local: ## Run the CAPD E2E suite the way a developer does. macOS uses Colima, Linux uses the host Docker daemon.
+	./controller/hack/local-backend-e2e.sh
+
+##@ Security
+
+.PHONY: secrets-check
+secrets-check: ## Scan the commits on this branch for credentials, as the secrets workflow does.
+	@command -v gitleaks >/dev/null || { \
+	  echo "gitleaks not found. Install v$(GITLEAKS_VERSION): https://github.com/gitleaks/gitleaks/releases"; \
+	  exit 1; \
+	 }
+	@echo "Scanning $(shell git rev-list --count origin/main..HEAD 2>/dev/null || echo 0) commit(s) on this branch..."
+	@gitleaks git . --no-banner --redact \
+	  --log-opts="origin/main..HEAD --diff-merges=first-parent"
+	@echo "gitleaks: no credential found in the commits on this branch."
