@@ -8,7 +8,7 @@
 # then installing upstream Calico so every node reaches Ready. The lane needs no
 # NVIDIA-internal network.
 # Advisory, deliberately NOT in merge-gate.yml: it needs NVIDIA runners and root.
-# Runs under QEMU TCG (~10x slower); no runner here exposes /dev/kvm, see #219.
+# Only amd64 GPU runners expose /dev/kvm; CPU labels fall back to TCG. See #219.
 # Self-hosted runners get no pull_request events, so copy-pr-bot mirror branches
 # are the trigger.
 
@@ -39,9 +39,11 @@ jobs:
     name: kubeadm bringup (2 VMs)
     # Already allowlisted in .github/actionlint.yaml; any other label needs an
     # edit there, and actionlint is a required gate member.
-    runs-on: linux-amd64-cpu16
+    # A GPU label only because it is the one kind exposing /dev/kvm, as
+    # os-image-artifact.yml does. Trades 16 cores for 12, and TCG for KVM.
+    runs-on: linux-amd64-gpu-l4-latest-1
     if: github.repository == 'NVIDIA/nke'
-    # Sized for the emulated path, matching os-image-artifact.yml:58.
+    # Still sized for the emulated path, so a fall back to TCG cannot time out.
     timeout-minutes: 240
     permissions:
       contents: read

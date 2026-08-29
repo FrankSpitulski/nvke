@@ -97,6 +97,14 @@ kubectl apply --server-side --force-conflicts -f /tmp/tigera-operator.yaml
 
 echo "=== waiting for the Installation CRD to appear and become Established ==="
 kubectl wait --for=create crd/installations.operator.tigera.io --timeout=600s
+# --for=create can return before .status exists, and "wait --for=condition="
+# then errors on a nil .status.conditions instead of waiting for it:
+# "accessor error: <nil> is of the type <nil>, expected []interface{}".
+for _ in $(seq 60); do
+  [ -n "$(kubectl get crd installations.operator.tigera.io \
+      -o jsonpath='{.status.conditions}' 2>/dev/null)" ] && break
+  sleep 5
+done
 kubectl wait --for=condition=Established crd/installations.operator.tigera.io --timeout=300s
 
 echo "=== creating the Calico Installation ==="
