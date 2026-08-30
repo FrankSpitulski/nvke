@@ -1,0 +1,89 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# The root `make test` target on Linux and on macOS.
+#
+# agent-test.yml and controller-test.yml both run on ubuntu-latest, so a test
+# that passes on Linux and fails on macOS is invisible to CI. That is not
+# hypothetical: four agent tests failed only on macOS because writeKubeadmFiles
+# refuses a symlinked parent and /var is a symlink there and not on Linux.
+#
+# This runs the root target, which covers ten modules, against the six the two
+# unit lanes cover. It is advisory, not a gate member: macOS runners are billed
+# at ten times the Linux rate, so it should earn a place before it blocks a merge.
+
+name: Unit Tests (OS matrix)
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+    paths:
+      - "**.go"
+      - "**/go.mod"
+      - "**/go.sum"
+      - go.work
+      - go.work.sum
+      - Makefile
+      - "**/Makefile"
+      - .github/workflows/unit-tests-os.yml
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: Unit Tests OS-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test:
+    name: make test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: github.repository == 'NVIDIA/nke'
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Workspace mode (default) so tests resolve from the committed vendor/
+      # tree. go.work carries the toolchain that satisfies every module.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.work
+          cache: true
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
+
+      # The root Makefile refuses anything below GNU Make 4 and says so. macOS
+      # ships 3.81, and brew installs 4.x as `gmake`, so put that on PATH as
+      # `make` rather than teaching the workflow two spellings.
+      - name: Install GNU Make
+        if: runner.os == 'macOS'
+        run: |
+          brew install make
+          mkdir -p "${RUNNER_TEMP}/bin"
+          ln -sf "$(brew --prefix)/opt/make/libexec/gnubin/make" "${RUNNER_TEMP}/bin/make"
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+
+      - name: Show tool versions
+        run: |
+          go version
+          make --version | head -1
+
+      # Same command a developer runs. -race matches the two existing unit
+      # lanes, so this cannot pass on something they would reject.
+      - name: Run unit tests
+        env:
+          GO_TEST_FLAGS: -race
+        run: make test
