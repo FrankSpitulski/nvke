@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/temporal"
 
 	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 
@@ -170,12 +171,20 @@ func (a *Activities) waitForKubeadmInitReady(ctx context.Context, node db.Node) 
 		kubeadmPhase := strings.ToLower(status.GetKubeadmPhase())
 		cniStatus := strings.ToLower(status.GetCniInstallStatus())
 
+		// Both are terminal. A retry re-enters kubeadmInitAlreadyStarted, which
+		// short-circuits straight back to this poll loop and reads the same
+		// status, so ExecuteKubeadmInit is never re-issued. With
+		// MaximumAttempts: 0 on the caller that repeats until someone notices.
 		if kubeadmStatus == kubeadmStatusError {
-			return fmt.Errorf("kubeadm init failed: %s", status.GetKubeadmCurrentMessage())
+			return temporal.NewNonRetryableApplicationError(
+				fmt.Sprintf("kubeadm init failed: %s", status.GetKubeadmCurrentMessage()),
+				"KubeadmInitFailed", nil)
 		}
 
 		if cniStatus == cniStatusError {
-			return fmt.Errorf("CNI install failed: %s", status.GetKubeadmCurrentMessage())
+			return temporal.NewNonRetryableApplicationError(
+				fmt.Sprintf("CNI install failed: %s", status.GetKubeadmCurrentMessage()),
+				"CNIInstallFailed", nil)
 		}
 
 		if kubeadmStatus == kubeadmStatusReady && kubeadmPhase == kubeadmPhaseInit && cniStatus == cniStatusReady {
