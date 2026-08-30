@@ -534,9 +534,14 @@ func (a *Activities) getUserData(
 	if err != nil {
 		return "", err
 	}
+	cniChartsPackage, err := cniChartsPackageName(cluster.CniPlugin, cniVersion)
+	if err != nil {
+		return "", err
+	}
 
 	type UserData struct {
 		CalicoEnabled         bool
+		CNIChartsPackage      string
 		CNIImagePackage       string
 		DiskSelectionStrategy string
 		HashedPassword        string
@@ -569,6 +574,7 @@ func (a *Activities) getUserData(
 	// Only public certs are included in the trust bundle, and this is how zero-trust systems are intended to bootstrap.
 	userDataTemplateData := UserData{
 		CalicoEnabled:         calicoEnabled,
+		CNIChartsPackage:      cniChartsPackage,
 		CNIImagePackage:       cniImagePackage,
 		DiskSelectionStrategy: string(diskSelectionStrategy),
 		HashedPassword:        hashedPassword,
@@ -616,6 +622,25 @@ func cniImagePackageName(plugin db.CniPlugin, version string) (string, error) {
 		return "nke-cni-calico-images-" + version, nil
 	case db.CNIOvnKubernetes:
 		return "nke-cni-ovn-images-" + version, nil
+	default:
+		return "", fmt.Errorf("unsupported CNI plugin: %s", plugin)
+	}
+}
+
+// cniChartsPackageName returns the Debian package carrying the CNI Helm charts.
+//
+// InstallCNI refuses to run until this package is registered in dpkg, and it reads the chart
+// directory out of that package's own file list. The images package carries no charts, so a node
+// that installs only that one fails before helm runs.
+//
+// These names must match the CHARTS role of nkeCniAptSpec in agent/internal/agent/cni.go, which is
+// what the agent looks up. Note Calico's package is named "manifests" and OVN's is named "charts".
+func cniChartsPackageName(plugin db.CniPlugin, version string) (string, error) {
+	switch plugin {
+	case db.CNICalico:
+		return "nke-cni-calico-manifests-" + version, nil
+	case db.CNIOvnKubernetes:
+		return "nke-cni-ovn-charts-" + version, nil
 	default:
 		return "", fmt.Errorf("unsupported CNI plugin: %s", plugin)
 	}

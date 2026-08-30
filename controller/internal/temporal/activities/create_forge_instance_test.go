@@ -226,7 +226,12 @@ func TestActiveOSProfileTemplatesDoNotUseLegacyAttestationVars(t *testing.T) {
 	}
 }
 
-func TestGetUserDataTemplatedCNIImagePackage(t *testing.T) {
+// A Forge node needs both CNI packages. The images package feeds the kubelet, and the charts
+// package is what InstallCNI looks up in dpkg before it runs helm; without it the activity refuses.
+// The names are asserted whole, on one apt line, because they must match the CHARTS and IMAGES
+// roles of nkeCniAptSpec in agent/internal/agent/cni.go, which lives in another module and cannot
+// be imported here. Calico's charts package is named "manifests", OVN's is named "charts".
+func TestGetUserDataTemplatedCNIPackages(t *testing.T) {
 	activities := &Activities{
 		cfg: config.Config{
 			NodeAgentPort:      "15005",
@@ -256,7 +261,7 @@ func TestGetUserDataTemplatedCNIImagePackage(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, userData, "nke-agent=0.1.26")
-	assert.Contains(t, userData, "apt-get install -y nke-cni-calico-images-3.31.5")
+	assert.Contains(t, userData, "apt-get install -y nke-cni-calico-images-3.31.5 nke-cni-calico-manifests-3.31.5")
 	assert.NotContains(t, userData, "calico_v3.31.5")
 
 	userData, err = activities.getUserData(
@@ -270,7 +275,7 @@ func TestGetUserDataTemplatedCNIImagePackage(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	assert.Contains(t, userData, "apt-get install -y nke-cni-ovn-images-1.4.1")
+	assert.Contains(t, userData, "apt-get install -y nke-cni-ovn-images-1.4.1 nke-cni-ovn-charts-1.4.1")
 	assert.NotContains(t, userData, "ovn_1.4.1")
 }
 

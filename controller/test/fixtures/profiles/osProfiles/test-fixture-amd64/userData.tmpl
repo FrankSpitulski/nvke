@@ -6,5 +6,5 @@ package_upgrade: false
 
 runcmd:
   - DEBIAN_FRONTEND=noninteractive apt-get install -y nke-agent=0.1.26 nke-kubeadm-distro-{{ trimPrefix .KubernetesVersion "v" }} spire-agent
-  - DEBIAN_FRONTEND=noninteractive apt-get install -y {{ .CNIImagePackage }}
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y {{ .CNIImagePackage }} {{ .CNIChartsPackage }}
   - touch /run/cloud-init.done
