@@ -665,6 +665,21 @@ func (s *NodeAgentServer) ExecuteKubeadmInit(
 		}
 	}
 
+	// The legacy in-init CNI install fetches its bundle by index, so with no
+	// bundle source it cannot succeed. Refuse before the goroutine starts:
+	// kubeadm has not run yet, so recovery is a restart with the flag set rather
+	// than a kubeadm reset. InstallBundle and InstallCollection already refuse
+	// the same way; this is the third consumer of the same configuration.
+	//
+	// A gRPC error rather than an ErrorStatus response, because the caller is
+	// `if _, err := ExecuteKubeadmInit(...)` and discards the response. A
+	// response would be dropped and the caller would poll a node that never
+	// changes state. The argument checks above have that shape and are
+	// invisible for the same reason.
+	if !req.GetNoCniInstall() && !req.GetSkipCniPluginInstall() && s.BundleIndexFile == "" {
+		return nil, status.Error(codes.FailedPrecondition, bundleIndexUnconfiguredMessage(s.BundleServerURL))
+	}
+
 	s.mu.Lock()
 	s.NodeStatus.Role = ControlPlaneRole
 	s.NodeStatus.IsMaster = true
@@ -777,6 +792,10 @@ func (s *NodeAgentServer) processKubeadmInit(args []string, req *pb.KubeadmInitR
 			slog.Error("failed to install CNI plugin", "err", err)
 			ns.CNIPluginStatus = ErrorStatus
 			ns.ErrorMessage = "failed to install CNI plugin: " + err.Error()
+			// CurrentMessage too: ErrorMessage is not on the wire, and the line
+			// above set CurrentMessage to "Node is initialized", so a caller
+			// reading status sees that as the cause of the CNI failure.
+			ns.CurrentMessage = "failed to install CNI plugin: " + err.Error()
 			return
 		}
 		ns.CNIPlugin = cniReq.GetPluginName()
@@ -1820,13 +1839,28 @@ func (s *NodeAgentServer) SetUnsetIsMaster(
 	return &pb.SetUnsetIsMasterResponse{}, nil
 }
 
+// bundleIndexUnconfiguredMessage explains an empty BundleIndexFile. The two
+// causes need different advice: with no bundle server the operator has set
+// nothing, but with one set the index is derived from /etc/os-release and that
+// derivation only knows Ubuntu 22 and 24, so telling them to set a flag they
+// already set sends them in a circle.
+func bundleIndexUnconfiguredMessage(bundleServerURL string) string {
+	if bundleServerURL == "" {
+		return "bundle index not configured: set --bundle-server-url or --index-file-url (prefer apt repos via ConfigureAptRepo/InstallPackages)"
+	}
+	return fmt.Sprintf(
+		"bundle index not derived from --bundle-server-url %q: the index path is derived from /etc/os-release, which is recognised only for Ubuntu 22 and 24. Set --index-file-url explicitly.",
+		bundleServerURL,
+	)
+}
+
 func (s *NodeAgentServer) InstallBundle(
 	ctx context.Context,
 	req *pb.InstallBundleRequest,
 ) (*pb.InstallBundleResponse, error) {
 	defer logRPCSpan(ctx, "InstallBundle")()
 	if s.BundleIndexFile == "" {
-		return nil, status.Errorf(codes.FailedPrecondition, "bundle index not configured: set --bundle-server-url or --index-file-url (prefer apt repos via ConfigureAptRepo/InstallPackages)")
+		return nil, status.Error(codes.FailedPrecondition, bundleIndexUnconfiguredMessage(s.BundleServerURL))
 	}
 	if len(req.InstallArgs) == 0 {
 		return nil, fmt.Errorf("InstallArgs cannot be empty")
@@ -1952,7 +1986,7 @@ func (s *NodeAgentServer) InstallCollection(ctx context.Context, req *pb.Install
 
 	isJSONCollection := strings.HasSuffix(strings.ToLower(req.CollectionURL), ".json")
 	if isJSONCollection && s.BundleIndexFile == "" {
-		return nil, status.Errorf(codes.FailedPrecondition, "bundle index not configured: set --bundle-server-url or --index-file-url (prefer apt repos via ConfigureAptRepo/InstallPackages)")
+		return nil, status.Error(codes.FailedPrecondition, bundleIndexUnconfiguredMessage(s.BundleServerURL))
 	}
 
 	requestID := generateRequestID()

@@ -1460,3 +1460,63 @@ func TestInstallCollectionJSONRequiresIndex(t *testing.T) {
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 	assert.Contains(t, err.Error(), "bundle index not configured")
 }
+
+func TestExecuteKubeadmInitRefusesWithoutBundleSource(t *testing.T) {
+	newServer := func(bundleServerURL, bundleIndexFile string) *NodeAgentServer {
+		return &NodeAgentServer{
+			Runner:          &MockRunner{Output: []byte(initOutput)},
+			FileWriter:      &MockFileWriter{},
+			Persister:       &MockPersister{},
+			NodeStatus:      &NodeStatus{Status: NotReadyStatus},
+			BundleServerURL: bundleServerURL,
+			BundleIndexFile: bundleIndexFile,
+		}
+	}
+	validReq := func() *pb.KubeadmInitRequest {
+		return &pb.KubeadmInitRequest{
+			PodNetworkCidr:       "10.244.0.0/16",
+			ControlPlaneEndpoint: "192.168.0.1:6443",
+		}
+	}
+
+	// A gRPC error, not an ErrorStatus response: the caller discards the
+	// response, so a response would be invisible.
+	t.Run("no bundle source at all names both flags", func(t *testing.T) {
+		_, err := newServer("", "").ExecuteKubeadmInit(context.Background(), validReq())
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+		assert.Contains(t, err.Error(), "--bundle-server-url")
+		assert.Contains(t, err.Error(), "--index-file-url")
+	})
+
+	t.Run("a bundle server whose index did not derive says so", func(t *testing.T) {
+		_, err := newServer("https://example.test/", "").ExecuteKubeadmInit(context.Background(), validReq())
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+		assert.Contains(t, err.Error(), "/etc/os-release",
+			"telling an operator to set a flag they already set sends them in a circle")
+		assert.Contains(t, err.Error(), "--index-file-url")
+	})
+
+	t.Run("no_cni_install does not need a bundle source", func(t *testing.T) {
+		req := validReq()
+		req.NoCniInstall = true
+		resp, err := newServer("", "").ExecuteKubeadmInit(context.Background(), req)
+		assert.NoError(t, err)
+		assert.Equal(t, PendingStatus, resp.Status)
+	})
+
+	t.Run("a configured index proceeds", func(t *testing.T) {
+		resp, err := newServer("https://example.test/", "https://example.test/index.json").
+			ExecuteKubeadmInit(context.Background(), validReq())
+		assert.NoError(t, err)
+		assert.Equal(t, PendingStatus, resp.Status)
+	})
+
+	t.Run("argument validation still takes precedence", func(t *testing.T) {
+		req := validReq()
+		req.PodNetworkCidr = ""
+		resp, err := newServer("", "").ExecuteKubeadmInit(context.Background(), req)
+		assert.NoError(t, err)
+		assert.Equal(t, ErrorStatus, resp.Status)
+		assert.Contains(t, resp.ErrorMessage, "PodNetworkCidr")
+	})
+}

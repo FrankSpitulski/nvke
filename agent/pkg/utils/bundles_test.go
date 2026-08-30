@@ -4,7 +4,10 @@
 package utils
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	semver "github.com/Masterminds/semver/v3"
@@ -585,4 +588,60 @@ func TestBundleSourceTypeString(t *testing.T) {
 	assert.Equal(t, "OCI", BundleSourceOCI.String())
 	assert.Equal(t, "File", BundleSourceFile.String())
 	assert.Equal(t, "Unknown", BundleSourceType(99).String())
+}
+
+// FetchBundleFromIndex had no test. These cover the two ways it resolves a
+// bundle and the URL joining that used to be plain concatenation.
+func TestFetchBundleFromIndex(t *testing.T) {
+	index := Index{
+		"calico": Component{
+			Entries: []Entry{
+				{Arch: "x86_64", Version: semver.MustParse("v3.31.4"), Path: "nke_bundles/x86_64/calico_v3.31.4_x86_64.tgz"},
+			},
+		},
+	}
+	body, err := json.Marshal(index)
+	assert.NoError(t, err)
+
+	const indexPath = "/nke_bundles/index.json"
+	var indexHits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Exact path: matching any *.json would also serve the missing-index case.
+		if r.URL.Path == indexPath {
+			indexHits++
+			_, _ = w.Write(body)
+			return
+		}
+		// Nothing else exists, so the conventional-URL probe misses and the
+		// index is what resolves the bundle.
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	version := semver.MustParse("v3.31.4")
+	indexURL := srv.URL + indexPath
+
+	t.Run("resolves through the index when the conventional URL is absent", func(t *testing.T) {
+		b, err := FetchBundleFromIndex(context.Background(), srv.URL+"/", indexURL, "calico", version, "x86_64")
+		assert.NoError(t, err)
+		assert.Equal(t, srv.URL+"/nke_bundles/x86_64/calico_v3.31.4_x86_64.tgz", b.URL)
+		assert.Positive(t, indexHits, "expected the index to be fetched")
+	})
+
+	t.Run("a bundle server without a trailing slash still joins correctly", func(t *testing.T) {
+		b, err := FetchBundleFromIndex(context.Background(), srv.URL, indexURL, "calico", version, "x86_64")
+		assert.NoError(t, err)
+		assert.Equal(t, srv.URL+"/nke_bundles/x86_64/calico_v3.31.4_x86_64.tgz", b.URL,
+			"concatenation would have produced ...hostnke_bundles/...")
+	})
+
+	t.Run("a version the index does not carry is an error", func(t *testing.T) {
+		_, err := FetchBundleFromIndex(context.Background(), srv.URL+"/", indexURL, "calico", semver.MustParse("v9.9.9"), "x86_64")
+		assert.Error(t, err)
+	})
+
+	t.Run("an unreachable index reports the fetch failure", func(t *testing.T) {
+		_, err := FetchBundleFromIndex(context.Background(), srv.URL+"/", srv.URL+"/missing/index.json", "calico", version, "x86_64")
+		assert.ErrorContains(t, err, "unable to fetch index")
+	})
 }

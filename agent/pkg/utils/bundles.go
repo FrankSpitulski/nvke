@@ -370,7 +370,10 @@ func FetchBundleFromIndex(ctx context.Context, bundleServerURL, indexFile, name 
 		return bundle, fmt.Errorf("%s bundle version %s for arch %s not found in index", bundle.Name, bundle.Version, architecture)
 	}
 
-	bundle.URL = bundleServerURL + bundle.Path
+	// JoinBundleURL, not concatenation: a bundle server URL without a trailing
+	// slash otherwise yields http://hostnke_bundles/..., which fails at download
+	// rather than here.
+	bundle.URL = JoinBundleURL(bundleServerURL, bundle.Path)
 	return bundle, nil
 }
 
