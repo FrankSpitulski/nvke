@@ -52,7 +52,11 @@ jobs:
   local-entrypoint:
     name: local-backend-e2e.sh on Linux
     if: github.repository == 'NVIDIA/nke'
-    runs-on: linux-amd64-gpu-l4-latest-1
+    # The L4 pool is one machine, and this lane runs on pull requests, on main,
+    # and twice a day. A run on main waited 87 minutes for a runner, longer than
+    # the 84 minutes it then took. cpu16 has capacity, and the L4 was never
+    # faster: leg 1 took 778s there against 845s on a developer box.
+    runs-on: linux-amd64-cpu16
     permissions:
       contents: read
     timeout-minutes: 120
