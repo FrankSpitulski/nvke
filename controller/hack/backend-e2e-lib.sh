@@ -46,10 +46,10 @@ e2e_attestation_method() {
 }
 
 # The bundle the node agent installs Calico from. hack/ci/prepare-capd-bundles.sh
-# builds it from checksum-verified public sources, so no run needs the CloudFront
-# bundle server the node image defaults to, which the GitHub runners cannot
-# reach. Serving it from a volume rather than a host path keeps this working
-# where the Docker daemon does not share the host filesystem, as on Colima.
+# builds it from checksum-verified public sources, and the node image carries no
+# bundle server of its own, so this is the only source a run has. Serving it from
+# a volume rather than a host path keeps this working where the Docker daemon
+# does not share the host filesystem, as on Colima.
 e2e_start_bundle_mirror() {
   local name="$1" volume="$2" dir="$3" loader="$1-loader" ip
   docker volume create "${volume}" >/dev/null || return 1

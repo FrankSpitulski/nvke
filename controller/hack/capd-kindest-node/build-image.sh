@@ -20,8 +20,14 @@ repo_root="$(cd "${script_dir}/../.." && pwd)"
 : "${CAPD_CNI_MANIFESTS_DEB_PATH:=}"
 : "${NKE_E2E_DOCKERHUB_MIRROR:=}"
 : "${NODE_AGENT_REPO_PATH:=${repo_root}/../agent}"
-: "${BUNDLE_SERVER_URL:=https://d3mq564cn7sth7.cloudfront.net/}"
-: "${INDEX_FILE_URL:=${BUNDLE_SERVER_URL%/}/nke_bundles/Ubuntu_24.04/index.json}"
+# Empty by default: a bundle server is a deployment choice, and the CDN that used
+# to be the default cannot be reached from the CI runners. Set BUNDLE_SERVER_URL
+# to opt in; the index is derived from it unless given separately.
+: "${BUNDLE_SERVER_URL:=}"
+if [[ -n "${BUNDLE_SERVER_URL}" ]]; then
+  : "${INDEX_FILE_URL:=${BUNDLE_SERVER_URL%/}/nke_bundles/Ubuntu_24.04/index.json}"
+fi
+: "${INDEX_FILE_URL:=}"
 
 # Where the SPIRE agent bundle comes from.
 #   github - assemble it from the upstream public releases (default)
@@ -149,17 +155,13 @@ effective_platform="${CAPD_KINDEST_NODE_PLATFORM}"
 
 case "${effective_platform}" in
   linux/amd64* | amd64 | x86_64)
-    : "${NODE_AGENT_BASE_URL:=https://d3mq564cn7sth7.cloudfront.net/nke_bundles/Ubuntu_24.04/x86_64}"
     : "${NODE_AGENT_BUNDLE_ARCH:=x86_64}"
     : "${NODE_AGENT_DIR_ARCH:=amd64}"
-    : "${SPIRE_BUNDLES_BASE_URL:=https://d3mq564cn7sth7.cloudfront.net/nke_bundles/Ubuntu_24.04/x86_64}"
     : "${SPIRE_BUNDLE_ARCH:=x86_64}"
     ;;
   linux/arm64* | arm64 | aarch64)
-    : "${NODE_AGENT_BASE_URL:=https://d3mq564cn7sth7.cloudfront.net/nke_bundles/Ubuntu_24.04/aarch64}"
     : "${NODE_AGENT_BUNDLE_ARCH:=aarch64}"
     : "${NODE_AGENT_DIR_ARCH:=arm64}"
-    : "${SPIRE_BUNDLES_BASE_URL:=https://d3mq564cn7sth7.cloudfront.net/nke_bundles/Ubuntu_24.04/aarch64}"
     : "${SPIRE_BUNDLE_ARCH:=aarch64}"
     ;;
   *)
@@ -266,6 +268,11 @@ elif [[ -n "${NODE_AGENT_BUNDLE_PATH:-}" ]]; then
   fi
   cp "${NODE_AGENT_BUNDLE_PATH}" "${build_context}/agent.tgz"
 else
+  if [[ -z "${NODE_AGENT_BASE_URL:-}" ]]; then
+    echo "Downloading a published agent bundle needs NODE_AGENT_BASE_URL." >&2
+    echo "Set it, or build the agent from source with CAPD_NODE_AGENT_LOCAL_BUILD=true." >&2
+    exit 1
+  fi
   node_agent_url="${NODE_AGENT_BASE_URL}/agent_${effective_node_agent_version}_${NODE_AGENT_BUNDLE_ARCH}.tgz"
   echo "Downloading published agent bundle ${node_agent_url}"
   fetch_url "${node_agent_url}" "${build_context}/agent.tgz"
@@ -287,6 +294,11 @@ elif [[ "${SPIRE_AGENT_SOURCE}" == "github" ]]; then
   # downstream keeps the internal path by setting SPIRE_AGENT_SOURCE=bundle.
   assemble_spire_bundle_from_upstream "${build_context}/spire-agent.tgz"
 else
+  if [[ -z "${SPIRE_BUNDLES_BASE_URL:-}" ]]; then
+    echo "SPIRE_AGENT_SOURCE=bundle needs SPIRE_BUNDLES_BASE_URL." >&2
+    echo "Set it, or use the default SPIRE_AGENT_SOURCE=github." >&2
+    exit 1
+  fi
   spire_bundle_name="spire_agent_v${SPIRE_AGENT_VERSION}_tpm_attestor_v${TPM_ATTESTOR_VERSION}_${SPIRE_BUNDLE_ARCH}.tgz"
   spire_bundle_url="${SPIRE_BUNDLES_BASE_URL}/${spire_bundle_name}"
   echo "Downloading published SPIRE agent bundle ${spire_bundle_url}"

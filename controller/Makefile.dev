@@ -412,10 +412,40 @@ kind-up: ## Create the local Kind management cluster for CAPD
 	@kubectl config use-context "kind-$(KIND_CLUSTER_NAME)" >/dev/null
 
 .PHONY: kind-down
-kind-down: ## Delete the local Kind management cluster for CAPD
+kind-down: bundle-mirror-down ## Delete the local Kind management cluster for CAPD
 	@echo "Deleting Kind management cluster '$(KIND_CLUSTER_NAME)'..."
 	@$(kind-docker-host) kind delete cluster --name "$(KIND_CLUSTER_NAME)"
 	@echo "✅ Kind management cluster deleted"
+
+BUNDLE_MIRROR_NAME ?= capd-bundle-mirror
+BUNDLE_MIRROR_VOLUME ?= capd-bundle-mirror-data
+
+.PHONY: bundle-mirror
+# The agent installs Calico by fetching a bundle through its index, so a node
+# with no bundle server cannot bring CNI up. prepare-capd-bundles.sh builds that
+# bundle from checksum-verified public sources; serving it here beside the
+# registry caches means `make capd-up` needs no external bundle host.
+# e2e_start_bundle_mirror copies into a named volume rather than bind mounting,
+# because the daemon that resolves a bind path is not always this host.
+bundle-mirror: kind-up ## Serve the CAPD bundle, built from public sources, on the kind network
+	@if [ "$$($(kind-docker-host) docker inspect --format '{{.State.Running}}' $(BUNDLE_MIRROR_NAME) 2>/dev/null)" = "true" ]; then \
+		echo "✅ Bundle mirror already running"; \
+	else \
+		echo "Building the CAPD bundle from public sources..."; \
+		rm -rf "$(CURDIR)/.local/bundles" && \
+		bash ./hack/ci/prepare-capd-bundles.sh "$(CURDIR)/.local/bundles" && \
+		$(kind-docker-host) bash -c '. hack/backend-e2e-lib.sh; \
+			e2e_stop_bundle_mirror $(BUNDLE_MIRROR_NAME) $(BUNDLE_MIRROR_VOLUME); \
+			e2e_start_bundle_mirror $(BUNDLE_MIRROR_NAME) $(BUNDLE_MIRROR_VOLUME) \
+				"$(CURDIR)/.local/bundles" >/dev/null' && \
+		echo "✅ Bundle mirror started"; \
+	fi
+
+.PHONY: bundle-mirror-down
+bundle-mirror-down: ## Remove the CAPD bundle mirror and its volume
+	@$(kind-docker-host) bash -c '. hack/backend-e2e-lib.sh; \
+		e2e_stop_bundle_mirror $(BUNDLE_MIRROR_NAME) $(BUNDLE_MIRROR_VOLUME)'
+	@echo "✅ Bundle mirror removed"
 
 .PHONY: registry-mirror
 registry-mirror: ## Start Docker Hub and registry.k8s.io pull-through caches
@@ -582,8 +612,11 @@ capd-kubeconfig: ## Write CAPD workload kubeconfig for kubectl on this host (CLU
 	@cd "$(CURDIR)" && DOCKER_HOST="$(COLIMA_DOCKER_HOST)" ./hack/fetch-capd-kubeconfig.sh "$(or $(CLUSTER_NAME),capd)" $(if $(OUTPUT),"$(OUTPUT)",)
 
 .PHONY: capd-image
-capd-image: ## Build the custom CAPD node image for DockerMachine (hack/capd-kindest-node/Dockerfile; same Docker host as CAPD)
+# Falls back to the local bundle-mirror address when the caller sets no bundle
+# server. The E2E entrypoints export their own and keep it.
+capd-image: bundle-mirror ## Build the custom CAPD node image for DockerMachine (hack/capd-kindest-node/Dockerfile; same Docker host as CAPD)
 	@cd "$(CURDIR)" && \
+		BUNDLE_MIRROR_IP="$$($(kind-docker-host) docker inspect $(BUNDLE_MIRROR_NAME) --format '{{(index .NetworkSettings.Networks "kind").IPAddress}}')"; \
 		CAPD_KINDEST_NODE_IMAGE="$(CAPD_KINDEST_NODE_IMAGE)" \
 		CAPD_KINDEST_NODE_TAG="$(CAPD_KINDEST_NODE_TAG)" \
 		CAPD_NODE_AGENT_LOCAL_BUILD="$(CAPD_NODE_AGENT_LOCAL_BUILD)" \
@@ -591,6 +624,8 @@ capd-image: ## Build the custom CAPD node image for DockerMachine (hack/capd-kin
 		NODE_AGENT_REPO_PATH="$(NODE_AGENT_REPO_PATH)" \
 		CAPD_KINDEST_NODE_PLATFORM="$(CAPD_KINDEST_NODE_PLATFORM)" \
 		COLIMA_DOCKER_HOST="$(COLIMA_DOCKER_HOST)" \
+		BUNDLE_SERVER_URL="$${BUNDLE_SERVER_URL:-http://$${BUNDLE_MIRROR_IP}/}" \
+		INDEX_FILE_URL="$${INDEX_FILE_URL:-http://$${BUNDLE_MIRROR_IP}/index.json}" \
 		bash ./hack/capd-kindest-node/build-image.sh
 
 # Aliases for convenience

@@ -22,8 +22,13 @@ ARG NODE_AGENT_VERSION=v0.1.29
 ARG NODE_AGENT_DIR_ARCH=arm64
 ARG NODE_AGENT_PORT=15005
 ARG CAPD_SPIRE_ATTESTATION_METHOD=tpm
-ARG BUNDLE_SERVER_URL=https://d3mq564cn7sth7.cloudfront.net/
-ARG INDEX_FILE_URL=https://d3mq564cn7sth7.cloudfront.net/nke_bundles/Ubuntu_24.04/index.json
+# Empty by default. A bundle server is a deployment choice, not something a node
+# image should carry: the CDN that used to be the default is unreachable from the
+# CI runners, so the default was the one setting that could never work there.
+# Unset means the agent has no bundle server, which agent.go documents as
+# InstallBundle being unavailable, and which is how a nico VM already runs.
+ARG BUNDLE_SERVER_URL=
+ARG INDEX_FILE_URL=
 
 RUN set -eux; \
     printf '%s\n' \
@@ -172,8 +177,15 @@ RUN set -eux; \
     if /usr/local/bin/nke-agent --help 2>&1 | grep -q -- "-enable-spiffe"; then \
       NKE_AGENT_SPIFFE_ARG=" --enable-spiffe"; \
     fi; \
+    NKE_AGENT_BUNDLE_ARGS=""; \
+    if [ -n "${BUNDLE_SERVER_URL}" ]; then \
+      NKE_AGENT_BUNDLE_ARGS=" --bundle-server-url ${BUNDLE_SERVER_URL}"; \
+    fi; \
+    if [ -n "${INDEX_FILE_URL}" ]; then \
+      NKE_AGENT_BUNDLE_ARGS="${NKE_AGENT_BUNDLE_ARGS} --index-file-url ${INDEX_FILE_URL}"; \
+    fi; \
     printf '%s\n' \
-      "AGENT_ARGS=\"--disable-mlx5-rescan${NKE_AGENT_SPIFFE_ARG} --secure-server-port ${NODE_AGENT_PORT} --bundle-server-url ${BUNDLE_SERVER_URL} --index-file-url ${INDEX_FILE_URL}\"" \
+      "AGENT_ARGS=\"--disable-mlx5-rescan${NKE_AGENT_SPIFFE_ARG} --secure-server-port ${NODE_AGENT_PORT}${NKE_AGENT_BUNDLE_ARGS}\"" \
       'NKE_LOCAL_DEV=true' \
       > /etc/default/nke-agent
 

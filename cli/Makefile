@@ -158,9 +158,9 @@ test-e2e-bootstrap: build
 CAPD_KINDEST_NODE_IMAGE ?= cwe-capd-kindest-node:local
 
 # Builds nke-agent from this checkout's own agent/ module rather than
-# downloading a published bundle, so the e2e job depends on no registry
-# beyond the public CNI/SPIRE bundle host controller/hack/capd-kindest-node
-# already uses. A no-op once the image exists locally.
+# downloading a published bundle, so the e2e job needs no external host. The
+# image gets no bundle server, which is fine here: this job stops at the
+# dispatch stub and installs no CNI. A no-op once the image exists locally.
 ensure-capd-image:
 	@docker image inspect $(CAPD_KINDEST_NODE_IMAGE) >/dev/null 2>&1 || \
 	  CAPD_NODE_AGENT_LOCAL_BUILD=true NODE_AGENT_REPO_PATH=$(CURDIR)/../agent \

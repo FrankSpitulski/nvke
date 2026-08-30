@@ -27,6 +27,13 @@ on:
     paths:
       - controller/hack/local-backend-e2e.sh
       - controller/hack/backend-e2e-lib.sh
+      # The entrypoint builds the node image, so this lane owns changes to it.
+      - controller/hack/capd-kindest-node/**
+      # It reaches the node image, the management cluster and the bundle mirror
+      # through these, so a change to any of them changes what this lane runs.
+      - controller/Makefile.dev
+      - controller/hack/cwe-capi-kind.yaml
+      - controller/hack/ci/prepare-capd-bundles.sh
       - .github/workflows/local-entrypoint-e2e.yml
   # Also twice a day, so a break the paths above filtered out, or one a flake
   # hid, still surfaces within twelve hours. A schedule ignores those paths, so
