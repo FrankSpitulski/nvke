@@ -191,12 +191,15 @@ func helmValuesFileArgs(chartDir string) []string {
 	return args
 }
 
-// buildOvnKubernetesHelmInstallArgs returns argv for `helm install` for an OVN chart directory.
-// imageRegistry, when non-empty, is injected as --set global.registry=<value> before cniConfig
-// entries so that per-request CniConfig values take precedence over the site-wide default.
+// buildOvnKubernetesHelmInstallArgs returns argv for `helm upgrade --install` for an OVN chart
+// directory. imageRegistry, when non-empty, is injected as --set global.registry=<value> before
+// cniConfig entries so that per-request CniConfig values take precedence over the site-wide default.
+//
+// `upgrade --install` and not `install`: this runs from a Temporal activity that retries, and
+// `install` fails once the release exists, so the second attempt could never succeed.
 func buildOvnKubernetesHelmInstallArgs(chartDir, apiServer, podNetworkCidr, serviceCidr, imageRegistry string, cniConfig map[string]string) []string {
 	args := []string{
-		"install",
+		"upgrade", "--install", //nolint:goconst // helm argv fragment; naming each CLI flag reads worse than the literal
 		"ovn-kubernetes",
 		chartDir,
 	}
@@ -529,8 +532,10 @@ func ovnHelmChartDir(ctx context.Context, binPkg string) (string, error) {
 }
 
 func (s *NodeAgentServer) runCalicoHelmInstallFromDir(chartDir string, req *pb.InstallCNIRequest) error {
+	// See buildOvnKubernetesHelmInstallArgs: retried activity, so the release
+	// may already exist.
 	args := []string{
-		"install", "tigera-operator", chartDir,
+		"upgrade", "--install", "tigera-operator", chartDir, //nolint:goconst // helm argv fragment
 		"--namespace", "tigera-operator",
 		"--create-namespace",
 	}
@@ -555,7 +560,7 @@ func (s *NodeAgentServer) runCalicoHelmInstallFromDir(chartDir string, req *pb.I
 		Env: append(os.Environ(), "KUBECONFIG="+KubeConfig),
 	})
 	if err != nil {
-		return fmt.Errorf("helm install calico charts: %w, output: %s", err, string(stdout))
+		return fmt.Errorf("helm upgrade --install calico charts: %w, output: %s", err, string(stdout))
 	}
 	return nil
 }

@@ -336,11 +336,24 @@ func TestWriteKubeadmFiles(t *testing.T) {
 	})
 }
 
+// resolvedTempDir is t.TempDir() with symlinks resolved. writeKubeadmFiles walks
+// every parent of a destination and refuses a symlink, which is what stops a
+// planted link redirecting a write. On macOS t.TempDir() sits under /var, which
+// is itself a symlink to /private/var, so the check fires on the harness rather
+// than on anything the test set up.
+func resolvedTempDir(t *testing.T) string {
+	t.Helper()
+
+	resolved, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	return resolved
+}
+
 func newKubeadmFileTestServer(t *testing.T) *NodeAgentServer {
 	t.Helper()
 
 	return &NodeAgentServer{
-		RootPath:   t.TempDir(),
+		RootPath:   resolvedTempDir(t),
 		Persister:  &MockPersister{},
 		FileWriter: &MockFileWriter{},
 		kubeadmFileOps: fileOps{

@@ -76,10 +76,18 @@ jobs:
           ln -sf "$(brew --prefix)/opt/make/libexec/gnubin/make" "${RUNNER_TEMP}/bin/make"
           echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
 
+      # Actions points TMPDIR at /Users, so t.TempDir() has no symlinked parent
+      # and the failure this lane exists for cannot appear. The macOS default
+      # sits under /var, which is a symlink to private/var.
+      - name: Restore the default macOS TMPDIR
+        if: runner.os == 'macOS'
+        run: echo "TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)" >> "${GITHUB_ENV}"
+
       - name: Show tool versions
         run: |
           go version
           make --version | head -1
+          echo "TMPDIR=${TMPDIR:-unset}"
 
       # Same command a developer runs. -race matches the two existing unit
       # lanes, so this cannot pass on something they would reject.

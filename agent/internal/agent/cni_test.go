@@ -14,6 +14,7 @@ import (
 	pb "github.com/NVIDIA/nke/agent/pkg/agent/proto"
 	nkeutils "github.com/NVIDIA/nke/agent/pkg/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Sample kubeconfig YAML for testing
@@ -688,4 +689,49 @@ func TestBundleStatusInitialization(t *testing.T) {
 			assert.Equal(t, tc.expectedStatus, status)
 		})
 	}
+}
+
+// recordingRunner keeps the argv of the last call so a test can assert on it.
+type recordingRunner struct {
+	name string
+	args []string
+}
+
+func (r *recordingRunner) Run(name string, args []string, _ *nkeutils.CommandOptions) ([]byte, error) {
+	r.name = name
+	r.args = args
+	return nil, nil
+}
+
+func (r *recordingRunner) RunSplitOutput(name string, args []string, _ *nkeutils.CommandOptions) (nkeutils.CommandOutput, error) {
+	r.name = name
+	r.args = args
+	return nkeutils.CommandOutput{}, nil
+}
+
+func (r *recordingRunner) RunDetached(name string, args []string, _ *nkeutils.CommandOptions) error {
+	r.name = name
+	r.args = args
+	return nil
+}
+
+// Both CNI charts install from a Temporal activity that retries. `helm install`
+// fails once the release exists, so a retry could never succeed; the argv has to
+// start with `upgrade --install`. The other argv assertions in this file check
+// only length and a --set value, so none of them would catch a regression here.
+func TestCNIHelmArgsAreIdempotent(t *testing.T) {
+	chartDir := t.TempDir()
+
+	t.Run("ovn", func(t *testing.T) {
+		args := buildOvnKubernetesHelmInstallArgs(chartDir, "https://10.0.0.1:6443", "10.244.0.0/16", "10.96.0.0/12", "", nil)
+		assert.Equal(t, []string{"upgrade", "--install", "ovn-kubernetes", chartDir}, args[:4])
+	})
+
+	t.Run("calico", func(t *testing.T) {
+		runner := &recordingRunner{}
+		server := &NodeAgentServer{Runner: runner}
+		require.NoError(t, server.runCalicoHelmInstallFromDir(chartDir, &pb.InstallCNIRequest{}))
+		assert.Equal(t, "helm", runner.name)
+		assert.Equal(t, []string{"upgrade", "--install", "tigera-operator", chartDir}, runner.args[:4])
+	})
 }
