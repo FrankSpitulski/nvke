@@ -68,5 +68,5 @@ jobs:
           pr-number: ${{ steps.pick.outputs.numbers }}
           # The area axis is derived from paths, so let the action own it.
           # It only removes labels this config defines, leaving needs-rebase,
-          # dependencies and the type labels alone.
+          # needs-ci-fix, dependencies and the type labels alone.
           sync-labels: true

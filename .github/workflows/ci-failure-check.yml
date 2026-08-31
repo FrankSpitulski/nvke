@@ -1,0 +1,123 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Labels open pull requests whose head commit has a failed check.
+#
+# Advisory, not a gate: `gate` and `DCO` already block a merge. This makes a red
+# pull request findable in the list view with `label:needs-ci-fix`, including
+# the advisory workflows the gate deliberately leaves out.
+#
+# WHY A SWEEP AND NOT `workflow_run`
+#
+# `workflow_run` is the event-driven option, and it is worse here. Its
+# `workflows:` filter needs a literal list of workflow names -- actionlint
+# rejects the event without one, and a glob is undocumented -- so a new or
+# renamed workflow would silently stop feeding the label. It also fires per
+# workflow, so it would evaluate this repository's 40 workflows 40 times per
+# head and still miss an advisory check that finishes after the last one.
+#
+# A sweep has no name list to go stale and reads the true state each time. The
+# cost is latency, which does not matter for a label nobody blocks on.
+
+name: PR CI Failure Check
+
+on:
+  schedule:
+    # Quarter past and quarter to. Off the hour, where the daily E2E crons sit.
+    - cron: '15,45 * * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  ci-failures:
+    name: Check open PRs for failed checks
+    if: github.repository == 'NVIDIA/nke'
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+      pull-requests: write
+    timeout-minutes: 10
+    steps:
+      - name: Label pull requests that need a CI fix
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            // Label exists already; recreate as #e11d21 if it is ever deleted,
+            // since addLabels would otherwise invent a colour.
+            const LABEL = 'needs-ci-fix';
+
+            const open = await github.paginate(github.rest.pulls.list, {
+              ...context.repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            let labelled = 0;
+            let cleared = 0;
+
+            for (const pr of open) {
+              // State is recomputed from the head rather than tracked, so a
+              // re-run that goes green clears the label on its own sweep.
+              const runs = await github.paginate(github.rest.checks.listForRef, {
+                ...context.repo,
+                ref: pr.head.sha,
+                filter: 'latest',
+                per_page: 100,
+              });
+
+              // `filter: latest` keeps one run per name WITHIN a check suite,
+              // not across suites, and a re-run builds a new suite. So a head
+              // whose `gate` failed and then passed returns both, and taking
+              // the failure would pin the label on a green pull request. Keep
+              // the newest run per name. Do not reach for the GraphQL
+              // statusCheckRollup instead: its `state` is computed over the
+              // contexts page you ask for, so `first: 100` of 138 runs reports
+              // the superseded suite and contradicts `gh pr checks`.
+              const newest = new Map();
+              const bySha = [...runs].sort((a, b) =>
+                (a.started_at ?? '').localeCompare(b.started_at ?? '') || a.id - b.id);
+              for (const r of bySha) {
+                newest.set(r.name, r);
+              }
+
+              // `cancelled` is not a failure here: cancel-in-progress
+              // concurrency cancels runs constantly, and labelling on that is
+              // noise. A run still in progress is not a failure either.
+              const failed = [...newest.values()]
+                .filter((r) => r.status === 'completed' && ['failure', 'timed_out'].includes(r.conclusion))
+                .map((r) => r.name);
+
+              const hasLabel = pr.labels.some((l) => l.name === LABEL);
+
+              if (failed.length > 0 && !hasLabel) {
+                await github.rest.issues.addLabels({
+                  ...context.repo,
+                  issue_number: pr.number,
+                  labels: [LABEL],
+                });
+                labelled += 1;
+                core.info(`#${pr.number}: labelled, failed: ${failed.join(', ')}`);
+              } else if (failed.length === 0 && hasLabel) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    ...context.repo,
+                    issue_number: pr.number,
+                    name: LABEL,
+                  });
+                  cleared += 1;
+                  core.info(`#${pr.number}: cleared`);
+                } catch (error) {
+                  // 404 means someone removed it by hand first.
+                  if (error.status !== 404) {
+                    throw error;
+                  }
+                }
+              }
+            }
+
+            core.info(`${open.length} checked: ${labelled} labelled, ${cleared} cleared`);
