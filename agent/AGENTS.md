@@ -144,6 +144,7 @@ cmd/
 
 internal/
 ├── agent/          # Core agent server implementation
+├── attest/         # Illustration-only controller call-home JWT POST
 ├── grpcserver/     # gRPC registration / reflection
 └── k8s/            # Kubernetes command utilities
 

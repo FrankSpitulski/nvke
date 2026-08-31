@@ -58,3 +58,11 @@ func TestAuthorizeClient(t *testing.T) {
 		})
 	}
 }
+
+func TestMaybeControllerAttestSkippedWhenEndpointEmpty(t *testing.T) {
+	t.Parallel()
+
+	if err := maybeControllerAttest(t.Context(), AgentConfig{}); err != nil {
+		t.Fatalf("maybeControllerAttest() = %v, want nil when endpoint is empty", err)
+	}
+}

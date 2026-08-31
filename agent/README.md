@@ -46,6 +46,9 @@ Important flags (also settable via env; see `AGENT_ARGS`):
 | `--cni-image-registry` | Optional OCI prefix for CNI helm `global.registry` (`NKE_CNI_IMAGE_REGISTRY`) |
 | `--disable-mtls` | Plaintext gRPC (**development only**) |
 | `--spiffe-socket-path` | SPIFFE workload API socket (ignored with `--disable-mtls`) |
+| `--controller-endpoint` | Optional absolute controller URL. When set, POST a stub JWT (call-home illustration; no PEM). Also `NKE_CONTROLLER_ENDPOINT` |
+| `--controller-attest-path` | Path on the controller for that POST (default `/stub/v1/attest`; not a CWE API) |
+| `--stub-attest-jwt` | Illustration token (not TPM-backed). Also `NKE_STUB_ATTEST_JWT` |
 | `--secure-server-port` | gRPC listen port (default `15005`) |
 | `--version` | Print build version and exit |
 
@@ -139,6 +142,25 @@ Never paste production tokens, certificate keys, or encryption keys into the REA
 
 Production should use SPIFFE mTLS (default). `--disable-mtls` is for local/dev only.
 Clients need a matching SPIFFE identity (path prefix `/nke-service/`).
+
+## Controller call-home stub (illustration)
+
+Security's proposed bootstrap is: give the agent **only** a controller URL (no
+trust-bundle PEM), mint a TPM-backed JWT on the node, and POST it to the
+controller. CWE has no such API yet, and TPM JWT format is unspecified.
+
+This stub shows the agent-side sequence:
+
+1. `--controller-endpoint=https://nke.example` (TLS via the OS/system trust store)
+2. Agent uses `StubAttestor` (placeholder JWT), not `tpm2`
+3. `POST {endpoint}/stub/v1/attest` with `Authorization: Bearer …`
+4. Log status/body; do not parse join tokens
+
+Current CWE will 404; that is expected. Empty `--controller-endpoint` skips this.
+
+```bash
+AGENT_ARGS="--disable-mtls --controller-endpoint=https://nke.example"
+```
 
 ## Build notes
 

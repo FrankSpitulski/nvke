@@ -28,6 +28,7 @@ import (
 	"google.golang.org/grpc/peer"
 
 	server "github.com/NVIDIA/nke/agent/internal/agent"
+	"github.com/NVIDIA/nke/agent/internal/attest"
 	"github.com/NVIDIA/nke/agent/internal/grpcserver"
 )
 
@@ -66,6 +67,11 @@ type AgentConfig struct {
 	ScriptExecutionLogger *slog.Logger
 	DisableMTLS           bool
 	SPIFFESocketPath      string
+	// ControllerEndpoint, when set, POSTs a stub JWT to the controller before
+	// serving gRPC. Illustration only; CWE has no attest API yet.
+	ControllerEndpoint   string
+	ControllerAttestPath string
+	StubAttestJWT        string
 }
 
 func Bootstrap(kubeVersion string) error {
@@ -253,6 +259,61 @@ func RunNodeStartup(cfg AgentConfig) (*server.NodeAgentServer, error) {
 	return agentServer, nil
 }
 
+// maybeControllerAttest POSTs a stub JWT to the controller when an endpoint is
+// configured. TLS uses the process default trust store (no extra PEM).
+func maybeControllerAttest(ctx context.Context, cfg AgentConfig) error {
+	if strings.TrimSpace(cfg.ControllerEndpoint) == "" {
+		return nil
+	}
+
+	nodeName, err := os.Hostname()
+	if err != nil {
+		slog.Warn("hostname unavailable for attest request", "err", err)
+		nodeName = ""
+	}
+
+	jwt := cfg.StubAttestJWT
+	if strings.TrimSpace(jwt) == "" {
+		jwt = attest.DefaultStubJWT
+	}
+
+	client := &attest.Client{
+		Endpoint: cfg.ControllerEndpoint,
+		Path:     cfg.ControllerAttestPath,
+		Attestor: attest.StubAttestor{JWTValue: jwt},
+	}
+
+	path := cfg.ControllerAttestPath
+	if strings.TrimSpace(path) == "" {
+		path = attest.DefaultPath
+	}
+	slog.Info("posting stub attest jwt to controller",
+		"endpoint", cfg.ControllerEndpoint,
+		"path", path,
+		"nodeName", nodeName,
+	)
+
+	result, err := client.Attest(ctx, attest.Request{NodeName: nodeName})
+	if err != nil {
+		if result.StatusCode != 0 {
+			slog.Error("controller attest stub failed",
+				"url", result.URL,
+				"status", result.StatusCode,
+				"body", result.Body,
+				"err", err,
+			)
+		}
+		return err
+	}
+
+	slog.Info("controller attest stub succeeded",
+		"url", result.URL,
+		"status", result.StatusCode,
+		"body", result.Body,
+	)
+	return nil
+}
+
 func main() {
 	disableMLX5Rescan := flag.Bool("disable-mlx5-rescan", false, "Disable mlx5 rescan (disables the init routine mlx5 reset proc)")
 	disableMTLS := flag.Bool("disable-mtls", false, "Disable mTLS / use plaintext gRPC (development only)")
@@ -278,6 +339,21 @@ func main() {
 		"cni-image-registry",
 		envOr("NKE_CNI_IMAGE_REGISTRY", ""),
 		"OCI registry prefix for CNI component images (e.g. registry.example.com/nke). When set, passed to the CNI helm chart as --set global.registry=<value>. Also set via NKE_CNI_IMAGE_REGISTRY",
+	)
+	controllerEndpoint := flag.String(
+		"controller-endpoint",
+		envOr("NKE_CONTROLLER_ENDPOINT", ""),
+		"Absolute controller URL for the illustration-only call-home attest POST (no trust-bundle PEM). Empty skips attest. Also NKE_CONTROLLER_ENDPOINT",
+	)
+	controllerAttestPath := flag.String(
+		"controller-attest-path",
+		attest.DefaultPath,
+		"Path on --controller-endpoint for the stub attest POST. Not a CWE API",
+	)
+	stubAttestJWT := flag.String(
+		"stub-attest-jwt",
+		envOr("NKE_STUB_ATTEST_JWT", attest.DefaultStubJWT),
+		"Illustration JWT posted to the controller. Not TPM-backed. Also NKE_STUB_ATTEST_JWT",
 	)
 	flag.Parse()
 
@@ -312,10 +388,17 @@ func main() {
 		ScriptExecutionLogger: scriptExecutionLogger,
 		DisableMTLS:           *disableMTLS,
 		SPIFFESocketPath:      *spiffeSocketPath,
+		ControllerEndpoint:    *controllerEndpoint,
+		ControllerAttestPath:  *controllerAttestPath,
+		StubAttestJWT:         *stubAttestJWT,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if err := maybeControllerAttest(ctx, cfg); err != nil {
+		log.Fatalf("controller attest stub: %v", err)
+	}
 
 	slog.Info("initializing node agent and setting status")
 	agentServer, err := RunNodeStartup(cfg)
