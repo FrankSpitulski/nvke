@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -86,7 +87,7 @@ func TestBootstrapSiteCommandWired(t *testing.T) {
 // and dry-run returns no error without dispatching anything.
 func TestRunBootstrapSiteDryRunValid(t *testing.T) {
 	path := writeInventory(t, validInventory)
-	if err := runBootstrapSite(&bootstrapSiteOptions{inventory: path, dryRun: true}); err != nil {
+	if err := runBootstrapSite(io.Discard, &bootstrapSiteOptions{inventory: path, dryRun: true}); err != nil {
 		t.Fatalf("dry-run of valid inventory returned error: %v", err)
 	}
 }
@@ -108,7 +109,7 @@ registry:
   bootstrapRepo: "nvcr.io/org/cloud-workflow-engine"
   bootstrapChart: "cloud-workflow-engine"
 `
-	err := runBootstrapSite(&bootstrapSiteOptions{inventory: writeInventory(t, bad)})
+	err := runBootstrapSite(io.Discard, &bootstrapSiteOptions{inventory: writeInventory(t, bad)})
 	if err == nil {
 		t.Fatal("invalid inventory did not error")
 	}
@@ -130,7 +131,7 @@ func TestRunBootstrapSiteValidReachesStub(t *testing.T) {
 	t.Setenv("NKECTL_CWE_PROFILES_IMAGE", "nvcr.io/org/cwe-profiles:v1")
 
 	runner := &recordingRunner{next: fakeBootstrapRunner{}}
-	err := runBootstrapSite(&bootstrapSiteOptions{
+	err := runBootstrapSite(io.Discard, &bootstrapSiteOptions{
 		inventory:       writeInventory(t, validInventory),
 		bootstrapRunner: runner,
 		cweRunner:       fakeCWERunner{},
@@ -159,7 +160,7 @@ func TestRunBootstrapSiteUsesTheProviderCLI(t *testing.T) {
 	// --bootstrap-provider value -> the CLI the lookup must use.
 	for provider, wantCLI := range map[string]string{"": "nerdctl", "docker": "docker"} {
 		runner := &recordingRunner{next: fakeBootstrapRunner{}}
-		_ = runBootstrapSite(&bootstrapSiteOptions{
+		_ = runBootstrapSite(io.Discard, &bootstrapSiteOptions{
 			inventory:       writeInventory(t, validInventory),
 			provider:        provider,
 			bootstrapRunner: runner,
@@ -182,7 +183,7 @@ func TestRunBootstrapSiteMissingCWEImage(t *testing.T) {
 	t.Setenv("NKECTL_CWE_IMAGE", "")
 
 	runner := &recordingRunner{next: fakeBootstrapRunner{}}
-	err := runBootstrapSite(&bootstrapSiteOptions{
+	err := runBootstrapSite(io.Discard, &bootstrapSiteOptions{
 		inventory:       writeInventory(t, validInventory),
 		bootstrapRunner: runner,
 		cweRunner:       fakeCWERunner{},
@@ -259,11 +260,11 @@ func TestDumpInventoryRedactsRegistryAPIKey(t *testing.T) {
 		t.Fatalf("fixture did not set the api key: got %q, want %q", inv.Registry.APIKey, secret)
 	}
 
-	out := captureStdout(t, func() {
-		if err := dumpInventory(inv); err != nil {
-			t.Fatalf("dumpInventory: %v", err)
-		}
-	})
+	var buf bytes.Buffer
+	if err := dumpInventory(&buf, inv); err != nil {
+		t.Fatalf("dumpInventory: %v", err)
+	}
+	out := buf.String()
 
 	if strings.Contains(out, secret) {
 		t.Errorf("dumpInventory printed the registry credential:\n%s", out)
@@ -278,34 +279,6 @@ func TestDumpInventoryRedactsRegistryAPIKey(t *testing.T) {
 	}
 }
 
-// captureStdout runs fn with os.Stdout replaced by a pipe and returns what was
-// written. dumpInventory writes to os.Stdout directly rather than to an
-// injected writer, so this is the only way to observe it.
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	orig := os.Stdout
-	os.Stdout = w
-	defer func() { os.Stdout = orig }()
-
-	done := make(chan string, 1)
-	go func() {
-		var sb strings.Builder
-		_, _ = io.Copy(&sb, r)
-		done <- sb.String()
-	}()
-
-	fn()
-
-	if err := w.Close(); err != nil {
-		t.Fatalf("close pipe writer: %v", err)
-	}
-	return <-done
-}
-
 // TestRunBootstrapSite_DiagnosticsOnlyOnRealFailures guards the distinction the
 // dump depends on. Every run ends in an error today — the dispatch stub — so
 // dumping on "returned an error" would collect a cluster bundle on every
@@ -317,7 +290,7 @@ func TestRunBootstrapSite_DiagnosticsOnlyOnRealFailures(t *testing.T) {
 
 	t.Run("the dispatch stub writes nothing", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "cluster-diagnostics")
-		err := runBootstrapSite(&bootstrapSiteOptions{
+		err := runBootstrapSite(io.Discard, &bootstrapSiteOptions{
 			inventory:       writeInventory(t, validInventory),
 			diagnosticsDir:  dir,
 			bootstrapRunner: fakeBootstrapRunner{},
@@ -337,7 +310,7 @@ func TestRunBootstrapSite_DiagnosticsOnlyOnRealFailures(t *testing.T) {
 		t.Setenv("NKECTL_CWE_READY_TIMEOUT", "1s")
 		dir := filepath.Join(t.TempDir(), "cluster-diagnostics")
 		// CWE never reports healthy: the failure this exists for.
-		err := runBootstrapSite(&bootstrapSiteOptions{
+		err := runBootstrapSite(io.Discard, &bootstrapSiteOptions{
 			inventory:       writeInventory(t, validInventory),
 			diagnosticsDir:  dir,
 			bootstrapRunner: fakeBootstrapRunner{},

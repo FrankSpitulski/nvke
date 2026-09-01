@@ -6,7 +6,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"runtime"
 
 	"github.com/spf13/cobra"
@@ -49,22 +48,22 @@ func newVersionCmd(ver, commit, treeState, date string) *cobra.Command {
 			}
 			switch of {
 			case "":
-				fmt.Fprintf(os.Stdout, "nkectl %s (commit: %s, built: %s)\n",
+				fmt.Fprintf(cmd.OutOrStdout(), "nkectl %s (commit: %s, built: %s)\n",
 					v.BuildVersion, v.GitCommit, v.BuildDate)
 			case "short":
-				fmt.Fprintln(os.Stdout, v.BuildVersion)
+				fmt.Fprintln(cmd.OutOrStdout(), v.BuildVersion)
 			case "yaml":
 				out, err := yaml.Marshal(&v)
 				if err != nil {
 					return fmt.Errorf("marshaling yaml: %w", err)
 				}
-				fmt.Fprint(os.Stdout, string(out))
+				fmt.Fprint(cmd.OutOrStdout(), string(out))
 			case "json":
 				out, err := json.MarshalIndent(&v, "", "  ")
 				if err != nil {
 					return fmt.Errorf("marshaling json: %w", err)
 				}
-				fmt.Fprintln(os.Stdout, string(out))
+				fmt.Fprintln(cmd.OutOrStdout(), string(out))
 			default:
 				return fmt.Errorf("unknown output format %q; supported: short, yaml, json", of)
 			}

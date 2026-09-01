@@ -5,7 +5,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -31,7 +30,7 @@ func newConfigSetSiteCmd() *cobra.Command {
 		Short: "Configure the site controller the CLI connects to",
 		Long:  `Store the URL for a site controller in ~/.config/nkectl/config.yaml.`,
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if url == "" {
 				return fmt.Errorf("--url is required")
 			}
@@ -47,7 +46,7 @@ func newConfigSetSiteCmd() *cobra.Command {
 			if err := cfg.Save(); err != nil {
 				return fmt.Errorf("saving config: %w", err)
 			}
-			fmt.Fprintf(os.Stdout, "Site %q configured (url: %s)\n", name, url)
+			fmt.Fprintf(cmd.OutOrStdout(), "Site %q configured (url: %s)\n", name, url)
 			return nil
 		},
 	}
@@ -61,12 +60,12 @@ func newConfigViewCmd() *cobra.Command {
 		Use:   "view",
 		Short: "Print the current nkectl configuration",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.Load()
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
 			}
-			return yaml.NewEncoder(os.Stdout).Encode(cfg)
+			return yaml.NewEncoder(cmd.OutOrStdout()).Encode(cfg)
 		},
 	}
 }

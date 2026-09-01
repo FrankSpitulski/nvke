@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 
@@ -87,8 +88,8 @@ inventory file format.`,
   REGISTRY_API_KEY=... nkectl bootstrap site -i inventory.yaml`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runBootstrapSite(opts)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runBootstrapSite(cmd.OutOrStdout(), opts)
 		},
 	}
 
@@ -113,7 +114,7 @@ inventory file format.`,
 	return cmd
 }
 
-func runBootstrapSite(opts *bootstrapSiteOptions) (err error) {
+func runBootstrapSite(out io.Writer, opts *bootstrapSiteOptions) (err error) {
 	logger := slog.Default().With("component", "bootstrap-site")
 
 	// Step 1: load and validate the inventory. Fail fast on any problem.
@@ -130,12 +131,12 @@ func runBootstrapSite(opts *bootstrapSiteOptions) (err error) {
 		inv.Registry.APIKey = opts.registryAPIKey
 	}
 
-	if err := dumpInventory(inv); err != nil {
+	if err := dumpInventory(out, inv); err != nil {
 		return err
 	}
 
 	if opts.dryRun {
-		fmt.Fprintln(os.Stdout, "\nDry run: inventory is valid. No workflow dispatched.")
+		fmt.Fprintln(out, "\nDry run: inventory is valid. No workflow dispatched.")
 		return nil
 	}
 
@@ -331,16 +332,16 @@ func ensureImageAvailable(
 
 // dumpInventory prints the loaded, defaulted inventory as YAML so the operator
 // can see exactly what was parsed. The registry credential is redacted.
-func dumpInventory(inv *inventory.Inventory) error {
+func dumpInventory(out io.Writer, inv *inventory.Inventory) error {
 	redacted := *inv
 	if redacted.Registry.APIKey != "" {
 		redacted.Registry.APIKey = "***redacted***"
 	}
-	out, err := yaml.Marshal(&redacted)
+	y, err := yaml.Marshal(&redacted)
 	if err != nil {
 		return fmt.Errorf("marshal inventory: %w", err)
 	}
-	fmt.Fprintln(os.Stdout, "Loaded inventory:")
-	fmt.Fprint(os.Stdout, string(out))
+	fmt.Fprintln(out, "Loaded inventory:")
+	fmt.Fprint(out, string(y))
 	return nil
 }

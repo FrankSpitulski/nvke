@@ -57,9 +57,9 @@ func NewGetCmd(clientFn ClientFn) *cobra.Command {
 				}
 			}
 			if f != util.FormatTable {
-				return util.Print(os.Stdout, f, cls)
+				return util.Print(cmd.OutOrStdout(), f, cls)
 			}
-			printClusters(cls)
+			printClusters(cmd.OutOrStdout(), cls)
 			return nil
 		},
 	}
@@ -96,9 +96,9 @@ func NewDescribeCmd(clientFn ClientFn) *cobra.Command {
 				return err
 			}
 			if f == util.FormatTable {
-				return util.PrintFields(os.Stdout, cl2)
+				return util.PrintFields(cmd.OutOrStdout(), cl2)
 			}
-			return util.Print(os.Stdout, f, cl2)
+			return util.Print(cmd.OutOrStdout(), f, cl2)
 		},
 	}
 
@@ -140,8 +140,8 @@ Example — stdin via pipe:
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stdout, "Cluster %q created (id: %s)\n", cluster.Name, cluster.ID)
-			fmt.Fprintf(os.Stdout, "Provisioning is async — run 'nkectl get clusters' to check status.\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "Cluster %q created (id: %s)\n", cluster.Name, cluster.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "Provisioning is async — run 'nkectl get clusters' to check status.\n")
 			return nil
 		},
 	}
@@ -192,8 +192,8 @@ func NewDeleteCmd(clientFn ClientFn) *cobra.Command {
 			if err := c.DeleteCluster(cmd.Context(), cl.ID); err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stdout, "Cluster %q deletion started (id: %s)\n", cl.Name, cl.ID)
-			fmt.Fprintf(os.Stdout, "Deletion is async — run 'nkectl get clusters' to check status.\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "Cluster %q deletion started (id: %s)\n", cl.Name, cl.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "Deletion is async — run 'nkectl get clusters' to check status.\n")
 			return nil
 		},
 	}
@@ -229,9 +229,9 @@ func conditionIsTrue(condition *api.Condition) bool {
 	return condition != nil && condition.Status == api.ConditionStatusTrue
 }
 
-// printClusters writes a tabular summary of clusters to stdout.
-func printClusters(clusters []api.Cluster) {
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+// printClusters writes a tabular summary of clusters to out.
+func printClusters(out io.Writer, clusters []api.Cluster) {
+	w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
 	fmt.Fprintln(w, "NAME\tKUBERNETES VERSION\tCNI\tSTATUS\tID\tAGE")
 	for _, cl := range clusters {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
