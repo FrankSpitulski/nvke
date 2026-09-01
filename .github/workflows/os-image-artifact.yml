@@ -40,11 +40,6 @@ on:
       - "os-image/v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
   workflow_dispatch:
     inputs:
-      nke_agent_version:
-        description: "Agent GHCR tag to bake (.deb preferred). Example: v0.3.0 or edge"
-        required: false
-        default: "edge"
-        type: string
       dry_run:
         description: "Build and validate everything, but skip the GHCR push. The tag trigger always publishes; this only applies to a manual run."
         required: false
@@ -89,8 +84,6 @@ jobs:
     permissions:
       contents: write
       packages: write
-    env:
-      NKE_AGENT_VERSION: ${{ github.event.inputs.nke_agent_version || 'edge' }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -140,12 +133,18 @@ jobs:
             aliases+=("${version}")
           fi
 
+          # The agent is built from this same checkout; describe it the way
+          # agent/Makefile stamps main.VERSION.
+          agent_version="$(git describe --match 'agent/v*' --tags --always 2>/dev/null || git rev-parse --short HEAD)"
+          agent_version="${agent_version#agent/}"
+
           {
             echo "version=${version}"
             echo "aliases=${aliases[*]}"
+            echo "agent_version=${agent_version}"
           } >> "${GITHUB_OUTPUT}"
           echo "Publishing ${version} as: ${aliases[*]}"
-          echo "Baking nke-agent ${NKE_AGENT_VERSION}"
+          echo "Baking nke-agent ${agent_version} from source"
 
       - name: Build and test nke-os-image-check
         working-directory: os-image
@@ -208,8 +207,8 @@ jobs:
           sudo install -m 0755 "${tmp}/packer" /usr/local/bin/packer
           packer version
 
-      # fetch-artifacts.sh (run by every `make os-image-*` build below) pulls
-      # nke-agent/spire-agent from GHCR via oras.
+      # Only the qcow2 push below needs GHCR; fetch-artifacts.sh builds
+      # nke-agent from this checkout's source and pulls nothing from GHCR.
       - name: Log in to GHCR
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -221,7 +220,7 @@ jobs:
       - name: Build the FDE node image
         env:
           PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: make -C os-image/packer os-image-fde NKE_AGENT_VERSION="${NKE_AGENT_VERSION}"
+        run: make -C os-image/packer os-image-fde
 
       # Full acceptance run: LUKS2+TPM-sealed, wrong-TPM-fails,
       # reboot-auto-unlocks. No manual/scripted console interaction needed —
@@ -234,7 +233,7 @@ jobs:
       - name: Build the non-FDE node image
         env:
           PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: make -C os-image/packer os-image-non-fde NKE_AGENT_VERSION="${NKE_AGENT_VERSION}"
+        run: make -C os-image/packer os-image-non-fde
 
       - name: Boot-smoke the non-FDE qcow2
         run: |
@@ -324,8 +323,9 @@ jobs:
           draft: true
           body: |
             os-image ${{ steps.meta.outputs.version }}: the FDE and non-FDE Packer
-            node images, built and validated against nke-agent `${{ env.NKE_AGENT_VERSION }}`
-            (Ubuntu 26.04, linux/amd64).
+            node images, built and validated against nke-agent
+            `${{ steps.meta.outputs.agent_version }}` (built from source at this
+            commit; Ubuntu 26.04, linux/amd64).
 
             Pull the qcow2s with oras (not docker):
 

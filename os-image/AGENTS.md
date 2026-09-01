@@ -66,9 +66,9 @@ repository's `bin/`, and `make version-check` runs it with `--version`.
 - Do not hard-require `/dev/kvm`. `packer/Makefile` and `boot-smoke.sh` probe
   for it and fall back to `tcg`, because the CI runners are containers without
   it (https://github.com/NVIDIA/nke/issues/219).
-- `nke-agent` version may be `edge` or `vX.Y.Z`. Packer pulls the `.deb` from
-  `ghcr.io/nvidia/nke/agent-deb` via oras, and falls back to the OCI binary at
-  `ghcr.io/nvidia/nke/agent` when that tag has no package.
+- `nke-agent` is built from this checkout's `agent/` source at bake time
+  (`make -C agent build-amd64` in `fetch-artifacts.sh`); no prebuilt artifact
+  is pulled. Its version is the checkout's `git describe --match 'agent/v*'`.
 - Checker is a SPIFFE **client**. Do not embed a SPIRE server in the binary.
 - New files need the Apache-2.0 SPDX header (`make license`). Cloud-init
   user-data cannot: `#cloud-config` must be line 1, so examples live in

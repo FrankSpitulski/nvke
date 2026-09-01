@@ -21,7 +21,7 @@ Prereqs, on a Linux host:
 | Tool | Version | Install |
 |---|---|---|
 | [Packer](https://developer.hashicorp.com/packer) | >= 1.10.0 | https://developer.hashicorp.com/packer/install |
-| [ORAS](https://oras.land/) | any | https://oras.land/docs/installation |
+| [Go](https://go.dev/) | per `go.work` | https://go.dev/dl/ |
 | `curl` | any | via your package manager |
 | `qemu-system-x86_64`, `cloud-localds`, `swtpm`, OVMF | any | via your package manager |
 | `xorriso`, `p7zip-full` (`7z`) | any | via your package manager |
@@ -37,27 +37,15 @@ ISO patching (see its header comment for why).
 correct but roughly an order of magnitude slower. Force either mode with
 `make os-image-fde ACCELERATOR=tcg`. `boot-smoke.sh` does the same probe.
 
-`make os-image-fde`/`make os-image-non-fde` check for `oras` on `PATH` before
+`make os-image-fde`/`make os-image-non-fde` check for `go` on `PATH` before
 they boot the build VM and fail fast with the install link above if it's
 missing.
 
-If `ghcr.io/nvidia/nke/agent-deb` (or the binary fallback `ghcr.io/nvidia/nke/agent`) is private, log in first with a GitHub PAT
-(`read:packages` scope):
-
-```bash
-echo "<github-pat>" | oras login ghcr.io -u <your-github-username> --password-stdin
-```
-
-Credentials are cached (`~/.docker/config.json` by default), so `oras pull`
-in `fetch-artifacts.sh` picks them up automatically.
-
-`edge` (the default `NKE_AGENT_VERSION`, used below) is tip of `main`. The
-recipe **prefers** the nke-agent `.deb` from `ghcr.io/nvidia/nke/agent-deb`
-(published on `agent/v*` tags) and falls back to the OCI **binary** at
-`ghcr.io/nvidia/nke/agent` when no package exists for that tag. Pass a
-release tag without the `agent/` prefix to pull a `.deb`:
-`NKE_AGENT_VERSION=v0.3.0`. SPIRE agent is pinned (version + sha256) from
-GitHub Releases.
+`nke-agent` is built from this checkout's `agent/` source (cross-compiled to
+`linux/amd64` when the host differs), so the baked agent is whatever your
+checkout says — no prebuilt artifact is pulled. To bake a released agent,
+check out its `agent/vX.Y.Z` tag first. SPIRE agent is pinned (version +
+sha256) from GitHub Releases.
 
 The build-time cloud-init seed is only for Packer's SSH. The provisioner runs
 `cloud-init clean` and drops the build key, so each qcow2 is a golden image.
@@ -72,7 +60,7 @@ failure modes.
 
 ```bash
 cd packer
-make os-image-fde NKE_AGENT_VERSION=edge
+make os-image-fde
 ```
 
 Output: `packer/output-fde/nke-node-fde-ubuntu-<version>-<arch>.qcow2` (e.g.
@@ -93,7 +81,7 @@ into encryption.
 
 ```bash
 cd packer
-make os-image-non-fde NKE_AGENT_VERSION=edge
+make os-image-non-fde
 ```
 
 Output: `packer/output-non-fde/nke-node-non-fde-ubuntu-<version>-<arch>.qcow2`
@@ -163,9 +151,8 @@ serial console output (boot + autoinstall), uploaded regardless of outcome
 since there's no VNC/monitor access on the runner to inspect a stuck build
 interactively.
 
-Default bake uses `NKE_AGENT_VERSION=edge`. Override on a `workflow_dispatch`
-run, or by passing `NKE_AGENT_VERSION=v0.3.0` to `make os-image-fde`/
-`make os-image-non-fde` locally.
+The baked `nke-agent` is built from the tagged commit's `agent/` source, so
+the agent version is fixed by the ref the workflow runs on.
 
 ## First boot (cloud-init)
 

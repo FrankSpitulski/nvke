@@ -28,10 +28,6 @@ LUKS_PASSPHRASE ?= changeit
 ISO_URL      ?= https://releases.ubuntu.com/26.04/ubuntu-26.04-live-server-amd64.iso
 ISO_CHECKSUM ?= file:https://releases.ubuntu.com/26.04/SHA256SUMS
 
-NKE_AGENT_VERSION      ?= edge
-NKE_AGENT_REGISTRY     ?= ghcr.io/nvidia/nke/agent
-NKE_AGENT_DEB_REGISTRY ?= ghcr.io/nvidia/nke/agent-deb
-
 # Hardware acceleration where the host has it, software emulation where it does
 # not. Probed rather than declared: the CI runners are containers with no
 # /dev/kvm, so a fixed accelerator = kvm cannot build there at all, and a fixed
@@ -87,9 +83,9 @@ prepare-installer-iso:
 	ISO_URL=$(ISO_URL) ISO_CHECKSUM=$(ISO_CHECKSUM) OUT_DIR=$(ISO_CACHE) ./scripts/prepare-installer-iso.sh
 
 check-deps:
-	@command -v oras >/dev/null 2>&1 || { \
-		echo "oras is required to pull $(NKE_AGENT_DEB_REGISTRY) (or $(NKE_AGENT_REGISTRY))" >&2; \
-		echo "https://oras.land/docs/installation" >&2; \
+	@command -v go >/dev/null 2>&1 || { \
+		echo "go is required to build nke-agent from source (agent/)" >&2; \
+		echo "https://go.dev/dl/" >&2; \
 		exit 1; \
 	}
 
@@ -102,14 +98,8 @@ os-image-fde: check-deps ssh-key init-fde prepare-installer-iso
 	@if [ "$(ACCELERATOR)" = "tcg" ]; then \
 		echo "no usable /dev/kvm: building with software emulation, which is far slower"; \
 	fi
-	NKE_AGENT_VERSION=$(NKE_AGENT_VERSION) \
-	NKE_AGENT_REGISTRY=$(NKE_AGENT_REGISTRY) \
-	NKE_AGENT_DEB_REGISTRY=$(NKE_AGENT_DEB_REGISTRY) \
 	PKR_VAR_luks_passphrase=$(LUKS_PASSPHRASE) \
 	$(PACKER) build \
-		-var nke_agent_version=$(NKE_AGENT_VERSION) \
-		-var nke_agent_registry=$(NKE_AGENT_REGISTRY) \
-		-var nke_agent_deb_registry=$(NKE_AGENT_DEB_REGISTRY) \
 		-var accelerator=$(ACCELERATOR) \
 		-var cpu_model=$(CPU_MODEL) \
 		-var ssh_timeout=$(SSH_TIMEOUT) \
@@ -125,13 +115,7 @@ os-image-non-fde: check-deps ssh-key init-non-fde prepare-installer-iso
 	@if [ "$(ACCELERATOR)" = "tcg" ]; then \
 		echo "no usable /dev/kvm: building with software emulation, which is far slower"; \
 	fi
-	NKE_AGENT_VERSION=$(NKE_AGENT_VERSION) \
-	NKE_AGENT_REGISTRY=$(NKE_AGENT_REGISTRY) \
-	NKE_AGENT_DEB_REGISTRY=$(NKE_AGENT_DEB_REGISTRY) \
 	$(PACKER) build \
-		-var nke_agent_version=$(NKE_AGENT_VERSION) \
-		-var nke_agent_registry=$(NKE_AGENT_REGISTRY) \
-		-var nke_agent_deb_registry=$(NKE_AGENT_DEB_REGISTRY) \
 		-var accelerator=$(ACCELERATOR) \
 		-var cpu_model=$(CPU_MODEL) \
 		-var ssh_timeout=$(SSH_TIMEOUT) \

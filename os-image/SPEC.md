@@ -15,7 +15,7 @@ TODO:  Need to refine the requirements around spire-agent below
 | Item | Requirement |
 |---|---|
 | OS | Ubuntu 26.04 LTS, `linux/amd64` for the first reference image. |
-| `nke-agent` | Installed at `/usr/local/bin/nke-agent` from the nke-agent `.deb` when GHCR has one for the requested tag, otherwise the OCI binary. systemd unit `nke-agent.service` **enabled**. Listens on TCP **15005**. mTLS is on (no `--disable-mtls` in `/etc/default/nke-agent`). A drop-in waits for the SPIRE workload API before exec. |
+| `nke-agent` | Built from this repository's `agent/` source at bake time and installed at `/usr/local/bin/nke-agent`. systemd unit `nke-agent.service` **enabled**. Listens on TCP **15005**. mTLS is on (no `--disable-mtls` in `/etc/default/nke-agent`). The unit waits for the SPIRE workload API before exec. |
 | SPIRE agent | `spire-agent` at `/usr/local/bin/spire-agent`, unit `spire-agent.service` **enabled**. Workload API socket at `unix:///tmp/spire-agent/public/api.sock` (the `nke-agent` default). |
 | Unix workload attestor | SPIRE `WorkloadAttestor "unix"` so root `nke-agent` can fetch an X.509 SVID. |
 | Node attestor | Join-token (`NodeAttestor "join_token"`). TPM *node attestation* (proving node identity to SPIRE) is out of scope for this reference image — see "Must have (FDE variant)" below for the unrelated use of TPM to seal the disk-encryption key. |

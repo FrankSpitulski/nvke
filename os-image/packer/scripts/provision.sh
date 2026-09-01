@@ -16,21 +16,8 @@ sudo install -m 0644 "${SRC}/spire-agent.conf.tmpl" /usr/lib/nke/spire-agent.con
 sudo install -m 0644 "${SRC}/spire-agent.service" /etc/systemd/system/spire-agent.service
 sudo install -m 0644 "${SRC}/nke-spire-configure.service" /etc/systemd/system/nke-spire-configure.service
 
-if [[ -f "${SRC}/nke-agent.deb" ]]; then
-  # policy-rc.d 101: do not start services during the golden-image build.
-  # The stock postinst would otherwise systemctl restart nke-agent before SPIRE
-  # exists on this VM.
-  echo '#!/bin/sh' | sudo tee /usr/sbin/policy-rc.d >/dev/null
-  echo 'exit 101' | sudo tee -a /usr/sbin/policy-rc.d >/dev/null
-  sudo chmod 0755 /usr/sbin/policy-rc.d
-  sudo dpkg -i "${SRC}/nke-agent.deb"
-  sudo rm -f /usr/sbin/policy-rc.d
-  sudo install -d -m 0755 /etc/systemd/system/nke-agent.service.d
-  sudo install -m 0644 "${SRC}/nke-agent-spiffe.conf" /etc/systemd/system/nke-agent.service.d/spiffe.conf
-else
-  sudo install -m 0755 "${SRC}/nke-agent" /usr/local/bin/nke-agent
-  sudo install -m 0644 "${SRC}/nke-agent.service" /etc/systemd/system/nke-agent.service
-fi
+sudo install -m 0755 "${SRC}/nke-agent" /usr/local/bin/nke-agent
+sudo install -m 0644 "${SRC}/nke-agent.service" /etc/systemd/system/nke-agent.service
 
 if [[ ! -f /etc/default/nke-agent ]]; then
   echo 'AGENT_ARGS=""' | sudo tee /etc/default/nke-agent >/dev/null
