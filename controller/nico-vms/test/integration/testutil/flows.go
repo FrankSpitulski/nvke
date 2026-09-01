@@ -21,6 +21,20 @@ import (
 // ProductionImageURL is the default production FDE qcow2 image used by e2e tests.
 const ProductionImageURL = "https://d3mq564cn7sth7.cloudfront.net/nke-isos/qcow/images/24.04/x86_64/lvm/2026-03-23/1774290565/nke-24.04-x86_64-lvm-2026-03-23-1774290565.qcow2"
 
+// The other pinned artifacts, named so both architectures' pins are visible
+// together. They are not from one build: the aarch64 pair predates the x86_64
+// one, and create-forge-nico-cluster.sh pins a third EFI again.
+//
+// Only the qcow2s are fetched. ipxe.Parse drops the boot-loader URL and
+// engine.go downloads spec.ImageURL alone, so the EFI pins exist to keep these
+// scripts verbatim copies of the production osProfiles. Changing one cannot
+// change what a test boots.
+const (
+	productionARM64ImageURL      = "https://d3mq564cn7sth7.cloudfront.net/nke-isos/qcow/images/24.04/aarch64/lvm/2026-03-04/1772595122/nke-24.04-aarch64-lvm-2026-03-04-1772595122.qcow2"
+	productionAMD64BootLoaderURL = "https://d3mq564cn7sth7.cloudfront.net/nke-isos/qcow/efi/x86_64/2026-03-10/1773155704/qcow-imager.efi"
+	productionARM64BootLoaderURL = "https://d3mq564cn7sth7.cloudfront.net/nke-isos/qcow/efi/aarch64/2026-03-06/1772834088/qcow-imager.efi"
+)
+
 // RunCreatePollReadyAndDeleteFlow creates an instance, waits for it to reach
 // "ready", then deletes it and polls until the 404 confirms removal.
 func RunCreatePollReadyAndDeleteFlow(t *testing.T, env *TestEnv, profile RuntimeProfile) {
@@ -429,7 +443,7 @@ func RunIPXEProductionCloudInitFlow(t *testing.T, env *TestEnv, profile RuntimeP
 	t.Logf("Using image URL: %s", imageURL)
 
 	productionAMD64Script := fmt.Sprintf(`#!ipxe
-set boot-loader https://d3mq564cn7sth7.cloudfront.net/nke-isos/qcow/efi/x86_64/2026-03-10/1773155704/qcow-imager.efi
+set boot-loader %s
 set image-url %s
 set disk-strategy smallest
 set console-config console=tty0 console=ttyS1,115200
@@ -438,7 +452,7 @@ set luks-key luks.key=changeit
 set cloud-init-ds ds=nocloud-net;s=${cloudinit-url}
 chain ${boot-loader} ${console-config} ${kernel-params} ${luks-key} image_url=${image-url} disk_strategy=${disk-strategy} ${cloud-init-ds} update_grub_template=yes update_grub_cfg=yes
 boot
-`, imageURL)
+`, productionAMD64BootLoaderURL, imageURL)
 	createPayload := &forgesdk.InstanceCreateRequest{
 		Name:             instanceName,
 		TenantId:         "d282929f-49d5-4dec-8d27-21ceb30ade19",
@@ -563,7 +577,7 @@ func RunIPXEProductionImageFlow(t *testing.T, env *TestEnv, profile RuntimeProfi
 	// Verbatim production FDE iPXE scripts from profiles/osProfiles.
 	// Select based on host architecture so the test runs on both x86_64 and ARM64.
 	productionAMD64Script := fmt.Sprintf(`#!ipxe
-set boot-loader https://d3mq564cn7sth7.cloudfront.net/nke-isos/qcow/efi/x86_64/2026-03-10/1773155704/qcow-imager.efi
+set boot-loader %s
 set image-url %s
 set disk-strategy {{ .DiskSelectionStrategy }}
 set console-config console=tty0 console=ttyS1,115200
@@ -572,10 +586,10 @@ set luks-key luks.key=changeit
 set cloud-init-ds ds=nocloud-net;s=${cloudinit-url}
 chain ${boot-loader} ${console-config} ${kernel-params} ${luks-key} image_url=${image-url} disk_strategy=${disk-strategy} ${cloud-init-ds} update_grub_template=yes update_grub_cfg=yes
 boot
-`, ProductionImageURL)
-	const productionARM64Script = `#!ipxe
-set boot-loader https://d3mq564cn7sth7.cloudfront.net/nke-isos/qcow/efi/aarch64/2026-03-06/1772834088/qcow-imager.efi
-set image-url https://d3mq564cn7sth7.cloudfront.net/nke-isos/qcow/images/24.04/aarch64/lvm/2026-03-04/1772595122/nke-24.04-aarch64-lvm-2026-03-04-1772595122.qcow2
+`, productionAMD64BootLoaderURL, ProductionImageURL)
+	productionARM64Script := fmt.Sprintf(`#!ipxe
+set boot-loader %s
+set image-url %s
 set disk-strategy {{ .DiskSelectionStrategy }}
 set console-config console=ttyAMA0,115200
 set kernel-params ip=dhcp fb=false pci=realloc=off loglevel=1 iommu=pt
@@ -583,7 +597,7 @@ set luks-key luks.key=changeit
 set cloud-init-ds ds=nocloud-net;s=${cloudinit-url}
 chain ${boot-loader} ${console-config} ${kernel-params} ${luks-key} image_url=${image-url} disk_strategy=${disk-strategy} ${cloud-init-ds} update_grub_template=yes update_grub_cfg=yes
 boot
-`
+`, productionARM64BootLoaderURL, productionARM64ImageURL)
 
 	var productionIPXEScript string
 	if runtime.GOARCH == "arm64" {

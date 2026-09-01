@@ -57,11 +57,19 @@ jobs:
       NKE_INTERNAL_RO_TOKEN: ${{ secrets.NKE_INTERNAL_RO_TOKEN }}
     with:
       backend: nico
-      label-filter: nico-containers
+      # Same expression the CAPD lane runs. health and authn hit the
+      # management-cluster CWE, not the tenant backend, so this lane already
+      # pays for them. authn-spire is out because the NICo provider does not
+      # set SPIFFE_ENABLED. This cannot reach the nico-vms specs: different
+      # backend, and the Tiltfile rejects nico and nico-vms together.
+      label-filter: nico-containers || health || (authn && !authn-spire) || authn-permissive
       # No capd here: the Tiltfile rejects nico alongside nico-vms, and the
       # NICo provider brings its own node image step. capi_core is required.
       providers: '["capi_core", "bgp-containers", "nico"]'
       # 15m provision + 10m delete for the spec itself, plus building CAPNICo
       # and the node image. Generous until there is real data.
       timeout-minutes: 120
+      # Without this, a broken auth deployment turns the authn specs into
+      # skips and the lane stays green having tested nothing new.
+      require-authn: true
       needs-nico-provider: true

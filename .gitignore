@@ -21,6 +21,11 @@ os-image/packer/iso-cache/
 os-image/packer/build-logs/
 os-image/packer/.ssh/
 
+# qcow-imager.efi build. .infra-controller/ is the pinned upstream checkout the
+# build runs in; it also holds mkosi's package cache, which is most of the disk.
+os-image/efi/.infra-controller/
+os-image/efi/output/
+
 # Personal environment read by .envrc. It holds credentials, so the ignore has to
 # sit wherever .envrc does. The rule was in controller/.gitignore and scoped to
 # that directory.
