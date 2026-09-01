@@ -23,7 +23,8 @@
 #      onto it (cli/internal/cwedeploy) and waits for CWE to report healthy on
 #      /readyz, then stops at its not-yet-implemented workflow-dispatch stub.
 #      Both the CWE-healthy line and the stub error are asserted by name, so a
-#      change that silently skips the deploy is caught here.
+#      change that silently skips the deploy is caught here. The stub assertion
+#      does not require the command to fail -- see the stage itself.
 #   3. The Kind cluster is confirmed gone afterwards. It is torn down by this
 #      script rather than by the command, because stage 4 needs it kept alive.
 #   4. TPM node attestation, on the docker provider only. The fake nodes boot
@@ -248,9 +249,12 @@ status=$?
 set -e
 printf '%s\n' "${output}"
 
-# Same contract as stage 2 — the command still stops at the dispatch stub.
-if [ "${status}" -eq 0 ]; then
-  log "FAIL: expected the bootstrap-dispatch stub to error, but the command exited 0"
+# By name, not by exit code: any non-zero exit passed, so a real failure after
+# the deploy read as success. Exit 0 passes too, so the change that implements
+# dispatch does not fail this required lane. The CWE-healthy check below holds
+# either way, and the success assertion arrives with the code that earns it.
+if [ "${status}" -ne 0 ] && ! grep -q "not yet implemented" <<<"${output}"; then
+  log "FAIL: bootstrap site exited ${status} for a reason other than the dispatch stub"
   exit 1
 fi
 if ! grep -q "cwe deployment healthy" <<<"${output}"; then
