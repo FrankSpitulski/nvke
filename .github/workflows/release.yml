@@ -104,10 +104,14 @@ jobs:
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "Releasing ${TAG}: module='${DIR:-<repository>}' version=${VERSION}"
 
+      # go.work, not cli/go.mod, like every other workflow here. setup-go pins
+      # GOTOOLCHAIN=local, so the toolchain must satisfy the workspace, which
+      # asks for the highest of its members. go.work went to 1.26.6 while
+      # cli/go.mod stayed on 1.26.5, and build-cross failed on every cli/v* tag.
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: cli/go.mod
+          go-version-file: go.work
 
       # What each component ships differs, so it is declared rather than guessed.
       # A component with no artifacts still gets a release: the tag and its notes
@@ -152,6 +156,35 @@ jobs:
             echo "has_files=false" >> "${GITHUB_OUTPUT}"
             echo "count=0" >> "${GITHUB_OUTPUT}"
           fi
+
+      # build-cross stamps the version from `git describe`, this job takes it
+      # from the tag, and nothing tied the two together. The runner is
+      # linux/amd64, so the shipped binary can be asked directly.
+      - name: Check nkectl reports the tag version
+        if: steps.component.outputs.dir == 'cli'
+        shell: bash
+        env:
+          VERSION: ${{ steps.component.outputs.version }}
+        run: |
+          set -euo pipefail
+          BIN="${GITHUB_WORKSPACE}/dist/nkectl-linux-amd64"
+
+          # 2>&1 and the exit check, so a binary that dies on start fails here
+          # rather than printing nothing and matching whatever comes last.
+          if ! out="$("${BIN}" version 2>&1)"; then
+            echo "::error::${BIN} version exited non-zero: ${out}"
+            exit 1
+          fi
+
+          # The trailing space is load-bearing: it stops a v0.1.0 tag accepting
+          # a v0.1.0-rc.1 binary, or a describe with commits after the tag.
+          case "${out}" in
+            "nkectl ${VERSION} "*) echo "nkectl reports ${VERSION}: ${out}" ;;
+            *)
+              echo "::error::This release is tagged ${VERSION}, and the binary reports: ${out}"
+              exit 1
+              ;;
+          esac
 
       # Scans what is about to be published, after checksums are computed and
       # before anything leaves the runner. Scanning earlier would miss
@@ -266,6 +299,55 @@ jobs:
                 `[${got.join(', ') || 'nothing'}], and this job built ${expected}. ` +
                 `It is left as an unpublished draft. Re-run this job to try again.`);
               return;
+            }
+
+            // The count above proves an asset arrived, not that it arrived
+            // whole: a truncated upload still reports 'uploaded' with a
+            // non-zero size. So each asset is read back and hashed, here,
+            // because publishing seals the release. checksums.txt does not
+            // list itself -- the shell expanded * before creating it.
+            const fs = require('fs');
+            const crypto = require('crypto');
+
+            if (fs.existsSync('dist/checksums.txt')) {
+              const want = new Map();
+              for (const line of fs.readFileSync('dist/checksums.txt', 'utf8').split('\n')) {
+                const m = line.match(/^([0-9a-f]{64}) [ *](.+)$/);
+                if (m) { want.set(m[2], m[1]); }
+              }
+              if (want.size === 0) {
+                core.setFailed('dist/checksums.txt has no readable sha256 lines. Left as a draft.');
+                return;
+              }
+
+              const { data: rel } = await github.rest.repos.getRelease({
+                ...context.repo, release_id,
+              });
+              for (const asset of rel.assets) {
+                const expectedSum = want.get(asset.name);
+                if (!expectedSum) { continue; }
+                const res = await github.request(
+                  'GET /repos/{owner}/{repo}/releases/assets/{asset_id}',
+                  { ...context.repo, asset_id: asset.id,
+                    headers: { accept: 'application/octet-stream' } });
+                const actual = crypto.createHash('sha256')
+                  .update(Buffer.from(res.data)).digest('hex');
+                if (actual !== expectedSum) {
+                  core.setFailed(
+                    `${asset.name} on the release hashes to ${actual}, and ` +
+                    `checksums.txt says ${expectedSum}. Left as a draft.`);
+                  return;
+                }
+                want.delete(asset.name);
+              }
+
+              if (want.size > 0) {
+                core.setFailed(
+                  `checksums.txt lists [${[...want.keys()].join(', ')}], which ` +
+                  `the release does not carry. Left as a draft.`);
+                return;
+              }
+              core.info('every file in checksums.txt matches the uploaded asset');
             }
 
             if (draft) {
