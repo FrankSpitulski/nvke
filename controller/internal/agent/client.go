@@ -31,6 +31,7 @@ type Client interface {
 	ScheduleNodeReboot(ctx context.Context, node db.Node) (*nkeproto.ScheduleNodeRebootResponse, error)
 	GetNodeBootInfo(ctx context.Context, node db.Node) (*nkeproto.GetNodeBootInfoResponse, error)
 	ExecuteKubeadmInit(ctx context.Context, node db.Node, req *nkeproto.KubeadmInitRequest) (*nkeproto.KubeadmInitStatusResponse, error)
+	InstallCNI(ctx context.Context, node db.Node, req *nkeproto.InstallCNIRequest) (*nkeproto.InstallCNIResponse, error)
 	ExecuteKubeadmJoin(ctx context.Context, node db.Node, req *nkeproto.KubeadmJoinRequest) (*nkeproto.KubeadmJoinStatusResponse, error)
 	ExecuteKubeadmReset(ctx context.Context, node db.Node, req *nkeproto.KubeadmResetRequest) (*nkeproto.KubeadmResetStatusResponse, error)
 	ReconfigureKubeletAPIServer(ctx context.Context, node db.Node, req *nkeproto.ReconfigureKubeletAPIServerRequest) (*nkeproto.ReconfigureKubeletAPIServerResponse, error)
@@ -230,6 +231,21 @@ func (c *NodeAgentClient) PatchAPIServerManifest(ctx context.Context, node db.No
 		return nil, fmt.Errorf("failed to patch apiserver manifest on node agent for node %s: %w", node.Name, err)
 	}
 
+	return resp, nil
+}
+
+// InstallCNI is synchronous: no status to poll afterwards.
+func (c *NodeAgentClient) InstallCNI(ctx context.Context, node db.Node, req *nkeproto.InstallCNIRequest) (*nkeproto.InstallCNIResponse, error) {
+	conn, cleanup, err := c.getGRPCConnection(ctx, node)
+	if err != nil {
+		return nil, fmt.Errorf("failed to install CNI on node %s: %w", node.Name, err)
+	}
+	defer cleanup()
+
+	resp, err := nkeproto.NewNodeAgentClient(conn).InstallCNI(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to install CNI on node %s: %w", node.Name, err)
+	}
 	return resp, nil
 }
 

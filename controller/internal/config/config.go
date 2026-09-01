@@ -284,6 +284,14 @@ type Config struct {
 	// created by the node set controller from their node pool.
 	ProvisionControlPlaneWithControlPlaneController bool `env:"PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER" default:"false"`
 
+	// InstallCNIAfterInit installs CNI after kubeadm init, from a Debian package
+	// rather than a bundle server. It needs the charts package on the node, which
+	// Forge user-data installs as of #398.
+	//
+	// Still off by default: no real site has run this path yet. Turn it on
+	// deliberately, so a regression has one obvious cause.
+	InstallCNIAfterInit bool `env:"INSTALL_CNI_AFTER_INIT" default:"false"`
+
 	// PodNamespace is the namespace the CWE worker runs in.
 	PodNamespace string `env:"POD_NAMESPACE" default:"cloud-workflow-engine"`
 

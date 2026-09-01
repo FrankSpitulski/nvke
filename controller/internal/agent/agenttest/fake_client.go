@@ -22,6 +22,9 @@ type FakeClient struct {
 	// can assert on per-call deadlines.
 	GetKubeconfigCtxs []context.Context
 
+	InstallCNIRequests []InstallCNICall
+	InstallCNIErr      error
+
 	AgentVersion               string
 	AgentVersionErr            error
 	ScheduleNodeRebootResponse *nkeproto.ScheduleNodeRebootResponse
@@ -140,6 +143,14 @@ func (f *FakeClient) ExecuteKubeadmInit(context.Context, db.Node, *nkeproto.Kube
 	return &nkeproto.KubeadmInitStatusResponse{}, nil
 }
 
+func (f *FakeClient) InstallCNI(_ context.Context, node db.Node, req *nkeproto.InstallCNIRequest) (*nkeproto.InstallCNIResponse, error) {
+	f.InstallCNIRequests = append(f.InstallCNIRequests, InstallCNICall{Node: node, Request: req})
+	if f.InstallCNIErr != nil {
+		return nil, f.InstallCNIErr
+	}
+	return &nkeproto.InstallCNIResponse{Status: "ready"}, nil
+}
+
 func (f *FakeClient) ExecuteKubeadmJoin(context.Context, db.Node, *nkeproto.KubeadmJoinRequest) (*nkeproto.KubeadmJoinStatusResponse, error) {
 	return &nkeproto.KubeadmJoinStatusResponse{}, nil
 }
@@ -191,4 +202,9 @@ func (f *FakeClient) ExecuteScript(_ context.Context, node db.Node, scriptName, 
 		return f.ExecuteScriptHook(node, scriptName, scriptContents)
 	}
 	return &nkeproto.ExecuteScriptResponse{}, nil
+}
+
+type InstallCNICall struct {
+	Node    db.Node
+	Request *nkeproto.InstallCNIRequest
 }

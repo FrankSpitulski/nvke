@@ -979,8 +979,15 @@ for _name in _required_cred_names:
 # AUTH_CONFIG_PATH and PERMISSIVE_MODE come from the apiAuth values below, not
 # from this env list: the chart owns the mount they point at.
 
+# INSTALL_CNI_AFTER_INIT comes from the process environment (with the .env.tilt
+# value as a fallback) so an E2E lane can toggle the CNI install path per run.
+_cwe_install_cni_after_init = os.getenv(
+    "INSTALL_CNI_AFTER_INIT",
+    _tilt_env.get("INSTALL_CNI_AFTER_INIT", "false"))
+
 _cwe_chart_flags = [
     "--create-namespace",
+    "--set", "cni.installAfterInit=%s" % ("true" if _cwe_install_cni_after_init == "true" else "false"),
     "--values", "hack/tilt-cwe-chart-values.yaml",
     "--set-string", "appDb.postgresPassword=%s" % _postgres_superuser_password,
     "--set", "apiAuth.enabled=%s" % ("true" if _cwe_auth_enabled else "false"),

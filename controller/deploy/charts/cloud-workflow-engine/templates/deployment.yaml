@@ -208,6 +208,8 @@ spec:
             - name: CNI_IMAGE_REGISTRY
               value: {{ .Values.cni.imageRegistry | quote }}
             {{- end }}
+            - name: INSTALL_CNI_AFTER_INIT
+              value: {{ .Values.cni.installAfterInit | quote }}
             - name: TENANT_ACCESS_ENABLED
               value: {{ .Values.tenantAccess.enabled | quote }}
             - name: ALLOW_ETCD_SAFETY_OVERRIDES

@@ -67,8 +67,8 @@ func provisionCluster(ctx workflow.Context, input ProvisionClusterInput) error {
 	}
 
 	// Create the cluster with a single node -- the rest of the nodes, including other CP nodes, will join from ProvisionNode
-	if err := kubeadmInit(ctx, input.ClusterID, initialNodeID); err != nil {
-		return fmt.Errorf("failed to initialize Kubernetes control plane: %w", err)
+	if err := kubeadmInitWithCNI(ctx, input.ClusterID, initialNodeID); err != nil {
+		return err
 	}
 
 	if err := markInitialNodeAsJoined(ctx, initialNodeID); err != nil {
@@ -181,7 +181,35 @@ func configureInitialNodeKubeVip(ctx workflow.Context, clusterID, initialNodeID 
 	return nil
 }
 
-func kubeadmInit(ctx workflow.Context, clusterID, initialNodeID uuid.UUID) error {
+// kubeadmInitWithCNI initializes the control plane and brings up cluster
+// networking. CNI is installed either by the agent during kubeadm init, or
+// afterwards by the InstallCNI activity; CNIInstallMode chooses which.
+func kubeadmInitWithCNI(ctx workflow.Context, clusterID, initialNodeID uuid.UUID) error {
+	var a *activities.Activities
+
+	installCNIAfterInit := false
+	// Clusters provisioned before the post-init path existed have neither the
+	// mode lookup nor InstallCNI in their history, and must replay without them.
+	if workflow.GetVersion(ctx, "post-init-cni", workflow.DefaultVersion, 1) >= 1 {
+		// Asked before kubeadm runs: a cluster that cannot use the post-init path
+		// has to get its CNI during init instead, and by then it is too late.
+		if err := workflow.ExecuteActivity(withDBOptions(ctx), a.CNIInstallMode, clusterID).
+			Get(ctx, &installCNIAfterInit); err != nil {
+			return fmt.Errorf("failed to resolve the CNI install mode: %w", err)
+		}
+	}
+
+	if err := kubeadmInit(ctx, clusterID, initialNodeID, installCNIAfterInit); err != nil {
+		return fmt.Errorf("failed to initialize Kubernetes control plane: %w", err)
+	}
+
+	if !installCNIAfterInit {
+		return nil
+	}
+	return installCNI(ctx, clusterID, initialNodeID)
+}
+
+func kubeadmInit(ctx workflow.Context, clusterID, initialNodeID uuid.UUID, installCNIAfterInit bool) error {
 	var a *activities.Activities
 
 	activityOptions := workflow.ActivityOptions{
@@ -199,10 +227,38 @@ func kubeadmInit(ctx workflow.Context, clusterID, initialNodeID uuid.UUID) error
 		activities.KubeadmInitInput{
 			ClusterID:                           clusterID,
 			InitialNodeID:                       initialNodeID,
+			InstallCNIAfterInit:                 installCNIAfterInit,
 			ClusterProvisioningConditionMessage: "Initializing Kubernetes control plane",
 		},
 	).Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to initialize Kubernetes control plane: %w", err)
+	}
+
+	return nil
+}
+
+func installCNI(ctx workflow.Context, clusterID, initialNodeID uuid.UUID) error {
+	var a *activities.Activities
+
+	activityOptions := workflow.ActivityOptions{
+		StartToCloseTimeout: 10 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    1 * time.Minute,
+			MaximumInterval:    5 * time.Minute,
+			BackoffCoefficient: 2,
+			MaximumAttempts:    0, // Retry indefinitely
+		},
+	}
+	if err := workflow.ExecuteActivity(
+		workflow.WithActivityOptions(ctx, activityOptions),
+		a.InstallCNI,
+		activities.InstallCNIInput{
+			ClusterID:                           clusterID,
+			InitialNodeID:                       initialNodeID,
+			ClusterProvisioningConditionMessage: "Installing cluster networking",
+		},
+	).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to install cluster networking: %w", err)
 	}
 
 	return nil

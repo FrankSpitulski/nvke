@@ -32,6 +32,7 @@ on:
       # It reaches the node image, the management cluster and the bundle mirror
       # through these, so a change to any of them changes what this lane runs.
       - controller/Makefile.dev
+      - controller/Tiltfile
       - controller/hack/cwe-capi-kind.yaml
       - controller/hack/ci/prepare-capd-bundles.sh
       - .github/workflows/local-entrypoint-e2e.yml
@@ -50,7 +51,7 @@ concurrency:
 
 jobs:
   local-entrypoint:
-    name: local-backend-e2e.sh on Linux
+    name: local-backend-e2e.sh on Linux (post-init CNI ${{ matrix.install_cni_after_init }})
     if: github.repository == 'NVIDIA/nke'
     # The L4 pool is one machine, and this lane runs on pull requests, on main,
     # and twice a day. A run on main waited 87 minutes for a runner, longer than
@@ -60,7 +61,16 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        # CNI reaches a node two ways. false is what a developer running this
+        # script gets; true installs it after kubeadm init from a Debian package,
+        # with no bundle mirror and no bundle flags on the node image. Only this
+        # lane covers the second one.
+        install_cni_after_init: [false, true]
     env:
+      INSTALL_CNI_AFTER_INIT: ${{ matrix.install_cni_after_init }}
       # These runners reach Docker Hub through an NVIDIA mirror. backend-e2e.yml
       # sets the same value; helm needs the shim below to honour it for OCI
       # charts, which is how the CI entrypoint does it too.
@@ -163,7 +173,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: local-entrypoint-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          name: local-entrypoint-e2e-cni-${{ matrix.install_cni_after_init }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: controller/.local/backend-e2e/
           if-no-files-found: ignore
           retention-days: 7

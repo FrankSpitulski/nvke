@@ -24,6 +24,10 @@ type KubeadmInitInput struct {
 	ClusterID     uuid.UUID
 	InitialNodeID uuid.UUID
 
+	// When true the agent skips its own CNI install and the InstallCNI activity
+	// does it instead. See Activities.CNIInstallMode.
+	InstallCNIAfterInit bool
+
 	ClusterProvisioningConditionMessage string
 }
 
@@ -85,7 +89,7 @@ func (a *Activities) kubeadmInit(ctx context.Context, input KubeadmInitInput) er
 				return err
 			}
 		}
-		return a.waitForKubeadmInitReady(ctx, node)
+		return a.waitForKubeadmInitReady(ctx, node, input.InstallCNIAfterInit)
 	}
 
 	initConfig := &kubeadmconfig.InitConfig{
@@ -131,8 +135,12 @@ func (a *Activities) kubeadmInit(ctx context.Context, input KubeadmInitInput) er
 			return fmt.Errorf("failed to ensure kube-api encryption key: %w", err)
 		}
 	}
+	// The deprecated CNI fields set below are still populated either way; the
+	// agent just ignores them when this is true.
+	req.NoCniInstall = input.InstallCNIAfterInit
+
 	if a.cfg.CNIImageRegistry != "" {
-		req.CniConfig = map[string]string{"global.registry": a.cfg.CNIImageRegistry} //nolint:staticcheck // Deprecated in-init CNI path still consumes CniConfig for registry overrides.
+		req.CniConfig = map[string]string{cniRegistryHelmValue: a.cfg.CNIImageRegistry} //nolint:staticcheck // Deprecated in-init CNI path still consumes CniConfig for registry overrides.
 	}
 
 	// Use the cluster's configured CNI version (falling back to the plugin default when unset) so the
@@ -155,10 +163,10 @@ func (a *Activities) kubeadmInit(ctx context.Context, input KubeadmInitInput) er
 		return fmt.Errorf("failed to execute kubeadm init on node %s: %w", node.Name, err)
 	}
 
-	return a.waitForKubeadmInitReady(ctx, node)
+	return a.waitForKubeadmInitReady(ctx, node, input.InstallCNIAfterInit)
 }
 
-func (a *Activities) waitForKubeadmInitReady(ctx context.Context, node db.Node) error {
+func (a *Activities) waitForKubeadmInitReady(ctx context.Context, node db.Node, installCNIAfterInit bool) error {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -170,6 +178,12 @@ func (a *Activities) waitForKubeadmInitReady(ctx context.Context, node db.Node) 
 		kubeadmStatus := strings.ToLower(status.GetKubeadmStatus())
 		kubeadmPhase := strings.ToLower(status.GetKubeadmPhase())
 		cniStatus := strings.ToLower(status.GetCniInstallStatus())
+
+		// The agent installed no CNI, so it has no CNI status to report. Ignore
+		// any left behind by an earlier InstallCNI attempt.
+		if installCNIAfterInit {
+			cniStatus = cniStatusReady
+		}
 
 		// Both are terminal. A retry re-enters kubeadmInitAlreadyStarted, which
 		// short-circuits straight back to this poll loop and reads the same

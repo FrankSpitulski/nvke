@@ -180,25 +180,44 @@ bundle_dir="${tmp_dir}/bundles"
 rm -rf "${bundle_dir}"
 BUNDLE_ARCH="${host_arch}" bash "${repo_root}/hack/ci/prepare-capd-bundles.sh" "${bundle_dir}"
 
-e2e_stop_bundle_mirror "${bundle_mirror_name}" "${bundle_mirror_volume}"
-mirror_ip="$(e2e_start_bundle_mirror \
-  "${bundle_mirror_name}" "${bundle_mirror_volume}" "${bundle_dir}")" \
-  || fail "could not start the bundle mirror"
-export BUNDLE_SERVER_URL="http://${mirror_ip}/"
-export INDEX_FILE_URL="http://${mirror_ip}/index.json"
 export SPIRE_AGENT_BUNDLE_PATH="${bundle_dir}/spire-agent.tgz"
 CAPD_CNI_MANIFESTS_DEB_PATH="$(echo "${bundle_dir}"/nke-cni-calico-manifests-*_all.deb)"
 export CAPD_CNI_MANIFESTS_DEB_PATH
 [[ -f "${CAPD_CNI_MANIFESTS_DEB_PATH}" ]] \
   || fail "prepare-capd-bundles.sh produced no Calico manifests package"
-# Prove it serves before building an image that bakes the URL in.
-docker run --rm --network kind alpine:3.22 \
-  wget -q -O /dev/null "${INDEX_FILE_URL}" \
-  || fail "bundle mirror is not serving ${INDEX_FILE_URL}"
-log "bundle mirror at ${BUNDLE_SERVER_URL}"
+
+# With INSTALL_CNI_AFTER_INIT the agent reads CNI from the Calico manifests deb
+# baked into the node image, so no bundle mirror is started and the node image
+# bakes in no bundle flags. That is the whole point: a green run this way proves
+# a node with no bundle source can still get CNI.
+if [[ "${INSTALL_CNI_AFTER_INIT:-false}" == "true" ]]; then
+  log "INSTALL_CNI_AFTER_INIT=true: no bundle mirror, no bundle flags on the node image"
+else
+  e2e_stop_bundle_mirror "${bundle_mirror_name}" "${bundle_mirror_volume}"
+  mirror_ip="$(e2e_start_bundle_mirror \
+    "${bundle_mirror_name}" "${bundle_mirror_volume}" "${bundle_dir}")" \
+    || fail "could not start the bundle mirror"
+  export BUNDLE_SERVER_URL="http://${mirror_ip}/"
+  export INDEX_FILE_URL="http://${mirror_ip}/index.json"
+  # Prove it serves before building an image that bakes the URL in.
+  docker run --rm --network kind alpine:3.22 \
+    wget -q -O /dev/null "${INDEX_FILE_URL}" \
+    || fail "bundle mirror is not serving ${INDEX_FILE_URL}"
+  log "bundle mirror at ${BUNDLE_SERVER_URL}"
+fi
 
 log "building the local agent CAPD image and installing CAPI/CAPD"
 make -C "${repo_root}" capd-up
+
+if [[ "${INSTALL_CNI_AFTER_INIT:-false}" == "true" ]]; then
+  node_image="${CAPD_NODE_IMAGE:-cwe-capd-kindest-node:local}"
+  agent_args="$(docker run --rm --entrypoint cat "${node_image}" /etc/default/nke-agent)" \
+    || fail "could not read /etc/default/nke-agent from ${node_image}"
+  if grep -qE -- '--bundle-server-url|--index-file-url' <<<"${agent_args}"; then
+    fail "${node_image} bakes in a bundle source, so this run would not prove the post-init CNI path: ${agent_args}"
+  fi
+  log "node image carries no bundle source: ${agent_args}"
+fi
 
 # CAPD tenant nodes are sibling containers on the `kind` network, so they reach
 # the management cluster's SPIRE NodePort at its container IP. Without this the
