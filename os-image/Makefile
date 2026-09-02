@@ -105,7 +105,7 @@ clean:
 	rm -rf bin
 
 .PHONY: notices
-notices: ## Regenerate THIRD_PARTY_NOTICES.md for the nke-os-image-check binary.
+notices: ## Regenerate THIRD_PARTY_NOTICES.md for this module's binaries.
 	@# The tool and the script both live in controller/, a sibling of this
 	@# module. `go-licenses`, not `bin/go-licenses`: the real rule's target is an
 	@# absolute path, so a relative name does not match it.
@@ -117,7 +117,7 @@ notices: ## Regenerate THIRD_PARTY_NOTICES.md for the nke-os-image-check binary.
 	@$(MAKE) --no-print-directory -C ../controller go-licenses
 	@MODULE_ROOT="$(CURDIR)" \
 		OUTPUT="$(CURDIR)/THIRD_PARTY_NOTICES.md" \
-		PACKAGES="./cmd/nke-os-image-check" \
+		PACKAGES="./cmd/nke-os-image-check ./packages/kubeadm-distro/cmd/nke-k8s-installer ./packages/kubeadm-distro/cmd/kubeadm-bundle" \
 		GO_LICENSES="$(CURDIR)/../controller/bin/go-licenses" \
 		bash ../controller/hack/generate-notices
 

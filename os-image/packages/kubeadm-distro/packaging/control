@@ -1,0 +1,19 @@
+Package: {{PACKAGE_NAME}}
+Version: {{DEB_REVISION}}
+Section: admin
+Priority: optional
+Architecture: {{ARCH}}
+Provides: {{VIRTUAL_PROVIDER}}
+Depends: iptables, iproute2, conntrack, socat, ethtool
+Conflicts: kubeadm, kubelet, kubectl, kubernetes-cni, cri-tools, runc, helm, {{PEER_CONFLICTS}}
+Replaces: kubeadm, kubelet, kubectl, kubernetes-cni, cri-tools, runc, helm, {{VIRTUAL_PROVIDER}}
+Installed-Size: {{INSTALLED_SIZE}}
+Maintainer: NKE <nke-dev@exchange.nvidia.com>
+Description: NKE kubeadm node stack (Kubernetes {{K8S_VER}})
+ Bundled Kubernetes stack with pkgs.k8s.io-style paths: /usr/bin/kubeadm,
+ kubectl, kubelet; /usr/sbin/runc; kubelet systemd units under /lib/systemd/system;
+ CNI and runtime components deployed by the bundled installer. Bundle metadata
+ under /usr/lib/nke/{{MATRIX_SUBDIR}} with checksum sidecars. Postinst runs the Go
+ installer from the packaged bundle tree, with no network fetch, and imports the
+ bundled control-plane container images. Do not install alongside the upstream
+ kubeadm, kubelet or CNI packages.

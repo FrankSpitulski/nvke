@@ -1,0 +1,124 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+set -euo pipefail
+
+# Templated at package build time; must match /usr/lib/nke/<MATRIX_SUBDIR>/.
+K8S_VER="{{K8S_VER}}"
+ARCH="{{ARCH}}"
+PACKAGE="{{PACKAGE_NAME}}"
+MATRIX_ROOT="/usr/lib/nke/{{MATRIX_SUBDIR}}"
+LOG="/var/log/${PACKAGE}-postinst.log"
+
+case "$1" in
+configure | reconfigure) ;;
+*) exit 0 ;;
+esac
+
+if [ "${NKE_KUBEADM_DISTRO_NO_INSTALL:-}" = "1" ]; then
+  echo "${PACKAGE}: skipping installer (NKE_KUBEADM_DISTRO_NO_INSTALL=1)"
+  exit 0
+fi
+
+echo "=== $(date) ${PACKAGE} postinst $* ===" >>"$LOG"
+
+BUNDLE_ROOT="${MATRIX_ROOT}/${K8S_VER}"
+INST="${BUNDLE_ROOT}/installer"
+if [ ! -x "$INST" ]; then
+  echo "${PACKAGE}: missing executable $INST" | tee -a "$LOG" >&2
+  exit 1
+fi
+
+if [ ! -f "${BUNDLE_ROOT}/manifest.json" ] || [ ! -f "${BUNDLE_ROOT}/manifest.json.sha256" ]; then
+  echo "${PACKAGE}: missing manifest.json or manifest.json.sha256 under ${BUNDLE_ROOT}" | tee -a "$LOG" >&2
+  exit 1
+fi
+
+manifest_want="$(tr -d '[:space:]' <"${BUNDLE_ROOT}/manifest.json.sha256")"
+manifest_got="$(sha256sum "${BUNDLE_ROOT}/manifest.json" | awk '{print $1}')"
+if [ "${manifest_want}" != "${manifest_got}" ]; then
+  echo "${PACKAGE}: manifest.json failed checksum verification" | tee -a "$LOG" >&2
+  exit 1
+fi
+
+if ! (cd "${BUNDLE_ROOT}" && sha256sum -c installer.sha256 >/dev/null 2>&1); then
+  echo "${PACKAGE}: installer failed checksum verification" | tee -a "$LOG" >&2
+  exit 1
+fi
+
+# A kubelet unit under /etc masks the vendor unit this package ships in /lib.
+if [ -f /lib/systemd/system/kubelet.service.d/10-kubeadm.conf ] && [ -f /etc/systemd/system/kubelet.service ]; then
+  echo "${PACKAGE}: removing /etc/systemd/system/kubelet.service so the vendor units in /lib apply." | tee -a "$LOG"
+  rm -f /etc/systemd/system/kubelet.service
+fi
+
+export NKE_BUNDLE_ROOT="${BUNDLE_ROOT}"
+echo "${PACKAGE}: running the bundled installer for ${K8S_VER} (log: $LOG)"
+
+set +e
+"$INST" "$K8S_VER" 2>&1 | tee -a "$LOG"
+rc=${PIPESTATUS[0]}
+set -e
+if [ "$rc" -ne 0 ]; then
+  echo "${PACKAGE}: installer failed (exit $rc). See $LOG" >&2
+  exit "$rc"
+fi
+echo "${PACKAGE}: installer finished successfully."
+
+K8S_PATCH="${K8S_VER#v}"
+BASE_IMG="k8s-base-container-images_${K8S_PATCH}_linux_${ARCH}.tgz"
+IMG_TGZ="${BUNDLE_ROOT}/${ARCH}/${BASE_IMG}"
+CTR="${NKE_CTR_BIN:-/usr/local/bin/ctr}"
+
+if [ "${NKE_KUBEADM_SKIP_BASE_IMAGE_IMPORT:-}" = "1" ]; then
+  echo "${PACKAGE}: skipping the base image import (NKE_KUBEADM_SKIP_BASE_IMAGE_IMPORT=1)" | tee -a "$LOG"
+  exit 0
+fi
+# The bundled images are the offline contract: a node that has to reach a
+# registry for the control-plane images is not the node this package promises.
+# Missing images are a build defect, so fail here rather than at kubeadm init.
+if [ ! -f "$IMG_TGZ" ]; then
+  echo "${PACKAGE}: no bundled base images at ${IMG_TGZ}" | tee -a "$LOG" >&2
+  echo "${PACKAGE}: this package was built without container images and cannot bring up a node offline." | tee -a "$LOG" >&2
+  echo "${PACKAGE}: rebuild it without SKIP_IMAGES, or set NKE_KUBEADM_SKIP_BASE_IMAGE_IMPORT=1 to accept a registry pull." | tee -a "$LOG" >&2
+  exit 1
+fi
+if [ ! -f "${IMG_TGZ}.sha256" ]; then
+  echo "${PACKAGE}: no ${BASE_IMG}.sha256 sidecar; refusing to import unverified images" | tee -a "$LOG" >&2
+  exit 1
+fi
+
+if [ ! -x "$CTR" ]; then
+  echo "${PACKAGE}: ctr not found at $CTR after the installer ran; cannot import base images" | tee -a "$LOG" >&2
+  exit 1
+fi
+img_want="$(tr -d '[:space:]' <"${IMG_TGZ}.sha256")"
+img_got="$(sha256sum "${IMG_TGZ}" | awk '{print $1}')"
+if [ "${img_want}" != "${img_got}" ]; then
+  echo "${PACKAGE}: base image bundle failed checksum verification (${IMG_TGZ})" | tee -a "$LOG" >&2
+  exit 1
+fi
+
+echo "${PACKAGE}: importing the bundled Kubernetes base images with ctr (${IMG_TGZ})" | tee -a "$LOG"
+n=0
+until "$CTR" version >/dev/null 2>&1; do
+  n=$((n + 1))
+  if [ "$n" -ge 50 ]; then
+    echo "${PACKAGE}: ctr did not become ready; base image import aborted" | tee -a "$LOG" >&2
+    exit 1
+  fi
+  sleep 0.2
+done
+# `ctr images import` does not auto-detect gzip in containerd 1.7.x
+# (containerd#9981) and regressed on go-containerregistry's docker-archive layout
+# in containerd 2.2/2.3. Decompressing and streaming raw tar over stdin avoids
+# both. PIPESTATUS[1] is ctr's exit status, not gunzip's or tee's.
+set +e
+gunzip -c "$IMG_TGZ" | "$CTR" -n k8s.io images import - 2>&1 | tee -a "$LOG"
+imp_rc=${PIPESTATUS[1]}
+set -e
+if [ "$imp_rc" -ne 0 ]; then
+  echo "${PACKAGE}: ctr images import failed (exit $imp_rc). See $LOG" >&2
+  exit "$imp_rc"
+fi
+echo "${PACKAGE}: base image import finished."
