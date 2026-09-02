@@ -253,7 +253,13 @@ func Load(path string) (*Inventory, error) {
 	}
 
 	inv.SetDefaults()
-	if err := inv.Validate(); err != nil {
+
+	// Both check sets share one validator so the caller still sees every
+	// problem in one pass, as it did before the two were separated.
+	checks := &validator{}
+	inv.appendDataChecks(checks)
+	inv.appendReferenceChecks(checks)
+	if err := checks.err(); err != nil {
 		return nil, fmt.Errorf("inventory file %s: %w", path, err)
 	}
 	return &inv, nil
@@ -299,11 +305,21 @@ func (inv *Inventory) SetDefaults() {
 }
 
 // Validate checks that every mandatory field is present and well-formed and
-// returns a single error aggregating all problems. Validation runs before any
-// workflow is dispatched, so a bad file never reaches a node.
+// returns a single error aggregating all problems.
+//
+// It reads nothing outside the Inventory, so it holds wherever the inventory is
+// handled: on the machine that writes the file as much as on the one that acts
+// on it. Checks that need the filesystem live in ValidateReferences.
 func (inv *Inventory) Validate() error {
 	v := &validator{}
+	inv.appendDataChecks(v)
+	return v.err()
+}
 
+// appendDataChecks runs every check that reads only the Inventory, adding each
+// problem to v. It takes the validator rather than returning an error so a
+// caller that runs more than one check set still reports one aggregated error.
+func (inv *Inventory) appendDataChecks(v *validator) {
 	v.checkClusterName(inv.ClusterName)
 	v.checkNodes(inv.Cluster)
 	v.checkK8sVersion(inv.Cluster.K8sVersion)
@@ -313,8 +329,24 @@ func (inv *Inventory) Validate() error {
 	v.checkNodeAgentPort(inv.Cluster.NodeAgentPort)
 	v.checkRegistry(inv.Registry)
 	v.checkSpire(inv.Spire)
+}
 
+// ValidateReferences checks that the files the inventory names can be read,
+// and returns a single error aggregating all problems.
+//
+// Call it from the command that is about to act on the inventory. A caller that
+// only writes the inventory out should not: the files it names are needed where
+// the bootstrap runs, which is not necessarily where the file was produced.
+func (inv *Inventory) ValidateReferences() error {
+	v := &validator{}
+	inv.appendReferenceChecks(v)
 	return v.err()
+}
+
+// appendReferenceChecks runs every check that reads the filesystem, adding each
+// problem to v. See appendDataChecks for why it takes the validator.
+func (inv *Inventory) appendReferenceChecks(v *validator) {
+	v.checkSpireFiles(inv.Spire)
 }
 
 // validator accumulates field-level errors so the caller sees every problem
@@ -455,22 +487,31 @@ func (v *validator) checkRegistry(r Registry) {
 	v.checkRegistryRef(pathBootstrapChart, r.BootstrapChart)
 }
 
-// checkSpire validates the bootstrap CA, if one was given.
-//
-// Existence is checked here rather than left to the deploy because this is the
-// last point at which nothing has been touched. A missing or unreadable CA
-// otherwise surfaces several minutes in, as a helm failure that names a
-// temporary file rather than the inventory field that was wrong.
+// checkSpire validates the shape of the bootstrap CA, if one was given: both
+// files or neither. Whether the files exist is checkSpireFiles' concern.
 func (v *validator) checkSpire(s Spire) {
 	switch {
 	case s.CACertFile == "" && s.CAKeyFile == "":
 		return
 	case s.CACertFile == "":
 		v.addf("%s is required when %s is set", pathSpireCACertFile, pathSpireCAKeyFile)
-		return
 	case s.CAKeyFile == "":
 		v.addf("%s is required when %s is set: SPIRE needs the key to sign with, "+
 			"not just the certificate to chain to", pathSpireCAKeyFile, pathSpireCACertFile)
+	}
+}
+
+// checkSpireFiles reports a bootstrap CA that cannot be read.
+//
+// Existence is checked before the bootstrap rather than left to the deploy
+// because this is the last point at which nothing has been touched. A missing
+// or unreadable CA otherwise surfaces several minutes in, as a helm failure
+// that names a temporary file rather than the inventory field that was wrong.
+//
+// A half-specified CA is checkSpire's error to report, so nothing is checked
+// here unless both fields are set.
+func (v *validator) checkSpireFiles(s Spire) {
+	if s.CACertFile == "" || s.CAKeyFile == "" {
 		return
 	}
 
