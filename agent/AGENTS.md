@@ -144,7 +144,6 @@ cmd/
 
 internal/
 ├── agent/          # Core agent server implementation
-├── attest/         # Opt-in controller JWT exchange → server TLS cert
 ├── grpcserver/     # gRPC registration / reflection
 └── k8s/            # Kubernetes command utilities
 
@@ -255,6 +254,6 @@ apt or InstallCNI workflows. Semver in `GetKubeadmStatus` remains useful for log
 ## Security Notes
 
 - Vulnerability reporting: see the monorepo root `SECURITY.md`. Node-agent architecture notes: `docs/SECURITY.md`.
-- Default `--identity-mode=spiffe`: X.509 mTLS from the workload API (`--spiffe-socket-path`). Opt-in `--identity-mode=controller-tls`: JWT-SVID from the same socket, exchanged at the controller for a server TLS cert (not mTLS). Use `--disable-mtls` / `--identity-mode=plaintext` only for local development.
+- With mTLS enabled (default), the agent uses SPIFFE X.509 identities from the workload API (`--spiffe-socket-path`). Node attestors (TPM, join token, DSX IMDS) are SPIRE agent config via cloud-init, not this binary. Use `--disable-mtls` only for local development (plaintext gRPC).
 - Reflection is enabled on the same mTLS-protected server; clients need valid SPIFFE credentials to use it in production.
 - Encryption provider: secretbox (XSalsa20-Poly1305) for Kubernetes API secrets

@@ -41,9 +41,13 @@ RPC implementations are under `internal/agent/`.
    connections use SPIFFE mTLS. `cmd/agent/main.go` requires the client's SVID
    to share the agent's trust domain and have a path beginning with
    `/nke-service/`.
-2. **SPIRE to agent:** The agent obtains its X.509 identity and trust
-   bundle from the SPIRE workload API socket configured by
-   `--spiffe-socket-path`.
+2. **SPIRE to agent:** The agent obtains its X.509 identity from the SPIRE
+   workload API socket configured by `--spiffe-socket-path`. Node attestation
+   (TPM today, or DSX IMDS via `NodeAttestor "dsx_imds"`) is between the host
+   SPIRE agent and SPIRE server. Cloud-init delivers the SPIRE server trust
+   bundle and `agent.conf`; the IMDS URL and JWT audience are SPIRE plugin
+   settings, not nke-agent flags. nke-agent does not call
+   `169.254.169.254` and does not present JWTs to the controller.
 3. **agent to the host:** The systemd service runs as root and invokes
    tools such as `kubeadm`, `apt-get`, `helm`, `kubectl`, `cryptsetup`,
    `clevis`, and `crictl`. It writes security-sensitive host and Kubernetes
@@ -164,17 +168,12 @@ repository.
 
 ## Critical Security Assumptions
 
-- Production starts the agent with SPIFFE mTLS enabled (`--identity-mode=spiffe`)
-  and does not use `--disable-mtls` / `--identity-mode=plaintext`.
-- `--identity-mode=controller-tls` is experimental: the agent authenticates to
-  the controller with a Workload API JWT-SVID, then serves gRPC with a
-  controller-issued server certificate and **no client authentication**.
-  Callers that can reach port `15005` are not SPIFFE-authorized in this mode.
-  Do not enable it as the fleet default until the controller attest API and
-  caller controls are in place.
-- SPIRE securely attests workloads, protects its signing keys and workload API
-  socket, rotates SVIDs, and issues `/nke-service/` identities only to trusted
-  NKE services.
+- Production starts the agent with SPIFFE mTLS enabled and does not use
+  `--disable-mtls`.
+- SPIRE attests the node (TPM or `dsx_imds`) before issuing the host workload
+  SVID that nke-agent uses for mTLS. SPIRE protects its signing keys and
+  workload API socket, rotates SVIDs, and issues `/nke-service/` identities
+  only to trusted NKE services.
 - Network policy, host firewalls, and site routing limit TCP port `15005` to
   authorized orchestration paths.
 - The NKE controller authenticates its operators, authorizes requested workflows, validates

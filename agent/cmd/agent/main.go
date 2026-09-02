@@ -28,22 +28,11 @@ import (
 	"google.golang.org/grpc/peer"
 
 	server "github.com/NVIDIA/nke/agent/internal/agent"
-	"github.com/NVIDIA/nke/agent/internal/attest"
 	"github.com/NVIDIA/nke/agent/internal/grpcserver"
 )
 
 const (
 	DefaultNodeServerListenPort = "15005"
-
-	// identityModeSPIFFE is the default: X.509 mTLS from the Workload API
-	// (TPM node attestation lives on the SPIRE agent).
-	identityModeSPIFFE = "spiffe"
-	// identityModeControllerTLS is opt-in: JWT-SVID from the Workload API
-	// (DPU-attested SPIRE agent), exchanged at the controller for a server
-	// TLS certificate. gRPC is server-TLS only, not mTLS.
-	identityModeControllerTLS = "controller-tls"
-	// identityModePlaintext is development-only unauthenticated gRPC.
-	identityModePlaintext = "plaintext"
 )
 
 // VERSION is set at build time via: -ldflags "-X main.VERSION=<version>"
@@ -76,18 +65,7 @@ type AgentConfig struct {
 	AuditLogger           *slog.Logger
 	ScriptExecutionLogger *slog.Logger
 	DisableMTLS           bool
-	IdentityMode          string
 	SPIFFESocketPath      string
-	JWTAudience           string
-	// ControllerEndpoint is required for identity-mode=controller-tls.
-	ControllerEndpoint   string
-	ControllerAttestPath string
-	// StubAttestJWT, when set with controller-tls, skips the Workload API
-	// (tests / bring-up only). Production leaves this empty.
-	StubAttestJWT string
-	// ServerTLS is the controller-issued server certificate config for
-	// controller-tls. Nil for other modes.
-	ServerTLS *tls.Config
 }
 
 func Bootstrap(kubeVersion string) error {
@@ -222,16 +200,7 @@ func startSecureServer(ctx context.Context, cfg AgentConfig, agentServer *server
 		grpc.UnaryInterceptor(newAuditLogInterceptor(auditLogger)),
 	}
 
-	switch cfg.IdentityMode {
-	case identityModePlaintext:
-		slog.Warn("gRPC plaintext; development only")
-	case identityModeControllerTLS:
-		if cfg.ServerTLS == nil {
-			log.Fatalf("identity-mode controller-tls requires a server certificate from the controller")
-		}
-		slog.Info("setting up controller-issued server TLS for gRPC (no client certificates)")
-		serverOptions = append(serverOptions, grpc.Creds(credentials.NewTLS(cfg.ServerTLS)))
-	default:
+	if !cfg.DisableMTLS {
 		slog.Info("setting up SPIFFE mTLS for gRPC")
 		tlsCfg, err := buildSpiffeMtlsConfig(ctx, cfg.SPIFFESocketPath)
 		if err != nil {
@@ -258,14 +227,9 @@ func startSecureServer(ctx context.Context, cfg AgentConfig, agentServer *server
 }
 
 func initializeNodeServer(cfg AgentConfig) *server.NodeAgentServer {
-	logCfg := cfg
-	logCfg.ServerTLS = nil
-	if logCfg.StubAttestJWT != "" {
-		logCfg.StubAttestJWT = "(set)"
-	}
 	slog.Info("running initializeNodeServer with the following config",
 		"CONFIG",
-		logCfg)
+		cfg)
 	agentServer := server.NewNodeAgentServer(cfg.MLX5Rescan, cfg.BundleServerURL, cfg.IndexFileURL, cfg.CniImageRegistry)
 	agentServer.ScriptExecutionLogger = cfg.ScriptExecutionLogger
 	agentServer.NodeStatus.ListenStatus = "pending"
@@ -289,130 +253,10 @@ func RunNodeStartup(cfg AgentConfig) (*server.NodeAgentServer, error) {
 	return agentServer, nil
 }
 
-func flagWasSet(name string) bool {
-	set := false
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == name {
-			set = true
-		}
-	})
-	return set
-}
-
-func resolveIdentityMode(mode string, modeSet, disableMTLS bool) (string, error) {
-	mode = strings.ToLower(strings.TrimSpace(mode))
-	if mode == "" {
-		mode = identityModeSPIFFE
-	}
-	switch mode {
-	case identityModeSPIFFE, identityModeControllerTLS, identityModePlaintext:
-	default:
-		return "", fmt.Errorf("unknown identity-mode %q (want spiffe, controller-tls, or plaintext)", mode)
-	}
-	if disableMTLS {
-		if modeSet && mode != identityModePlaintext {
-			return "", fmt.Errorf("--disable-mtls conflicts with --identity-mode=%s", mode)
-		}
-		return identityModePlaintext, nil
-	}
-	return mode, nil
-}
-
-func serverTLSConfig(cert tls.Certificate) *tls.Config {
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS12,
-		ClientAuth:   tls.NoClientCert,
-	}
-}
-
-func redactAttestBody(s string) string {
-	if strings.Contains(s, "PRIVATE KEY") {
-		return "(redacted: contains private key material)"
-	}
-	return s
-}
-
-func controllerTLSAttestor(cfg AgentConfig) attest.Attestor {
-	if stub := strings.TrimSpace(cfg.StubAttestJWT); stub != "" {
-		slog.Warn("using --stub-attest-jwt; skipping SPIRE workload API JWT-SVID")
-		return attest.StubAttestor{JWTValue: stub}
-	}
-	audience := strings.TrimSpace(cfg.JWTAudience)
-	if audience == "" {
-		audience = strings.TrimSpace(cfg.ControllerEndpoint)
-	}
-	return attest.WorkloadAPIAttestor{
-		SocketPath: cfg.SPIFFESocketPath,
-		Audience:   audience,
-	}
-}
-
-// maybeControllerAttest runs only for identity-mode=controller-tls: JWT-SVID
-// (or a test stub JWT) is POSTed to the controller; a 2xx body must be a
-// TLS certificate + key used as gRPC server TLS (not mTLS).
-func maybeControllerAttest(ctx context.Context, cfg AgentConfig) (*tls.Config, error) {
-	if cfg.IdentityMode != identityModeControllerTLS {
-		return nil, nil
-	}
-	if strings.TrimSpace(cfg.ControllerEndpoint) == "" {
-		return nil, errors.New("identity-mode controller-tls requires --controller-endpoint")
-	}
-
-	nodeName, err := os.Hostname()
-	if err != nil {
-		slog.Warn("hostname unavailable for attest request", "err", err)
-		nodeName = ""
-	}
-
-	path := cfg.ControllerAttestPath
-	if strings.TrimSpace(path) == "" {
-		path = attest.DefaultPath
-	}
-	slog.Info("offering jwt-svid to controller for server tls certificate",
-		"endpoint", cfg.ControllerEndpoint,
-		"path", path,
-		"nodeName", nodeName,
-	)
-
-	client := &attest.Client{
-		Endpoint: cfg.ControllerEndpoint,
-		Path:     cfg.ControllerAttestPath,
-		Attestor: controllerTLSAttestor(cfg),
-	}
-
-	result, err := client.Attest(ctx, attest.Request{NodeName: nodeName})
-	if err != nil {
-		if result.StatusCode != 0 {
-			slog.Error("controller attest failed",
-				"url", result.URL,
-				"status", result.StatusCode,
-				"body", redactAttestBody(result.Body),
-				"err", err,
-			)
-		}
-		return nil, err
-	}
-	if result.Certificate == nil {
-		return nil, errors.New("controller attest response missing tls certificate")
-	}
-
-	slog.Info("controller issued server tls certificate",
-		"url", result.URL,
-		"status", result.StatusCode,
-	)
-	return serverTLSConfig(*result.Certificate), nil
-}
-
 func main() {
 	disableMLX5Rescan := flag.Bool("disable-mlx5-rescan", false, "Disable mlx5 rescan (disables the init routine mlx5 reset proc)")
-	disableMTLS := flag.Bool("disable-mtls", false, "Deprecated alias for --identity-mode=plaintext (development only)")
-	identityModeFlag := flag.String(
-		"identity-mode",
-		identityModeSPIFFE,
-		"Identity and gRPC transport: spiffe (default, X.509 mTLS via Workload API), controller-tls (JWT-SVID via Workload API; controller issues server TLS cert; not mTLS), plaintext (development). Also NKE_IDENTITY_MODE",
-	)
-	spiffeSocketPath := flag.String("spiffe-socket-path", "unix:///tmp/spire-agent/public/api.sock", "Path to the SPIFFE workload API socket (used by spiffe and controller-tls; ignored for plaintext)")
+	disableMTLS := flag.Bool("disable-mtls", false, "Disable mTLS / use plaintext gRPC (development only)")
+	spiffeSocketPath := flag.String("spiffe-socket-path", "unix:///tmp/spire-agent/public/api.sock", "Path to the SPIFFE workload API socket (--disable-mtls ignores this)")
 	versionFlag := flag.Bool("version", false, "Print the version and exit")
 	auditLogFileName := flag.String(
 		"audit-log-file",
@@ -435,44 +279,11 @@ func main() {
 		envOr("NKE_CNI_IMAGE_REGISTRY", ""),
 		"OCI registry prefix for CNI component images (e.g. registry.example.com/nke). When set, passed to the CNI helm chart as --set global.registry=<value>. Also set via NKE_CNI_IMAGE_REGISTRY",
 	)
-	controllerEndpoint := flag.String(
-		"controller-endpoint",
-		envOr("NKE_CONTROLLER_ENDPOINT", ""),
-		"Absolute controller URL for --identity-mode=controller-tls (JWT exchange). Ignored in other modes. Also NKE_CONTROLLER_ENDPOINT",
-	)
-	controllerAttestPath := flag.String(
-		"controller-attest-path",
-		attest.DefaultPath,
-		"Path on --controller-endpoint for the attest POST. Not a CWE API",
-	)
-	jwtAudience := flag.String(
-		"jwt-audience",
-		envOr("NKE_JWT_AUDIENCE", ""),
-		"JWT-SVID audience for --identity-mode=controller-tls. Defaults to --controller-endpoint when empty. Also NKE_JWT_AUDIENCE",
-	)
-	stubAttestJWT := flag.String(
-		"stub-attest-jwt",
-		envOr("NKE_STUB_ATTEST_JWT", ""),
-		"Test-only JWT for controller-tls; skips the Workload API when set. Also NKE_STUB_ATTEST_JWT",
-	)
 	flag.Parse()
 
 	if *versionFlag {
 		fmt.Printf("NKE Agent Version: %s\n", VERSION)
 		os.Exit(0)
-	}
-
-	mode := *identityModeFlag
-	modeSet := flagWasSet("identity-mode")
-	if !modeSet {
-		if v := strings.TrimSpace(os.Getenv("NKE_IDENTITY_MODE")); v != "" {
-			mode = v
-			modeSet = true
-		}
-	}
-	identityMode, err := resolveIdentityMode(mode, modeSet, *disableMTLS)
-	if err != nil {
-		log.Fatalf("%v", err)
 	}
 
 	auditFile, err := os.OpenFile(*auditLogFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
@@ -499,23 +310,12 @@ func main() {
 		CniImageRegistry:      *cniImageRegistry,
 		AuditLogger:           auditLogger,
 		ScriptExecutionLogger: scriptExecutionLogger,
-		DisableMTLS:           identityMode == identityModePlaintext,
-		IdentityMode:          identityMode,
+		DisableMTLS:           *disableMTLS,
 		SPIFFESocketPath:      *spiffeSocketPath,
-		JWTAudience:           *jwtAudience,
-		ControllerEndpoint:    *controllerEndpoint,
-		ControllerAttestPath:  *controllerAttestPath,
-		StubAttestJWT:         *stubAttestJWT,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
-	serverTLS, err := maybeControllerAttest(ctx, cfg)
-	if err != nil {
-		log.Fatalf("controller attest: %v", err)
-	}
-	cfg.ServerTLS = serverTLS
 
 	slog.Info("initializing node agent and setting status")
 	agentServer, err := RunNodeStartup(cfg)

@@ -44,13 +44,8 @@ Important flags (also settable via env; see `AGENT_ARGS`):
 | `--bundle-server-url` | Optional. Bundle source for InstallBundle (`https://`, `http://`, `file://`, or `oci://`). Also `NKE_BUNDLE_SERVER_URL`. Prefer apt when unset. |
 | `--index-file-url` | Optional absolute index URL (`NKE_BUNDLE_INDEX_URL`); otherwise derived from the bundle server + OS |
 | `--cni-image-registry` | Optional OCI prefix for CNI helm `global.registry` (`NKE_CNI_IMAGE_REGISTRY`) |
-| `--identity-mode` | `spiffe` (default, X.509 mTLS), `controller-tls` (opt-in JWT → controller-issued server cert), or `plaintext`. Also `NKE_IDENTITY_MODE` |
-| `--disable-mtls` | Deprecated alias for `--identity-mode=plaintext` (**development only**) |
-| `--spiffe-socket-path` | SPIFFE workload API socket (used by `spiffe` and `controller-tls`; ignored for plaintext) |
-| `--controller-endpoint` | Required for `controller-tls`: absolute controller URL for the JWT exchange. Ignored otherwise. Also `NKE_CONTROLLER_ENDPOINT` |
-| `--controller-attest-path` | Path on the controller for that POST (default `/stub/v1/attest`; not a CWE API) |
-| `--jwt-audience` | JWT-SVID audience for `controller-tls` (defaults to `--controller-endpoint`). Also `NKE_JWT_AUDIENCE` |
-| `--stub-attest-jwt` | Test-only; skips the Workload API when set with `controller-tls`. Also `NKE_STUB_ATTEST_JWT` |
+| `--disable-mtls` | Plaintext gRPC (**development only**) |
+| `--spiffe-socket-path` | SPIFFE workload API socket (ignored with `--disable-mtls`) |
 | `--secure-server-port` | gRPC listen port (default `15005`) |
 | `--version` | Print build version and exit |
 
@@ -142,32 +137,23 @@ Never paste production tokens, certificate keys, or encryption keys into the REA
 
 ## mTLS (default)
 
-Production default is SPIFFE X.509 mTLS (`--identity-mode=spiffe`). The node
-SPIRE agent is still bootstrapped from cloud-init (SPIRE server endpoint +
-trust bundle). Node attestation on that path is TPM, configured on the SPIRE
-agent. Clients need a matching SPIFFE identity (path prefix `/nke-service/` or
-`/tenant/nke/service/`). `--disable-mtls` / `--identity-mode=plaintext` is for
-local/dev only.
+Production uses SPIFFE X.509 mTLS. nke-agent is a Workload API consumer: it
+waits for `--spiffe-socket-path` and serves `:15005` with its host SVID.
+Clients need a matching SPIFFE identity (path prefix `/nke-service/` or
+`/tenant/nke/service/`). `--disable-mtls` is for local/dev only.
 
-## Controller-issued server TLS (opt-in)
+Node attestation is configured on the **SPIRE agent**, not here. Cloud-init
+plants:
 
-`--identity-mode=controller-tls` is a **non-default** test path. Cloud-init
-SPIRE bootstrap is unchanged. The on-node SPIRE agent should attest with the
-**DPU** (not TPM). nke-agent then:
+- `/etc/spire-agent/initial-trust-bundle.pem` — SPIRE **server CA** (not IMDS
+  config)
+- `/etc/spire-agent/agent.conf` — server address, trust domain, and exactly one
+  `NodeAttestor` (`tpm`, `join_token`, or DSX `dsx_imds`)
 
-1. Fetches a JWT-SVID from the SPIRE Workload API (`--jwt-audience`, defaulting
-   to `--controller-endpoint`)
-2. `POST {endpoint}/stub/v1/attest` with `Authorization: Bearer <jwt>`
-3. On 2xx, parses JSON `{"certificate":"<PEM>","privateKey":"<PEM>"}`
-4. Serves gRPC with **server TLS only** (`ClientAuth` none). This is not mTLS.
-
-CWE has no attest API yet, so the POST 404s until the controller implements it.
-`--controller-endpoint` is ignored unless `identity-mode` is `controller-tls`.
-`--stub-attest-jwt` skips the Workload API for tests only.
-
-```bash
-AGENT_ARGS="--identity-mode=controller-tls --controller-endpoint=https://nke.example"
-```
+The `dsx_imds` plugin (from `dsx-identity`, not this repo) presents a DSX host
+JWT from `http://169.254.169.254/latest/meta-data/identity` to SPIRE as node
+evidence. nke-agent does not call IMDS and does not exchange JWTs with the
+controller.
 
 ## Build notes
 

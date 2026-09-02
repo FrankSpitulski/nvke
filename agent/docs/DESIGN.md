@@ -164,9 +164,9 @@ Entry point: `cmd/agent/main.go`.
    - `swapoff -a`.
 4. **`startSecureServer`** (goroutine):
    - Build gRPC server options: **audit-log unary interceptor** always;
-     transport from `--identity-mode`: **SPIFFE mTLS** (default),
-     **controller-issued server TLS** (`controller-tls`, not mTLS), or
-     plaintext (`--disable-mtls` / `plaintext`).
+     **SPIFFE mTLS creds** (Workload API X.509 SVID) unless `--disable-mtls`.
+     Node attestation (TPM, join token, or DSX `dsx_imds`) is SPIRE agent
+     config from cloud-init, not an nke-agent flag.
    - `grpcserver.Register` installs the `NodeAgent` service **and gRPC reflection**
      (v1 + v1alpha).
    - Listen on `:15005` (default); persist `listenStatus`.
@@ -434,9 +434,12 @@ the VIP back on `lo`. Manifest moves are the control mechanism (kubelet reacts t
 
 - **Transport/authn:** SPIFFE mTLS by default. `main.go` authorizes clients whose
   SVID trust domain matches the agent's and whose SPIFFE path starts with
-  `/nke-service/` or `/tenant/nke/service/`. `--identity-mode=controller-tls`
-  is opt-in server TLS (no client certs) after a JWT exchange with the
-  controller. `--disable-mtls` / `plaintext` is **development only**.
+  `/nke-service/` or `/tenant/nke/service/`. `--disable-mtls` (plaintext) is
+  **development only**. Node attestation happens on the host SPIRE agent
+  (`NodeAttestor "tpm"`, `"join_token"`, or DSX `"dsx_imds"` in cloud-init
+  `agent.conf`). The trust bundle is the SPIRE server CA. IMDS endpoint and
+  audience belong in the `dsx_imds` plugin stanza, not in nke-agent. The agent
+  only consumes the resulting Workload API X.509 SVID.
 - **Audit:** every unary RPC is logged (method, error, user-agent, client address)
   to the audit log via an interceptor.
 - **Reflection** is served on the same mTLS-protected port (prod requires valid
