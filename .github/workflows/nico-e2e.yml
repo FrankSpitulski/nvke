@@ -86,4 +86,8 @@ jobs:
       # Without this, a broken auth deployment turns the authn specs into
       # skips and the lane stays green having tested nothing new.
       require-authn: true
+      # Same CWE and the same REST API as CAPD, so this asserts nothing new about
+      # nkectl. It is on because it costs a minute on a lane that already runs,
+      # and it catches a CWE deployment difference the CAPD lane would not see.
+      nkectl-smoke: true
       needs-nico-provider: true

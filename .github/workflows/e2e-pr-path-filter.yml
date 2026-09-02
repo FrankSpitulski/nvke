@@ -43,9 +43,20 @@ jobs:
                 --jq '.[].filename'
             )"
 
+            # The CWE-facing CLI: the REST client, the commands built on it, and
+            # the types they exchange. A change here can break against a live
+            # CWE, which is what hack/ci/nkectl-smoke.sh checks, so it still
+            # runs. The rest of cli/ -- docs, examples, the bootstrap e2e suite,
+            # the packages that never call CWE -- cannot, and still skips.
+            cwe_facing='^cli/(cmd/|internal/(clients|clusterstate|cwe|sitecluster)/)'
+
             if [[ -n "$changed_files" ]] && ! grep -qv '^cli/' <<< "$changed_files"; then
-              run_e2e=false
-              echo "Skipping backend E2E for pull request ${pr_number}: all changed files are under cli/."
+              if grep -qE "$cwe_facing" <<< "$changed_files"; then
+                echo "Pull request ${pr_number} is cli/-only but touches the CWE-facing CLI: running backend E2E."
+              else
+                run_e2e=false
+                echo "Skipping backend E2E for pull request ${pr_number}: all changed files are under cli/ and none are CWE-facing."
+              fi
             fi
           fi
 

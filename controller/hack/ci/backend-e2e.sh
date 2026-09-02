@@ -8,6 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTROLLER_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # shellcheck source=controller/hack/backend-e2e-lib.sh
 source "${CONTROLLER_ROOT}/hack/backend-e2e-lib.sh"
+# shellcheck source=controller/hack/ci/nkectl-smoke.sh
+source "${SCRIPT_DIR}/nkectl-smoke.sh"
 WORKSPACE_ROOT="$(cd "${CONTROLLER_ROOT}/.." && pwd)"
 cd "${CONTROLLER_ROOT}"
 
@@ -17,6 +19,9 @@ RUN_ID="${RUN_ID:0:64}"
 STATE_DIR="${NKE_E2E_STATE_DIR:-${CONTROLLER_ROOT}/.local/backend-e2e/${RUN_ID}}"
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-cwe-capi}"
 DOCKERHUB_MIRROR="${NKE_E2E_DOCKERHUB_MIRROR:-}"
+# Names the backend in this script's own output. Both lanes share the script, so
+# without it a NICo run reports itself as CAPD.
+BACKEND="${NKE_E2E_BACKEND:-capd}"
 RUNNER_NAME="capd-e2e-runner-${RUN_ID}"
 RUNNER_IMAGE="${NKE_E2E_RUNNER_IMAGE:-docker:29.1.3-cli@sha256:4fa0ee1f3a7e4354c4ea34558b6d4ee32859baf4973d4c8ccc8e7fe3dd730c04}"
 STATE_VOLUME="capd-e2e-state-${RUN_ID}"
@@ -32,6 +37,9 @@ DIAGNOSTICS_MARKER="${STATE_DIR}/SAFE_TO_UPLOAD"
 # deployment-wide flag off between the legs. Any other backend, or a caller that
 # drives the flag itself, leaves this unset and takes the single-mode path below.
 SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES="${NKE_E2E_SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES:-false}"
+# Run the nkectl checks in hack/ci/nkectl-smoke.sh once the suite passes. Off by
+# default: the CAPD lane opts in, and NICo can follow once this has a record.
+NKECTL_SMOKE="${NKE_E2E_NKECTL_SMOKE:-false}"
 if [[ "${SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES}" == "true" ]]; then
   PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=true
 fi
@@ -44,6 +52,7 @@ SOURCE_ARCHIVE="${TMP_DIR}/cwe-source.tgz"
 # Where the CAPNICo checkout lands inside the runner, when a NICo lane stages one.
 NICO_PROVIDER_CONTAINER_DIR=/workspace/cluster-api-provider-nico
 E2E_BIN="${TMP_DIR}/cwe-e2e.test"
+NKECTL_BIN="${TMP_DIR}/nkectl"
 E2E_CONFIG="${TMP_DIR}/e2e-config.json"
 RUNNER_DOCKER_HOST="${DOCKER_HOST:-unix:///var/run/docker.sock}"
 RUNNER_DOCKER_ARGS=()
@@ -61,7 +70,7 @@ STATE_MONITOR_PID=""
 
 if [[ "${RUNNER_DOCKER_HOST}" == "unix:///var/run/docker.sock" ]]; then
   [[ -S /var/run/docker.sock ]] || {
-    printf '[capd-e2e] /var/run/docker.sock is required for a local run\n' >&2
+    printf '[%s-e2e] /var/run/docker.sock is required for a local run\n' "${BACKEND}" >&2
     exit 1
   }
   RUNNER_DOCKER_ARGS=(-v /var/run/docker.sock:/var/run/docker.sock)
@@ -75,13 +84,13 @@ case "$(uname -m)" in
   arm64 | aarch64) host_arch=arm64 ;;
   x86_64) host_arch=amd64 ;;
   *)
-    printf '[capd-e2e] unsupported architecture %s\n' "$(uname -m)" >&2
+    printf '[%s-e2e] unsupported architecture %s\n' "${BACKEND}" "$(uname -m)" >&2
     exit 1
     ;;
 esac
 
 log() {
-  printf '[capd-e2e] %s\n' "$*"
+  printf '[%s-e2e] %s\n' "${BACKEND}" "$*"
 }
 
 require_command() {
@@ -209,7 +218,7 @@ start_state_monitor() {
             conditions: (.status.conditions // [])
           }
         '; then
-        printf '[capd-e2e] failed to capture CAPI conditions at %s\n' "${captured_at}"
+        printf '[%s-e2e] failed to capture CAPI conditions at %s\n' "${BACKEND}" "${captured_at}"
       fi
       printf '%s\n' "=== ${captured_at} CAPD node containers ==="
       docker ps -a \
@@ -610,7 +619,7 @@ git -C "${WORKSPACE_ROOT}" ls-files --cached --others --exclude-standard -z cont
     --gzip \
     --file "${SOURCE_ARCHIVE}"
 
-log "compiling the CAPD E2E suite for linux/${host_arch}"
+log "compiling the ${BACKEND} E2E suite for linux/${host_arch}"
 e2e_built=false
 for attempt in 1 2 3; do
   if (cd test/e2e && CGO_ENABLED=0 GOOS=linux GOARCH="${host_arch}" go test -c -o "${E2E_BIN}" .); then
@@ -622,6 +631,10 @@ for attempt in 1 2 3; do
 done
 if [[ "${e2e_built}" != true ]]; then
   exit 1
+fi
+
+if [[ "${NKECTL_SMOKE}" == "true" ]]; then
+  nkectl_smoke_build "${host_arch}"
 fi
 
 log "building CAPD node image with agent source ${NODE_AGENT_VERSION}"
@@ -683,6 +696,9 @@ docker create \
 docker start "${RUNNER_NAME}" >/dev/null
 docker cp "${MANAGEMENT_KUBECONFIG}" "${RUNNER_NAME}:/state/management.kubeconfig"
 docker cp "${CLUSTERCTL_BIN}" "${RUNNER_NAME}:/usr/local/bin/clusterctl"
+if [[ "${NKECTL_SMOKE}" == "true" ]]; then
+  nkectl_smoke_stage
+fi
 docker cp "${TILT_BIN}" "${RUNNER_NAME}:/usr/local/bin/tilt"
 docker cp "$(command -v helm)" "${RUNNER_NAME}:/usr/local/bin/helm-real"
 docker cp hack/ci/helm-dockerhub-mirror.sh "${RUNNER_NAME}:/usr/local/bin/helm"
@@ -903,7 +919,10 @@ if [[ "${SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES}" == "true" ]]; then
     log "node-pool leg failed with exit code ${leg_rc}" >&2
     exit "${leg_rc}"
   fi
-  log "CAPD sequential management-plane E2E passed (cp-controller then node-pool)"
+  if [[ "${NKECTL_SMOKE}" == "true" ]]; then
+    nkectl_smoke || exit 1
+  fi
+  log "${BACKEND} sequential management-plane E2E passed (cp-controller then node-pool)"
   exit 0
 fi
 
@@ -924,8 +943,12 @@ run_ginkgo_leg "${NKE_E2E_LABEL_FILTER}" "${PROVISION_CONTROL_PLANE_WITH_CONTROL
 stop_state_monitor
 
 if ((e2e_rc != 0)); then
-  log "CAPD E2E scenarios failed with exit code ${e2e_rc}" >&2
+  log "${BACKEND} E2E scenarios failed with exit code ${e2e_rc}" >&2
   exit "${e2e_rc}"
 fi
 
-log "CAPD management-plane E2E passed"
+if [[ "${NKECTL_SMOKE}" == "true" ]]; then
+  nkectl_smoke || exit 1
+fi
+
+log "${BACKEND} management-plane E2E passed"

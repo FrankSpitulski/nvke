@@ -28,6 +28,14 @@ on:
       - .github/workflows/capd-e2e.yml
       - .github/workflows/backend-e2e.yml
       - .github/workflows/e2e-pr-path-filter.yml
+      # The CWE-facing CLI. hack/ci/nkectl-smoke.sh drives nkectl against this
+      # lane's CWE, so a change here has something to break. Keep in step with
+      # cwe_facing in e2e-pr-path-filter.yml, which suppresses the rest of cli/.
+      - "cli/cmd/**"
+      - "cli/internal/clients/**"
+      - "cli/internal/clusterstate/**"
+      - "cli/internal/cwe/**"
+      - "cli/internal/sitecluster/**"
   # Also twice a day, so a break the paths above filtered out, or one a flake
   # hid, still surfaces within twelve hours. A schedule ignores those paths, so
   # these runs always exercise the whole suite.
@@ -91,4 +99,5 @@ jobs:
       # the authn specs run on the node-pool leg, and without this a broken auth
       # deployment would leave them silently skipped and the job green.
       require-authn: true
+      nkectl-smoke: true
       single-runner-capd-control-plane-modes: true
