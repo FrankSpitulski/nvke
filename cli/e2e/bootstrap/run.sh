@@ -111,6 +111,15 @@ export KUBECACHEDIR="${KUBECONFIG_DIR}/cache"
 
 log() { printf '[nkectl-bootstrap-e2e] %s\n' "$*"; }
 
+# kind resolves a cluster through its provider, so ask the same one bootstrap
+# site used. Bare, the nerdctl leg asks Docker, sees none of nerdctl's clusters
+# and answers "no" without checking anything. kind accepts "docker" here as
+# well as its own default.
+kind_lists_bootstrap_cluster() {
+  KIND_EXPERIMENTAL_PROVIDER="${NKECTL_BOOTSTRAP_PROVIDER}" kind get clusters 2>/dev/null |
+    grep -Fxq "${BOOTSTRAP_KIND_CLUSTER}"
+}
+
 nodes_up=false
 bootstrap_cluster_cleanup_pending=false
 cleanup() {
@@ -301,6 +310,17 @@ else
   log "  healthy has been checked above; the docker leg covers attestation."
 fi
 
+# Positive control for the "cluster is gone" check below. kind exits 0 and
+# prints "No kind clusters found." even when its provider is unreachable, so an
+# empty answer there means either "deleted" or "cannot see anything" -- and the
+# check cannot tell them apart. Confirming the cluster IS listed first is what
+# makes its later absence evidence.
+if ! kind_lists_bootstrap_cluster; then
+  log "FAIL: ${BOOTSTRAP_KIND_CLUSTER} is not registered before teardown, so this"
+  log "  suite cannot see the ${NKECTL_BOOTSTRAP_PROVIDER} provider and the check below proves nothing"
+  exit 1
+fi
+
 log "tearing down the bootstrap kind cluster kept for attestation"
 KIND_EXPERIMENTAL_PROVIDER="${NKECTL_BOOTSTRAP_PROVIDER}" \
   kind delete cluster --name "${BOOTSTRAP_KIND_CLUSTER}"
@@ -314,12 +334,7 @@ bootstrap_cluster_cleanup_pending=false
 # TestRunBootstrapSiteValidReachesStub, which can assert on the kind call
 # itself rather than inferring it from what is left behind.
 #
-# kind resolves a cluster through its provider, so ask the same one bootstrap
-# site used. Bare, the nerdctl leg asks Docker, sees none of nerdctl's
-# clusters, and passes without checking anything. kind accepts "docker" here
-# as well as its own default.
-if KIND_EXPERIMENTAL_PROVIDER="${NKECTL_BOOTSTRAP_PROVIDER}" kind get clusters 2>/dev/null |
-  grep -Fxq "${BOOTSTRAP_KIND_CLUSTER}"; then
+if kind_lists_bootstrap_cluster; then
   log "FAIL: kind cluster ${BOOTSTRAP_KIND_CLUSTER} is still registered after this suite deleted it"
   KIND_EXPERIMENTAL_PROVIDER="${NKECTL_BOOTSTRAP_PROVIDER}" kind get clusters || true
   exit 1
