@@ -33,6 +33,23 @@ sudo systemctl enable nke-spire-configure.service
 sudo systemctl enable spire-agent.service
 sudo systemctl enable nke-agent.service
 
+# Stage the nke-kubeadm-distro debs as a local flat apt repo: the install
+# command at cluster create stays `apt-get install -y
+# nke-kubeadm-distro-<x.y.z>` unchanged, and it resolves fully offline. A
+# file: repo is used (not dpkg -i) so apt still resolves deps normally.
+# trusted=yes is fine because the content is already on this root fs.
+sudo install -d -m 0755 /usr/lib/nke/debs
+sudo install -m 0644 "${SRC}"/debs/*.deb /usr/lib/nke/debs/
+sudo install -m 0644 "${SRC}/debs/Packages" /usr/lib/nke/debs/Packages
+echo 'deb [trusted=yes] file:/usr/lib/nke/debs ./' | sudo tee /etc/apt/sources.list.d/nke-local.list >/dev/null
+# Cache the local index so cluster create needs no apt-get update of its
+# own. Scoped to only the local source: a mirror hiccup on the build host
+# cannot fail the bake, and no Ubuntu archive lists get baked into the image.
+sudo apt-get update \
+  -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/nke-local.list \
+  -o Dir::Etc::sourceparts=- \
+  -o APT::Get::List-Cleanup=0
+
 # Golden image: next boot must look like a new instance, without the Packer
 # SSH key or a machine-id from this build VM.
 sudo cloud-init clean --logs --seed || true
@@ -51,5 +68,10 @@ sudo rm -f /home/ubuntu/.ssh/authorized_keys
 # last: any write after this leaves blocks un-trimmed again.
 echo "Cleaning up package cache and trimming filesystem..."
 sudo apt-get -y autoremove
+# Empties /var/cache/apt/archives only; /var/lib/apt/lists (the local index
+# apt-get update above populated) is untouched, so it stays usable.
 sudo apt-get clean
+# The uploaded artifacts (~1 GB, including the debs) must not stay allocated
+# in the qcow2 now that everything is installed/staged under /usr and /etc.
+sudo rm -rf /tmp/nke-image
 sudo fstrim -av || true
