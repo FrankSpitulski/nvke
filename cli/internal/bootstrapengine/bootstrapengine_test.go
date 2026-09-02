@@ -252,8 +252,10 @@ func TestKubeconfig_LetsKindWriteTheFile(t *testing.T) {
 	if call.args[len(call.args)-2] != "--kubeconfig" || call.args[len(call.args)-1] != path {
 		t.Errorf("args = %v, want --kubeconfig %s", call.args, path)
 	}
-	if body, err := os.ReadFile(path); err == nil && strings.Contains(string(body), "using nerdctl") {
-		t.Errorf("kubeconfig holds kind's stderr line: %q", body)
+	// kind is faked, so nothing should have created the file. Asserting its
+	// absence covers any self-write, not just one that echoes kind's stderr.
+	if body, err := os.ReadFile(path); err == nil {
+		t.Errorf("Kubeconfig wrote %s itself; kind must write it. Contents: %q", path, body)
 	}
 }
 
