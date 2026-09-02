@@ -33,11 +33,9 @@
 #     fake-node fixture and the profiles image still build through `docker`
 #     directly; see nodes-up/ensure-capd-image/ensure-profiles-image in
 #     cli/Makefile, unrelated to bootstrapengine's Provider and out of this
-#     job's scope to change). `continue-on-error` on this leg: kind's own
-#     docs mark every non-Docker provider experimental, and this is the
-#     first time this repo runs it in CI at all, so it is deliberately not
-#     yet allowed to block a merge -- see the PR that added this matrix for
-#     the exact reasoning and what "flip it to required" needs to see first.
+#     job's scope to change). This leg ran non-blocking from #291 while it
+#     earned a track record, kind's own docs marking every non-Docker
+#     provider experimental; it has one now and blocks like the docker leg.
 #
 # The fixture's node image is a thin derivation of
 # controller/hack/capd-kindest-node's CAPD node image (see
@@ -122,11 +120,10 @@ jobs:
       fail-fast: false
       matrix:
         provider: [docker, nerdctl]
-    # nerdctl is new to this CI lane (see the matrix comment above): let it
-    # report a real pass/fail without being able to block a merge until it
-    # has a track record. The docker leg has none of this -- it keeps
-    # blocking like it always has.
-    continue-on-error: ${{ matrix.provider == 'nerdctl' }}
+    # Both legs block. nerdctl ran non-blocking from #291 (2026-08-27) and now
+    # has the track record that asked for: 22 runs, 22 green, no failure. Left
+    # non-blocking it makes a required workflow that cannot fail on half its
+    # matrix, which reads as coverage it does not give.
     env:
       CWE_IMAGE: ghcr.io/nvidia/nke/controller:v0.1.1-rc.2
       # nerdctl >= 1.7.0 is kind's own stated minimum for its nerdctl
