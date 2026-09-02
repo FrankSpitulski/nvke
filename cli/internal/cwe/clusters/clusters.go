@@ -163,7 +163,7 @@ func loadCreateClusterRequest(cmd *cobra.Command, path string) (api.CreateCluste
 		if err != nil {
 			return api.CreateClusterJSONRequestBody{}, fmt.Errorf("opening %q: %w", path, err)
 		}
-		defer f.Close() //nolint:errcheck
+		defer f.Close()
 		r = f
 	}
 	data, err := io.ReadAll(r)
@@ -219,5 +219,5 @@ func printClusters(out io.Writer, clusters []api.Cluster) {
 			util.FormatAge(cl.CreatedAt),
 		)
 	}
-	w.Flush() //nolint:errcheck
+	w.Flush()
 }
