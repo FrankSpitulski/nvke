@@ -44,11 +44,13 @@ Important flags (also settable via env; see `AGENT_ARGS`):
 | `--bundle-server-url` | Optional. Bundle source for InstallBundle (`https://`, `http://`, `file://`, or `oci://`). Also `NKE_BUNDLE_SERVER_URL`. Prefer apt when unset. |
 | `--index-file-url` | Optional absolute index URL (`NKE_BUNDLE_INDEX_URL`); otherwise derived from the bundle server + OS |
 | `--cni-image-registry` | Optional OCI prefix for CNI helm `global.registry` (`NKE_CNI_IMAGE_REGISTRY`) |
-| `--disable-mtls` | Plaintext gRPC (**development only**) |
-| `--spiffe-socket-path` | SPIFFE workload API socket (ignored with `--disable-mtls`) |
-| `--controller-endpoint` | Optional absolute controller URL. When set, POST a stub JWT (call-home illustration; no PEM). Also `NKE_CONTROLLER_ENDPOINT` |
+| `--identity-mode` | `spiffe` (default, X.509 mTLS), `controller-tls` (opt-in JWT → controller-issued server cert), or `plaintext`. Also `NKE_IDENTITY_MODE` |
+| `--disable-mtls` | Deprecated alias for `--identity-mode=plaintext` (**development only**) |
+| `--spiffe-socket-path` | SPIFFE workload API socket (used by `spiffe` and `controller-tls`; ignored for plaintext) |
+| `--controller-endpoint` | Required for `controller-tls`: absolute controller URL for the JWT exchange. Ignored otherwise. Also `NKE_CONTROLLER_ENDPOINT` |
 | `--controller-attest-path` | Path on the controller for that POST (default `/stub/v1/attest`; not a CWE API) |
-| `--stub-attest-jwt` | Illustration token (not TPM-backed). Also `NKE_STUB_ATTEST_JWT` |
+| `--jwt-audience` | JWT-SVID audience for `controller-tls` (defaults to `--controller-endpoint`). Also `NKE_JWT_AUDIENCE` |
+| `--stub-attest-jwt` | Test-only; skips the Workload API when set with `controller-tls`. Also `NKE_STUB_ATTEST_JWT` |
 | `--secure-server-port` | gRPC listen port (default `15005`) |
 | `--version` | Print build version and exit |
 
@@ -138,28 +140,33 @@ encryptionKey: "EXAMPLEONLY_not-a-real-secretbox-key_000000000000="
 
 Never paste production tokens, certificate keys, or encryption keys into the README.
 
-## mTLS
+## mTLS (default)
 
-Production should use SPIFFE mTLS (default). `--disable-mtls` is for local/dev only.
-Clients need a matching SPIFFE identity (path prefix `/nke-service/`).
+Production default is SPIFFE X.509 mTLS (`--identity-mode=spiffe`). The node
+SPIRE agent is still bootstrapped from cloud-init (SPIRE server endpoint +
+trust bundle). Node attestation on that path is TPM, configured on the SPIRE
+agent. Clients need a matching SPIFFE identity (path prefix `/nke-service/` or
+`/tenant/nke/service/`). `--disable-mtls` / `--identity-mode=plaintext` is for
+local/dev only.
 
-## Controller call-home stub (illustration)
+## Controller-issued server TLS (opt-in)
 
-Security's proposed bootstrap is: give the agent **only** a controller URL (no
-trust-bundle PEM), mint a TPM-backed JWT on the node, and POST it to the
-controller. CWE has no such API yet, and TPM JWT format is unspecified.
+`--identity-mode=controller-tls` is a **non-default** test path. Cloud-init
+SPIRE bootstrap is unchanged. The on-node SPIRE agent should attest with the
+**DPU** (not TPM). nke-agent then:
 
-This stub shows the agent-side sequence:
+1. Fetches a JWT-SVID from the SPIRE Workload API (`--jwt-audience`, defaulting
+   to `--controller-endpoint`)
+2. `POST {endpoint}/stub/v1/attest` with `Authorization: Bearer <jwt>`
+3. On 2xx, parses JSON `{"certificate":"<PEM>","privateKey":"<PEM>"}`
+4. Serves gRPC with **server TLS only** (`ClientAuth` none). This is not mTLS.
 
-1. `--controller-endpoint=https://nke.example` (TLS via the OS/system trust store)
-2. Agent uses `StubAttestor` (placeholder JWT), not `tpm2`
-3. `POST {endpoint}/stub/v1/attest` with `Authorization: Bearer …`
-4. Log status/body; do not parse join tokens
-
-Current CWE will 404; that is expected. Empty `--controller-endpoint` skips this.
+CWE has no attest API yet, so the POST 404s until the controller implements it.
+`--controller-endpoint` is ignored unless `identity-mode` is `controller-tls`.
+`--stub-attest-jwt` skips the Workload API for tests only.
 
 ```bash
-AGENT_ARGS="--disable-mtls --controller-endpoint=https://nke.example"
+AGENT_ARGS="--identity-mode=controller-tls --controller-endpoint=https://nke.example"
 ```
 
 ## Build notes

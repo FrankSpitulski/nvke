@@ -164,8 +164,14 @@ repository.
 
 ## Critical Security Assumptions
 
-- Production starts the agent with SPIFFE mTLS enabled and does not use
-  `--disable-mtls`.
+- Production starts the agent with SPIFFE mTLS enabled (`--identity-mode=spiffe`)
+  and does not use `--disable-mtls` / `--identity-mode=plaintext`.
+- `--identity-mode=controller-tls` is experimental: the agent authenticates to
+  the controller with a Workload API JWT-SVID, then serves gRPC with a
+  controller-issued server certificate and **no client authentication**.
+  Callers that can reach port `15005` are not SPIFFE-authorized in this mode.
+  Do not enable it as the fleet default until the controller attest API and
+  caller controls are in place.
 - SPIRE securely attests workloads, protects its signing keys and workload API
   socket, rotates SVIDs, and issues `/nke-service/` identities only to trusted
   NKE services.

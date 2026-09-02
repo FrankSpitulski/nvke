@@ -4,6 +4,18 @@
 
 set -euo pipefail
 
+# Plaintext nke-agent does not use the Workload API. Default (spiffe) and
+# identity-mode=controller-tls both need the SPIRE agent socket: mTLS X.509
+# SVIDs and JWT-SVIDs respectively. Cloud-init still bootstraps SPIRE with
+# the trust bundle and SPIRE server endpoint.
+args="${AGENT_ARGS:-}"
+if [[ "${args}" =~ (^|[[:space:]])--disable-mtls([[:space:]]|$) ]] ||
+   [[ "${args}" =~ (^|[[:space:]])--identity-mode=plaintext([[:space:]]|$) ]] ||
+   [[ "${args}" =~ (^|[[:space:]])--identity-mode[[:space:]]+plaintext([[:space:]]|$) ]] ||
+   [[ "${NKE_IDENTITY_MODE:-}" == "plaintext" ]]; then
+  exit 0
+fi
+
 SOCKET="${SPIFFE_SOCKET_PATH:-/tmp/spire-agent/public/api.sock}"
 SOCKET="${SOCKET#unix://}"
 

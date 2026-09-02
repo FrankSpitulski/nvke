@@ -5,16 +5,46 @@ package attest
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func testTLSPEMs(t *testing.T) (certPEM, keyPEM []byte) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "nke-agent-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{"localhost"},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	require.NoError(t, err)
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyBytes, err := x509.MarshalECPrivateKey(key)
+	require.NoError(t, err)
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
+	return certPEM, keyPEM
+}
 
 func TestStubAttestorJWT(t *testing.T) {
 	t.Parallel()
@@ -28,16 +58,46 @@ func TestStubAttestorJWT(t *testing.T) {
 	assert.Contains(t, err.Error(), "empty")
 }
 
-func TestTPMAttestorNotImplemented(t *testing.T) {
+func TestWorkloadAPIAttestorEmptyAudience(t *testing.T) {
 	t.Parallel()
 
-	_, err := (TPMAttestor{}).JWT(context.Background())
+	_, err := (WorkloadAPIAttestor{}).JWT(context.Background())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not implemented")
+	assert.Contains(t, err.Error(), "audience")
 }
 
-func TestClientAttestPostsBearerAndJSON(t *testing.T) {
+func TestParseTLSMaterial(t *testing.T) {
 	t.Parallel()
+
+	certPEM, keyPEM := testTLSPEMs(t)
+	raw, err := json.Marshal(TLSMaterial{
+		Certificate: string(certPEM),
+		PrivateKey:  string(keyPEM),
+	})
+	require.NoError(t, err)
+
+	cert, err := ParseTLSMaterial(raw)
+	require.NoError(t, err)
+	require.NotNil(t, cert)
+	require.NotEmpty(t, cert.Certificate)
+
+	_, err = ParseTLSMaterial([]byte(`{"status":"stub-ok"}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing certificate")
+
+	_, err = ParseTLSMaterial([]byte("not-json"))
+	require.Error(t, err)
+}
+
+func TestClientAttestPostsBearerAndParsesTLS(t *testing.T) {
+	t.Parallel()
+
+	certPEM, keyPEM := testTLSPEMs(t)
+	payload, err := json.Marshal(TLSMaterial{
+		Certificate: string(certPEM),
+		PrivateKey:  string(keyPEM),
+	})
+	require.NoError(t, err)
 
 	var (
 		gotAuth string
@@ -52,7 +112,7 @@ func TestClientAttestPostsBearerAndJSON(t *testing.T) {
 		require.NoError(t, json.Unmarshal(raw, &gotBody))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"stub-ok"}`))
+		_, _ = w.Write(payload)
 	}))
 	t.Cleanup(srv.Close)
 
@@ -64,10 +124,11 @@ func TestClientAttestPostsBearerAndJSON(t *testing.T) {
 	result, err := client.Attest(context.Background(), Request{NodeName: "node-a"})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, result.StatusCode)
-	assert.Equal(t, `{"status":"stub-ok"}`, result.Body)
 	assert.True(t, strings.HasSuffix(result.URL, DefaultPath))
 	assert.Equal(t, "Bearer illustration-jwt", gotAuth)
 	assert.Equal(t, "node-a", gotBody.NodeName)
+	require.NotNil(t, result.Certificate)
+	require.NotEmpty(t, result.Certificate.Certificate)
 }
 
 func TestClientAttestUnexpectedStatus(t *testing.T) {
@@ -85,6 +146,7 @@ func TestClientAttestUnexpectedStatus(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, result.StatusCode)
 	assert.Contains(t, result.Body, "no such route")
 	assert.Contains(t, err.Error(), "404")
+	assert.Nil(t, result.Certificate)
 }
 
 func TestClientAttestURL(t *testing.T) {

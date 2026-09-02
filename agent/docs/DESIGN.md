@@ -164,7 +164,9 @@ Entry point: `cmd/agent/main.go`.
    - `swapoff -a`.
 4. **`startSecureServer`** (goroutine):
    - Build gRPC server options: **audit-log unary interceptor** always;
-     **SPIFFE mTLS creds** unless `--disable-mtls`.
+     transport from `--identity-mode`: **SPIFFE mTLS** (default),
+     **controller-issued server TLS** (`controller-tls`, not mTLS), or
+     plaintext (`--disable-mtls` / `plaintext`).
    - `grpcserver.Register` installs the `NodeAgent` service **and gRPC reflection**
      (v1 + v1alpha).
    - Listen on `:15005` (default); persist `listenStatus`.
@@ -432,7 +434,9 @@ the VIP back on `lo`. Manifest moves are the control mechanism (kubelet reacts t
 
 - **Transport/authn:** SPIFFE mTLS by default. `main.go` authorizes clients whose
   SVID trust domain matches the agent's and whose SPIFFE path starts with
-  `/nke-service/`. `--disable-mtls` (plaintext) is **development only**.
+  `/nke-service/` or `/tenant/nke/service/`. `--identity-mode=controller-tls`
+  is opt-in server TLS (no client certs) after a JWT exchange with the
+  controller. `--disable-mtls` / `plaintext` is **development only**.
 - **Audit:** every unary RPC is logged (method, error, user-agent, client address)
   to the audit log via an interceptor.
 - **Reflection** is served on the same mTLS-protected port (prod requires valid

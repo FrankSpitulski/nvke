@@ -1,18 +1,29 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package attest is an illustration-only client for Security's proposed
-// call-home bootstrap: the agent is given a controller URL (no trust-bundle
-// PEM), obtains a JWT, and POSTs it to the controller.
+// Package attest implements the agent side of optional controller-issued
+// server TLS.
 //
-// This is not a CWE API. The default path is deliberately under /stub/.
-// TPM2-backed JWTs are not implemented; use StubAttestor until the JWT
-// profile (alg, claims, nonce) is specified.
+// Production default for nke-agent remains SPIFFE X.509 mTLS (TPM node
+// attestation is configured on the SPIRE agent, not here). The controller-tls
+// path is opt-in:
+//
+//  1. Cloud-init still plants the SPIRE server endpoint and trust bundle on
+//     the node SPIRE agent (unchanged).
+//  2. After the SPIRE agent attests the node (DPU attestor, not TPM), this
+//     package fetches a JWT-SVID from the Workload API.
+//  3. The JWT is POSTed to the NKE controller. On success the controller
+//     returns a TLS certificate and private key used as gRPC server TLS
+//     (no client certificates; not mTLS).
+//
+// The POST path is not a CWE API yet. StubAttestor exists so tests can skip
+// the Workload API.
 package attest
 
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,18 +38,20 @@ const (
 	// pretending an attest API already shipped.
 	DefaultPath = "/stub/v1/attest"
 
-	// DefaultStubJWT is an obviously fake token, not a compact JWT.
+	// DefaultStubJWT is an obviously fake token for tests. Production
+	// controller-tls uses WorkloadAPIAttestor, not this string.
 	DefaultStubJWT = "nke-agent-stub-attest-jwt"
 
-	maxResponseBytes = 4096
+	// PEM certificate + key comfortably fit under this cap.
+	maxResponseBytes = 64 * 1024
 )
 
-// Attestor produces the bootstrap token that would be TPM-backed in production.
+// Attestor produces the JWT offered to the controller.
 type Attestor interface {
 	JWT(ctx context.Context) (string, error)
 }
 
-// StubAttestor returns a configured string. No TPM.
+// StubAttestor returns a configured string. No Workload API, no TPM.
 type StubAttestor struct {
 	JWTValue string
 }
@@ -52,28 +65,28 @@ func (s StubAttestor) JWT(_ context.Context) (string, error) {
 	return v, nil
 }
 
-// TPMAttestor is a placeholder for tpm2-tools (quote / AK-signed JWT).
-type TPMAttestor struct{}
-
-// JWT always returns a not-implemented error.
-func (TPMAttestor) JWT(_ context.Context) (string, error) {
-	return "", errors.New("tpm jwt attestor is not implemented")
-}
-
 // Request is the JSON body posted with the JWT. The real schema is unspecified.
 type Request struct {
 	NodeName string `json:"nodeName,omitempty"`
 }
 
-// Result is the raw HTTP outcome. The agent does not interpret join tokens.
+// TLSMaterial is the success body from the controller: PEM certificate and
+// matching private key for the agent gRPC server.
+type TLSMaterial struct {
+	Certificate string `json:"certificate"`
+	PrivateKey  string `json:"privateKey"`
+}
+
+// Result is the HTTP outcome plus a parsed server certificate on success.
 type Result struct {
-	URL        string
-	StatusCode int
-	Body       string
+	URL         string
+	StatusCode  int
+	Body        string
+	Certificate *tls.Certificate
 }
 
 // Client POSTs a JWT to a controller endpoint using the default TLS trust
-// store (no extra PEM).
+// store (no extra PEM). The SPIRE trust bundle stays with the SPIRE agent.
 type Client struct {
 	// Endpoint is an absolute URL (scheme + host), with no attest path required.
 	Endpoint string
@@ -84,7 +97,24 @@ type Client struct {
 	Attestor Attestor
 }
 
+// ParseTLSMaterial unmarshals controller JSON and builds a tls.Certificate.
+func ParseTLSMaterial(body []byte) (*tls.Certificate, error) {
+	var m TLSMaterial
+	if err := json.Unmarshal(body, &m); err != nil {
+		return nil, fmt.Errorf("parse attest tls json: %w", err)
+	}
+	if strings.TrimSpace(m.Certificate) == "" || strings.TrimSpace(m.PrivateKey) == "" {
+		return nil, errors.New("attest response missing certificate or privateKey")
+	}
+	cert, err := tls.X509KeyPair([]byte(m.Certificate), []byte(m.PrivateKey))
+	if err != nil {
+		return nil, fmt.Errorf("parse attest tls key pair: %w", err)
+	}
+	return &cert, nil
+}
+
 // Attest fetches a JWT and POSTs it as Authorization: Bearer to the stub path.
+// A 2xx response must contain TLSMaterial JSON.
 func (c *Client) Attest(ctx context.Context, req Request) (Result, error) {
 	if c == nil {
 		return Result{}, errors.New("attest client is nil")
@@ -144,6 +174,12 @@ func (c *Client) Attest(ctx context.Context, req Request) (Result, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return result, fmt.Errorf("attest %s: unexpected status %d", target, resp.StatusCode)
 	}
+
+	cert, err := ParseTLSMaterial(limited)
+	if err != nil {
+		return result, fmt.Errorf("attest %s: %w", target, err)
+	}
+	result.Certificate = cert
 	return result, nil
 }
 
