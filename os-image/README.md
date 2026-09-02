@@ -7,6 +7,7 @@ controller can reach the node over SPIFFE mTLS. The contract is [SPEC.md](SPEC.m
 |---|---|
 | `SPEC.md` | Image contract (bake vs first-boot, ports, identity) |
 | `packer/` | Packer + QEMU recipe that produces a qcow2 |
+| `packages/kubeadm-distro/` | Builds the staged `nke-kubeadm-distro-<x.y.z>` debs (Linux + `dpkg-dev`/`gnupg` host only) |
 | `files/` | systemd units, SPIRE template, first-boot script |
 | `files/luks/` | LUKS/TPM2 first-boot binding assets for the FDE variant |
 | `files/lvm/` | First-boot storage-growth assets for the non-FDE (no encryption) variant |
@@ -155,6 +156,38 @@ interactively.
 
 The baked `nke-agent` is built from the tagged commit's `agent/` source, so
 the agent version is fixed by the ref the workflow runs on.
+
+## Staged kubeadm-distro debs
+
+The image bakes `nke-kubeadm-distro-<x.y.z>` debs, pinned by `K8S_VERSIONS` in
+`os-image/packages/kubeadm-distro/Makefile` (currently `v1.36.3 v1.35.3
+v1.34.2`), but installs none of them; they wait under `/usr/lib/nke/debs/` as
+an unsigned local `file:` apt repository (see `provision.sh` for why unsigned
+is fine here). Each deb bundles kubelet, kubeadm, kubectl, containerd, runc,
+CNI plugins, crictl, and helm, plus a tarball of the Kubernetes base
+container images (apiserver, controller-manager, scheduler, kube-proxy,
+etcd, coredns, pause), so installing one needs no network access at all. The
+bundled images use kubeadm's default `imageRepository` (`registry.k8s.io`);
+a controller configured with `KUBEADM_IMAGE_REPOSITORY` uses that mirror
+instead.
+
+To pick a version at cluster create:
+
+```bash
+apt-get install -y nke-kubeadm-distro-1.36.3
+```
+
+with no `apt-get update` beforehand: the postinst installs the bundled
+binaries and imports the base images into containerd's `k8s.io` namespace.
+`boot-smoke.sh` proves this works fully offline: it boots the guest with no
+egress at all, installs every staged version in turn, and for each one checks
+the exact imported image set against `kubeadm config images list` and runs
+`kubeadm init phase preflight`.
+
+The debs build from source in `os-image/packages/kubeadm-distro/`, built by
+`fetch-artifacts.sh` as the first Packer step (a shell-local provisioner), so
+the bake host must be Linux with `dpkg-dev` and `gnupg`. Bump `K8S_VERSIONS`
+in that module's `Makefile` to add or drop a minor.
 
 ## First boot (cloud-init)
 

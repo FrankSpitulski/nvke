@@ -90,6 +90,23 @@ layout without opting into encryption.
 | Storage growth | `lvm-growth-firstboot.service` grows the partition/PV/LV/filesystem to the target disk's full size on first boot — the same growth logic the FDE variant's `luks-tpm-firstboot.sh` runs, minus everything LUKS/TPM. |
 | Serial console | Same `console=tty0 console=ttyS0,115200` GRUB parameter as the FDE variant (installer-based images otherwise carry no `console=` at all). |
 
+## Staged, not installed
+
+kubeadm, kubelet, and the container runtime are staged into the image at bake
+time but not installed. They land as flat, unsigned local apt packages so
+`kubeadm init` needs no network at cluster create:
+
+| Item | Value |
+|---|---|
+| Package path | `/usr/lib/nke/debs/nke-kubeadm-distro-<x.y.z>_1_amd64.deb` |
+| Local apt source | `/etc/apt/sources.list.d/nke-local.list`: `deb [trusted=yes] file:/usr/lib/nke/debs ./`; unsigned local `file:` repo, see `provision.sh` for why |
+| Versions staged | Pinned by `K8S_VERSIONS` in `os-image/packages/kubeadm-distro/Makefile` (currently `v1.36.3 v1.35.3 v1.34.2`) |
+| Install command | `apt-get install -y nke-kubeadm-distro-<x.y.z>`, run at cluster create against the local source above; no `apt-get update` needed |
+| Contents | The deb's postinst installs kubelet, kubeadm, kubectl, containerd, runc, CNI plugins, crictl, and helm from `/usr/lib/nke/k8s-matrix/<x.y.z>/`, and imports the Kubernetes base container images (apiserver, controller-manager, scheduler, kube-proxy, etcd, coredns, pause) into containerd's `k8s.io` namespace from a tarball baked into the deb, so kubeadm init pulls no control-plane images |
+
+Nothing is installed at bake time; the debs sit on disk until a cluster
+create installs one.
+
 ## Identity rules (runtime)
 
 These are enforced by `nke-agent`, not by the image:
@@ -117,7 +134,9 @@ server, not this image.
 
 ## Out of scope for this image
 
-- kubeadm / kubelet / container runtime as a cluster-ready stack
+- kubeadm / kubelet / container runtime *installed and running* as a
+  cluster-ready stack; they are staged, not installed. See "Staged, not
+  installed" above
 - CNI, GPU drivers, NVIDIA fabric
 - TPM as a SPIRE *node attestor* plugin, and swtpm for that purpose (the FDE
   variant's use of TPM to seal the disk-encryption key is unrelated and in
