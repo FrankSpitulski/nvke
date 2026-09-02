@@ -1,0 +1,245 @@
+{
+  "v1.34.2": {
+    "artifacts": {
+      "cni-plugins": {
+        "sha256": "682b49ff8933a997a52107161f1745f8312364b4c7f605ccdf7a77499130d89d",
+        "url": "https://github.com/containernetworking/plugins/releases/download/v1.6.0/cni-plugins-linux-amd64-v1.6.0.tgz"
+      },
+      "containerd": {
+        "sha256": "a04a39607d6a54f467c93fcd0b78ee31a1f4a3b90e76938dcfe9005ccf6a5f36",
+        "url": "https://github.com/containerd/containerd/releases/download/v2.1.7/containerd-2.1.7-linux-amd64.tar.gz"
+      },
+      "crictl": {
+        "sha256": "a8ff2a3edb37a98daf3aba7c3b284fe0aa5bff24166d896ab9ef64c8913c9f51",
+        "url": "https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.34.0/crictl-v1.34.0-linux-amd64.tar.gz"
+      },
+      "helm": {
+        "sha256": "258e830a9e613c8a7a302d6059b4bb3b9758f2f3e1bb8ea0d707ce10a9a72fea",
+        "url": "https://get.helm.sh/helm-v3.20.2-linux-amd64.tar.gz"
+      },
+      "kubeadm": {
+        "sha256": "6a2346006132f6e1ed0b5248e518098cf5abbce25bf11b8926fb1073091b83f4",
+        "url": "https://dl.k8s.io/release/v1.34.2/bin/linux/amd64/kubeadm"
+      },
+      "kubectl": {
+        "sha256": "9591f3d75e1581f3f7392e6ad119aab2f28ae7d6c6e083dc5d22469667f27253",
+        "url": "https://dl.k8s.io/release/v1.34.2/bin/linux/amd64/kubectl"
+      },
+      "kubelet": {
+        "sha256": "9c5e717b774ee9b9285ce47e7d2150c29e84837eb19a7eaa24b60b1543c9d58f",
+        "url": "https://dl.k8s.io/release/v1.34.2/bin/linux/amd64/kubelet"
+      },
+      "runc": {
+        "sha256": "66fa8390be8fb3b23dfbb60c767368bb5b51f1acfa88692bbff1a82953d4d9e9",
+        "url": "https://github.com/opencontainers/runc/releases/download/v1.3.5/runc.amd64"
+      }
+    },
+    "components": {
+      "cni-plugins": "v1.6.0",
+      "containerd": "v2.1.7",
+      "crictl": "v1.34.0",
+      "helm": "v3.20.2",
+      "kubernetes": "v1.34.2",
+      "runc": "v1.3.5"
+    },
+    "images": [
+      {
+        "digest": "sha256:4f7a57135719628cf2070c5e3cbde64b013e90d4c560c5ecbf14004181f91998",
+        "hash": "sha256-8Op3vzupnC6kWIgjqk4ck2tzY2sra+L3xdzoQ4TTUtI=",
+        "ref": "registry.k8s.io/coredns/coredns:v1.12.1"
+      },
+      {
+        "digest": "sha256:28cf8781a30d69c2e3a969764548497a949a363840e1de34e014608162644778",
+        "hash": "sha256-1RpUGmoHzEv8IVGxQ7yEPxKRpRgRlpgJWyj5hrS8p3o=",
+        "ref": "registry.k8s.io/etcd:3.6.5-0"
+      },
+      {
+        "digest": "sha256:f0e0dc00029af1a9258587ef181f17a9eb7605d3d69a72668f4f6709f72005fd",
+        "hash": "sha256-3MVOXsPRKiGHWPu+I0hmPx1e+koEfSYCEfmmJZnNq4Y=",
+        "ref": "registry.k8s.io/kube-apiserver:v1.34.2"
+      },
+      {
+        "digest": "sha256:9eb769377f8fdeab9e1428194e2b7d19584b63a5fda8f2f406900ee7893c2f4e",
+        "hash": "sha256-FSd2QGeHs41PlMAKvk2H66EuigMqStlnkMOjcgCLYd8=",
+        "ref": "registry.k8s.io/kube-controller-manager:v1.34.2"
+      },
+      {
+        "digest": "sha256:1512fa1bace72d9bcaa7471e364e972c60805474184840a707b6afa05bde3a74",
+        "hash": "sha256-SQtQIzs/vpAg28hsg4Yj+vtKaElLCAHsd5pdH82+M+c=",
+        "ref": "registry.k8s.io/kube-proxy:v1.34.2"
+      },
+      {
+        "digest": "sha256:7a0dd12264041dec5dcbb44eeaad051d21560c6d9aa0051cc68ed281a4c26dda",
+        "hash": "sha256-gwfIwl9omt8AwpTAUO6kwiQuR1GfNslwknwrSDTlry8=",
+        "ref": "registry.k8s.io/kube-scheduler:v1.34.2"
+      },
+      {
+        "digest": "sha256:e5b941ef8f71de54dc3a13398226c269ba217d06650a21bd3afcf9d890cf1f41",
+        "hash": "sha256-okwwg3Tclhh/BlzSA2BBIpT261HH2zXgEi0Z+PMTtnQ=",
+        "ref": "registry.k8s.io/pause:3.10.1"
+      }
+    ]
+  },
+  "v1.35.3": {
+    "artifacts": {
+      "cni-plugins": {
+        "sha256": "682b49ff8933a997a52107161f1745f8312364b4c7f605ccdf7a77499130d89d",
+        "url": "https://github.com/containernetworking/plugins/releases/download/v1.6.0/cni-plugins-linux-amd64-v1.6.0.tgz"
+      },
+      "containerd": {
+        "sha256": "ca26ef5138f17b847bbeeec36d4bf5e002b54d25858197a870c125d57f44d32f",
+        "url": "https://github.com/containerd/containerd/releases/download/v2.2.3/containerd-2.2.3-linux-amd64.tar.gz"
+      },
+      "crictl": {
+        "sha256": "2e141e5b22cb189c40365a11807d69b76b9b3caced89fac2f4ec879408ce2177",
+        "url": "https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.35.0/crictl-v1.35.0-linux-amd64.tar.gz"
+      },
+      "helm": {
+        "sha256": "258e830a9e613c8a7a302d6059b4bb3b9758f2f3e1bb8ea0d707ce10a9a72fea",
+        "url": "https://get.helm.sh/helm-v3.20.2-linux-amd64.tar.gz"
+      },
+      "kubeadm": {
+        "sha256": "a3fb4b3a214a807e2ef4c3fda3196c7f97dcf8152558de5a3c473c869bda0b07",
+        "url": "https://dl.k8s.io/release/v1.35.3/bin/linux/amd64/kubeadm"
+      },
+      "kubectl": {
+        "sha256": "fd31c7d7129260e608f6faf92d5984c3267ad0b5ead3bced2fe125686e286ad6",
+        "url": "https://dl.k8s.io/release/v1.35.3/bin/linux/amd64/kubectl"
+      },
+      "kubelet": {
+        "sha256": "28d570423eaad5f1f5658a646bd8c015c786c95d62ffaf14bf35fa0c4326fa05",
+        "url": "https://dl.k8s.io/release/v1.35.3/bin/linux/amd64/kubelet"
+      },
+      "runc": {
+        "sha256": "66fa8390be8fb3b23dfbb60c767368bb5b51f1acfa88692bbff1a82953d4d9e9",
+        "url": "https://github.com/opencontainers/runc/releases/download/v1.3.5/runc.amd64"
+      }
+    },
+    "components": {
+      "cni-plugins": "v1.6.0",
+      "containerd": "v2.2.3",
+      "crictl": "v1.35.0",
+      "helm": "v3.20.2",
+      "kubernetes": "v1.35.3",
+      "runc": "v1.3.5"
+    },
+    "images": [
+      {
+        "digest": "sha256:246e7333fde10251c693b68f13d21d6d64c7dbad866bbfa11bd49315e3f725a7",
+        "hash": "sha256-rgggCKSFk9v7GsTW+3c8GOPerbqgi/Xmtu5Dkkw+Y1k=",
+        "ref": "registry.k8s.io/coredns/coredns:v1.13.1"
+      },
+      {
+        "digest": "sha256:5279f56db4f32772bb41e47ca44c553f5c87a08fdf339d74c23a4cdc3c388d6a",
+        "hash": "sha256-JE1HJZczmuZ3xMmKGRGAqmCR2uX6ks/nd1nHIswPaxc=",
+        "ref": "registry.k8s.io/etcd:3.6.6-0"
+      },
+      {
+        "digest": "sha256:7e8d7ebed8a8ce4e6f8ba867271d63bc8b0adaae2a7185ba580d6a2db9691c5a",
+        "hash": "sha256-qjyvAVvbB2lewXg58bcVNiZ9NNv/cpqpt0KimzXlEP4=",
+        "ref": "registry.k8s.io/kube-apiserver:v1.35.3"
+      },
+      {
+        "digest": "sha256:5643b67d3cf86328f73ca833af0aa7648f34955f6a6e33a353775a814bbd4274",
+        "hash": "sha256-Z1Z45WgCCUkMwSySuUb8t7sg7AlR12c5M08qZuba7O8=",
+        "ref": "registry.k8s.io/kube-controller-manager:v1.35.3"
+      },
+      {
+        "digest": "sha256:3673be50038d0e33dc265311eba1bfb17268c40f52dab8baf79ee8ac125cbd0c",
+        "hash": "sha256-3zHULnpWPFbWsKHuJM8APhNW/V8upLkssLyaKis3SFs=",
+        "ref": "registry.k8s.io/kube-proxy:v1.35.3"
+      },
+      {
+        "digest": "sha256:f5e01f27aeb2a11a9aa9aac8195038039e176525fa4689c4829043644f50423e",
+        "hash": "sha256-VLWOtiuP1IniooMd34ed6u1H4YGvJKEokl+xvvv83+4=",
+        "ref": "registry.k8s.io/kube-scheduler:v1.35.3"
+      },
+      {
+        "digest": "sha256:e5b941ef8f71de54dc3a13398226c269ba217d06650a21bd3afcf9d890cf1f41",
+        "hash": "sha256-okwwg3Tclhh/BlzSA2BBIpT261HH2zXgEi0Z+PMTtnQ=",
+        "ref": "registry.k8s.io/pause:3.10.1"
+      }
+    ]
+  },
+  "v1.36.3": {
+    "artifacts": {
+      "cni-plugins": {
+        "sha256": "682b49ff8933a997a52107161f1745f8312364b4c7f605ccdf7a77499130d89d",
+        "url": "https://github.com/containernetworking/plugins/releases/download/v1.6.0/cni-plugins-linux-amd64-v1.6.0.tgz"
+      },
+      "containerd": {
+        "sha256": "4cb83e7100a5e73fcb626207d0b5bcfd1294e26aeddfe075dcfb38f375c5f887",
+        "url": "https://github.com/containerd/containerd/releases/download/v2.3.0/containerd-2.3.0-linux-amd64.tar.gz"
+      },
+      "crictl": {
+        "sha256": "83855e114566a8a8c44c548d515670f51de3a5e1da8b2effb59870e2f10c25a3",
+        "url": "https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.36.0/crictl-v1.36.0-linux-amd64.tar.gz"
+      },
+      "helm": {
+        "sha256": "70b2c30a19da4db264dfd68c8a3664e05093a361cefd89572ffb36f8abfa3d09",
+        "url": "https://get.helm.sh/helm-v4.1.4-linux-amd64.tar.gz"
+      },
+      "kubeadm": {
+        "sha256": "bba1733c701bf70ec74ba1cc3fd5745404c1134a8a4b0a5f8560cc9832023421",
+        "url": "https://dl.k8s.io/release/v1.36.3/bin/linux/amd64/kubeadm"
+      },
+      "kubectl": {
+        "sha256": "ebbd080e7c2e275093b55915722043257eb24004363e20acb3c4d71919f88336",
+        "url": "https://dl.k8s.io/release/v1.36.3/bin/linux/amd64/kubectl"
+      },
+      "kubelet": {
+        "sha256": "46707a53209f826ad0f0d62371ac69cd00e78fd9a8176cf5f6f87f18f7f8b718",
+        "url": "https://dl.k8s.io/release/v1.36.3/bin/linux/amd64/kubelet"
+      },
+      "runc": {
+        "sha256": "ac8a90f9e225bb9322189937b230cdc5478d5753f0e31e1bda98a5cf06bd9539",
+        "url": "https://github.com/opencontainers/runc/releases/download/v1.4.2/runc.amd64"
+      }
+    },
+    "components": {
+      "cni-plugins": "v1.6.0",
+      "containerd": "v2.3.0",
+      "crictl": "v1.36.0",
+      "helm": "v4.1.4",
+      "kubernetes": "v1.36.3",
+      "runc": "v1.4.2"
+    },
+    "images": [
+      {
+        "digest": "sha256:fd5079792b93909db3adefa91e41c3995455013394f0197c7346786ae19079fc",
+        "hash": "sha256-noqA8wznGsqIlFcPlXDbN9hKaAhwlkJsdj/sYlHtxDw=",
+        "ref": "registry.k8s.io/coredns/coredns:v1.14.2"
+      },
+      {
+        "digest": "sha256:aa2b41e3f99c9a337b82f687875a63c5119e6d39bc43fc76b6c40a96f55cf391",
+        "hash": "sha256-x0Mlp0VwrcjfrAqb7iG4yYqV0Sy9pVaMtYb489iuZFo=",
+        "ref": "registry.k8s.io/etcd:3.6.8-0"
+      },
+      {
+        "digest": "sha256:9ab60d55c6fce46d71ff56b9196529c8afd34700ea9be1a444b8b60f8cf14b34",
+        "hash": "sha256-rkJkXNqaRAaFHf0899wwyfTHeN4m3sX96o8hLFnLTuM=",
+        "ref": "registry.k8s.io/kube-apiserver:v1.36.3"
+      },
+      {
+        "digest": "sha256:6b27a91e507776e3b9dcbbc7affc8471d561fba62211cdc7ab02f395949023c5",
+        "hash": "sha256-z1YsvqDWQbWTZ9CzXnixNuRiNbRj44OkCQnIUkOwlV0=",
+        "ref": "registry.k8s.io/kube-controller-manager:v1.36.3"
+      },
+      {
+        "digest": "sha256:fe3cb528199aec38e9da2b367ae6b10d4fdfbd161f4a5298a6f95b3e3c221501",
+        "hash": "sha256-+1cUWfsYFyOyS0TS5B407zyIzHLAGDpwKJwQ1g+B/lI=",
+        "ref": "registry.k8s.io/kube-proxy:v1.36.3"
+      },
+      {
+        "digest": "sha256:4c3cfb032f12f51b3fe1d517b8a552dafd27b83a009332ebb303f06d2e9157d3",
+        "hash": "sha256-HekJVM4oLY7/jNFSkMXsNsQVEuGXCCf05nCyw+gncvI=",
+        "ref": "registry.k8s.io/kube-scheduler:v1.36.3"
+      },
+      {
+        "digest": "sha256:412c4a7219cb8a299a37337f3d87810c5340095322e15594a1637785adad0f17",
+        "hash": "sha256-cUFZbZrduX9FQBtrZnceMqXtK0qgRwFqySZT2YlPOJs=",
+        "ref": "registry.k8s.io/pause:3.10.2"
+      }
+    ]
+  }
+}
