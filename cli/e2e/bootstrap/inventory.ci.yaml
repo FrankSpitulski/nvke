@@ -10,12 +10,9 @@
 # file lands ahead of dispatch actually dialing them because the
 # walking-skeleton e2e run does not reach the nodes yet.
 #
-# nodeAgentPort is set explicitly rather than left to
-# inventory.DefaultNodeAgentPort ("50051"): the agent/ module's nke-agent
-# defaults its gRPC port to 15005 (`-secure-server-port`), confirmed by running
-# it in this fixture's node image. The two defaults differ by agent version
-# rather than one being stale — set this field to match the `-secure-server-port`
-# the agents on your hosts are actually configured with. See
+# nodeAgentPort is set explicitly, not left to the default, so the fixture keeps
+# stating the port it expects. Set it on your own hosts to match the
+# `--secure-server-port` their agents run with. See
 # docs/site-bootstrap/configuration.md.
 
 clusterName: "nke-e2e"

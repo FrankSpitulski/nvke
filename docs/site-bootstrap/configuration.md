@@ -49,7 +49,7 @@ registry:
 | `cluster.cniVersion` | string | no | CNI plugin version. Empty uses the agent's built-in default. |
 | `cluster.podCidr` | string | yes | Valid CIDR. Comma-separated list allowed for dual-stack. |
 | `cluster.serviceCidr` | string | yes | Valid CIDR. |
-| `cluster.nodeAgentPort` | string | no | gRPC port nke-agent listens on. nkectl defaults to `50051`; the nke-agent binary defaults to `15005`. Set this to match the agent's configured `--secure-server-port`. |
+| `cluster.nodeAgentPort` | string | no | gRPC port nke-agent listens on. Defaults to `15005`. Set it only if you passed `--secure-server-port` to the agent. |
 | `cluster.kubeletConfig.systemReservedMemory` | string | no | e.g. `16Gi`. |
 | `registry.bootstrapRepo` | string | yes | OCI repository holding the bootstrap engine image and chart. |
 | `registry.bootstrapChart` | string | yes | Bootstrap engine chart name within `bootstrapRepo`. |

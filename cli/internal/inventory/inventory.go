@@ -35,7 +35,7 @@ import (
 const (
 	// DefaultNodeAgentPort is the gRPC port nke-agent listens on when the
 	// inventory does not set cluster.nodeAgentPort.
-	DefaultNodeAgentPort = "50051"
+	DefaultNodeAgentPort = "15005"
 
 	// Inventory field paths — the single source of truth for the dotted paths
 	// shared by the environment bindings and the validator messages.

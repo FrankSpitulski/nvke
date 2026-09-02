@@ -152,7 +152,7 @@ All nodes should show `Ready` status.
 
 - **Join nodes don't need `nkectl`** — only the init node runs it
 - **`nke-agent` must be running on all nodes** — verify `systemctl status nke-agent` before starting bootstrap
-- **Network connectivity** — init node must reach join nodes on the configured gRPC port (default `50051`)
+- **Network connectivity** — init node must reach join nodes on the configured gRPC port (default `15005`)
 - **Hostnames and IPs** — use actual hostnames and IPs that nodes use to communicate with each other
 - **User permissions** — commands must run with `sudo` or as root
 

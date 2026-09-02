@@ -100,6 +100,17 @@ func TestSetDefaultsNeverInjectsAPIKey(t *testing.T) {
 	}
 }
 
+// The literal is spelled out because comparing DefaultNodeAgentPort with itself
+// catches a missing value, never a wrong one. The other side is
+// agent/cmd/agent/main.go's DefaultNodeServerListenPort, which cli cannot import.
+func TestDefaultNodeAgentPortMatchesTheAgent(t *testing.T) {
+	const agentDefaultListenPort = "15005"
+	if DefaultNodeAgentPort != agentDefaultListenPort {
+		t.Errorf("DefaultNodeAgentPort = %q, want %q, the port nke-agent listens on "+
+			"without --secure-server-port", DefaultNodeAgentPort, agentDefaultListenPort)
+	}
+}
+
 func TestLoadRejectsUnknownField(t *testing.T) {
 	// A typo in a field name must fail loudly, not be silently ignored.
 	const typo = `

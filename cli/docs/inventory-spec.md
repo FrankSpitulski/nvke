@@ -26,7 +26,7 @@ A ready-to-copy example is in [`examples/inventory.yaml`](../examples/inventory.
 | `cluster.cniVersion` | string | no | CNI plugin version. Empty uses the node-agent default. |
 | `cluster.podCidr` | string | yes | Valid CIDR. A comma-separated list of CIDRs is allowed. |
 | `cluster.serviceCidr` | string | yes | Valid CIDR. |
-| `cluster.nodeAgentPort` | string | no | Port number 1–65535. Defaults to `50051`. |
+| `cluster.nodeAgentPort` | string | no | Port number 1–65535. Defaults to `15005`. |
 | `cluster.kubeletConfig.systemReservedMemory` | string | no | e.g. `16Gi`. |
 | `registry.bootstrapRepo` | string | yes | OCI repository holding the bootstrap engine image and chart. |
 | `registry.bootstrapChart` | string | yes | Bootstrap engine chart name within `bootstrapRepo`. |
