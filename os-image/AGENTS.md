@@ -19,6 +19,7 @@ publish **container** images; this module is the Ubuntu qcow2 a node boots.
 SPEC.md                   # contract
 packer/                   # QEMU golden-image build
 files/                    # units + SPIRE template + first-boot script
+packages/kubeadm-distro/  # builds the staged nke-kubeadm-distro-<x.y.z> debs
 cmd/nke-os-image-check/   # checker entrypoint
 internal/check/           # dial + gRPC reflection / GetKubeadmStatus
 ```
@@ -73,3 +74,20 @@ repository's `bin/`, and `make version-check` runs it with `--version`.
 - New files need the Apache-2.0 SPDX header (`make license`). Cloud-init
   user-data cannot: `#cloud-config` must be line 1, so examples live in
   README/SPEC rather than `*.yaml`.
+- `packages/kubeadm-distro/` builds the staged `nke-kubeadm-distro-<x.y.z>`
+  debs with **nix**, on an x86_64 Linux host that is *not* the bake host.
+  Keep it that way: a `.deb` is a plain artifact, so the nix host builds and
+  the bake host consumes. `fetch-artifacts.sh` takes prebuilt debs through
+  `KUBEADM_DISTRO_DEBS_DIR` and only falls back to building them in place, as
+  a developer convenience, when it is unset. Nothing nix-shaped may reach the
+  image or the node.
+- Nothing in `packages/kubeadm-distro/` is built from source: every binary is
+  an upstream release artifact, pinned by sha256 in
+  `packages/kubeadm-distro/versions.json`. That file is the committed lock,
+  regenerated only by `make lock` and never hand-edited (`nix flake check`
+  fails on non-canonical formatting). `K8S_VERSIONS` in
+  `packages/kubeadm-distro/Makefile` selects which of its rows to build; docs
+  may quote the current values. Nothing is installed at bake time: the debs
+  land under `/usr/lib/nke/debs/` and stay uninstalled until a cluster create
+  picks one. Its local, unsigned `file:` apt source is on purpose; see
+  `provision.sh` for why.

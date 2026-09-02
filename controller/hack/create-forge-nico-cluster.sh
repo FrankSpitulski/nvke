@@ -44,6 +44,8 @@ echo "Ensuring default CAPI site ${DEFAULT_SITE_ID} exists in CWE..."
 API_URL="${API_URL}" DEFAULT_SITE_ID="${DEFAULT_SITE_ID}" \
   "${SCRIPT_DIR}/register-default-site.sh" >/dev/null
 
+# Both node pools install nke-kubeadm-distro from the image's local repo, so this needs a node image that stages the debs (the repo-built os-image).
+# The ipxeScript image URL below still points at an internal 24.04 image and must be switched before this script works again.
 BODY=$(cat <<EOF
 {
   "name": "${CLUSTER_NAME}",
@@ -88,11 +90,12 @@ BODY=$(cat <<EOF
       },
       "capiSpireAttestationMethod": "${CAPI_SPIRE_ATTESTATION_METHOD}",
       "capiPreKubeadmCommands": [
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-kubeadm-distro-${KUBERNETES_VERSION}",
         "install -d -m 0755 /etc/apt/keyrings",
         "curl -fsSL -o /etc/apt/keyrings/nke.asc https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-public.key",
         "echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-noble nke-noble main' > /etc/apt/sources.list.d/nke-apt.list",
         "apt-get update",
-        "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-agent nke-kubeadm-distro-${KUBERNETES_VERSION}",
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-agent",
         "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-cni-ovn-images-1.4.0",
         "DEBIAN_FRONTEND=noninteractive apt-get install -y spire-agent=1.14.1+tpm1.9.0",
         "printf 'AGENT_ARGS=\"--secure-server-port 15005\"\\n' > /etc/default/nke-agent",
@@ -139,11 +142,12 @@ BODY=$(cat <<EOF
       },
       "capiSpireAttestationMethod": "${CAPI_SPIRE_ATTESTATION_METHOD}",
       "capiPreKubeadmCommands": [
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-kubeadm-distro-${KUBERNETES_VERSION}",
         "install -d -m 0755 /etc/apt/keyrings",
         "curl -fsSL -o /etc/apt/keyrings/nke.asc https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-public.key",
         "echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-noble nke-noble main' > /etc/apt/sources.list.d/nke-apt.list",
         "apt-get update",
-        "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-agent nke-kubeadm-distro-${KUBERNETES_VERSION}",
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-agent",
         "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-cni-ovn-images-1.4.0",
         "DEBIAN_FRONTEND=noninteractive apt-get install -y spire-agent=1.14.1+tpm1.9.0",
         "printf 'AGENT_ARGS=\"--secure-server-port 15005\"\\n' > /etc/default/nke-agent",
