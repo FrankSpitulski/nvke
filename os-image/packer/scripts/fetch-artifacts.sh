@@ -3,7 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Run on the Packer host. Builds the nke-agent binary from this checkout's
-# source (agent/) and fetches SPIRE agent from GitHub Releases into
+# source (agent/), builds the nke-kubeadm-distro debs (offline kubeadm
+# install at cluster create, staged into the image by provision.sh as a
+# local apt repo), and fetches SPIRE agent from GitHub Releases into
 # ARTIFACTS_DIR.
 
 set -euo pipefail
@@ -31,6 +33,16 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 echo "building nke-agent from source (${repo_root}/agent)"
 make -C "${repo_root}/agent" build-amd64
 install -m 0755 "${repo_root}/agent/bin/linux_amd64/nke-agent" "${ARTIFACTS_DIR}/nke-agent"
+
+# Builds one deb per pinned Kubernetes version plus a flat apt index, which
+# provision.sh stages as a local repo for an offline cluster-create install.
+# K8S_VERSIONS passes through if set; the target pins its own default otherwise.
+echo "building nke-kubeadm-distro debs (${repo_root}/os-image/packages/kubeadm-distro)"
+kubeadm_distro_args=(OUT_DIR="${ARTIFACTS_DIR}/debs")
+if [[ -n "${K8S_VERSIONS:-}" ]]; then
+  kubeadm_distro_args+=(K8S_VERSIONS="${K8S_VERSIONS}")
+fi
+make -C "${repo_root}/os-image/packages/kubeadm-distro" debs "${kubeadm_distro_args[@]}"
 
 spire_tar="${ARTIFACTS_DIR}/${SPIRE_TARBALL}"
 echo "fetching ${SPIRE_URL}"

@@ -25,6 +25,8 @@ Prereqs, on a Linux host:
 | `curl` | any | via your package manager |
 | `qemu-system-x86_64`, `cloud-localds`, `swtpm`, OVMF | any | via your package manager |
 | `xorriso`, `p7zip-full` (`7z`) | any | via your package manager |
+| `dpkg-dev` (`dpkg-deb`, `dpkg-scanpackages`) | any | via your package manager |
+| `gnupg` (`gpg`) | any | via your package manager |
 
 Both variants boot the Ubuntu Server installer (not a prebuilt cloud image),
 so all of the above are needed even for a first build — see
