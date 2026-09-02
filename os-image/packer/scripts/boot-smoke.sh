@@ -14,6 +14,12 @@
 #   OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd ./boot-smoke.sh
 # The FDE variant needs its own passphrase/TPM handling instead of this
 # script -- see ../../demo-fde.sh.
+#
+# Also proves every staged kubeadm-distro deb installs and runs fully
+# offline (os-image/SPEC.md's "Staged, not installed" section): the guest's
+# netdev is restrict=on, so only our own hostfwd SSH can reach it, and each
+# staged version is installed and checked in turn. SKIP_OFFLINE_INSTALL=1
+# skips this, for anyone booting an image built without staged debs.
 
 set -euo pipefail
 
@@ -101,7 +107,7 @@ qemu-system-x86_64 \
   "${EFI_ARGS[@]}" \
   -drive if=virtio,file="${DISK}",format=qcow2 \
   -drive if=virtio,file="${SEED}",format=raw \
-  -netdev user,id=net0,hostfwd=tcp::"${SSH_PORT}"-:22 \
+  -netdev user,id=net0,restrict=on,hostfwd=tcp::"${SSH_PORT}"-:22 \
   -device virtio-net,netdev=net0 \
   -pidfile "${PIDFILE}" \
   &
@@ -125,6 +131,17 @@ done
 
 echo "boot-smoke: VM booted and completed cloud-init OK"
 
+# The netdev above is restrict=on, so hostfwd (our own inbound SSH) works but
+# the guest can't reach anything outbound. Assert that directly rather than
+# just trusting the flag, so every check below it -- especially the offline
+# kubeadm-distro installs -- is provably using only what's already on disk.
+timeout 30 ssh -i "${SSH_KEY}" -p "${SSH_PORT}" \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o ConnectTimeout=5 -o BatchMode=yes \
+    ubuntu@127.0.0.1 '! timeout 10 curl -fsS https://dl.k8s.io/ >/dev/null 2>&1'
+
+echo "boot-smoke: confirmed the VM has no egress"
+
 timeout 30 ssh -i "${SSH_KEY}" -p "${SSH_PORT}" \
     -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     -o ConnectTimeout=5 -o BatchMode=yes \
@@ -140,3 +157,85 @@ test -x /usr/lib/nke/wait-spiffe-socket.sh
 EOF
 
 echo "boot-smoke: nke-agent and spire-agent are installed and enabled"
+
+if [[ "${SKIP_OFFLINE_INSTALL:-0}" == "1" ]]; then
+  echo "boot-smoke: SKIP_OFFLINE_INSTALL=1, skipping the offline kubeadm-distro install check"
+  exit 0
+fi
+
+echo "boot-smoke: checking offline install of every staged kubeadm-distro deb"
+
+# List every staged version, oldest first (sort -V), reading each one from
+# the package's own dpkg-deb metadata rather than parsing its filename. One
+# ssh call finds and echoes the list back in a single round trip.
+VERSIONS="$(timeout 30 ssh -i "${SSH_KEY}" -p "${SSH_PORT}" \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o ConnectTimeout=5 -o BatchMode=yes \
+    ubuntu@127.0.0.1 bash -s <<'EOF'
+set -euo pipefail
+shopt -s nullglob
+debs=(/usr/lib/nke/debs/nke-kubeadm-distro-*_amd64.deb)
+if [[ ${#debs[@]} -eq 0 ]]; then
+  echo "boot-smoke: no staged nke-kubeadm-distro-*_amd64.deb under /usr/lib/nke/debs/" >&2
+  exit 1
+fi
+for deb in "${debs[@]}"; do
+  dpkg-deb -f "${deb}" Package
+done | sed 's/^nke-kubeadm-distro-//' | sort -V
+EOF
+)"
+
+if [[ -z "${VERSIONS}" ]]; then
+  echo "boot-smoke: no staged kubeadm-distro versions found" >&2
+  exit 1
+fi
+echo "boot-smoke: staged versions, oldest first: ${VERSIONS//$'\n'/ }"
+
+while IFS= read -r ver; do
+  [[ -z "${ver}" ]] && continue
+  echo "boot-smoke: installing nke-kubeadm-distro-${ver} offline (apt's Conflicts removes any version installed by an earlier loop iteration, exercising the version switch)"
+
+  # 15 minutes per version: the postinst starts containerd and imports the
+  # base images from the tarball baked into the deb, which is slow under tcg
+  # emulation. Removing a package does not remove its images from containerd,
+  # so later iterations only add their own.
+  timeout 900 ssh -i "${SSH_KEY}" -p "${SSH_PORT}" \
+      -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      -o ConnectTimeout=5 -o BatchMode=yes \
+      ubuntu@127.0.0.1 bash -s <<EOF
+set -euo pipefail
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nke-kubeadm-distro-${ver}
+EOF
+
+  timeout 60 ssh -i "${SSH_KEY}" -p "${SSH_PORT}" \
+      -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      -o ConnectTimeout=5 -o BatchMode=yes \
+      ubuntu@127.0.0.1 bash -s <<EOF
+set -euo pipefail
+echo "kubeadm version:"
+got_version="\$(kubeadm version -o short)"
+echo "\${got_version}"
+[[ "\${got_version}" == "v${ver}" ]]
+
+echo "containerd status:"
+systemctl is-active containerd
+
+echo "checking imported images match kubeadm config images list --kubernetes-version v${ver}:"
+expected="\$(kubeadm config images list --kubernetes-version v${ver} | sort)"
+got_images="\$(sudo ctr -n k8s.io images ls -q | sort)"
+missing="\$(comm -23 <(echo "\${expected}") <(echo "\${got_images}"))"
+if [[ -n "\${missing}" ]]; then
+  echo "boot-smoke: v${ver} is missing expected images" >&2
+  diff <(echo "\${expected}") <(echo "\${got_images}") >&2 || true
+  exit 1
+fi
+echo "\${got_images}"
+
+echo "kubeadm preflight (2 vCPU / 2GB smoke VM, so NumCPU and Mem are ignored):"
+sudo kubeadm init phase preflight --ignore-preflight-errors=NumCPU,Mem
+EOF
+
+  echo "boot-smoke: nke-kubeadm-distro-${ver} passed version/containerd/images/preflight checks"
+done <<<"${VERSIONS}"
+
+echo "boot-smoke: offline install checks passed for every staged kubeadm-distro version"
