@@ -25,8 +25,5 @@ ORAS_VERSION        ?= 1.3.3
 PACKER_VERSION      ?= 1.14.2
 GO_LICENSES_VERSION ?= v2.0.1
 
-# crane resolves and pulls the kubeadm-distro base images; nfpm packages the
-# .deb. Both are `go install`ed into that package's bin/, so no checksum pin
-# is needed here.
 CRANE_VERSION ?= 0.21.9
 NFPM_VERSION  ?= 2.47.0
