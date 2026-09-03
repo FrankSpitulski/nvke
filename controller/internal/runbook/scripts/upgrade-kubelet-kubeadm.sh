@@ -6,8 +6,7 @@
 export NEEDRESTART_MODE=l
 set -e
 
-# Script to upgrade kubeadm and kubelet on a Kubernetes node
-# This script follows a clear 4-phase approach:
+# Upgrades kubeadm and kubelet on a Kubernetes node in four phases:
 # 1. Update package repositories and setup
 # 2. Upgrade Kubernetes control plane (kubeadm)
 # 3. Update kubelet and kubectl packages
@@ -19,10 +18,9 @@ set -e
 # a local flat apt repo baked into the image
 # (`deb [trusted=yes] file:/usr/lib/nke/debs ./`, see
 # os-image/packer/scripts/provision.sh). Installing kubeadm/kubelet/kubectl
-# from pkgs.k8s.io on those nodes would make apt remove the distro package to
-# satisfy the Conflicts, leaving a broken node. Phase 1 and Phase 3 detect
-# that package and install its target-version replacement from the local
-# repo instead of touching pkgs.k8s.io.
+# from pkgs.k8s.io there would make apt remove the distro package to satisfy
+# the Conflicts, leaving a broken node. Phases 1 and 3 detect that package and
+# install its target-version replacement from the local repo instead.
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
@@ -33,21 +31,19 @@ error() {
     exit 1
 }
 
-# Returns 0 (true) if this node has an "nke-kubeadm-distro-*" package fully
-# installed. The package provides a virtual "nke-kubeadm-distro" but that
-# virtual name is not queryable through dpkg-query -W, so match the real
-# package name instead. Filtering on db:Status-Status excludes "rc" (removed,
-# config files remain) and half-configured rows, which the plain package-name
-# match would otherwise treat as a distro node.
+# Returns 0 if this node has an "nke-kubeadm-distro-*" package fully
+# installed. The virtual "nke-kubeadm-distro" the package provides is not
+# queryable through dpkg-query -W, so match the real package name. Filtering
+# on db:Status-Status excludes "rc" (removed, config files remain) and
+# half-configured rows, which a plain name match would count as a distro node.
 is_distro_node() {
     dpkg-query -W -f='${db:Status-Status} ${Package}\n' 'nke-kubeadm-distro-*' 2>/dev/null | grep -q '^installed '
 }
 
-# Parses and validates the script's environment-variable inputs, populating
-# the globals the rest of the script relies on. Split out from top-level code
-# so the script can be sourced (for example by tests) without running it.
+# Parses and validates the environment-variable inputs, populating the globals
+# the rest of the script uses. Split out from top-level code so the script can
+# be sourced, by tests for example, without running it.
 parse_inputs() {
-    # Default values
     NODE_NAME="${NODE_NAME:-}"
     IS_MASTER="${IS_MASTER:-false}"
     DRAIN_NODE="${DRAIN_NODE:-false}"
@@ -56,20 +52,16 @@ parse_inputs() {
     VERSION="${VERSION:-}"
     KUBEADM_PATCHES_DIR="${KUBEADM_PATCHES_DIR:-"/etc/kubernetes/patches"}"
     KUBEADM_UPGRADE_ONLY="${KUBEADM_UPGRADE_ONLY:-false}"
-    # Overridable so tests can point update_local_nke_repositories() at a
-    # fixture directory; both its existence probe and the apt-get
-    # invocation itself use this path, so the two can never disagree about
-    # which file they mean. apt-get's Dir::Etc::sourcelist accepts an
-    # absolute path, unlike the relative "sources.list.d/<name>" the
-    # pkgs.k8s.io calls below use.
+    # Overridable so tests can point update_local_nke_repository() at a
+    # fixture directory. apt-get's Dir::Etc::sourcelist accepts an absolute
+    # path, unlike the relative "sources.list.d/<name>" the pkgs.k8s.io calls
+    # below use.
     APT_SOURCES_DIR="${APT_SOURCES_DIR:-/etc/apt/sources.list.d}"
 
-    # Validate required arguments
     if [ -z "$VERSION" ]; then
         error "Version is required"
     fi
 
-    # Extract version components
     if [[ ! $VERSION =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
         error "Invalid version format. Expected format: X.Y.Z (e.g., 1.29.10), got: $VERSION"
     fi
@@ -84,13 +76,11 @@ parse_inputs() {
     PKG_VERSION_STRING="$MAJOR.$MINOR"
     UPDATE_STRING="$MAJOR.$MINOR.$PATCH-*"
     GIT_VERSION="v$VERSION"
-    # VERSION is already validated above as a bare X.Y.Z with no Debian
-    # revision suffix (e.g. "-1.1"), so it is used as-is for the distro
-    # package name.
+    # VERSION is validated above as a bare X.Y.Z with no Debian revision
+    # suffix, so it is used as-is for the distro package name.
     DISTRO_PACKAGE="nke-kubeadm-distro-$MAJOR.$MINOR.$PATCH"
 }
 
-# Ensure the kubeadm patches directory exists
 ensure_kubeadm_patches_directory() {
     if [ ! -d "$KUBEADM_PATCHES_DIR" ]; then
         log "Creating Kubeadm Patches dir $KUBEADM_PATCHES_DIR"
@@ -98,7 +88,6 @@ ensure_kubeadm_patches_directory() {
     fi
 }
 
-# Cordon node if requested
 cordon_node() {
     if [ "$CORDON_NODE" = true ]; then
         if [ -z "$NODE_NAME" ]; then
@@ -114,7 +103,6 @@ cordon_node() {
     fi
 }
 
-# Drain node if requested
 drain_node() {
     if [ "$DRAIN_NODE" = true ]; then
         if [ -z "$NODE_NAME" ]; then
@@ -133,31 +121,21 @@ drain_node() {
     fi
 }
 
-# Scoped `apt-get update` (mirrors the pkgs.k8s.io calls below) over every
-# local NKE source list that exists: "nke-local.list" is the flat file:
-# repo baked into the image (see os-image/packer/scripts/provision.sh),
-# "nke.list" is a network-hosted NKE repo some fleets configure instead.
-# Dir::Etc::sourcelist takes exactly one file, so each existing list gets its
-# own apt-get update call. Errors out if neither list exists, since that
-# means there is nowhere to install the distro package from.
-update_local_nke_repositories() {
-    local name found
-    found=false
-    for name in nke-local.list nke.list; do
-        if [ -f "$APT_SOURCES_DIR/$name" ]; then
-            found=true
-            log "Updating local NKE package repository: $APT_SOURCES_DIR/$name"
-            apt-get update -o Dir::Etc::sourcelist="$APT_SOURCES_DIR/$name" -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0" -qq || error "Failed to update local NKE repository: $APT_SOURCES_DIR/$name"
-        fi
-    done
-    if [ "$found" != true ]; then
-        error "No local NKE apt repository found: expected $APT_SOURCES_DIR/nke-local.list or $APT_SOURCES_DIR/nke.list"
+# Scoped `apt-get update` over the flat file: repo baked into the node image
+# as nke-local.list (see os-image/packer/scripts/provision.sh). The distro
+# package is only ever installed from there, so a node without it has nowhere
+# to install from.
+update_local_nke_repository() {
+    local list="$APT_SOURCES_DIR/nke-local.list"
+    if [ ! -f "$list" ]; then
+        error "No local NKE apt repository found: expected $list"
     fi
+    log "Updating local NKE package repository: $list"
+    apt-get update -o Dir::Etc::sourcelist="$list" -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0" -qq || error "Failed to update local NKE repository: $list"
 }
 
-# Polls for containerd to be serving again after the distro package's
-# postinst restarts it, up to 60s. Only containerd readiness is checked here;
-# kubelet is not restarted until Phase 3.
+# Polls for up to 60s for containerd to be serving again after the distro
+# package's postinst restarts it. kubelet is not restarted until Phase 3.
 wait_for_containerd() {
     log "Waiting for containerd to be ready after the distro package restart"
     local waited=0
@@ -173,9 +151,9 @@ wait_for_containerd() {
 }
 
 # Checks the containerd CRI socket directly, since "systemctl is-active" only
-# proves the unit is up, not that it is serving requests yet. Falls back to
-# the systemd check alone when neither CLI is on PATH, rather than looping
-# for 60s against a command that will never exist.
+# proves the unit is up, not that it is serving requests. Falls back to the
+# systemd check alone when neither CLI is on PATH, rather than looping for 60s
+# against a command that will never exist.
 containerd_runtime_ready() {
     if command -v crictl >/dev/null 2>&1; then
         crictl --runtime-endpoint unix:///run/containerd/containerd.sock info >/dev/null 2>&1
@@ -186,12 +164,10 @@ containerd_runtime_ready() {
     fi
 }
 
-# On a distro control-plane node, the containerd restart triggered by the
-# distro package bounces the static control-plane pods (kube-apiserver,
-# kube-controller-manager, kube-scheduler, etcd manifests are re-read by the
-# kubelet on the containerd bounce). Phase 2 runs `kubeadm upgrade plan`
-# immediately after Phase 1 returns, which needs a live API server. Workers
-# have no control-plane pods to wait for, so the caller skips this for them.
+# On a distro control-plane node, the containerd restart bounces the static
+# control-plane pods, and Phase 2 runs `kubeadm upgrade plan` immediately
+# after Phase 1 returns, which needs a live API server. Workers have no
+# control-plane pods to wait for, so the caller skips this for them.
 wait_for_control_plane_ready() {
     log "Waiting for the control plane to report ready after the containerd restart"
     local waited=0
@@ -211,15 +187,15 @@ update_packages() {
     log "=== Phase 1: Updating package repositories ==="
 
     if is_distro_node; then
-        # Installing the distro package also replaces kubelet's on-disk
-        # binary, but the running kubelet keeps its old inode until Phase 3
-        # restarts it.
+        # Installing the distro package replaces kubelet's on-disk binary,
+        # but the running kubelet keeps its old inode until Phase 3 restarts
+        # it.
         log "Distro node detected - installing $DISTRO_PACKAGE from the local NKE apt repo instead of pkgs.k8s.io"
         if [ "$DRAIN_NODE" != true ]; then
             log "WARNING: DRAIN_NODE is not set - the containerd restart triggered by $DISTRO_PACKAGE will disrupt running workloads on this node"
         fi
 
-        update_local_nke_repositories
+        update_local_nke_repository
 
         log "Unholding kubeadm, kubelet and kubectl packages, if held"
         apt-mark unhold kubeadm kubelet kubectl 2>/dev/null || true
@@ -242,7 +218,6 @@ update_packages() {
     log "Unholding kubeadm package"
     apt-mark unhold kubeadm || error "Failed to unhold kubeadm"
 
-    # Remove existing keys and sources
     log "Removing existing Kubernetes GPG keys and sources"
     rm -f /etc/apt/keyrings/kubernetes-apt-keyring.gpg
     rm -f /etc/apt/sources.list.d/kubernetes.list
@@ -250,10 +225,8 @@ update_packages() {
     log "Fetching GPG key for Kubernetes version $PKG_VERSION_STRING"
     curl -fsSL "https://pkgs.k8s.io/core:/stable:/v$PKG_VERSION_STRING/deb/Release.key" | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg || error "Failed to download GPG key"
 
-    # Set proper permissions for the GPG key
     chmod 644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 
-    # Add the key to apt keyring
     apt-key add /etc/apt/keyrings/kubernetes-apt-keyring.gpg || error "Failed to add GPG key to apt keyring"
 
     log "Adding Kubernetes $PKG_VERSION_STRING repository to apt sources"
@@ -341,7 +314,6 @@ restart_kubelet() {
     log "Phase 4 complete: Kubelet service restarted"
 }
 
-# Uncordon node if requested
 uncordon_node() {
     if [ "$UNCORDON_NODE" = true ]; then
         if [ -z "$NODE_NAME" ]; then
@@ -357,7 +329,6 @@ uncordon_node() {
     fi
 }
 
-# Verify upgrade success
 verify_upgrade() {
     log "=== Verifying upgrade ==="
 
@@ -374,14 +345,10 @@ verify_upgrade() {
     fi
 }
 
-# ============================================================================
-# Main execution
-# ============================================================================
-
 main() {
     parse_inputs
 
-    # Check if kubelet is already at the desired version (skip if only upgrading Kubernetes)
+    # Skip the version check when only kubeadm is being upgraded.
     if [ "$KUBEADM_UPGRADE_ONLY" != true ]; then
         if kubelet --version | grep -q "$VERSION"; then
             log "Kubelet is already at version $VERSION"
@@ -396,27 +363,22 @@ main() {
     log "Kubeadm upgrade only: $KUBEADM_UPGRADE_ONLY"
     log "=========================================="
 
-    # Pre-upgrade steps
     ensure_kubeadm_patches_directory
     cordon_node
     drain_node
 
-    # Execute the upgrade based on mode
     if [ "$KUBEADM_UPGRADE_ONLY" = true ]; then
         log "Running in KUBEADM_UPGRADE_ONLY mode - will skip package downloads, kubelet updates and restart"
         log "Assuming kubeadm is already at correct version from OS profile"
-        # Phase 2 only: kubeadm upgrade apply (no package downloads)
         upgrade_kubernetes
     else
         log "Running full upgrade - all phases will be executed"
-        # All 4 phases: complete upgrade (package downloads + kubeadm + kubelet)
         update_packages
         upgrade_kubernetes
         update_kubelet_packages
         restart_kubelet
     fi
 
-    # Post-upgrade steps
     uncordon_node
     verify_upgrade
 
