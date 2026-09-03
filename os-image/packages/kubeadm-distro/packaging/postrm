@@ -2,18 +2,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# postinst wrote node-level state a file list cannot express: the sysctl and
-# modules-load drop-ins, and service enablement. This undoes only that, and
-# only on a real removal. The service-disable half of that undo runs in
-# prerm, not here: dpkg runs postrm's "remove" action after it has already
-# deleted the package's files (including the unit files under
-# /lib/systemd/system/), so `systemctl disable` here would have nothing left
-# to read and would not reliably remove the multi-user.target.wants symlinks.
-# fstab's swap comment and containerd's image and content store under
-# /var/lib/containerd are deliberately left alone: reverting the fstab edit
-# would turn swap back on under a kubelet that may still be running (an
-# upgrade to a peer matrix row does not stop it), and the image store is not
-# something this package's file list ever claimed to own.
+# Undoes the node-level state postinst wrote, on a real removal only. The
+# service-disable half of that undo runs in prerm instead, for the reason
+# given there.
+#
+# fstab's swap comment and containerd's store under /var/lib/containerd are
+# left alone: reverting the fstab edit would turn swap back on under a kubelet
+# that may still be running, and the image store is not something this
+# package's file list ever claimed to own.
 set -e
 
 case "$1" in

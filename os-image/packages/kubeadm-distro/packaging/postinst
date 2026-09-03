@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # dpkg has already put every binary, unit and config file in place by the time
-# this runs. What is left is the part a file list cannot express: the
-# node-level state kubeadm's preflight checks require, starting containerd,
-# and loading the bundled control-plane images into it.
+# this runs. What is left is what a file list cannot express: the node-level
+# state kubeadm's preflight checks require, starting containerd, and loading
+# the bundled control-plane images into it.
 set -euo pipefail
 
 # Templated at package build time; must match what nfpm.yaml staged.
@@ -34,8 +34,8 @@ if ! swapoff -a; then
   exit 1
 fi
 # Not every image ships an /etc/fstab, so a missing one is not an error. The
-# leading [[:space:]]* is deliberate: an indented swap line is still a swap
-# line fstab will mount at the next boot.
+# leading [[:space:]]* matters: an indented swap line is still a swap line
+# fstab mounts at the next boot.
 if [ -f /etc/fstab ]; then
   sed -i -E 's|^([[:space:]]*[^#[:space:]][^[:space:]]*[[:space:]]+[^[:space:]]+[[:space:]]+swap([[:space:]]|$))|#\1|' /etc/fstab
 fi
@@ -47,9 +47,10 @@ modprobe br_netfilter
 # module to load and fails even though conntrack works.
 modprobe nf_conntrack || echo "${PACKAGE}: nf_conntrack may be built into this kernel" | tee -a "$LOG"
 
-# The IPv6 forwarding keys are not optional padding: kubeadm 1.34+ has a fatal
+# kubeadm 1.34+ has a fatal
 # FileContent--proc-sys-net-ipv6-conf-default-forwarding preflight check, so a
-# node without them fails `kubeadm init` even on an IPv4-only cluster.
+# node without the IPv6 forwarding keys fails `kubeadm init` even on an
+# IPv4-only cluster.
 cat >/etc/sysctl.d/k8s.conf <<'EOF'
 net.bridge.bridge-nf-call-iptables  = 1
 net.bridge.bridge-nf-call-ip6tables = 1
@@ -58,7 +59,7 @@ net.ipv6.conf.all.forwarding        = 1
 net.ipv6.conf.default.forwarding    = 1
 EOF
 # The output goes to the log, so on failure show enough of it here to say
-# which key was rejected -- otherwise the install dies with no visible reason.
+# which key was rejected.
 if ! sysctl --system >>"$LOG" 2>&1; then
   echo "${PACKAGE}: sysctl --system failed; last 20 lines of ${LOG}:" >&2
   tail -n 20 "$LOG" >&2
@@ -80,10 +81,8 @@ systemctl restart containerd
 IMG_TGZ="${MATRIX_ROOT}/${ARCH}/k8s-base-container-images_${K8S_PATCH}_linux_${ARCH}.tgz"
 CTR="${NKE_CTR_BIN:-/usr/local/bin/ctr}"
 
-# The bundled images are the offline contract: a node that has to reach a
-# registry for the control-plane images is not the node this package
-# promises. A missing tarball is a build defect, so fail here rather than at
-# kubeadm init. There is no "optional images" path.
+# The bundled images are the offline contract, so a missing tarball is a build
+# defect. Fail here rather than at kubeadm init.
 if [ ! -f "$IMG_TGZ" ] || [ ! -f "${IMG_TGZ}.sha256" ]; then
   echo "${PACKAGE}: no bundled base images at ${IMG_TGZ} (with .sha256 sidecar)" | tee -a "$LOG" >&2
   echo "${PACKAGE}: this package cannot bring up a node offline; rebuild it." | tee -a "$LOG" >&2

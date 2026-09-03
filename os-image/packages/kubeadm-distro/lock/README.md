@@ -19,7 +19,7 @@ image registry.k8s.io/pause:3.10.2 sha256:<hex>
 The `kubernetes` record has to match the version being built, so a lock that
 is renamed or copied to the wrong filename is rejected rather than used.
 
-These files are **generated, reviewed and committed** — never hand-written:
+These files are **generated, reviewed and committed**, never hand-written:
 
 ```bash
 make lock          # Linux host with network access
@@ -28,10 +28,9 @@ git diff -- lock/  # read every changed URL and digest
 
 `make debs` refuses to build a version with no lock, checks every downloaded
 artifact against the locked `sha256` on top of the publisher's own checksum,
-and pulls each image by `ref@digest` rather than by tag. A mutable tag, a
-compromised CDN, or a silently rebuilt upstream release therefore cannot change
-what ships without the change showing up as a diff here first. It also means
-the `kubeadm` binary is verified against a reviewed digest *before* the build
-host executes it to list the images.
+and pulls each image by `ref@digest` rather than by tag. A mutable tag or a
+rebuilt upstream release therefore cannot change what ships without showing up
+as a diff here first, and the `kubeadm` binary is verified against a reviewed
+digest *before* the build host executes it to list the images.
 
 A version listed in `K8S_VERSIONS` with no file here has not been locked yet.

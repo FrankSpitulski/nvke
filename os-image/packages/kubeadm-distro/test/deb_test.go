@@ -56,10 +56,9 @@ func stubBundle(t *testing.T, version string, withImages bool) (src string) {
 	archDir := filepath.Join(src, "amd64")
 	require.NoError(t, os.MkdirAll(archDir, 0o755))
 
-	// The four matrix binaries bundle.sh chmods 0755 in the real bundle;
+	// The four matrix binaries bundle.sh chmods 0755 in the real bundle,
 	// stubbed the same way here so a regression in that chmod shows up as a
-	// mode mismatch in TestBuildDeb's dpkg-deb -c listing instead of passing
-	// silently.
+	// mode mismatch in TestBuildDeb's dpkg-deb -c listing.
 	for _, name := range []string{"kubeadm", "kubectl", "kubelet", "runc.amd64"} {
 		require.NoError(t, os.WriteFile(filepath.Join(archDir, name), []byte("stub "+name+"\n"), 0o755))
 	}
@@ -106,8 +105,8 @@ func writeStage(t *testing.T, src string) {
 
 // nfpmBin resolves the nfpm binary build-deb.sh must run against: NFPM_BIN
 // (set by `make test`, which downloads the pinned version), or nfpm on PATH.
-// Unlike dpkg-deb, which is only used here to inspect the result, nfpm builds
-// it — so its absence fails the test outright rather than skipping it.
+// nfpm builds the package, so its absence fails the test rather than skipping
+// it. dpkg-deb, which only inspects the result, may be missing.
 func nfpmBin(t *testing.T) string {
 	t.Helper()
 	if bin := os.Getenv("NFPM_BIN"); bin != "" {
@@ -120,8 +119,8 @@ func nfpmBin(t *testing.T) string {
 	return ""
 }
 
-// TestBuildDeb runs packaging/build-deb.sh over a stubbed bundle tree — tiny
-// files standing in for the real binaries — and inspects the resulting package.
+// TestBuildDeb runs packaging/build-deb.sh over a stubbed bundle tree of tiny
+// files standing in for the real binaries, and inspects the resulting package.
 // Nothing is downloaded.
 func TestBuildDeb(t *testing.T) {
 	nfpm := nfpmBin(t)
@@ -252,10 +251,9 @@ func TestBuildDeb(t *testing.T) {
 		assert.Contains(t, contents, want)
 	}
 
-	// dpkg owns everything now: the node installer, its symlink and sidecar,
-	// every duplicate binary/tarball that used to be copied under
-	// k8s-matrix/<version>/amd64/, and the bundle manifest nothing consumed,
-	// are gone.
+	// dpkg owns everything, so k8s-matrix/<version>/amd64/ holds only the
+	// image tarball and its sidecar: no node installer, no duplicated
+	// binaries or tarballs, no bundle manifest.
 	for _, notWant := range []string{
 		"nke-k8s-installer",
 		"/usr/lib/nke/k8s-matrix/v1.36.3/installer",
@@ -350,10 +348,8 @@ func TestBuildDebReproducible(t *testing.T) {
 }
 
 // TestBuildDebRefusesBundleWithoutImages guards the offline contract: a
-// package with no container images cannot bring a node up without a
-// registry, so a bundle missing them is refused outright. There is no
-// development escape hatch anymore -- a bundle with images and a staged
-// runtime tree is the only thing this build produces.
+// package with no container images cannot bring a node up without a registry,
+// so a bundle missing them is refused outright.
 func TestBuildDebRefusesBundleWithoutImages(t *testing.T) {
 	nfpm := nfpmBin(t)
 

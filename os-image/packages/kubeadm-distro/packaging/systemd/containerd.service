@@ -16,11 +16,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Verbatim from containerd v2.3.0's own containerd.service
-# (https://raw.githubusercontent.com/containerd/containerd/v2.3.0/containerd.service).
-# Delta from upstream: none -- ExecStart already names /usr/local/bin/containerd,
-# which is where this package installs it, and `After=... dbus.service` is kept
-# as upstream ships it: SystemdCgroup=true (this package's containerd config)
-# drives cgroup management over D-Bus, so containerd needs dbus up first.
+# (https://raw.githubusercontent.com/containerd/containerd/v2.3.0/containerd.service),
+# with no delta. ExecStart already names /usr/local/bin/containerd, which is
+# where this package installs it, and `After=... dbus.service` stays because
+# SystemdCgroup=true drives cgroup management over D-Bus, so containerd needs
+# dbus up first.
 [Unit]
 Description=containerd container runtime
 Documentation=https://containerd.io

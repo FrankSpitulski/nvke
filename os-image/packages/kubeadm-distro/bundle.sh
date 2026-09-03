@@ -18,18 +18,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # URL bases, overridable so the tests can point every fetch at a local server.
-# Nothing but the tests should ever set these.
 DL_K8S_URL="${BUNDLE_DL_K8S_URL:-https://dl.k8s.io}"
 GITHUB_URL="${BUNDLE_GITHUB_URL:-https://github.com}"
 HELM_URL="${BUNDLE_HELM_URL:-https://get.helm.sh}"
 RUNC_KEYRING="${BUNDLE_RUNC_KEYRING:-${SCRIPT_DIR}/packaging/keyrings/runc.keyring}"
 
-# 2 GiB: comfortably above the largest artifact here (a few hundred MiB) and
-# well below filling a build host.
+# 2 GiB: well above the largest artifact here, which is a few hundred MiB.
 MAX_ARTIFACT_BYTES=2147483648
 
-# A single pin for every row; the CNI plugins are not skewed against the
-# Kubernetes minor.
+# One pin for every row: the CNI plugins do not skew against the Kubernetes minor.
 CNI_PLUGINS_VERSION=v1.6.0
 
 COMPONENTS=(cni-plugins containerd crictl helm kubeadm kubectl kubelet runc)
@@ -40,20 +37,13 @@ die() { echo "bundle.sh: $*" >&2; exit 1; }
 
 # pins_for sets CONTAINERD/RUNC/HELM for a Kubernetes minor.
 #
-# containerd follows the project's "Kubernetes support" matrix, pinned to the
-# newest patch published on the line it lists:
-# https://github.com/containerd/containerd/blob/main/RELEASES.md#kubernetes-support
-#
-# runc is not enumerated there, so these are pragmatic pairings with each
+# containerd is the newest patch on the line its Kubernetes support matrix
+# lists: https://github.com/containerd/containerd/blob/main/RELEASES.md#kubernetes-support
+# runc is not in that matrix, so these are pragmatic pairings with each
 # containerd line, from https://github.com/opencontainers/runc/releases.
-#
-# Helm follows https://helm.sh/docs/v3/topics/version_skew/, newest patch on
-# each supported line. Kubernetes 1.36 uses Helm v4.x because the published
-# skew table has not caught up.
-#
-# There is deliberately no fallback row. A Kubernetes minor with no entry here
-# is an error, so rotating K8S_VERSIONS forces someone to read both upstream
-# matrices rather than inheriting whatever the newest line happened to be.
+# Helm is the newest patch on each line supported by
+# https://helm.sh/docs/v3/topics/version_skew/. Kubernetes 1.36 uses Helm v4.x
+# because the published skew table has not caught up.
 pins_for() {
   case "$1" in
     36) CONTAINERD=v2.3.0;  RUNC=v1.4.2; HELM=v4.1.4  ;;
@@ -81,13 +71,12 @@ component_url() {
 }
 
 # fetch writes url to a scratch path; the caller moves it into place only once
-# it verifies, so a partial body never appears under the artifact's name. No
-# --retry-all-errors: plain --retry covers transient failures and 429/5xx,
-# and retrying a 404 only makes a pin typo take five times as long.
+# it verifies, so a partial body never appears under the artifact's name.
+# --retry-all-errors is left off so a pin typo fails on the first 404.
 fetch() {
   curl -fsSL --retry 5 --retry-delay 2 --max-time 600 --max-filesize "$MAX_ARTIFACT_BYTES" -o "$2" "$1" || die "download $1 failed"
   # --max-filesize is advisory: a chunked response has no Content-Length for
-  # curl to check it against, so re-enforce the ceiling on what landed.
+  # curl to check it against, so re-check the ceiling on what landed.
   local size; size="$(stat -c %s "$2")"
   ((size <= MAX_ARTIFACT_BYTES)) || { rm -f "$2"; die "$1 is ${size} bytes, over the ${MAX_ARTIFACT_BYTES} byte ceiling"; }
 }
@@ -95,9 +84,9 @@ fetch() {
 file_sha() { sha256sum "$1" | cut -d' ' -f1; }
 
 # checksum_from_doc reads the publisher's digest for one basename out of a
-# checksum document: a GNU `sha256sum` list, or a single bare hex digest.
-# A document that names any file at all is read only by name -- a bare
-# fallback there would verify our artifact against somebody else's bytes.
+# checksum document: a GNU `sha256sum` list, or a single bare hex digest. A
+# document that names any file is read only by name, since falling back to a
+# bare digest there would verify our artifact against somebody else's bytes.
 # Anything ambiguous prints nothing, and the caller fails.
 checksum_from_doc() {
   awk -v want="$2" '
@@ -128,9 +117,9 @@ checksum_from_doc() {
 
 # verify_runc_doc checks runc's clearsigned checksum list against the bundled
 # upstream keyring and writes its clear text to $2. gpg runs in a scratch
-# GNUPGHOME that never sees the caller's own keys: a homedir with use-keyboxd
-# set ignores --keyring outright, so importing into a throwaway home is the
-# only way to be sure which keys were consulted.
+# GNUPGHOME: a homedir with use-keyboxd set ignores --keyring outright, so
+# importing into a throwaway home is the only way to be sure which keys were
+# consulted.
 verify_runc_doc() {
   [[ -f "$RUNC_KEYRING" ]] || die "runc keyring missing at ${RUNC_KEYRING}"
   GPG_HOME="$(mktemp -d)"
@@ -162,9 +151,8 @@ publisher_sha() {
       containerd) fetch "${url}.sha256sum" "$doc" ;;
       *) fetch "${url}.sha256" "$doc" ;;
     esac
-    # Only runc signs its list. A signed document from any other publisher
-    # is a change of shape, and reading it as plain text would skip the
-    # signature -- so this is checked here, once, for all of them.
+    # Only runc signs its list. Reading a signed document from any other
+    # publisher as plain text would skip the signature.
     if grep -q -- "$CLEARSIGN_MARKER" "$doc"; then
       die "unexpected clearsigned checksum for ${component}"
     fi
@@ -181,15 +169,15 @@ lock_field() { awk -v c="$1" -v f="$2" '$1 == "artifact" && $2 == c { print $f }
 
 # download_component fetches one artifact unless the cache already holds the
 # bytes the lock pins, and verifies whatever it ends up with against the
-# publisher's checksum and (in build mode) against the lock.
+# publisher's checksum and, in build mode, against the lock.
 download_component() {
   local component="$1" url file dest tmp locked="" got published
   url="$(component_url "$component")"
   file="${url##*/}"
   dest="${ARCH_DIR}/${file}"
   if ((!WRITE_LOCK)); then
-    # Presence only, for the early message: the whole-line artifact diff
-    # after the downloads compares the URL and the digest.
+    # Presence only, for the early message: the artifact diff after the
+    # downloads compares the URL and the digest.
     locked="$(lock_field "$component" 3)"
     [[ -n "$locked" ]] || die "${component} is not in ${LOCK_FILE}: run make lock and review the diff"
     if [[ -f "$dest" && "$(file_sha "$dest")" == "$locked" ]]; then
@@ -224,8 +212,8 @@ make_executable() {
 }
 
 # resolve_images lists the control-plane images with the verified kubeadm and
-# pins each to its linux/<arch> manifest digest, as sorted "image <ref> <digest>"
-# records.
+# pins each to its linux/<arch> manifest digest, as sorted
+# "image <ref> <digest>" records.
 resolve_images() {
   local ref digest dupes
   "${ARCH_DIR}/kubeadm" config images list --kubernetes-version "$VERSION" |
@@ -248,16 +236,14 @@ resolve_images() {
   [[ -z "$dupes" ]] || die "kubeadm asks for two tags of one repository (${dupes}); they cannot be named apart in one archive"
 }
 
-# write_images_tarball pulls every pinned image into the single gzipped
-# docker-archive postinst feeds to `ctr images import`, plus the GNU-format
-# sidecar postinst runs `sha256sum -c` on. The pull is skipped when the
-# archive on disk was built from exactly this image list.
+# write_images_tarball pulls every pinned image into the gzipped
+# docker-archive postinst feeds to `ctr images import`, plus the sidecar
+# postinst runs `sha256sum -c` on.
 write_images_tarball() {
   local tgz="${ARCH_DIR}/k8s-base-container-images_${VERSION#v}_linux_${ARCH}.tgz"
   local base="${tgz##*/}" digests="${tgz}.lock-digests" refs=() ref digest leftover unsafe strays
   # Reuse needs all three: the archive is there, it was built from exactly
-  # the images the lock now pins, and its bytes still match the sidecar
-  # postinst will check them against.
+  # the images the lock now pins, and its bytes still match the sidecar.
   if [[ -f "$tgz" && -f "${tgz}.sha256" ]] && cmp -s "$digests" "${WORK}/images" &&
     (cd "${ARCH_DIR}" && sha256sum -c --quiet "${base}.sha256" >/dev/null 2>&1); then return; fi
   rm -f "$tgz" "${tgz}.sha256" "$digests"
@@ -277,23 +263,21 @@ write_images_tarball() {
   # crane pulled by digest, so it names each image "<repo>:i-was-a-digest" in
   # the archive's manifest.json. kubelet looks images up by the tag kubeadm
   # asked for, so put the real tags back before `ctr images import` sees them,
-  # and fail rather than ship a package a crane change quietly mis-names.
+  # and fail rather than ship a package a crane change mis-names.
   while read -r _ ref _; do
     grep -qF "\"${ref%:*}:i-was-a-digest\"" "${WORK}/unpacked/manifest.json" ||
       die "crane did not name ${ref} as expected; it would import under the wrong name"
     sed -i "s|\"${ref%:*}:i-was-a-digest\"|\"${ref}\"|g" "${WORK}/unpacked/manifest.json"
   done <"${WORK}/images"
   # crane could have written the placeholder to a file the loop above does
-  # not read. Scoped to the top level: a layer blob's contents are the
-  # image's, not crane's.
+  # not read. Top level only: a layer blob's contents are the image's.
   leftover="$(find "${WORK}/unpacked" -maxdepth 1 -type f -exec grep -lF 'i-was-a-digest' {} + || true)"
   [[ -z "$leftover" ]] || die "crane's digest placeholder survived in ${leftover}"
 
   # crane writes the archive's members in Go map order, so a second pull of
-  # the same images is not byte-identical. Repack the extracted tree rather
-  # than teach this script to merge image tarballs itself, pinning every
-  # field a local umask, locale or filesystem could otherwise leak into the
-  # bytes: format, member order (the -T list is sorted), mtime, owner, mode.
+  # the same images is not byte-identical. Repack the extracted tree with
+  # every field a local umask, locale or filesystem could leak into pinned:
+  # format, member order (the -T list is sorted), mtime, owner, mode.
   (cd "${WORK}/unpacked" && find . -type f -print | sed 's|^\./||' | LC_ALL=C sort >"${WORK}/members")
   [[ -s "${WORK}/members" ]] || die "the pulled archive contains no files"
   (cd "${WORK}/unpacked" && LC_ALL=C tar --format=ustar \
@@ -307,16 +291,16 @@ write_images_tarball() {
 
 # require_flat_archive rejects a tarball that is anything other than a
 # non-empty flat list of regular files. The CNI plugins land straight in
-# /opt/cni/bin, so a nested path, a symlink or a device node there would be
-# extracted somewhere this script never looked. Names and types are read in
-# two passes rather than by splitting `tar -tvzf` on whitespace: a symlink
-# prints as "name -> target", so the last field is not the name at all.
+# /opt/cni/bin, so a nested path or a symlink there would be extracted
+# somewhere this script never looked. Names and types are read in two passes
+# because a symlink prints as "name -> target" under `tar -tvzf`, so the last
+# field is not the name.
 require_flat_archive() {
   local archive="$1" name types dirs roots=0 files=0
   while IFS= read -r name; do
     name="${name#./}"
-    # The archive's own root entry ("./"), which is a directory and has no
-    # name once the prefix is stripped.
+    # The archive's own root entry ("./"), which has no name once the prefix
+    # is stripped.
     if [[ -z "$name" || "$name" == / ]]; then
       roots=$((roots + 1))
       continue
@@ -327,8 +311,7 @@ require_flat_archive() {
   ((files > 0)) || die "${archive}: contains no members"
   types="$(tar -tvzf "$archive" | cut -c1 | LC_ALL=C sort -u | tr -d 'd-')"
   [[ -z "$types" ]] || die "${archive}: contains member(s) that are not regular files (tar type '${types}')"
-  # Any other directory is a nested tree this script would extract without
-  # ever looking at it.
+  # Any other directory is a nested tree this script never looks inside.
   dirs="$(tar -tvzf "$archive" | cut -c1 | grep -c d || true)"
   ((dirs == roots)) || die "${archive}: contains a directory member; expected a flat list of files"
 }
@@ -337,8 +320,7 @@ require_flat_archive() {
 # kubeadm/kubectl/kubelet/runc binaries and the image archive.
 stage_tree() {
   local stage="${DIST}/${VERSION}/stage" pause cni
-  # config.toml below is config version 3, which only containerd 2.x parses;
-  # 1.x wants version 2 and a different plugin-id shape entirely.
+  # config.toml below is config version 3, which only containerd 2.x parses.
   [[ "$CONTAINERD" == v2.* ]] || die "containerd pin ${CONTAINERD} is below v2.0.0: config version 3 needs containerd 2.x"
   rm -rf "$stage"
   mkdir -p "${stage}/usr/local/bin" "${stage}/usr/bin" "${stage}/opt/cni/bin" "${stage}/etc/containerd"
@@ -354,16 +336,14 @@ stage_tree() {
   mv "${WORK}/linux-${ARCH}/helm" "${stage}/usr/bin/helm"
   chmod -R 0755 "${stage}/usr/local/bin" "${stage}/usr/bin" "${stage}/opt/cni/bin"
 
-  # The sandbox image is the pause image this release asks for, read back from
-  # the lock so it can never skew from the bundled images.
+  # The pause image this release asks for, read back from the lock.
   pause="$(awk '$1 == "image" && $2 ~ /\/pause:/ { print $2 }' "$LOCK_FILE" | LC_ALL=C sort | head -n1)"
   [[ -n "$pause" ]] || die "no pause image in ${LOCK_FILE}; containerd has no sandbox image to pin"
   cat >"${stage}/etc/containerd/config.toml" <<EOF
 # Managed by nke-kubeadm-distro. Rendered at package build time from the
-# locked image list; the sandbox image is the pause image this Kubernetes
-# release asks for, so it can never skew from the bundled images. This file
-# is rewritten on every install -- put local overrides in
-# /etc/containerd/conf.d/ instead of editing it directly.
+# locked image list, so the sandbox image cannot skew from the bundled images.
+# Rewritten on every install: put local overrides in /etc/containerd/conf.d/
+# rather than editing this file.
 imports = ['/etc/containerd/conf.d/*.toml']
 version = 3
 
@@ -410,8 +390,8 @@ while (($#)); do
 done
 [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "--version must be vX.Y.Z, got '${VERSION}'"
 [[ -n "$DIST" && -n "$LOCK_DIR" && -n "$CRANE" ]] || die "--dist, --lock-dir and --crane are required"
-# The lock is one file per Kubernetes version, not per architecture, so there
-# is nowhere to record a second arch's digests yet.
+# The lock is one file per Kubernetes version, with nowhere to record a second
+# architecture's digests.
 [[ "$ARCH" == amd64 ]] || die "--arch ${ARCH}: the lock and the .deb are amd64-only for now"
 [[ "$(uname -s)" == Linux ]] || die "the container images are listed by the downloaded linux kubeadm binary, so this build host ($(uname -s)) cannot produce a bundle; run on Linux"
 command -v "$CRANE" >/dev/null 2>&1 || die "crane not found at ${CRANE}"
@@ -429,8 +409,8 @@ LOCK_FILE="${LOCK_DIR}/${VERSION}.lock"
 # Before anything is created on disk, so a bad lock leaves no dist tree.
 if ((!WRITE_LOCK)); then
   [[ -f "$LOCK_FILE" ]] || die "no lock for ${VERSION}: run make lock and review the diff (expected ${LOCK_FILE})"
-  # The comparisons below read only the rows they recognise, so a record this
-  # script does not understand is a lock it cannot enforce.
+  # The comparisons below read only the rows they recognise, so an unknown
+  # record is a lock this script cannot enforce.
   stray_records="$(awk '$1 !~ /^#/ && $1 != "kubernetes" && $1 != "artifact" && $1 != "image" && NF > 0 { print }' "$LOCK_FILE")"
   [[ -z "$stray_records" ]] || die "${LOCK_FILE} has unrecognised record(s): ${stray_records}"
   kubernetes_rows="$(grep -c '^kubernetes ' "$LOCK_FILE" || true)"
@@ -462,8 +442,8 @@ done
 resolve_images
 
 if ((WRITE_LOCK)); then
-  # Written beside the file it replaces, on the same filesystem, so the lock
-  # is either the old one or the new one, never a half-written mixture.
+  # Written beside the file it replaces, so the lock is either the old one or
+  # the new one, never half-written.
   LOCK_TMP="$(mktemp "${LOCK_FILE}.XXXXXX")"
   {
     echo "# nke-kubeadm-distro lock for ${VERSION} (${ARCH}). Regenerate with \`make lock\`; review the diff before committing."
@@ -488,9 +468,8 @@ if ((WRITE_LOCK)); then
   exit 0
 fi
 
-# Both directions, for artifacts as well as images: a row for something this
-# build never downloaded, or two rows for one component, is not the file that
-# was reviewed.
+# Both directions: a row for something this build never downloaded, or two
+# rows for one component, is not the file that was reviewed.
 LC_ALL=C sort "${WORK}/artifacts" >"${WORK}/artifacts.sorted"
 if ! diff -q <(grep '^artifact ' "$LOCK_FILE") "${WORK}/artifacts.sorted" >/dev/null; then
   diff -- <(grep '^artifact ' "$LOCK_FILE") "${WORK}/artifacts.sorted" >&2 || true

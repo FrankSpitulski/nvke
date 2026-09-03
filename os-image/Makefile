@@ -75,10 +75,10 @@ build: ## Build nke-os-image-check into bin/.
 compile: ## Type-check every package, including the ones with no binary.
 	$(GO) build ./...
 
-# packages/kubeadm-distro's test/deb_test.go shells out to nfpm; the pinned binary
-# (or its PATH fallback) has to exist before `go test ./...` reaches it, since
-# the merge gate's ubuntu-latest runner has neither NFPM_BIN set nor nfpm on
-# PATH. The nfpm rule itself lives once, in that package's own Makefile.
+# packages/kubeadm-distro's test/deb_test.go shells out to nfpm, and the merge
+# gate's runner has neither NFPM_BIN set nor nfpm on PATH, so build it before
+# `go test ./...` reaches it. The nfpm rule itself lives in that package's own
+# Makefile.
 NFPM_BIN_FOR_TEST := $(CURDIR)/packages/kubeadm-distro/bin/nfpm
 
 $(NFPM_BIN_FOR_TEST):

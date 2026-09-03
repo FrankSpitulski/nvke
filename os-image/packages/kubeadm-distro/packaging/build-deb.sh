@@ -8,11 +8,9 @@
 # Usage:
 #   build-deb.sh <k8s-version> <bundle-dir> <out-dir>
 #
-# bundle-dir and out-dir may be given relative to the caller's cwd; they are
-# canonicalised to absolute paths below. nfpm itself runs with PACKAGING_DIR
-# as its cwd (see the `cd` before invoking it), so an uncanonicalised relative
-# path would resolve against the wrong directory and fail with an opaque nfpm
-# glob error instead of a clear one.
+# bundle-dir and out-dir may be relative to the caller's cwd and are
+# canonicalised below, because nfpm runs with PACKAGING_DIR as its cwd and a
+# relative path would resolve against the wrong directory.
 #
 # Environment:
 #   DEB_REVISION   Debian packaging revision (default 1).
@@ -50,10 +48,8 @@ PACKAGING_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 K8S_PATCH="${K8S_VER#v}"
 PACKAGE_NAME="${PACKAGE_PREFIX}-${K8S_PATCH}"
 
-# The container images are what makes a node come up without a registry. A
-# .deb without them is not a product this build produces -- there is no
-# development escape hatch, so a missing tarball means `make bundle` was
-# never run to completion.
+# The container images are what makes a node come up without a registry, so a
+# missing tarball means `make bundle` never ran to completion.
 BASE_TGZ="${SRC}/${ARCH}/k8s-base-container-images_${K8S_PATCH}_linux_${ARCH}.tgz"
 if [[ ! -f "${BASE_TGZ}" || ! -f "${BASE_TGZ}.sha256" ]]; then
   echo "build-deb.sh: ${BASE_TGZ} and its .sha256 sidecar are missing." >&2
@@ -64,9 +60,8 @@ fi
 
 # The FHS-staged runtime tree bundle.sh writes: everything nfpm.yaml pulls in
 # beyond the bare kubeadm/kubectl/kubelet/runc binaries and the image tarball
-# above. Checked here, not just left to nfpm's own missing-file error, so a
-# partial or skipped `make bundle` fails with a message that says what to do
-# about it.
+# above. Checked here so a partial `make bundle` fails with a message that
+# says what to do about it, rather than with nfpm's missing-file error.
 STAGE="${SRC}/stage"
 for required in \
   "${STAGE}/usr/local/bin/containerd" \
@@ -87,7 +82,7 @@ if [[ -z "$(find "${STAGE}/opt/cni/bin" -mindepth 1 -maxdepth 1 2>/dev/null)" ]]
 fi
 
 # Every matrix row owns /usr/bin/kubeadm, so each package conflicts with its
-# peers. A single comma-separated string: nfpm.yaml explains why.
+# peers. One comma-separated string; nfpm.yaml explains why.
 PEER_CONFLICTS="${PACKAGE_PREFIX}"
 for peer in ${PEER_VERSIONS//,/ }; do
   peer="${peer#v}"
@@ -100,21 +95,18 @@ done
 # `expand: true` content src) then fails to match that path at all.
 TMPDIR_NO_SLASH="${TMPDIR:-/tmp}"
 SCRATCH="$(mktemp -d "${TMPDIR_NO_SLASH%/}/nke-kubeadm-distro-XXXXXX")"
-# SCRIPTS_DIR is not assigned until later (it needs PACKAGING_DIR); initialise
-# it empty here so the trap does not fail under `set -u` if something between
-# here and there exits first, which would otherwise skip the SCRATCH cleanup
-# too.
+# SCRIPTS_DIR is assigned later, but initialise it here so the trap does not
+# fail under `set -u` and skip the SCRATCH cleanup with it.
 SCRIPTS_DIR=""
 trap 'rm -rf "${SCRATCH}" "${SCRIPTS_DIR}"' EXIT
 
 printf '%s\n' "Bundled Kubernetes ${K8S_VER} node stack (NKE)." >"${SCRATCH}/README.Debian"
 
 # nfpm.yaml's top-level `mtime` does not reach files pulled in through the one
-# `type: tree` content entry (/opt/cni/bin), so that one directory gets a
-# touched copy here rather than being read from STAGE directly -- otherwise
-# two builds of the same locked bundle, staged at different times, would not
-# produce byte-identical .debs. Every other staged file is a plain `src:`
-# entry, which picks up the top-level mtime on its own.
+# `type: tree` content entry (/opt/cni/bin), so that directory gets a touched
+# copy here instead of being read from STAGE. Without it, two builds of the
+# same bundle staged at different times would not be byte-identical. Plain
+# `src:` entries pick up the top-level mtime on their own.
 mkdir -p "${SCRATCH}/stage/opt/cni/bin"
 cp -a "${STAGE}/opt/cni/bin/." "${SCRATCH}/stage/opt/cni/bin/"
 (export TZ=UTC && find "${SCRATCH}/stage" -exec touch -t 202601010000 {} +)
@@ -129,11 +121,9 @@ render() {
     -e "s|{{MATRIX_SUBDIR}}|${MATRIX_SUBDIR}|g" \
     "$1" >"$2"
 }
-# nfpm's `scripts:` fields get no env-var expansion at all (unlike `contents:`
-# with `expand: true`), so nfpm.yaml points at this fixed, package-relative
-# path instead of SCRATCH. Safe to overwrite on every run: build-deb.sh runs
-# are never concurrent (the Makefile's `debs` loop is a plain sequential
-# shell `for`).
+# nfpm's `scripts:` fields get no env-var expansion, so nfpm.yaml points at
+# this fixed, package-relative path instead of SCRATCH. Overwriting it every
+# run is safe: the Makefile's `debs` loop is sequential.
 SCRIPTS_DIR="${PACKAGING_DIR}/../bin/.nfpm-scripts"
 rm -rf "${SCRIPTS_DIR}"
 mkdir -p "${SCRIPTS_DIR}"

@@ -47,8 +47,8 @@ const (
 )
 
 // fixtureImages are what the fake kubeadm lists and the fake crane resolves,
-// in the order kubeadm prints them (deliberately not sorted, so the lock's
-// own sorting is exercised).
+// in the order kubeadm prints them, which is unsorted so the lock's own
+// sorting is exercised.
 var fixtureImages = []struct{ ref, digest string }{
 	{"registry.k8s.io/kube-apiserver:v1.36.3", "sha256:" + strings.Repeat("a", 64)},
 	{"registry.k8s.io/pause:3.10", "sha256:" + strings.Repeat("b", 64)},
@@ -201,8 +201,7 @@ type gpgKey struct {
 	uid  string
 }
 
-// newGPGKey generates a throwaway key. Nothing here ever touches the caller's
-// own GNUPGHOME.
+// newGPGKey generates a throwaway key in its own GNUPGHOME.
 func newGPGKey(t *testing.T, uid string) *gpgKey {
 	t.Helper()
 	home := t.TempDir()
@@ -420,7 +419,7 @@ func TestBundleRefusesNonLinux(t *testing.T) {
 }
 
 // TestBundleWriteLock covers --write-lock: everything is resolved from
-// upstream and the lock is written verbatim, sorted, with no bundle staged.
+// upstream and the lock is written sorted, with no bundle staged.
 func TestBundleWriteLock(t *testing.T) {
 	requireBundleTools(t)
 	requireLinux(t)
@@ -491,9 +490,9 @@ func TestBundleBuild(t *testing.T) {
 	checkOut, err := check.CombinedOutput()
 	require.NoErrorf(t, err, "sha256sum -c: %s", checkOut)
 
-	// Every image has to import under the tag kubeadm asks for, not under the
-	// placeholder crane names a digest-pulled image with; kubelet looks the
-	// bundled images up by that tag and would otherwise go to the registry.
+	// Every image has to import under the tag kubeadm asks for, since kubelet
+	// looks the bundled images up by that tag and would otherwise go to the
+	// registry.
 	manifest := extractFromTgz(t, tgz, "manifest.json")
 	for _, img := range fixtureImages {
 		assert.Contains(t, manifest, fmt.Sprintf("%q", img.ref))
@@ -551,8 +550,7 @@ func TestBundleWarmCacheMakesNoRequests(t *testing.T) {
 }
 
 // TestBundleRebuildsCorruptedImageArchive covers the third leg of the reuse
-// gate: an archive whose bytes no longer match the sidecar postinst will
-// check them against has to be rebuilt, not handed on.
+// gate: an archive whose bytes no longer match the sidecar has to be rebuilt.
 func TestBundleRebuildsCorruptedImageArchive(t *testing.T) {
 	requireBundleTools(t)
 	requireLinux(t)
@@ -584,7 +582,7 @@ func TestBundleRebuildsCorruptedImageArchive(t *testing.T) {
 
 // TestBundleRejectsArtifactDigestDrift covers a lock that no longer describes
 // the bytes upstream serves: the download is refused and nothing is left in
-// the artifact directory under its own name.
+// the artifact directory.
 func TestBundleRejectsArtifactDigestDrift(t *testing.T) {
 	requireBundleTools(t)
 	requireLinux(t)
@@ -685,9 +683,9 @@ func TestBundleRepackIsOrderIndependent(t *testing.T) {
 	first, err := os.ReadFile(filepath.Join(b.archDir(), baseImagesTarball))
 	require.NoError(t, err)
 
-	// A second, entirely fresh dist, with crane writing its members the other
-	// way round and under a different umask -- the two things a repack that
-	// does not pin member order and mode would let leak into the bytes.
+	// A second, fresh dist, with crane writing its members the other way round
+	// and under a different umask: the two things a repack that does not pin
+	// member order and mode would let leak into the bytes.
 	b.dist = filepath.Join(t.TempDir(), "dist2")
 	b.env = []string{"FAKE_CRANE_REVERSE=1"}
 	// Process-wide, and restored below. Nothing in this package calls
@@ -736,9 +734,8 @@ func TestBundleRejectsUnexpectedClearsignedChecksum(t *testing.T) {
 	assert.NoFileExists(t, b.lockPath())
 }
 
-// TestBundleRejectsUnexpectedClearsignedContainerd is the same guard for the
-// one other component with its own checksum-document shape: containerd's
-// `.sha256sum` arm used to skip the check that helm's `.sha256` arm made.
+// TestBundleRejectsUnexpectedClearsignedContainerd is the same guard on
+// containerd's `.sha256sum` arm, which has its own checksum-document shape.
 func TestBundleRejectsUnexpectedClearsignedContainerd(t *testing.T) {
 	requireBundleTools(t)
 	requireLinux(t)
@@ -755,7 +752,7 @@ func TestBundleRejectsUnexpectedClearsignedContainerd(t *testing.T) {
 
 // TestBundleRejectsConflictingChecksumEntries covers a checksum document that
 // names the artifact twice with different digests. `exit` from an awk main
-// rule still runs END, so this refusal was a no-op until END carried a flag.
+// rule still runs END, so the refusal has to be carried into END as a flag.
 func TestBundleRejectsConflictingChecksumEntries(t *testing.T) {
 	requireBundleTools(t)
 	requireLinux(t)
@@ -773,7 +770,7 @@ func TestBundleRejectsConflictingChecksumEntries(t *testing.T) {
 
 // TestBundleRejectsNestedCNIMember covers the archive shape check: the CNI
 // plugins land straight in /opt/cni/bin, so a nested path in that tarball
-// would be extracted somewhere nothing ever looks.
+// would be extracted somewhere nothing looks.
 func TestBundleRejectsNestedCNIMember(t *testing.T) {
 	requireBundleTools(t)
 	requireLinux(t)
