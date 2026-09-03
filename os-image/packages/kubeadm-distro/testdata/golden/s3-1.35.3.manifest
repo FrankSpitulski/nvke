@@ -1,0 +1,73 @@
+## control
+Package: nke-kubeadm-distro-1.35.3
+Section: admin
+Priority: optional
+Architecture: amd64
+Provides: nke-kubeadm-distro
+Depends: iproute2, iptables
+Conflicts: cri-tools, helm, kubeadm, kubectl, kubelet, kubernetes-cni, nke-kubeadm-distro, nke-kubeadm-distro-1.31.12, nke-kubeadm-distro-1.31.6, nke-kubeadm-distro-1.31.9, nke-kubeadm-distro-1.32.9, nke-kubeadm-distro-1.33.6, nke-kubeadm-distro-1.34.2, nke-kubeadm-distro-1.36.0, nke-kubeadm-distro-1.36.3, nke-kubeadm-distro-osmo, nke-kubeadm-distro-osmo-1.31.12, nke-kubeadm-distro-osmo-1.34.2, runc
+Replaces: cri-tools, helm, kubeadm, kubectl, kubelet, kubernetes-cni, nke-kubeadm-distro, runc
+## conffiles
+(none)
+## scripts
+postinst postrm prerm 
+## files
+d rwxr-xr-x /etc/
+d rwxr-xr-x /etc/default/
+f rw-r--r-- /etc/default/kubelet
+d rwxr-xr-x /etc/kubernetes/
+d rwxr-xr-x /etc/kubernetes/manifests/
+f rw-r--r-- /etc/kubernetes/manifests/.kubelet-keep
+d rwxr-xr-x /lib/
+d rwxr-xr-x /lib/systemd/
+d rwxr-xr-x /lib/systemd/system/
+f rw-r--r-- /lib/systemd/system/kubelet.service
+d rwxr-xr-x /lib/systemd/system/kubelet.service.d/
+f rw-r--r-- /lib/systemd/system/kubelet.service.d/10-kubeadm.conf
+d rwxr-xr-x /usr/
+d rwxr-xr-x /usr/bin/
+f rwxr-xr-x /usr/bin/kubeadm sha256=a3fb4b3a214a807e2ef4c3fda3196c7f97dcf8152558de5a3c473c869bda0b07
+f rwxr-xr-x /usr/bin/kubectl sha256=fd31c7d7129260e608f6faf92d5984c3267ad0b5ead3bced2fe125686e286ad6
+f rwxr-xr-x /usr/bin/kubelet sha256=28d570423eaad5f1f5658a646bd8c015c786c95d62ffaf14bf35fa0c4326fa05
+l rwxrwxrwx /usr/bin/nke-k8s-installer -> ../../lib/nke/k8s-matrix/v1.35.3/installer
+d rwxr-xr-x /usr/lib/
+d rwxr-xr-x /usr/lib/nke/
+d rwxr-xr-x /usr/lib/nke/k8s-matrix/
+d rwxr-xr-x /usr/lib/nke/k8s-matrix/v1.35.3/
+d rwxr-xr-x /usr/lib/nke/k8s-matrix/v1.35.3/amd64/
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/cni-plugins-linux-amd64-v1.6.0.tgz
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/cni-plugins-linux-amd64-v1.6.0.tgz.sha256
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/containerd-2.0.2-linux-amd64.tar.gz
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/containerd-2.2.3-linux-amd64.tar.gz
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/containerd-2.2.3-linux-amd64.tar.gz.sha256
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/crictl-v1.35.0-linux-amd64.tar.gz
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/crictl-v1.35.0-linux-amd64.tar.gz.sha256
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/helm-v3.18.2-linux-amd64.tar.gz
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/helm-v3.20.2-linux-amd64.tar.gz
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/helm-v3.20.2-linux-amd64.tar.gz.sha256
+f rwxr-xr-x /usr/lib/nke/k8s-matrix/v1.35.3/amd64/installer
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/installer.sha256
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/k8s-base-container-images_1.35.3_linux_amd64.tgz
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/k8s-base-container-images_1.35.3_linux_amd64.tgz.sha256
+f rwxr-xr-x /usr/lib/nke/k8s-matrix/v1.35.3/amd64/kubeadm
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/kubeadm.sha256
+f rwxr-xr-x /usr/lib/nke/k8s-matrix/v1.35.3/amd64/kubectl
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/kubectl.sha256
+f rwxr-xr-x /usr/lib/nke/k8s-matrix/v1.35.3/amd64/kubelet
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/kubelet.sha256
+f rwxr-xr-x /usr/lib/nke/k8s-matrix/v1.35.3/amd64/runc.amd64
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/amd64/runc.amd64.sha256
+f rwxr-xr-x /usr/lib/nke/k8s-matrix/v1.35.3/installer
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/installer.sha256
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/manifest.json
+f rw-r--r-- /usr/lib/nke/k8s-matrix/v1.35.3/manifest.json.sha256
+d rwxr-xr-x /usr/sbin/
+f rwxr-xr-x /usr/sbin/runc sha256=66fa8390be8fb3b23dfbb60c767368bb5b51f1acfa88692bbff1a82953d4d9e9
+d rwxr-xr-x /usr/share/
+d rwxr-xr-x /usr/share/doc/
+d rwxr-xr-x /usr/share/doc/nke-kubeadm-distro-1.35.3/
+f rw-r--r-- /usr/share/doc/nke-kubeadm-distro-1.35.3/README.Debian
+d rwxr-xr-x /var/
+d rwxr-xr-x /var/lib/
+d rwxr-xr-x /var/lib/kubelet/
+f rw-r--r-- /var/lib/kubelet/.kubelet-keep

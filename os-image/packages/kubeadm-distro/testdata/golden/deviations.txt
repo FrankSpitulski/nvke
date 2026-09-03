@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reviewed, intentional deviations between this build's nke-kubeadm-distro
+# .deb and the production S3 golden manifests in this directory. See
+# README.md for the format and the review rule. Every non-comment line must
+# carry a " #" (space, then hash) reason — the parser rejects any that do
+# not.
+#
+# Currently empty: the debs `make debs` produces today already differ from
+# the golden manifests (Depends, Conflicts, Replaces, and the .kubelet-keep
+# placeholders — see README.md "Known drift"), but that drift has not been
+# reviewed and allowlisted yet. `make contract-check` reports it as an
+# advisory warning until it is. Populating this file happens together with
+# the layout change tracked in package W2, when the drift becomes
+# deliberate rather than incidental.
