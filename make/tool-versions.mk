@@ -33,3 +33,12 @@ GO_LICENSES_VERSION ?= v2.0.1
 CRANE_VERSION ?= 0.22.0
 CRANE_LINUX_AMD64_SHA256 ?= edb74d53fad9a596860f59d1c5d04a43dfb5f441dc71f57060dd0bf39483c833
 CRANE_LINUX_ARM64_SHA256 ?= 971e8e2de7e09172330527a9dfb10689e344b160fd81bac7fb91adcb109bad37
+
+# os-image/packages/kubeadm-distro/Makefile: packages nke-kubeadm-distro debs
+# with nfpm instead of dpkg-deb. Same shape as the crane pins above: the
+# sha256 pins live here next to the version, and Darwin has no pin -- a
+# developer's own `nfpm` (for example via `brew install nfpm`) is used
+# instead.
+NFPM_VERSION ?= 2.47.0
+NFPM_LINUX_AMD64_SHA256 ?= 0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783
+NFPM_LINUX_ARM64_SHA256 ?= 1c0f5f2999b9a974bfb04fdb0cc3306096de530ac5dbb25d739cc5f5219c919c

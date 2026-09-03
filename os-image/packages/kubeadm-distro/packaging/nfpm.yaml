@@ -1,0 +1,182 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# nfpm package spec for nke-kubeadm-distro-<x.y.z>. build-deb.sh exports the
+# environment this file expands: PACKAGE_NAME, DEB_REVISION, ARCH, K8S_VER,
+# MATRIX_SUBDIR, PEER_CONFLICTS, SRC (the kubeadm-bundle output tree),
+# INSTALLER_BIN (the nke-k8s-installer binary) and SCRATCH (a directory for
+# the two files build-deb.sh has to generate: the installer checksum sidecar
+# and README.Debian).
+#
+# nfpm expands ${VAR} in ordinary string fields on its own; content entries
+# additionally need `expand: true` before their own src/dst are expanded.
+# `scripts:` gets no expansion at all (not even with `expand: true`, which
+# only exists on content entries), so the maintainer scripts below are
+# referenced by a fixed path relative to this file's directory instead:
+# build-deb.sh renders them into ../bin/.nfpm-scripts/ (build-deb.sh runs are
+# never concurrent, so overwriting that fixed path each time is safe) rather
+# than into SCRATCH's unique-per-run path.
+#
+# PEER_CONFLICTS is a single comma-separated string, computed in build-deb.sh,
+# because nfpm has no way to expand one env var into several list entries.
+# It is appended below as the last item of `conflicts`. That is not a problem:
+# nfpm renders the `conflicts` list by joining entries with ", ", and dpkg's
+# Conflicts field is itself just a comma-separated string, so an entry that is
+# already "a, b, c" flattens into the same field dpkg would produce either way.
+
+name: "nke-kubeadm-distro-${K8S_PATCH}"
+arch: "${ARCH}"
+platform: "linux"
+version: "${DEB_REVISION}"
+# The Debian Version field here is only the packaging revision (e.g. "1"), not
+# a Kubernetes version, so it is not semver: turn off nfpm's semver parsing.
+version_schema: none
+section: admin
+priority: optional
+maintainer: "NKE <nke-dev@exchange.nvidia.com>"
+# No vendor/license fields: nfpm's deb packager does not emit either (there is
+# no rpm Vendor-equivalent control field, and no copyright file is shipped),
+# so setting them here would be dead config.
+# Fixed rather than the build time, so two builds of the same input produce a
+# byte-identical .deb.
+mtime: "2026-01-01T00:00:00Z"
+description: |
+  NKE kubeadm node stack (Kubernetes ${K8S_VER})
+  Bundled Kubernetes stack with pkgs.k8s.io-style paths: /usr/bin/kubeadm,
+  kubectl, kubelet; /usr/sbin/runc; kubelet systemd units under
+  /lib/systemd/system; CNI and runtime components deployed by the bundled
+  installer. Bundle metadata under /usr/lib/nke/${MATRIX_SUBDIR} with checksum
+  sidecars. Postinst runs the Go installer from the packaged bundle tree, with
+  no network fetch, and imports the bundled control-plane container images. Do
+  not install alongside the upstream kubeadm, kubelet or CNI packages.
+
+provides:
+  - nke-kubeadm-distro
+
+depends:
+  - iptables
+  - iproute2
+  - conntrack
+  - socat
+  - ethtool
+
+conflicts:
+  - kubeadm
+  - kubelet
+  - kubectl
+  - kubernetes-cni
+  - cri-tools
+  - runc
+  - helm
+  - containerd
+  - containerd.io
+  - ${PEER_CONFLICTS}
+
+replaces:
+  - kubeadm
+  - kubelet
+  - kubectl
+  - kubernetes-cni
+  - cri-tools
+  - runc
+  - helm
+  - nke-kubeadm-distro
+
+scripts:
+  postinstall: "../bin/.nfpm-scripts/postinst"
+  preremove: "../bin/.nfpm-scripts/prerm"
+  postremove: "../bin/.nfpm-scripts/postrm"
+
+contents:
+  # Bundle metadata, verified by postinst before the installer runs. Read
+  # straight from the kubeadm-bundle output tree -- no staging copy needed.
+  - src: "${SRC}/manifest.json"
+    dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/manifest.json"
+    file_info: { mode: 0644 }
+    expand: true
+  - src: "${SRC}/manifest.json.sha256"
+    dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/manifest.json.sha256"
+    file_info: { mode: 0644 }
+    expand: true
+
+  # The bundled installer, plus the checksum sidecar build-deb.sh computed
+  # into SCRATCH.
+  - src: "${INSTALLER_BIN}"
+    dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/installer"
+    file_info: { mode: 0755 }
+    expand: true
+  - src: "${SCRATCH}/installer.sha256"
+    dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/installer.sha256"
+    file_info: { mode: 0644 }
+    expand: true
+
+  # Every artifact kubeadm-bundle downloaded, verbatim, for postinst's
+  # checksum verification and for offline reuse -- the whole arch directory.
+  # Read from SCRATCH, not SRC: build-deb.sh copies it there and pins every
+  # mtime, because the top-level `mtime` above does not reach files pulled in
+  # through `type: tree`.
+  - src: "${SCRATCH}/${ARCH}"
+    dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/${ARCH}"
+    type: tree
+    expand: true
+
+  # pkgs.k8s.io-style binary paths, read straight from the bundle's arch dir.
+  - src: "${SRC}/${ARCH}/kubeadm"
+    dst: "/usr/bin/kubeadm"
+    file_info: { mode: 0755 }
+    expand: true
+  - src: "${SRC}/${ARCH}/kubectl"
+    dst: "/usr/bin/kubectl"
+    file_info: { mode: 0755 }
+    expand: true
+  - src: "${SRC}/${ARCH}/kubelet"
+    dst: "/usr/bin/kubelet"
+    file_info: { mode: 0755 }
+    expand: true
+  - src: "${SRC}/${ARCH}/runc.${ARCH}"
+    dst: "/usr/sbin/runc"
+    file_info: { mode: 0755 }
+    expand: true
+
+  # ../lib, not ../../lib: from /usr/bin one level up is /usr, and two is /.
+  - src: "../lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/installer"
+    dst: "/usr/bin/nke-k8s-installer"
+    type: symlink
+    expand: true
+
+  # systemd: the vendor kubelet unit plus the kubeadm drop-in, same split as
+  # the upstream kubelet and kubeadm packages.
+  - src: "systemd/kubelet.service"
+    dst: "/lib/systemd/system/kubelet.service"
+    file_info: { mode: 0644 }
+  - src: "systemd/10-kubeadm.conf"
+    dst: "/lib/systemd/system/kubelet.service.d/10-kubeadm.conf"
+    file_info: { mode: 0644 }
+
+  # /etc/default/kubelet carries operator KUBELET_EXTRA_ARGS. As a conffile,
+  # dpkg keeps local edits when the node moves between matrix rows instead of
+  # silently restoring the packaged default.
+  - src: "kubelet.default"
+    dst: "/etc/default/kubelet"
+    type: config
+    file_info: { mode: 0644 }
+
+  # Placeholders the upstream kubelet package also ships, empty on purpose:
+  # kubeadm's DirAvailable preflight check reads one name and calls any entry,
+  # hidden or not, "not empty".
+  - dst: "/etc/kubernetes/manifests"
+    type: dir
+  - dst: "/var/lib/kubelet"
+    type: dir
+
+  - src: "${SCRATCH}/README.Debian"
+    dst: "/usr/share/doc/${PACKAGE_NAME}/README.Debian"
+    file_info: { mode: 0644 }
+    expand: true
+
+deb:
+  # gzip over xz/zstd: every dpkg/apt on the Ubuntu image this ships into can
+  # read it without a newer libarchive, and it decompresses deterministically
+  # -- worth more here than a smaller archive, since the ~1 GB of pre-verified
+  # binaries and container images already dominates the package's size.
+  compression: gzip

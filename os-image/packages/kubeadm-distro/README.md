@@ -83,9 +83,11 @@ make -C os-image/packages/kubeadm-distro clean
 ### Build host requirements
 
 **Linux, amd64 only.** The build runs the downloaded `kubeadm` binary to ask it
-which control-plane images this release needs, which only works on Linux, and
-packages are produced with `dpkg-deb --root-owner-group` rather than `fakeroot`.
-`make bundle SKIP_IMAGES=1` skips the part that needs a Linux kernel and so runs
+which control-plane images this release needs, which only works on Linux.
+Packages are built with [nfpm](https://nfpm.goreleaser.com/), which writes
+`root:root` ownership straight into the archive metadata without needing
+`fakeroot` or `dpkg-deb --root-owner-group` to get there. `make bundle
+SKIP_IMAGES=1` skips the part that needs a Linux kernel and so runs
 anywhere — but the lock is still required, so it only works for a version that
 already has a committed `lock/<version>.json`. `make debs` always needs Linux.
 
@@ -93,10 +95,22 @@ already has a committed `lock/<version>.json`. `make debs` always needs Linux.
 apt install dpkg-dev gnupg
 ```
 
-`make debs` checks for `dpkg-deb`, `dpkg-scanpackages` and `gpg` and fails with
-that message before downloading anything. `gpg` is needed because runc publishes
-its checksums as an OpenPGP clearsigned list, verified against
-`packaging/keyrings/runc-release.gpg`.
+`dpkg-dev` is still needed for `dpkg-scanpackages`, which writes the flat apt
+index; `gpg` is needed because runc publishes its checksums as an OpenPGP
+clearsigned list, verified against `packaging/keyrings/runc-release.gpg`.
+Building the `.deb` itself no longer needs `dpkg-deb` — `make debs` downloads
+the pinned `nfpm` (`NFPM_VERSION` in
+[`../../../make/tool-versions.mk`](../../../make/tool-versions.mk)) into
+`./bin` for Linux or Darwin, amd64 or arm64, verified against a pinned
+SHA-256, or falls back to `nfpm` on `PATH` on any other host/arch. `dpkg-deb`
+is still useful for inspecting the result by hand, and is what this package's
+tests use to do so. `make debs` checks for `dpkg-scanpackages`, `gpg` and
+`nfpm` and fails with a clear message before downloading anything.
+
+`make test` needs nfpm too — `TestBuildDeb` and its siblings build a real
+.deb from a stubbed bundle — so it downloads the same pinned `nfpm` before
+running `go test`, both here and in `make -C os-image test`, which is what the
+merge gate runs.
 
 ## Bumping versions
 
@@ -128,7 +142,7 @@ lock/                     # committed digest pins, one file per Kubernetes versi
 cmd/kubeadm-bundle/       # build host: download, verify, pull images, write manifest.json
 cmd/nke-k8s-installer/    # node: install from the bundle on disk (cross-compiled for linux/amd64)
 internal/bundle/          # manifest and checksum helpers shared by both
-packaging/                # build-deb.sh, control, maintainer scripts, systemd units, runc keyring
+packaging/                # build-deb.sh, nfpm.yaml, maintainer scripts, systemd units, runc keyring
 ```
 
 The installer only reads from `NKE_BUNDLE_ROOT`. It never downloads anything and

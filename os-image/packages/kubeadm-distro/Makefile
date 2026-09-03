@@ -15,12 +15,13 @@ GO ?= go
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 
-# CRANE_VERSION and the CRANE_LINUX_*_SHA256 pins live together in
-# make/tool-versions.mk at the repository root, so a version bump and its
-# digests move as one change. crane (from go-containerregistry) resolves image
-# tags to manifest digests and pulls the pinned digests. Darwin has no pin
-# here, so a developer's own `crane` (for example via `brew install crane`) is
-# used instead.
+# CRANE_VERSION/CRANE_LINUX_*_SHA256 and NFPM_VERSION/NFPM_LINUX_*_SHA256 live
+# together in make/tool-versions.mk at the repository root, so a version bump
+# and its digests move as one change. crane (from go-containerregistry)
+# resolves image tags to manifest digests and pulls the pinned digests; nfpm
+# packages the .deb. Neither is pinned for Darwin: a developer's own `crane`
+# or `nfpm` (for example via `brew install crane`/`brew install nfpm`) is used
+# instead.
 include ../../../make/tool-versions.mk
 
 # The Kubernetes releases bundled by `make debs`: the newest patch of each of the
@@ -75,7 +76,7 @@ debs: check-host check-deb-tools bundle ## Build one .deb per K8S_VERSIONS into 
 	rm -f "$(OUT_DIR)"/nke-kubeadm-distro-*.deb "$(OUT_DIR)/Packages"
 	@set -eu; \
 	for v in $(K8S_VERSIONS_V); do \
-		PEER_VERSIONS="$(K8S_VERSIONS_V)" DEB_REVISION="$(DEB_REVISION)" $(DEB_ENV) \
+		PEER_VERSIONS="$(K8S_VERSIONS_V)" DEB_REVISION="$(DEB_REVISION)" NFPM_BIN="$(BIN_DIR)/nfpm" $(DEB_ENV) \
 			./packaging/build-deb.sh "$$v" "$(DIST_DIR)/$$v" "$(BIN_DIR)/nke-k8s-installer" "$(OUT_DIR)"; \
 	done
 	@cd "$(OUT_DIR)" && dpkg-scanpackages . /dev/null >Packages
@@ -137,6 +138,43 @@ $(BIN_DIR)/crane: ## Fetch the pinned crane (go-containerregistry) release for t
 		install -m 0755 "$$tmp/crane" $@; \
 	fi
 
+# Named alias, so ../../Makefile's `test` can ask for the binary by a phony
+# name (`$(MAKE) -C packages/kubeadm-distro nfpm`) rather than the absolute
+# $(BIN_DIR)/nfpm target path, matching go-licenses's alias in
+# controller/Makefile.
+.PHONY: nfpm
+nfpm: $(BIN_DIR)/nfpm ## Fetch the pinned nfpm (goreleaser) release for this host.
+
+$(BIN_DIR)/nfpm:
+	@mkdir -p $(@D)
+	@set -eu; \
+	if [ "$(UNAME_S)" = "Darwin" ]; then \
+		if command -v nfpm >/dev/null 2>&1; then \
+			install -m 0755 "$$(command -v nfpm)" $@; \
+		else \
+			echo "kubeadm-distro: nfpm is not pinned for Darwin; install it (for example: brew install nfpm) so it is on PATH." >&2; \
+			exit 1; \
+		fi; \
+	else \
+		case "$(UNAME_M)" in \
+			x86_64|amd64) arch=x86_64; sha=$(NFPM_LINUX_AMD64_SHA256) ;; \
+			aarch64|arm64) arch=arm64; sha=$(NFPM_LINUX_ARM64_SHA256) ;; \
+			*) echo "kubeadm-distro: no pinned nfpm release for $(UNAME_S)/$(UNAME_M)" >&2; exit 1 ;; \
+		esac; \
+		tmp=$$(mktemp -d); \
+		trap 'rm -rf "$$tmp"' EXIT; \
+		file="nfpm_$(NFPM_VERSION)_Linux_$${arch}.tar.gz"; \
+		url="https://github.com/goreleaser/nfpm/releases/download/v$(NFPM_VERSION)/$${file}"; \
+		echo "downloading $${url}"; \
+		curl --fail --silent --show-error --location \
+			--connect-timeout 10 --max-time 120 \
+			--retry 3 --retry-delay 5 --retry-connrefused \
+			-o "$$tmp/$${file}" "$${url}"; \
+		echo "$${sha}  $$tmp/$${file}" | sha256sum -c -; \
+		tar -xzf "$$tmp/$${file}" -C "$$tmp" nfpm; \
+		install -m 0755 "$$tmp/nfpm" $@; \
+	fi
+
 ##@ Checks
 
 .PHONY: check-host
@@ -162,14 +200,13 @@ check-host: ## Fail early when this host cannot run the bundle step.
 	fi
 
 .PHONY: check-deb-tools
-check-deb-tools: ## Fail early when the Debian packaging tools are missing.
+check-deb-tools: $(BIN_DIR)/nfpm ## Fail early when the Debian packaging tools are missing.
 	@set -eu; \
 	if [ "$$(uname -s)" != "Linux" ]; then \
 		echo "kubeadm-distro: packages are built on a Linux host only; this is $$(uname -s)." >&2; \
 		exit 1; \
 	fi; \
 	missing=""; \
-	command -v dpkg-deb >/dev/null 2>&1 || missing="$$missing dpkg-deb(dpkg-dev)"; \
 	command -v dpkg-scanpackages >/dev/null 2>&1 || missing="$$missing dpkg-scanpackages(dpkg-dev)"; \
 	command -v gpg >/dev/null 2>&1 || missing="$$missing gpg(gnupg)"; \
 	if [ -n "$$missing" ]; then \
@@ -186,8 +223,8 @@ check-deb-tools: ## Fail early when the Debian packaging tools are missing.
 	esac
 
 .PHONY: test
-test: ## Run this package's Go tests.
-	$(GO) test ./...
+test: $(BIN_DIR)/nfpm ## Run this package's Go tests.
+	NFPM_BIN="$(BIN_DIR)/nfpm" $(GO) test ./...
 
 .PHONY: clean
 clean: ## Remove the built binaries and the downloaded artifact tree.
