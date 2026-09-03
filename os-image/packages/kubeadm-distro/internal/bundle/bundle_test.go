@@ -38,23 +38,6 @@ func TestValidateArtifactBasename(t *testing.T) {
 	}
 }
 
-func TestValidateComponentName(t *testing.T) {
-	require.NoError(t, ValidateComponentName("kubeadm"))
-	require.Error(t, ValidateComponentName("curl"))
-}
-
-func TestJoinUnderRoot(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "bundle")
-	require.NoError(t, os.MkdirAll(root, 0o755))
-
-	got, err := JoinUnderRoot(root, "amd64", "kubeadm")
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(root, "amd64", "kubeadm"), got)
-
-	_, err = JoinUnderRoot(root, "..", "etc", "passwd")
-	require.Error(t, err)
-}
-
 func TestParseSHA256Sidecar(t *testing.T) {
 	const digest = "6a2346006132f6e1ed0b5248e518098cf5abbce25bf11b8926fb1073091b83f4"
 	tests := []struct {
@@ -100,18 +83,6 @@ func TestVerifyFileAgainstSidecar(t *testing.T) {
 	require.NoError(t, os.WriteFile(sidecar, []byte("0"+digest[1:]+"\n"), 0o644))
 	_, err = VerifyFileAgainstSidecar(artifact, sidecar)
 	require.Error(t, err)
-}
-
-func TestVerifyManifestDigest(t *testing.T) {
-	dir := t.TempDir()
-	manifest := filepath.Join(dir, "manifest.json")
-	require.NoError(t, os.WriteFile(manifest, []byte(`{"version":"v1.36.3"}`), 0o644))
-
-	require.ErrorContains(t, VerifyManifestDigest(manifest), "missing manifest digest sidecar")
-
-	_, err := WriteSHA256Sidecar(manifest)
-	require.NoError(t, err)
-	require.NoError(t, VerifyManifestDigest(manifest))
 }
 
 func TestExtractPGPSignedClearText(t *testing.T) {

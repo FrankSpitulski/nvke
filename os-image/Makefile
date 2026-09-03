@@ -126,7 +126,7 @@ notices: ## Regenerate THIRD_PARTY_NOTICES.md for this module's binaries.
 	@$(MAKE) --no-print-directory -C ../controller go-licenses
 	@MODULE_ROOT="$(CURDIR)" \
 		OUTPUT="$(CURDIR)/THIRD_PARTY_NOTICES.md" \
-		PACKAGES="./cmd/nke-os-image-check ./packages/kubeadm-distro/cmd/nke-k8s-installer ./packages/kubeadm-distro/cmd/kubeadm-bundle" \
+		PACKAGES="./cmd/nke-os-image-check ./packages/kubeadm-distro/cmd/kubeadm-bundle" \
 		GO_LICENSES="$(CURDIR)/../controller/bin/go-licenses" \
 		bash ../controller/hack/generate-notices
 

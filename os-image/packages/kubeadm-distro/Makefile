@@ -48,21 +48,6 @@ BIN_DIR ?= $(CURDIR)/bin
 # build refuses to run without them.
 LOCK_DIR ?= $(CURDIR)/lock
 
-# Development escape hatch: skip listing and pulling the control-plane images.
-SKIP_IMAGES ?=
-ifeq ($(SKIP_IMAGES),1)
-BUNDLE_FLAGS := -skip-images
-# Only a deliberately image-less bundle may be packaged; build-deb.sh refuses
-# otherwise, and the resulting .deb refuses to configure a node.
-DEB_ENV := ALLOW_NO_IMAGES=1
-# No images means no crane pull, so don't require fetching it.
-CRANE_DEP :=
-else
-BUNDLE_FLAGS :=
-DEB_ENV :=
-CRANE_DEP := $(BIN_DIR)/crane
-endif
-
 ##@ Build
 
 # -trimpath and -s -w keep build-host paths and symbol tables out of the binaries
@@ -76,8 +61,8 @@ debs: check-host check-deb-tools bundle ## Build one .deb per K8S_VERSIONS into 
 	rm -f "$(OUT_DIR)"/nke-kubeadm-distro-*.deb "$(OUT_DIR)/Packages"
 	@set -eu; \
 	for v in $(K8S_VERSIONS_V); do \
-		PEER_VERSIONS="$(K8S_VERSIONS_V)" DEB_REVISION="$(DEB_REVISION)" NFPM_BIN="$(BIN_DIR)/nfpm" $(DEB_ENV) \
-			./packaging/build-deb.sh "$$v" "$(DIST_DIR)/$$v" "$(BIN_DIR)/nke-k8s-installer" "$(OUT_DIR)"; \
+		PEER_VERSIONS="$(K8S_VERSIONS_V)" DEB_REVISION="$(DEB_REVISION)" NFPM_BIN="$(BIN_DIR)/nfpm" \
+			./packaging/build-deb.sh "$$v" "$(DIST_DIR)/$$v" "$(OUT_DIR)"; \
 	done
 	@cd "$(OUT_DIR)" && dpkg-scanpackages . /dev/null >Packages
 	@echo "wrote $(OUT_DIR)/Packages"
@@ -98,9 +83,9 @@ contract-check: check-deb-tools $(BIN_DIR)/debmanifest ## Compare debs in OUT_DI
 RUNC_KEYRING := $(CURDIR)/packaging/keyrings/runc-release.gpg
 
 .PHONY: bundle
-bundle: check-host $(BIN_DIR)/kubeadm-bundle $(BIN_DIR)/nke-k8s-installer $(CRANE_DEP) ## Download and verify the upstream artifacts into DIST_DIR.
+bundle: check-host $(BIN_DIR)/kubeadm-bundle $(BIN_DIR)/crane ## Download, verify and stage the upstream artifacts into DIST_DIR.
 	$(BIN_DIR)/kubeadm-bundle -versions "$(K8S_VERSIONS_V)" -dist "$(DIST_DIR)" -lock "$(LOCK_DIR)" \
-		-crane "$(BIN_DIR)/crane" -runc-keyring "$(RUNC_KEYRING)" $(BUNDLE_FLAGS)
+		-crane "$(BIN_DIR)/crane" -runc-keyring "$(RUNC_KEYRING)"
 
 .PHONY: lock
 lock: check-host $(BIN_DIR)/kubeadm-bundle $(BIN_DIR)/crane ## Regenerate lock/<version>.json from upstream. Review the diff, then commit it.
@@ -115,11 +100,6 @@ lock: check-host $(BIN_DIR)/kubeadm-bundle $(BIN_DIR)/crane ## Regenerate lock/<
 $(BIN_DIR)/kubeadm-bundle: $(shell find . -name '*.go' -not -name '*_test.go')
 	@mkdir -p $(@D)
 	$(GO) build $(GO_BUILD_FLAGS) -o $@ ./cmd/kubeadm-bundle
-
-# The installer runs on the node, not on the build host.
-$(BIN_DIR)/nke-k8s-installer: $(shell find . -name '*.go' -not -name '*_test.go')
-	@mkdir -p $(@D)
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build $(GO_BUILD_FLAGS) -o $@ ./cmd/nke-k8s-installer
 
 # debmanifest runs on the build host, over the debs contract-check produces there.
 $(BIN_DIR)/debmanifest: $(shell find . -name '*.go' -not -name '*_test.go')
@@ -197,24 +177,23 @@ $(BIN_DIR)/nfpm:
 
 .PHONY: check-host
 check-host: ## Fail early when this host cannot run the bundle step.
-	@# The uname check exists because the bundler runs the downloaded linux
-	@# kubeadm binary to list the control-plane images. With SKIP_IMAGES=1 it
-	@# never does, so the download half works anywhere.
-	@if [ "$(SKIP_IMAGES)" != "1" ] && [ "$$(uname -s)" != "Linux" ]; then \
+	@# The bundler runs the downloaded linux kubeadm binary to list the
+	@# control-plane images, and stages the downloaded containerd/CNI/crictl/helm
+	@# tarballs into an FHS tree -- both need a Linux host. There is no
+	@# development shortcut that skips this: a .deb without images or without
+	@# the staged runtime tree is not a product this build produces.
+	@if [ "$$(uname -s)" != "Linux" ]; then \
 		echo "kubeadm-distro: the bundle step runs the downloaded linux kubeadm binary, so it needs a Linux host; this is $$(uname -s)." >&2; \
-		echo "  Pass SKIP_IMAGES=1 to build a bundle without the container images (development only)." >&2; \
 		exit 1; \
 	fi
 	@# crane itself is fetched by $(BIN_DIR)/crane; these are what fetch it with.
-	@if [ "$(SKIP_IMAGES)" != "1" ] && [ "$(UNAME_S)" = "Linux" ]; then \
-		missing=""; \
-		command -v curl >/dev/null 2>&1 || missing="$$missing curl"; \
-		command -v sha256sum >/dev/null 2>&1 || missing="$$missing sha256sum"; \
-		command -v tar >/dev/null 2>&1 || missing="$$missing tar"; \
-		if [ -n "$$missing" ]; then \
-			echo "kubeadm-distro: missing tools needed to fetch crane:$$missing" >&2; \
-			exit 1; \
-		fi; \
+	@missing=""; \
+	command -v curl >/dev/null 2>&1 || missing="$$missing curl"; \
+	command -v sha256sum >/dev/null 2>&1 || missing="$$missing sha256sum"; \
+	command -v tar >/dev/null 2>&1 || missing="$$missing tar"; \
+	if [ -n "$$missing" ]; then \
+		echo "kubeadm-distro: missing tools needed to fetch crane:$$missing" >&2; \
+		exit 1; \
 	fi
 
 .PHONY: check-deb-tools

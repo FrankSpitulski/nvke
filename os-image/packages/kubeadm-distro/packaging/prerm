@@ -1,7 +1,30 @@
 #!/bin/sh
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# dpkg runs postrm's "remove" action *after* it has already deleted the
+# package's files, including the unit files under /lib/systemd/system/.
+# `systemctl disable` run at that point has nothing left to read and does
+# not reliably remove the multi-user.target.wants symlinks it created. This
+# runs the disable step here instead, while the units are still on disk.
 set -e
-# Intentionally minimal: a running cluster keeps working across a package upgrade,
-# so nothing is stopped or removed here.
+
+case "$1" in
+remove)
+  # disable, never stop: on a Conflicts-driven row switch (installing a peer
+  # nke-kubeadm-distro-<other-version> package), dpkg runs this package's
+  # prerm remove *before* the new row's postinst runs, and that postinst
+  # enables kubelet without starting it (kubeadm's preflight wants port 10250
+  # free until `kubeadm init`/`kubeadm join` runs kubelet-start). Stopping
+  # containerd or kubelet here would tear down a running node between those
+  # two steps for no reason the new postinst asked for. On a plain
+  # `apt remove` with no replacement package, the same reasoning still holds:
+  # the processes keep running until reboot (or an operator stops them) by
+  # design -- removing the package is not a request to tear down a live node.
+  systemctl disable containerd kubelet 2>/dev/null || true
+  ;;
+upgrade | deconfigure | failed-upgrade) ;;
+*) ;;
+esac
+
 exit 0

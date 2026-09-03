@@ -3,10 +3,11 @@
 #
 # nfpm package spec for nke-kubeadm-distro-<x.y.z>. build-deb.sh exports the
 # environment this file expands: PACKAGE_NAME, DEB_REVISION, ARCH, K8S_VER,
-# MATRIX_SUBDIR, PEER_CONFLICTS, SRC (the kubeadm-bundle output tree),
-# INSTALLER_BIN (the nke-k8s-installer binary) and SCRATCH (a directory for
-# the two files build-deb.sh has to generate: the installer checksum sidecar
-# and README.Debian).
+# MATRIX_SUBDIR, PEER_CONFLICTS, SRC (the kubeadm-bundle output tree, holding
+# both the bare arch/ directory and the FHS-staged stage/ tree kubeadm-bundle
+# writes with its `stage` step) and SCRATCH (a directory build-deb.sh writes
+# README.Debian into, plus an mtime-pinned copy of stage/opt/cni/bin -- the
+# one entry below that needs it, see the comment on that entry).
 #
 # nfpm expands ${VAR} in ordinary string fields on its own; content entries
 # additionally need `expand: true` before their own src/dst are expanded.
@@ -38,17 +39,26 @@ maintainer: "NKE <nke-dev@exchange.nvidia.com>"
 # no rpm Vendor-equivalent control field, and no copyright file is shipped),
 # so setting them here would be dead config.
 # Fixed rather than the build time, so two builds of the same input produce a
-# byte-identical .deb.
+# byte-identical .deb. This applies to every content entry below except the
+# one `type: tree` entry (/opt/cni/bin), which is why build-deb.sh copies and
+# touches that one tree ahead of time instead of relying on this field.
 mtime: "2026-01-01T00:00:00Z"
 description: |
   NKE kubeadm node stack (Kubernetes ${K8S_VER})
   Bundled Kubernetes stack with pkgs.k8s.io-style paths: /usr/bin/kubeadm,
-  kubectl, kubelet; /usr/sbin/runc; kubelet systemd units under
-  /lib/systemd/system; CNI and runtime components deployed by the bundled
-  installer. Bundle metadata under /usr/lib/nke/${MATRIX_SUBDIR} with checksum
-  sidecars. Postinst runs the Go installer from the packaged bundle tree, with
-  no network fetch, and imports the bundled control-plane container images. Do
-  not install alongside the upstream kubeadm, kubelet or CNI packages.
+  kubectl, kubelet, crictl, helm; /usr/sbin/runc; containerd, containerd-shim-
+  runc-v2 and ctr under /usr/local/bin; CNI plugins under /opt/cni/bin;
+  kubelet and containerd systemd units under /lib/systemd/system. Every
+  binary is the upstream release artifact, pinned by sha256, and every file
+  dpkg installs is owned by this package -- nothing is unpacked or generated
+  by postinst. /etc/containerd/config.toml and /etc/crictl.yaml are
+  package-managed and rewritten on every install (the sandbox image must
+  track the bundled images on every matrix-row switch); local containerd
+  overrides go in /etc/containerd/conf.d/ instead. The control-plane
+  container images for this release ship under
+  /usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/, and postinst imports them into
+  containerd, so a node can come up with no registry access at all. Do not
+  install alongside the upstream kubeadm, kubelet, containerd or CNI packages.
 
 provides:
   - nke-kubeadm-distro
@@ -88,8 +98,10 @@ scripts:
   postremove: "../bin/.nfpm-scripts/postrm"
 
 contents:
-  # Bundle metadata, verified by postinst before the installer runs. Read
-  # straight from the kubeadm-bundle output tree -- no staging copy needed.
+  # Bundle metadata plus the pre-verified control-plane image tarball. This is
+  # the only content this package still ships under k8s-matrix -- every
+  # upstream binary and tarball that used to be duplicated here now installs
+  # straight to its FHS path instead.
   - src: "${SRC}/manifest.json"
     dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/manifest.json"
     file_info: { mode: 0644 }
@@ -98,26 +110,13 @@ contents:
     dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/manifest.json.sha256"
     file_info: { mode: 0644 }
     expand: true
-
-  # The bundled installer, plus the checksum sidecar build-deb.sh computed
-  # into SCRATCH.
-  - src: "${INSTALLER_BIN}"
-    dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/installer"
-    file_info: { mode: 0755 }
-    expand: true
-  - src: "${SCRATCH}/installer.sha256"
-    dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/installer.sha256"
+  - src: "${SRC}/${ARCH}/k8s-base-container-images_${K8S_PATCH}_linux_${ARCH}.tgz"
+    dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/${ARCH}/k8s-base-container-images_${K8S_PATCH}_linux_${ARCH}.tgz"
     file_info: { mode: 0644 }
     expand: true
-
-  # Every artifact kubeadm-bundle downloaded, verbatim, for postinst's
-  # checksum verification and for offline reuse -- the whole arch directory.
-  # Read from SCRATCH, not SRC: build-deb.sh copies it there and pins every
-  # mtime, because the top-level `mtime` above does not reach files pulled in
-  # through `type: tree`.
-  - src: "${SCRATCH}/${ARCH}"
-    dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/${ARCH}"
-    type: tree
+  - src: "${SRC}/${ARCH}/k8s-base-container-images_${K8S_PATCH}_linux_${ARCH}.tgz.sha256"
+    dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/${ARCH}/k8s-base-container-images_${K8S_PATCH}_linux_${ARCH}.tgz.sha256"
+    file_info: { mode: 0644 }
     expand: true
 
   # pkgs.k8s.io-style binary paths, read straight from the bundle's arch dir.
@@ -138,19 +137,59 @@ contents:
     file_info: { mode: 0755 }
     expand: true
 
-  # ../lib, not ../../lib: from /usr/bin one level up is /usr, and two is /.
-  - src: "../lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/installer"
-    dst: "/usr/bin/nke-k8s-installer"
-    type: symlink
+  # The runtime components kubeadm-bundle's `stage` step extracted from the
+  # containerd, crictl and helm tarballs. Individual `src:` entries (not
+  # `type: tree`) pick up the top-level `mtime` above directly, so no
+  # SCRATCH copy is needed for these.
+  - src: "${SRC}/stage/usr/local/bin/containerd"
+    dst: "/usr/local/bin/containerd"
+    file_info: { mode: 0755 }
+    expand: true
+  - src: "${SRC}/stage/usr/local/bin/containerd-shim-runc-v2"
+    dst: "/usr/local/bin/containerd-shim-runc-v2"
+    file_info: { mode: 0755 }
+    expand: true
+  - src: "${SRC}/stage/usr/local/bin/ctr"
+    dst: "/usr/local/bin/ctr"
+    file_info: { mode: 0755 }
+    expand: true
+  - src: "${SRC}/stage/usr/bin/crictl"
+    dst: "/usr/bin/crictl"
+    file_info: { mode: 0755 }
+    expand: true
+  - src: "${SRC}/stage/usr/bin/helm"
+    dst: "/usr/bin/helm"
+    file_info: { mode: 0755 }
+    expand: true
+
+  # The CNI plugins are a directory of many binaries, so this is the one
+  # `type: tree` entry -- the top-level `mtime` above does not reach files
+  # pulled in that way, so build-deb.sh copies and touches this one directory
+  # ahead of time under SCRATCH before nfpm reads it.
+  - src: "${SCRATCH}/stage/opt/cni/bin"
+    dst: "/opt/cni/bin"
+    type: tree
+    expand: true
+
+  - src: "${SRC}/stage/etc/containerd/config.toml"
+    dst: "/etc/containerd/config.toml"
+    file_info: { mode: 0644 }
+    expand: true
+  - src: "${SRC}/stage/etc/crictl.yaml"
+    dst: "/etc/crictl.yaml"
+    file_info: { mode: 0644 }
     expand: true
 
   # systemd: the vendor kubelet unit plus the kubeadm drop-in, same split as
-  # the upstream kubelet and kubeadm packages.
+  # the upstream kubelet and kubeadm packages, plus containerd's own unit.
   - src: "systemd/kubelet.service"
     dst: "/lib/systemd/system/kubelet.service"
     file_info: { mode: 0644 }
   - src: "systemd/10-kubeadm.conf"
     dst: "/lib/systemd/system/kubelet.service.d/10-kubeadm.conf"
+    file_info: { mode: 0644 }
+  - src: "systemd/containerd.service"
+    dst: "/lib/systemd/system/containerd.service"
     file_info: { mode: 0644 }
 
   # /etc/default/kubelet carries operator KUBELET_EXTRA_ARGS. As a conffile,
@@ -167,6 +206,19 @@ contents:
   - dst: "/etc/kubernetes/manifests"
     type: dir
   - dst: "/var/lib/kubelet"
+    type: dir
+
+  # containerd logs CNI errors on every CRI call until this exists; conf_dir in
+  # the rendered config.toml names it. Nothing populates it here -- CNI config
+  # is the OS image's job, same as the rest of the kubeadm preflight checklist.
+  - dst: "/etc/cni/net.d"
+    type: dir
+
+  # The supported override path for config.toml, which is package-managed and
+  # rewritten on every install (see the `imports` comment in stage.go's
+  # renderContainerdConfig). Empty here; an operator drops a *.toml fragment
+  # in at runtime.
+  - dst: "/etc/containerd/conf.d"
     type: dir
 
   - src: "${SCRATCH}/README.Debian"

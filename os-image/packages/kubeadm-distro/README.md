@@ -29,18 +29,44 @@ is only the packaging revision (`DEB_REVISION`, default `1`). Every package
 `Provides: nke-kubeadm-distro` and `Conflicts` with its peers, so exactly one
 matrix row can be installed at a time.
 
-Inside a package:
+dpkg owns every file in the package -- nothing is unpacked, generated or
+downloaded by a maintainer script. Inside a package:
 
 | Path | Contents |
 |---|---|
-| `/usr/bin/{kubeadm,kubectl,kubelet}`, `/usr/sbin/runc` | pkgs.k8s.io-style binary paths |
-| `/lib/systemd/system/kubelet.service{,.d/10-kubeadm.conf}` | vendor unit plus the kubeadm drop-in |
-| `/usr/lib/nke/k8s-matrix/<version>/` | `manifest.json`, the installer, and `amd64/` with every artifact and its `.sha256` sidecar |
-| `/usr/bin/nke-k8s-installer` | symlink to the bundled installer |
+| `/usr/bin/{kubeadm,kubectl,kubelet,crictl,helm}`, `/usr/sbin/runc` | pkgs.k8s.io-style binary paths |
+| `/usr/local/bin/{containerd,containerd-shim-runc-v2,ctr}` | containerd, staged from its release tarball |
+| `/opt/cni/bin/` | the CNI plugins, staged from their release tarball |
+| `/etc/containerd/config.toml` | containerd 2.x config, rendered at build time with the sandbox image pinned to this release's pause image |
+| `/etc/containerd/conf.d/` | empty; the supported override path (see below) |
+| `/etc/cni/net.d/` | empty; CNI config is the OS image's job, not this package's |
+| `/etc/crictl.yaml` | crictl pointed at the containerd CRI socket |
+| `/etc/default/kubelet` | conffile carrying operator `KUBELET_EXTRA_ARGS` |
+| `/lib/systemd/system/kubelet.service{,.d/10-kubeadm.conf}`, `containerd.service` | vendor units, plus the kubeadm drop-in |
+| `/usr/lib/nke/k8s-matrix/<version>/` | `manifest.json` and `manifest.json.sha256`, and `amd64/` holding only the control-plane image tarball and its `.sha256` sidecar |
 
-`postinst` verifies the manifest and the installer against their checksums, runs
-the installer with `NKE_BUNDLE_ROOT` pointing at the bundle, then imports the
-bundled images with `ctr -n k8s.io images import`.
+`postinst` only does what a file list cannot express: OS-level state (swap,
+sysctls, kernel modules), service enablement, and importing the bundled
+control-plane images with `ctr -n k8s.io images import`. Removal is split
+across two maintainer scripts because dpkg runs `postrm remove` *after* it has
+already deleted the package's files, including the unit files under
+`/lib/systemd/system/` -- `systemctl disable` at that point has nothing left
+to read and does not reliably remove the `multi-user.target.wants` symlinks.
+`prerm` runs the disable step first, while the units still exist; `postrm`
+then does `daemon-reload` and removes the sysctl/modules-load drop-ins.
+Neither script stops the services, on a real removal or otherwise -- see the
+switch-window comment in `packaging/prerm`; it leaves `/etc/fstab` and
+containerd's image store alone.
+
+`/etc/containerd/config.toml` and `/etc/crictl.yaml` are package-managed, not
+dpkg conffiles: `config.toml`'s sandbox image has to track the bundled images
+on every matrix-row switch, which a preserved local edit would defeat, so
+both are rewritten on every install. containerd's config loader supports an
+`imports` list of additional files merged over the main one
+(https://github.com/containerd/containerd/blob/main/docs/man/containerd-config.toml.5.md),
+and the rendered `config.toml` sets `imports =
+['/etc/containerd/conf.d/*.toml']` -- an operator drops a local override
+fragment there instead of editing the package-managed file.
 
 The bundled images are the ones kubeadm asks for by default, which means
 `registry.k8s.io`. A controller that sets `KUBEADM_IMAGE_REPOSITORY` to a mirror
@@ -110,18 +136,18 @@ make -C os-image/packages/kubeadm-distro clean
 | `DEB_REVISION` | `1` | Debian packaging revision |
 | `LOCK_DIR` | `./lock` | The committed lock files |
 | `DIST_DIR` | `./dist` | Artifact cache. A cached upstream artifact is re-checked against the publisher's checksum document every run, so this still needs the network; the `.sha256` sidecar is an output, not the thing that is trusted. Only the container image tarball is reused on the strength of its own sidecar |
-| `SKIP_IMAGES` | unset | `1` skips the container image pull. Development only — the package then has no images to import |
 
 ### Build host requirements
 
-**Linux, amd64 only.** The build runs the downloaded `kubeadm` binary to ask it
-which control-plane images this release needs, which only works on Linux.
-Packages are built with [nfpm](https://nfpm.goreleaser.com/), which writes
-`root:root` ownership straight into the archive metadata without needing
-`fakeroot` or `dpkg-deb --root-owner-group` to get there. `make bundle
-SKIP_IMAGES=1` skips the part that needs a Linux kernel and so runs
-anywhere — but the lock is still required, so it only works for a version that
-already has a committed `lock/<version>.json`. `make debs` always needs Linux.
+**Linux, amd64 only, always.** The build runs the downloaded `kubeadm` binary
+to ask it which control-plane images this release needs, and stages the
+downloaded containerd/CNI/crictl/helm tarballs into the FHS tree the `.deb`
+installs, both of which only work on Linux. There is no development shortcut
+that skips this: a `.deb` without the images or without the staged runtime
+tree is not a product this build produces. Packages are built with
+[nfpm](https://nfpm.goreleaser.com/), which writes `root:root` ownership
+straight into the archive metadata without needing `fakeroot` or `dpkg-deb
+--root-owner-group` to get there.
 
 ```bash
 apt install dpkg-dev gnupg
@@ -171,18 +197,17 @@ are not optional.
 
 ```text
 lock/                     # committed digest pins, one file per Kubernetes version
-cmd/kubeadm-bundle/       # build host: download, verify, pull images, write manifest.json
-cmd/nke-k8s-installer/    # node: install from the bundle on disk (cross-compiled for linux/amd64)
+cmd/kubeadm-bundle/       # build host: download, verify, pull images, stage the FHS tree, write manifest.json
 cmd/debmanifest/          # build host: print or golden-check a .deb's package contract
-internal/bundle/          # manifest and checksum helpers shared by both
+internal/bundle/          # manifest and checksum helpers
 internal/debmanifest/     # manifest generation, parsing and comparison behind cmd/debmanifest
 packaging/                # build-deb.sh, nfpm.yaml, maintainer scripts, systemd units, runc keyring
 testdata/golden/          # production-package golden manifests and the reviewed deviations allowlist
 ```
 
-The installer only reads from `NKE_BUNDLE_ROOT`. It never downloads anything and
-never calls a package manager: `socat`, `conntrack`, `ipset`, `ebtables` and the
-rest of the kubeadm preflight checklist belong to the OS image.
+postinst never downloads anything and never calls a package manager: `socat`,
+`conntrack`, `ipset`, `ebtables` and the rest of the kubeadm preflight
+checklist belong to the OS image.
 
 ## Provenance
 

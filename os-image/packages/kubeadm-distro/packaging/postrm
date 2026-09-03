@@ -1,7 +1,28 @@
 #!/bin/sh
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# postinst wrote node-level state a file list cannot express: the sysctl and
+# modules-load drop-ins, and service enablement. This undoes only that, and
+# only on a real removal. The service-disable half of that undo runs in
+# prerm, not here: dpkg runs postrm's "remove" action after it has already
+# deleted the package's files (including the unit files under
+# /lib/systemd/system/), so `systemctl disable` here would have nothing left
+# to read and would not reliably remove the multi-user.target.wants symlinks.
+# fstab's swap comment and containerd's image and content store under
+# /var/lib/containerd are deliberately left alone: reverting the fstab edit
+# would turn swap back on under a kubelet that may still be running (an
+# upgrade to a peer matrix row does not stop it), and the image store is not
+# something this package's file list ever claimed to own.
 set -e
-# This package owns no conffiles of its own; tearing a node down is an operator
-# decision, not something a package removal should do.
+
+case "$1" in
+remove)
+  systemctl daemon-reload 2>/dev/null || true
+  rm -f /etc/sysctl.d/k8s.conf /etc/modules-load.d/k8s.conf
+  ;;
+upgrade | failed-upgrade | abort-install | abort-upgrade | disappear | purge) ;;
+*) ;;
+esac
+
 exit 0

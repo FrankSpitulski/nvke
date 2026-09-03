@@ -40,7 +40,8 @@ var targetArch = "amd64"
 // until the lock file is split per architecture; see run().
 var supportedArches = map[string]struct{}{"amd64": {}}
 
-// manifestDoc is the per-version manifest.json the node-side installer reads.
+// manifestDoc is the per-version manifest.json packaged under
+// /usr/lib/nke/k8s-matrix/<version>/, describing what the .deb was built from.
 type manifestDoc struct {
 	Version           string                                  `json:"version"`
 	HelmVersion       string                                  `json:"helm_version"`
@@ -65,7 +66,6 @@ func main() {
 	keyringFlag := flag.String("runc-keyring", "", "Path to the runc release keyring (default: packaging/keyrings/runc-release.gpg next to this package).")
 	lockDirFlag := flag.String("lock", "lock", "Directory holding the committed lock files, one <version>.json per Kubernetes version.")
 	writeLockFlag := flag.Bool("write-lock", false, "Regenerate the lock files from upstream instead of building a bundle. Review the diff and commit it.")
-	skipImages := flag.Bool("skip-images", false, "Skip the kubeadm image list and container image tarball. Development only: the .deb then has no images to import.")
 	workers := flag.Int("download-workers", 8, "Maximum concurrent downloads per Kubernetes version.")
 	archFlag := flag.String("arch", "amd64", "Target architecture for the bundle. Only amd64 is supported today; the lock file is not yet per-architecture.")
 	craneFlag := flag.String("crane", "crane", "Path to the crane binary (from go-containerregistry), used to resolve and pull container images.")
@@ -74,15 +74,14 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	opts := runOptions{
-		versions:   *versionsFlag,
-		dist:       *distFlag,
-		lockDir:    *lockDirFlag,
-		keyring:    *keyringFlag,
-		writeLock:  *writeLockFlag,
-		skipImages: *skipImages,
-		workers:    *workers,
-		arch:       *archFlag,
-		crane:      *craneFlag,
+		versions:  *versionsFlag,
+		dist:      *distFlag,
+		lockDir:   *lockDirFlag,
+		keyring:   *keyringFlag,
+		writeLock: *writeLockFlag,
+		workers:   *workers,
+		arch:      *archFlag,
+		crane:     *craneFlag,
 	}
 	if err := run(opts); err != nil {
 		slog.Error("kubeadm-bundle failed", "err", err)
@@ -92,15 +91,14 @@ func main() {
 
 // runOptions is the command line, resolved.
 type runOptions struct {
-	versions   string
-	dist       string
-	lockDir    string
-	keyring    string
-	writeLock  bool
-	skipImages bool
-	workers    int
-	arch       string
-	crane      string
+	versions  string
+	dist      string
+	lockDir   string
+	keyring   string
+	writeLock bool
+	workers   int
+	arch      string
+	crane     string
 }
 
 func run(opts runOptions) error {
@@ -111,26 +109,20 @@ func run(opts runOptions) error {
 	if opts.workers < 1 {
 		return fmt.Errorf("-download-workers must be at least 1, got %d", opts.workers)
 	}
-	if opts.writeLock && opts.skipImages {
-		return fmt.Errorf("-write-lock and -skip-images are contradictory: a lock records the images")
-	}
 	if _, ok := supportedArches[opts.arch]; !ok {
 		return fmt.Errorf("-arch %q: the lock and the .deb are amd64-only for now; another arch needs a per-arch lock", opts.arch)
 	}
 	// Read by every goroutine fetchAllArtifacts starts below, so it must be set
 	// before any of them can run.
 	targetArch = opts.arch
-	needsKubeadm := !opts.skipImages
-	if needsKubeadm && runtime.GOOS != "linux" {
+	if runtime.GOOS != "linux" {
 		return fmt.Errorf("the container images are listed by the downloaded linux kubeadm binary, "+
-			"so this build host (%s) cannot produce a complete bundle; run on Linux or pass -skip-images", runtime.GOOS)
+			"so this build host (%s) cannot produce a complete bundle; run on Linux", runtime.GOOS)
 	}
-	if needsKubeadm {
-		// Fail before a ~1 GiB run of downloads rather than partway through the
-		// first image pull.
-		if _, err := exec.LookPath(opts.crane); err != nil {
-			return fmt.Errorf("crane not found at %q: %w", opts.crane, err)
-		}
+	// Fail before a ~1 GiB run of downloads rather than partway through the
+	// first image pull.
+	if _, err := exec.LookPath(opts.crane); err != nil {
+		return fmt.Errorf("crane not found at %q: %w", opts.crane, err)
 	}
 	keyring := opts.keyring
 	if keyring == "" {
@@ -163,7 +155,6 @@ func run(opts runOptions) error {
 			lockDir:    lockDir,
 			k8sVersion: v,
 			keyring:    keyring,
-			skipImages: opts.skipImages,
 			workers:    opts.workers,
 			crane:      opts.crane,
 		}); err != nil {
@@ -179,7 +170,6 @@ type versionBuild struct {
 	lockDir    string
 	k8sVersion string
 	keyring    string
-	skipImages bool
 	workers    int
 	crane      string
 }
@@ -197,10 +187,11 @@ func defaultRuncKeyring() (string, error) {
 }
 
 // buildVersion downloads, verifies and records every artifact for one Kubernetes
-// release, then writes manifest.json and its digest sidecar. Everything it
-// fetches is checked against the committed lock as well as against the
-// publisher's checksum: the lock is what a human reviewed, the checksum only
-// says the CDN agreed with itself.
+// release, stages the runtime tree packaging/nfpm.yaml pulls into the .deb, and
+// writes manifest.json and its digest sidecar. Everything it fetches is checked
+// against the committed lock as well as against the publisher's checksum: the
+// lock is what a human reviewed, the checksum only says the CDN agreed with
+// itself.
 func buildVersion(ctx context.Context, b versionBuild) error {
 	lock, err := readLock(b.lockDir, b.k8sVersion)
 	if err != nil {
@@ -208,6 +199,11 @@ func buildVersion(ctx context.Context, b versionBuild) error {
 	}
 	p, err := pinsFor(b.k8sVersion)
 	if err != nil {
+		return err
+	}
+	// Fail on a containerd 1.x pin here, before ~1 GB of downloads, rather
+	// than in stageComponents at the very end.
+	if err := requireContainerdV2(p.Containerd); err != nil {
 		return err
 	}
 	slog.Info("bundling Kubernetes release",
@@ -218,23 +214,27 @@ func buildVersion(ctx context.Context, b versionBuild) error {
 		return err
 	}
 
-	if !b.skipImages {
-		// Safe to execute now, and only now: kubeadm's bytes matched the lock.
-		kubeadmPath := filepath.Join(archDir, manifest.Architectures[targetArch]["kubeadm"].File)
-		images, err := kubeadmImageList(kubeadmPath, b.k8sVersion)
-		if err != nil {
-			return err
-		}
-		if err := checkImageListAgainstLock(lock, images); err != nil {
-			return err
-		}
-		tarballPath := filepath.Join(archDir, baseImagesTarballName(b.k8sVersion))
-		if err := writeBaseImagesTarball(ctx, b.crane, lock.Images, tarballPath); err != nil {
-			return err
-		}
-		manifest.Images = lock.Images
-		slog.Info("wrote base container images", "file", tarballPath, "images", len(lock.Images))
+	// Safe to execute now, and only now: kubeadm's bytes matched the lock.
+	kubeadmPath := filepath.Join(archDir, manifest.Architectures[targetArch]["kubeadm"].File)
+	images, err := kubeadmImageList(kubeadmPath, b.k8sVersion)
+	if err != nil {
+		return err
 	}
+	if err := checkImageListAgainstLock(lock, images); err != nil {
+		return err
+	}
+	tarballPath := filepath.Join(archDir, baseImagesTarballName(b.k8sVersion))
+	if err := writeBaseImagesTarball(ctx, b.crane, lock.Images, tarballPath); err != nil {
+		return err
+	}
+	manifest.Images = lock.Images
+	slog.Info("wrote base container images", "file", tarballPath, "images", len(lock.Images))
+
+	stageDir := filepath.Join(b.dist, b.k8sVersion, "stage")
+	if err := stageComponents(archDir, stageDir, manifest, lock.Images); err != nil {
+		return fmt.Errorf("stage: %w", err)
+	}
+	slog.Info("staged the FHS runtime tree", "dir", stageDir)
 
 	return writeManifest(filepath.Join(b.dist, b.k8sVersion, "manifest.json"), manifest)
 }

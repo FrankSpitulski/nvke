@@ -315,7 +315,8 @@ func TestWriteManifest(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &round))
 	assert.Equal(t, "kubeadm", round.Architectures["amd64"]["kubeadm"].File)
 
-	require.NoError(t, bundle.VerifyManifestDigest(path))
+	_, err = bundle.VerifyFileAgainstSidecar(path, path+".sha256")
+	require.NoError(t, err)
 }
 
 // withFastRetryBackoff shrinks retryBackoff to near-zero for the duration of

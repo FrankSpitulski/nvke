@@ -82,20 +82,3 @@ func VerifyFileAgainstSidecar(artifactPath, sidecarPath string) (string, error) 
 	}
 	return got, nil
 }
-
-// VerifyManifestDigest checks manifest.json against its manifest.json.sha256 sidecar.
-func VerifyManifestDigest(manifestPath string) error {
-	sidecarPath := manifestPath + ".sha256"
-	st, err := os.Stat(sidecarPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("missing manifest digest sidecar %s", sidecarPath)
-		}
-		return err
-	}
-	if st.IsDir() {
-		return fmt.Errorf("%s is a directory", sidecarPath)
-	}
-	_, err = VerifyFileAgainstSidecar(manifestPath, sidecarPath)
-	return err
-}
