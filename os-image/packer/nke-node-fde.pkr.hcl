@@ -34,9 +34,26 @@ variable "iso_checksum" {
 }
 
 variable "disk_size" {
-  type        = string
-  default     = "12G"
-  description = "Build-time disk size. Headroom for LVM+LUKS overhead over the base image's 10G; the real deploy disk is grown to full size on first boot. (autoinstall-lvm.pkrtpl's storage layout must actually claim the whole disk for this to matter — sizing-policy: all, not sizing_policy, which Subiquity silently ignores in favor of its own much smaller 'scaled' default.)"
+  type = string
+  # Budget, base install through boot-smoke's install/remove sequence (the
+  # source of truth for this number -- nke-node-non-fde.pkr.hcl's disk_size
+  # just points back here rather than repeating it):
+  #   10G   base install (the prior default)
+  # +  1.2G staged debs (nke-kubeadm-distro-* x3, ~400M each, under
+  #         /usr/lib/nke/debs/)
+  # +  3.15G three boot-smoke installs, each unpacking ~350M of binaries and
+  #         importing ~700M of container images into containerd's content
+  #         store; images accumulate across the sequence because removing a
+  #         package does not remove its images (see boot-smoke.sh)
+  # +  0.4G transient /var/cache/apt/archives peak -- apt copies the local
+  #         .deb it installs from into its archive cache even though the
+  #         source is already staged on disk under /usr/lib/nke/debs/; kept
+  #         to a single install's worth (not cumulative across the three)
+  #         because boot-smoke runs `apt-get clean` after each install
+  # +  2G   headroom
+  # = 16.75G, rounded up to 17G.
+  default     = "17G"
+  description = "Build-time disk size; see the arithmetic in the comment above. Also headroom for LVM+LUKS overhead over the base install; the real deploy disk is grown to full size on first boot. (autoinstall-lvm.pkrtpl's storage layout must actually claim the whole disk for this to matter — sizing-policy: all, not sizing_policy, which Subiquity silently ignores in favor of its own much smaller 'scaled' default.)"
 }
 
 variable "luks_passphrase" {

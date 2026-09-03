@@ -87,6 +87,47 @@ bundle: check-host $(BIN_DIR)/kubeadm-bundle $(BIN_DIR)/crane ## Download, verif
 	$(BIN_DIR)/kubeadm-bundle -versions "$(K8S_VERSIONS_V)" -dist "$(DIST_DIR)" -lock "$(LOCK_DIR)" \
 		-crane "$(BIN_DIR)/crane" -runc-keyring "$(RUNC_KEYRING)"
 
+.PHONY: repro-check
+repro-check: ## Build `debs` twice into fresh OUT_DIRs (DIST_DIR is reused) and diff every output byte-for-byte, both directions.
+	@# Deliberately no check-host/check-deb-tools prereqs: this target does
+	@# not use $(OUT_DIR) itself (it builds its own via mktemp), and adding
+	@# either prereq here required OUT_DIR to already be set just to
+	@# validate a value nothing below reads, breaking the documented
+	@# `make repro-check` invocation. The nested `debs` calls below carry
+	@# their own check-host/check-deb-tools prereqs, so a genuinely missing
+	@# tool or non-Linux host is still caught, just from inside them.
+	@#
+	@# DIST_DIR is deliberately not overridden: both nested `debs` runs share
+	@# it, so the network download happens at most once and the second build
+	@# is testing nfpm/build-deb.sh determinism, not artifact-fetch flakiness.
+	@set -eu; \
+	a="$$(mktemp -d)"; b="$$(mktemp -d)"; \
+	trap 'rm -rf "$$a" "$$b"' EXIT; \
+	echo "kubeadm-distro: first build -> $$a"; \
+	$(MAKE) debs OUT_DIR="$$a" K8S_VERSIONS="$(K8S_VERSIONS)" DEB_REVISION="$(DEB_REVISION)" DIST_DIR="$(DIST_DIR)"; \
+	echo "kubeadm-distro: second build -> $$b"; \
+	$(MAKE) debs OUT_DIR="$$b" K8S_VERSIONS="$(K8S_VERSIONS)" DEB_REVISION="$(DEB_REVISION)" DIST_DIR="$(DIST_DIR)"; \
+	sort "$$a/Packages" >"$$a/Packages.sorted"; \
+	sort "$$b/Packages" >"$$b/Packages.sorted"; \
+	diffs=""; \
+	for f in "$$a"/*.deb "$$a/Packages.sorted"; do \
+		name="$$(basename "$$f")"; \
+		if [ ! -f "$$b/$$name" ] || ! cmp -s "$$f" "$$b/$$name"; then \
+			diffs="$$diffs $$name"; \
+		fi; \
+	done; \
+	for f in "$$b"/*.deb; do \
+		name="$$(basename "$$f")"; \
+		if [ ! -f "$$a/$$name" ]; then \
+			diffs="$$diffs $$name(only-in-second-build)"; \
+		fi; \
+	done; \
+	if [ -n "$$diffs" ]; then \
+		echo "kubeadm-distro: not reproducible, these files differ between the two builds:$$diffs" >&2; \
+		exit 1; \
+	fi; \
+	echo "kubeadm-distro: reproducible -- every .deb and the sorted Packages index matched byte-for-byte"
+
 .PHONY: lock
 lock: check-host $(BIN_DIR)/kubeadm-bundle $(BIN_DIR)/crane ## Regenerate lock/<version>.json from upstream. Review the diff, then commit it.
 	@# Needs Linux and network: it downloads every artifact, runs the verified

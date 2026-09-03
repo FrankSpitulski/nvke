@@ -33,9 +33,12 @@ variable "iso_checksum" {
 }
 
 variable "disk_size" {
-  type        = string
-  default     = "12G"
-  description = "Build-time disk size, matching the FDE variant for comparability (see its comment about sizing-policy). The real deploy disk is grown to full size on first boot."
+  type = string
+  # Shares nke-node-fde.pkr.hcl's budget for comparability; see the
+  # arithmetic on that file's disk_size variable rather than repeating it
+  # here.
+  default     = "17G"
+  description = "Build-time disk size, matching the FDE variant's budget for comparability (see its comment). The real deploy disk is grown to full size on first boot."
 }
 
 # See the same variable in nke-node-fde.pkr.hcl.

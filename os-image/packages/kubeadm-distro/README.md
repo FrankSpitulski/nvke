@@ -125,8 +125,22 @@ make -C os-image/packages/kubeadm-distro debs OUT_DIR=/abs/path/to/apt-repo
 make -C os-image/packages/kubeadm-distro debs OUT_DIR=/abs/path K8S_VERSIONS="v1.36.3 v1.34.2"
 make -C os-image/packages/kubeadm-distro lock
 make -C os-image/packages/kubeadm-distro test
+make -C os-image/packages/kubeadm-distro repro-check
 make -C os-image/packages/kubeadm-distro clean
 ```
+
+`repro-check` runs `debs` twice into two throwaway `OUT_DIR`s (reusing the
+same `DIST_DIR`, so the network download happens at most once) and `cmp`s
+every `.deb` in both directions (so a package present in only one build is
+also caught, not just a content mismatch) plus the `Packages` index sorted
+first (`dpkg-scanpackages`'s listing order isn't guaranteed stable run to
+run, only its content), failing with the names of whatever differs. No
+`OUT_DIR` needed on the command line -- this target builds its own. `nfpm.yaml`'s
+pinned `mtime` and gzip compression exist to make this pass; a regression
+here usually means a new content entry that carries build-host-local
+metadata (a timestamp, a path, file ownership) nfpm isn't pinning down. Not
+wired into CI — run it by hand after touching `packaging/` or
+`build-deb.sh`.
 
 `OUT_DIR` is required and must be absolute. Other knobs:
 
