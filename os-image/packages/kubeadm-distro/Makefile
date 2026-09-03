@@ -52,7 +52,7 @@ LOCK_DIR ?= $(CURDIR)/lock
 
 # -trimpath and -s -w keep build-host paths and symbol tables out of the binaries
 # that ship inside the .deb, matching agent/Makefile.
-GO_BUILD_FLAGS := -trimpath -ldflags="-s -w"
+GO_BUILD_FLAGS := -trimpath -buildvcs=false -ldflags="-s -w"
 
 .PHONY: debs
 debs: check-host check-deb-tools bundle ## Build one .deb per K8S_VERSIONS into OUT_DIR, plus a flat apt index.
