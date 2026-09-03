@@ -211,5 +211,11 @@ func workerNodePoolRequest(test *tenantTest, name, nodeNamePrefix string) (api.C
 		spec := nicoVMSNodePoolSpec(base, name, nodeNamePrefix, nicoVMSOSProfile, nicoVMSWConfigProfile)
 		return nke.NicoVMSNodePoolRequest(test.cluster.ID, spec)
 	}
+	if test.spec.Backend == nke.BackendNicoContainers {
+		// nicoNodePoolSpecs is what the cluster-create path uses, so a pool
+		// added later is shaped the same as the ones created with the cluster.
+		spec := nicoNodePoolSpecs([]nke.NodePoolSpec{base}, name, nodeNamePrefix)[0]
+		return nke.NicoNodePoolRequest(test.cluster.ID, test.cluster.Name, nicoVpcID, spec)
+	}
 	return api.CreateNodePoolRequest{}, fmt.Errorf("node pool lifecycle is unsupported for backend %q", test.spec.Backend)
 }

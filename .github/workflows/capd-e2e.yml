@@ -84,7 +84,7 @@ jobs:
       backend: capd
       arch: ${{ matrix.arch }}
       runner: ${{ matrix.runner }}
-      # Ignored under single-runner-capd-control-plane-modes: the CI script drives
+      # Ignored under single-runner-control-plane-modes: the CI script drives
       # each leg's label filter itself (cp-controller+health first, then
       # node-pool+health+authn). This value mirrors the node-pool leg's filter to
       # satisfy the required input and document what that leg runs. `health` and
@@ -100,4 +100,4 @@ jobs:
       # deployment would leave them silently skipped and the job green.
       require-authn: true
       nkectl-smoke: true
-      single-runner-capd-control-plane-modes: true
+      single-runner-control-plane-modes: true

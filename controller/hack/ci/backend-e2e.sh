@@ -31,16 +31,21 @@ BUNDLE_VOLUME="capd-e2e-bundles-${RUN_ID}"
 CAPD_NODE_IMAGE="cwe-capd-kindest-node:run-${RUN_ID}"
 BGP_CONTAINER_NAME="bgp-containers-${RUN_ID}"
 DIAGNOSTICS_MARKER="${STATE_DIR}/SAFE_TO_UPLOAD"
-# Sequential two-mode CAPD run: the cp-controller and node-pool provisioning
-# modes run back to back on one kind cluster. The cp-controller leg runs first,
-# so CWE is brought up flag-on here and the node-pool leg flips the
-# deployment-wide flag off between the legs. Any other backend, or a caller that
-# drives the flag itself, leaves this unset and takes the single-mode path below.
-SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES="${NKE_E2E_SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES:-false}"
-# Run the nkectl checks in hack/ci/nkectl-smoke.sh once the suite passes. Off by
-# default: the CAPD lane opts in, and NICo can follow once this has a record.
+# Sequential two-mode run: the cp-controller and node-pool provisioning modes run
+# back to back on one kind cluster. The cp-controller leg runs first, so CWE is
+# brought up flag-on here and the node-pool leg flips the deployment-wide flag
+# off between the legs. A caller that drives the flag itself leaves this unset
+# and takes the single-mode path below.
+SINGLE_RUNNER_CONTROL_PLANE_MODES="${NKE_E2E_SINGLE_RUNNER_CONTROL_PLANE_MODES:-${NKE_E2E_SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES:-false}}"
+# The ginkgo label for this backend's rows. BACKEND names the lane; the label is
+# what tenant_test.go tags with, and for NICo the two differ.
+case "${BACKEND}" in
+  nico) BACKEND_LABEL=nico-containers ;;
+  *) BACKEND_LABEL="${BACKEND}" ;;
+esac
+# Run the nkectl checks in hack/ci/nkectl-smoke.sh once the suite passes.
 NKECTL_SMOKE="${NKE_E2E_NKECTL_SMOKE:-false}"
-if [[ "${SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES}" == "true" ]]; then
+if [[ "${SINGLE_RUNNER_CONTROL_PLANE_MODES}" == "true" ]]; then
   PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=true
 fi
 TMP_DIR="$(mktemp -d)"
@@ -886,7 +891,7 @@ runner_exec kubectl get --raw \
 
 NKE_E2E_FOCUS="${NKE_E2E_FOCUS:-}"
 
-if [[ "${SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES}" == "true" ]]; then
+if [[ "${SINGLE_RUNNER_CONTROL_PLANE_MODES}" == "true" ]]; then
   # Two provisioning modes, one cluster, back to back. cp-controller runs first,
   # against the flag-on CWE the Tilt deploy just verified, so a regression in the
   # newer control-plane-controller path fails fast -- before the long node-pool
@@ -896,7 +901,7 @@ if [[ "${SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES}" == "true" ]]; then
   # version endpoints are probed against a flag-on deployment too.
   start_state_monitor
   leg_rc=0
-  run_ginkgo_leg "${E2E_CAPD_CP_CONTROLLER_FILTER}" "true" "-cp-controller" || leg_rc=$?
+  run_ginkgo_leg "$(e2e_cp_controller_filter "${BACKEND_LABEL}")" "true" "-cp-controller" || leg_rc=$?
   if ((leg_rc != 0)); then
     stop_state_monitor
     log "cp-controller leg failed with exit code ${leg_rc}; not running the node-pool leg" >&2
@@ -913,7 +918,7 @@ if [[ "${SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES}" == "true" ]]; then
   # ride along here -- both need a deployed, enforcing NKE, which this leg has;
   # authn-spire is excluded (needs SPIRE pod attestation not yet wired in CAPD).
   leg_rc=0
-  run_ginkgo_leg "${E2E_CAPD_NODE_POOL_FILTER}" "false" "-nodepool" || leg_rc=$?
+  run_ginkgo_leg "$(e2e_node_pool_filter "${BACKEND_LABEL}")" "false" "-nodepool" || leg_rc=$?
   stop_state_monitor
   if ((leg_rc != 0)); then
     log "node-pool leg failed with exit code ${leg_rc}" >&2

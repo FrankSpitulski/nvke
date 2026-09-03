@@ -208,12 +208,19 @@ e2e_collect_node_diagnostics() {
 # shellcheck disable=SC2034  # consumed by the scripts that source this file
 E2E_CAPD_PROVIDERS='["capi_core", "bgp-containers", "capd", "capd-reboot-controller"]'
 
-# The label filters for the sequential CAPD run. Named here so the two
-# entrypoints cannot drift into testing different things, which they had: the
-# local one ran `(capd || health) && !cp-controller` and so never ran the
-# authentication specs that CI runs. authn-spire stays out because it needs
-# SPIRE pod attestation that CAPD does not wire up.
+# The label filters for a sequential two-mode run, built from the backend's
+# ginkgo label. Derived here so the two entrypoints cannot drift into testing
+# different things, which they had: the local one ran
+# `(capd || health) && !cp-controller` and so never ran the authentication specs
+# that CI runs. authn-spire stays out because it needs SPIRE pod attestation
+# that neither container-backed backend wires up.
+e2e_cp_controller_filter() { printf '(%s && cp-controller) || health' "$1"; }
+e2e_node_pool_filter() {
+  printf '((%s || health) && !cp-controller) || (authn && !authn-spire) || authn-permissive' "$1"
+}
+
+# Kept for callers that still name CAPD directly.
 # shellcheck disable=SC2034  # consumed by the scripts that source this file
-E2E_CAPD_CP_CONTROLLER_FILTER='(capd && cp-controller) || health'
+E2E_CAPD_CP_CONTROLLER_FILTER="$(e2e_cp_controller_filter capd)"
 # shellcheck disable=SC2034
-E2E_CAPD_NODE_POOL_FILTER='((capd || health) && !cp-controller) || (authn && !authn-spire) || authn-permissive'
+E2E_CAPD_NODE_POOL_FILTER="$(e2e_node_pool_filter capd)"

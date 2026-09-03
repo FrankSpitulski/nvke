@@ -76,13 +76,16 @@ jobs:
       # pays for them. authn-spire is out because the NICo provider does not
       # set SPIFFE_ENABLED. This cannot reach the nico-vms specs: different
       # backend, and the Tiltfile rejects nico and nico-vms together.
+      # Ignored under single-runner-control-plane-modes below, which derives a
+      # filter per leg. Kept to satisfy the required input and to record what the
+      # node-pool leg runs.
       label-filter: nico-containers || health || (authn && !authn-spire) || authn-permissive
       # No capd here: the Tiltfile rejects nico alongside nico-vms, and the
       # NICo provider brings its own node image step. capi_core is required.
       providers: '["capi_core", "bgp-containers", "nico"]'
-      # 15m provision + 10m delete for the spec itself, plus building CAPNICo
-      # and the node image. Generous until there is real data.
-      timeout-minutes: 120
+      # Two control-plane legs over five clusters, on two arches. The one-leg
+      # 55-spec run took 60 minutes, so this is sized for roughly double.
+      timeout-minutes: 240
       # Without this, a broken auth deployment turns the authn specs into
       # skips and the lane stays green having tested nothing new.
       require-authn: true
@@ -90,4 +93,8 @@ jobs:
       # nkectl. It is on because it costs a minute on a lane that already runs,
       # and it catches a CWE deployment difference the CAPD lane would not see.
       nkectl-smoke: true
+      # cp-controller specs skip unless CWE is deployed flag-on, and the flag is
+      # deployment-wide, so it needs its own leg. Without this the lane is the
+      # only one in CI not covering controller-managed control planes.
+      single-runner-control-plane-modes: true
       needs-nico-provider: true
