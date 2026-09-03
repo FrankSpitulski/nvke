@@ -74,10 +74,15 @@ repository's `bin/`, and `make version-check` runs it with `--version`.
 - New files need the Apache-2.0 SPDX header (`make license`). Cloud-init
   user-data cannot: `#cloud-config` must be line 1, so examples live in
   README/SPEC rather than `*.yaml`.
-- `packages/kubeadm-distro/` builds the staged `nke-kubeadm-distro-<x.y.z>`
-  debs from source on a Linux host with `dpkg-dev` and `gnupg`.
+- `packages/kubeadm-distro/` packages upstream Kubernetes release binaries
+  (nothing is compiled) into the staged `nke-kubeadm-distro-<x.y.z>` debs, on
+  a Linux/amd64 host with `dpkg-dev` and `gnupg`; `nfpm` and `crane` are
+  downloaded by its `Makefile` and pinned in `make/tool-versions.mk` (also in
+  the Flox environment for developers), so neither needs manual install.
   `K8S_VERSIONS` in `packages/kubeadm-distro/Makefile` is the pin; docs may
   quote the current values. Nothing is installed at bake time: the debs land
   under `/usr/lib/nke/debs/` and stay uninstalled until a cluster create
   picks one. Its local, unsigned `file:` apt source is on purpose; see
-  `provision.sh` for why.
+  `provision.sh` for why. Each deb `Conflicts` with `containerd` and
+  `containerd.io` (and the standalone `kubeadm`/`kubelet`/`kubectl`
+  packages).

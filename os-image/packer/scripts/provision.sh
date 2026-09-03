@@ -42,6 +42,26 @@ sudo install -d -m 0755 /usr/lib/nke/debs
 sudo install -m 0644 "${SRC}"/debs/*.deb /usr/lib/nke/debs/
 sudo install -m 0644 "${SRC}/debs/Packages" /usr/lib/nke/debs/Packages
 echo 'deb [trusted=yes] file:/usr/lib/nke/debs ./' | sudo tee /etc/apt/sources.list.d/nke-local.list >/dev/null
+# Pin this baked repo above any remote NKE apt repo a cluster create might
+# also configure, so if both list a nke-kubeadm-distro package apt picks the
+# one already on disk instead of fetching over the network. A flat file:
+# repo built with dpkg-scanpackages has no Release file, so there is no
+# hostname for a normal `Pin: origin <host>` to match; apt_preferences(5)'s
+# documented workaround is `Pin: origin ""` (an empty string). Verified in a
+# throwaway Ubuntu 24.04 container: `apt-cache policy` against such a repo
+# reports it as "500 file:/repo ./ Packages" (apt's untrusted-source default
+# priority) with no o= field; after writing this same
+# `Pin: origin ""` / `Pin-Priority: 1001` stanza, `apt-cache policy` reports
+# it as "1001 file:/repo ./ Packages" and `apt-cache policy <pkg>` shows the
+# repo's version as the priority-1001 candidate -- confirming the pin
+# matches and wins. Priority 1001 is "greater than any" per the same man
+# page, so it wins even if the remote repo offers a numerically higher
+# Version.
+cat <<'EOF' | sudo tee /etc/apt/preferences.d/nke-kubeadm-distro >/dev/null
+Package: nke-kubeadm-distro*
+Pin: origin ""
+Pin-Priority: 1001
+EOF
 # Cache the local index so cluster create needs no apt-get update of its
 # own. Scoped to only the local source: a mirror hiccup on the build host
 # cannot fail the bake, and no Ubuntu archive lists get baked into the image.
@@ -71,7 +91,8 @@ sudo apt-get -y autoremove
 # Empties /var/cache/apt/archives only; /var/lib/apt/lists (the local index
 # apt-get update above populated) is untouched, so it stays usable.
 sudo apt-get clean
-# The uploaded artifacts (~1 GB, including the debs) must not stay allocated
-# in the qcow2 now that everything is installed/staged under /usr and /etc.
+# The uploaded artifacts (~1.2 GB: three debs at roughly 400 MB each, since
+# every row bundles its control-plane images) must not stay allocated in the
+# qcow2 now that everything is installed/staged under /usr and /etc.
 sudo rm -rf /tmp/nke-image
 sudo fstrim -av || true

@@ -153,6 +153,9 @@ jobs:
           make test
           make build
 
+      # nfpm and crane are not installed here: os-image/packages/kubeadm-distro's
+      # Makefile downloads both, pinned to make/tool-versions.mk, into bin/ on
+      # demand, so this workflow needs nothing extra for them.
       - name: Install QEMU, cloud-localds, swtpm, OVMF, 7z, xorriso, dpkg-dev, and gnupg
         run: |
           set -euo pipefail

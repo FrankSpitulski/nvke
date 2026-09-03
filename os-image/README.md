@@ -29,6 +29,11 @@ Prereqs, on a Linux host:
 | `dpkg-dev` (`dpkg-deb`, `dpkg-scanpackages`) | any | via your package manager |
 | `gnupg` (`gpg`) | any | via your package manager |
 
+`nfpm` and `crane`, used by `packages/kubeadm-distro/` to build and stage the
+debs, are not prereqs to install by hand: that module's `Makefile` downloads
+both, pinned in `make/tool-versions.mk`, into `bin/` on demand. They're also
+available in the Flox environment for developers who prefer that.
+
 Both variants boot the Ubuntu Server installer (not a prebuilt cloud image),
 so all of the above are needed even for a first build — see
 `.github/workflows/os-image-artifact.yml`'s install step for the exact
@@ -184,10 +189,22 @@ egress at all, installs every staged version in turn, and for each one checks
 the exact imported image set against `kubeadm config images list` and runs
 `kubeadm init phase preflight`.
 
-The debs build from source in `os-image/packages/kubeadm-distro/`, built by
-`fetch-artifacts.sh` as the first Packer step (a shell-local provisioner), so
-the bake host must be Linux with `dpkg-dev` and `gnupg`. Bump `K8S_VERSIONS`
-in that module's `Makefile` to add or drop a minor.
+Nothing here is compiled: `os-image/packages/kubeadm-distro/` packages the
+upstream Kubernetes release binaries into the debs, built by
+`fetch-artifacts.sh` as the first Packer step (a shell-local provisioner). The
+bake host must be Linux/amd64 with `dpkg-dev` (for `dpkg-scanpackages`) and
+`gnupg`; `nfpm` and `crane` are downloaded by that module's `Makefile` and
+pinned in `make/tool-versions.mk`, so nothing to install for them by hand —
+they're also in the Flox environment for developers. Bump `K8S_VERSIONS` in
+that module's `Makefile` to add or drop a minor.
+
+Each `nke-kubeadm-distro-<x.y.z>` deb `Conflicts` with `containerd` and
+`containerd.io` (along with the standalone `kubeadm`/`kubelet`/`kubectl`
+packages), so a node can only run one containerd install at a time; see the
+header comment in
+`controller/internal/runbook/scripts/upgrade-kubelet-kubeadm.sh` for how the
+kubeadm upgrade runbook works around that by installing the next
+`nke-kubeadm-distro-<ver>` row from the local repo instead of pkgs.k8s.io.
 
 ## First boot (cloud-init)
 

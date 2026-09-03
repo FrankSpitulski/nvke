@@ -103,6 +103,7 @@ time but not installed. They land as flat, unsigned local apt packages so
 | Versions staged | Pinned by `K8S_VERSIONS` in `os-image/packages/kubeadm-distro/Makefile` (currently `v1.36.3 v1.35.3 v1.34.2`) |
 | Install command | `apt-get install -y nke-kubeadm-distro-<x.y.z>`, run at cluster create against the local source above; no `apt-get update` needed |
 | Contents | The deb's postinst installs kubelet, kubeadm, kubectl, containerd, runc, CNI plugins, crictl, and helm from `/usr/lib/nke/k8s-matrix/<x.y.z>/`, and imports the Kubernetes base container images (apiserver, controller-manager, scheduler, kube-proxy, etcd, coredns, pause) into containerd's `k8s.io` namespace from a tarball baked into the deb, so kubeadm init pulls no control-plane images |
+| Package conflicts | `Conflicts: containerd, containerd.io` — a node can only run one containerd install; the upgrade runbook (`controller/internal/runbook/scripts/upgrade-kubelet-kubeadm.sh`) installs the next `nke-kubeadm-distro-<x.y.z>` row from the local repo instead of pkgs.k8s.io packages for that reason |
 
 Nothing is installed at bake time; the debs sit on disk until a cluster
 create installs one.
