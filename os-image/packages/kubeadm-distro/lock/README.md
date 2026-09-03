@@ -11,9 +11,13 @@ everything the bundle for that version is built from:
 
 ```text
 # nke-kubeadm-distro lock for v1.36.3 (amd64). Regenerate with `make lock`; review the diff before committing.
+kubernetes v1.36.3
 artifact kubeadm <sha256hex> https://dl.k8s.io/release/v1.36.3/bin/linux/amd64/kubeadm
 image registry.k8s.io/pause:3.10.2 sha256:<hex>
 ```
+
+The `kubernetes` record has to match the version being built, so a lock that
+is renamed or copied to the wrong filename is rejected rather than used.
 
 These files are **generated, reviewed and committed** — never hand-written:
 

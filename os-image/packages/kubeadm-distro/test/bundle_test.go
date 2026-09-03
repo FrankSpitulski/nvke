@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -166,6 +167,29 @@ func newFixtureServer(t *testing.T, signer *gpgKey) *fixtureServer {
 // digestOf returns the sha256 the server advertises for one served artifact.
 func (fs *fixtureServer) digestOf(path string) string { return fs.sha256[path] }
 
+// replaceArtifact rewrites one artifact and its bare `.sha256` document, so a
+// case can make upstream move under a lock that was already written.
+func (fs *fixtureServer) replaceArtifact(path string, body []byte) {
+	fs.bodies[path] = body
+	fs.sha256[path] = fmt.Sprintf("%x", sha256.Sum256(body))
+	fs.bodies[path+".sha256"] = []byte(fs.sha256[path] + "\n")
+}
+
+// serve replaces one served document outright, checksum shape and all.
+func (fs *fixtureServer) serve(path string, body []byte) { fs.bodies[path] = body }
+
+// helmPath, runcPath and runcChecksumPath are the fixture paths cases reach
+// for by name.
+func helmPath() string { return fmt.Sprintf("/helm-%s-linux-amd64.tar.gz", fixtureHelm) }
+
+func runcPath() string {
+	return fmt.Sprintf("/opencontainers/runc/releases/download/%s/runc.amd64", fixtureRunc)
+}
+
+func runcChecksumPath() string {
+	return fmt.Sprintf("/opencontainers/runc/releases/download/%s/runc.sha256sum", fixtureRunc)
+}
+
 // gpgKey is a throwaway signing key in its own GNUPGHOME.
 type gpgKey struct {
 	home string
@@ -257,7 +281,17 @@ case "$1" in
     printf '[%s]' "$entries" >"$work/manifest.json"
     printf 'fake config' >"$work/config.json"
     printf 'fake layer' >"$work/layer.tar.gz"
-    tar -cf "$out" -C "$work" manifest.json config.json layer.tar.gz
+    files=(manifest.json config.json layer.tar.gz)
+    if [[ -n "${FAKE_CRANE_STRAY_PLACEHOLDER:-}" ]]; then
+      printf '{"ref":"somewhere/else:i-was-a-digest"}' >"$work/stray.json"
+      files+=(stray.json)
+    fi
+    if [[ -n "${FAKE_CRANE_REVERSE:-}" ]]; then
+      reversed=()
+      for ((i = ${#files[@]} - 1; i >= 0; i--)); do reversed+=("${files[i]}"); done
+      files=("${reversed[@]}")
+    fi
+    tar -cf "$out" -C "$work" "${files[@]}"
     ;;
   *) echo "fake crane: unsupported subcommand $1" >&2; exit 1 ;;
 esac
@@ -273,6 +307,9 @@ type bundleRun struct {
 	keyring string
 	dist    string
 	lockDir string
+	// env is added to bundle.sh's environment, so a case can change how the
+	// fake crane behaves between two otherwise identical runs.
+	env []string
 }
 
 // newBundleRun wires a fixture server, a fake crane and a keyring holding
@@ -307,6 +344,7 @@ func (b *bundleRun) exec(t *testing.T, args ...string) (string, error) {
 		"BUNDLE_HELM_URL="+b.server.URL,
 		"BUNDLE_RUNC_KEYRING="+b.keyring,
 	)
+	cmd.Env = append(cmd.Env, b.env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -338,7 +376,8 @@ func (b *bundleRun) wantLock() string {
 		records = append(records, fmt.Sprintf("image %s %s", img.ref, img.digest))
 	}
 	sort.Strings(records)
-	header := fmt.Sprintf("# nke-kubeadm-distro lock for %s (amd64). Regenerate with `make lock`; review the diff before committing.\n", fixtureVersion)
+	header := fmt.Sprintf("# nke-kubeadm-distro lock for %s (amd64). Regenerate with `make lock`; review the diff before committing.\n"+
+		"kubernetes %s\n", fixtureVersion, fixtureVersion)
 	return header + strings.Join(records, "\n") + "\n"
 }
 
@@ -506,8 +545,7 @@ func TestBundleRejectsArtifactDigestDrift(t *testing.T) {
 	signer := newGPGKey(t, "runc test <runc@example.invalid>")
 	b := newBundleRun(t, signer, signer)
 	require.NoError(t, os.MkdirAll(b.lockDir, 0o755))
-	lock := strings.Replace(b.wantLock(),
-		b.server.digestOf(fmt.Sprintf("/helm-%s-linux-amd64.tar.gz", fixtureHelm)), strings.Repeat("c", 64), 1)
+	lock := strings.Replace(b.wantLock(), b.server.digestOf(helmPath()), strings.Repeat("c", 64), 1)
 	require.NoError(t, os.WriteFile(b.lockPath(), []byte(lock), 0o644))
 
 	out, err := b.exec(t)
@@ -547,4 +585,174 @@ func TestBundleRejectsUnknownRuncSigner(t *testing.T) {
 	require.Error(t, err, "a checksum list signed by an unknown key must be refused")
 	assert.Contains(t, out, "runc checksum")
 	assert.NoFileExists(t, b.lockPath())
+}
+
+// TestBundleWriteLockReportsWhatChanged covers the summary `make lock` prints
+// for a reviewer. `diff | grep` cannot be tested by its exit status under
+// pipefail, so a regression here reads "(unchanged)" over a real change.
+func TestBundleWriteLockReportsWhatChanged(t *testing.T) {
+	requireBundleTools(t)
+	requireLinux(t)
+	signer := newGPGKey(t, "runc test <runc@example.invalid>")
+	b := newBundleRun(t, signer, signer)
+
+	out, err := b.exec(t, "--write-lock")
+	require.NoErrorf(t, err, "first --write-lock: %s", out)
+	assert.Contains(t, out, "new lock file")
+
+	// Nothing moved upstream, so the second run has nothing to report.
+	out, err = b.exec(t, "--write-lock")
+	require.NoErrorf(t, err, "unchanged --write-lock: %s", out)
+	assert.Contains(t, out, "(unchanged)")
+
+	// Now move helm's bytes and re-lock: the summary must name the change and
+	// must not claim the lock is unchanged.
+	before := b.server.digestOf(helmPath())
+	b.server.replaceArtifact(helmPath(), tarGz(t, map[string]string{"linux-amd64/helm": "fake helm, rebuilt\n"}))
+	after := b.server.digestOf(helmPath())
+	require.NotEqual(t, before, after)
+
+	out, err = b.exec(t, "--write-lock")
+	require.NoErrorf(t, err, "changed --write-lock: %s", out)
+	assert.NotContains(t, out, "(unchanged)", "a real change must not be reported as unchanged")
+	assert.Contains(t, out, "< artifact helm "+before)
+	assert.Contains(t, out, "> artifact helm "+after)
+
+	got, err := os.ReadFile(b.lockPath())
+	require.NoError(t, err)
+	assert.Equal(t, b.wantLock(), string(got))
+}
+
+// TestBundleRepackIsOrderIndependent is what makes the .deb reproducible:
+// crane writes the archive's members in Go map order, so two pulls of the
+// same images have to come out byte-identical anyway.
+func TestBundleRepackIsOrderIndependent(t *testing.T) {
+	requireBundleTools(t)
+	requireLinux(t)
+	signer := newGPGKey(t, "runc test <runc@example.invalid>")
+	b := newBundleRun(t, signer, signer)
+	require.NoError(t, os.MkdirAll(b.lockDir, 0o755))
+	require.NoError(t, os.WriteFile(b.lockPath(), []byte(b.wantLock()), 0o644))
+
+	out, err := b.exec(t)
+	require.NoErrorf(t, err, "first build: %s", out)
+	first, err := os.ReadFile(filepath.Join(b.archDir(), baseImagesTarball))
+	require.NoError(t, err)
+
+	// A second, entirely fresh dist, with crane writing its members the other
+	// way round and under a different umask -- the two things a repack that
+	// does not pin member order and mode would let leak into the bytes.
+	b.dist = filepath.Join(t.TempDir(), "dist2")
+	b.env = []string{"FAKE_CRANE_REVERSE=1"}
+	previous := syscall.Umask(0o077)
+	t.Cleanup(func() { syscall.Umask(previous) })
+	out, err = b.exec(t)
+	require.NoErrorf(t, err, "second build: %s", out)
+	second, err := os.ReadFile(filepath.Join(b.archDir(), baseImagesTarball))
+	require.NoError(t, err)
+
+	assert.Equal(t, first, second, "the repacked archive must not depend on crane's member order")
+}
+
+// TestBundleRejectsSurvivingPlaceholder covers the post-condition on the tag
+// rewrite: crane's digest placeholder must not reach the node anywhere, not
+// just in the manifest entries this script rewrites.
+func TestBundleRejectsSurvivingPlaceholder(t *testing.T) {
+	requireBundleTools(t)
+	requireLinux(t)
+	signer := newGPGKey(t, "runc test <runc@example.invalid>")
+	b := newBundleRun(t, signer, signer)
+	require.NoError(t, os.MkdirAll(b.lockDir, 0o755))
+	require.NoError(t, os.WriteFile(b.lockPath(), []byte(b.wantLock()), 0o644))
+	b.env = []string{"FAKE_CRANE_STRAY_PLACEHOLDER=1"}
+
+	out, err := b.exec(t)
+	require.Error(t, err, "a surviving placeholder must fail the build")
+	assert.Contains(t, out, "placeholder survived")
+	assert.NoFileExists(t, filepath.Join(b.archDir(), baseImagesTarball))
+}
+
+// TestBundleRejectsUnexpectedClearsignedChecksum guards the one component
+// whose checksum list is signed: a signed document anywhere else is a change
+// of shape, and parsing it as plain text would skip the signature entirely.
+func TestBundleRejectsUnexpectedClearsignedChecksum(t *testing.T) {
+	requireBundleTools(t)
+	requireLinux(t)
+	signer := newGPGKey(t, "runc test <runc@example.invalid>")
+	b := newBundleRun(t, signer, signer)
+	b.server.serve(helmPath()+".sha256", signer.clearsign(t, b.server.digestOf(helmPath())+"\n"))
+
+	out, err := b.exec(t, "--write-lock")
+	require.Error(t, err, "a clearsigned checksum for helm must be refused")
+	assert.Contains(t, out, "unexpected clearsigned checksum for helm")
+	assert.NoFileExists(t, b.lockPath())
+}
+
+// TestBundleRejectsUnsignedRuncChecksums covers the downgrade runc's signed
+// list exists to prevent.
+func TestBundleRejectsUnsignedRuncChecksums(t *testing.T) {
+	requireBundleTools(t)
+	requireLinux(t)
+	signer := newGPGKey(t, "runc test <runc@example.invalid>")
+	b := newBundleRun(t, signer, signer)
+	b.server.serve(runcChecksumPath(), []byte(b.server.digestOf(runcPath())+"  runc.amd64\n"))
+
+	out, err := b.exec(t, "--write-lock")
+	require.Error(t, err, "an unsigned runc checksum list must be refused")
+	assert.Contains(t, out, "not OpenPGP clearsigned")
+	assert.NoFileExists(t, b.lockPath())
+}
+
+// TestBundleIgnoresAmbientGNUPGHOME is the reason bundle.sh imports into a
+// scratch homedir rather than passing --keyring: a key the build host happens
+// to trust must not be able to sign runc's checksums.
+func TestBundleIgnoresAmbientGNUPGHOME(t *testing.T) {
+	requireBundleTools(t)
+	requireLinux(t)
+	impostor := newGPGKey(t, "impostor <impostor@example.invalid>")
+	release := newGPGKey(t, "runc test <runc@example.invalid>")
+	b := newBundleRun(t, impostor, release)
+	// The impostor's own keys, as the build host's default keyring.
+	b.env = []string{"GNUPGHOME=" + impostor.home}
+
+	out, err := b.exec(t, "--write-lock")
+	require.Error(t, err, "a signer trusted only by the ambient GNUPGHOME must be refused")
+	assert.Contains(t, out, "runc checksum")
+	assert.NoFileExists(t, b.lockPath())
+}
+
+// TestBundleRejectsMismatchedLockVersion covers the `kubernetes` record: a
+// lock copied or renamed to the wrong filename is not the file that was
+// reviewed for this release.
+func TestBundleRejectsMismatchedLockVersion(t *testing.T) {
+	requireBundleTools(t)
+	requireLinux(t)
+	signer := newGPGKey(t, "runc test <runc@example.invalid>")
+	b := newBundleRun(t, signer, signer)
+	require.NoError(t, os.MkdirAll(b.lockDir, 0o755))
+	lock := strings.Replace(b.wantLock(), "kubernetes "+fixtureVersion, "kubernetes v1.35.3", 1)
+	require.NoError(t, os.WriteFile(b.lockPath(), []byte(lock), 0o644))
+
+	out, err := b.exec(t)
+	require.Error(t, err, "a lock for another version must be refused")
+	assert.Contains(t, out, "locks 'v1.35.3', not "+fixtureVersion)
+	assert.NoDirExists(t, b.archDir(), "the check must run before anything is created on disk")
+}
+
+// TestBundleRejectsExtraLockArtifact covers the artifact comparison running
+// both ways: a row for something this build never downloaded is not the file
+// that was reviewed.
+func TestBundleRejectsExtraLockArtifact(t *testing.T) {
+	requireBundleTools(t)
+	requireLinux(t)
+	signer := newGPGKey(t, "runc test <runc@example.invalid>")
+	b := newBundleRun(t, signer, signer)
+	require.NoError(t, os.MkdirAll(b.lockDir, 0o755))
+	lock := b.wantLock() + "artifact zzz-extra " + strings.Repeat("e", 64) + " https://example.invalid/zzz\n"
+	require.NoError(t, os.WriteFile(b.lockPath(), []byte(lock), 0o644))
+
+	out, err := b.exec(t)
+	require.Error(t, err, "an artifact row nothing downloaded must fail the build")
+	assert.Contains(t, out, "the artifacts do not match")
+	assert.NoFileExists(t, filepath.Join(b.archDir(), baseImagesTarball))
 }

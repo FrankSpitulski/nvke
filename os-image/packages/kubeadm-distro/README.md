@@ -148,6 +148,12 @@ straight into the archive metadata without needing `fakeroot` or `dpkg-deb
 apt install dpkg-dev gnupg
 ```
 
+`make debs` fails before it downloads anything if the host is not Linux or if
+any of these is missing: `curl`, `gpg`, `gzip`, `sha256sum` and `tar` (what
+`bundle.sh` fetches, verifies and unpacks with, checked by `check-host`), plus
+`dpkg-scanpackages` and `nfpm` (what turns the bundle into a package and an
+apt index, checked by `check-deb-tools`).
+
 `dpkg-dev` is still needed for `dpkg-scanpackages`, which writes the flat apt
 index; `gpg` is needed because runc publishes its checksums as an OpenPGP
 clearsigned list, verified against `packaging/keyrings/runc.keyring`.
