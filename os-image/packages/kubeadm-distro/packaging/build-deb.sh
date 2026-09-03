@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Build one nke-kubeadm-distro-<x.y.z>_<rev>_amd64.deb from a bundle tree
-# written by kubeadm-bundle, using nfpm and packaging/nfpm.yaml.
+# written by bundle.sh, using nfpm and packaging/nfpm.yaml.
 #
 # Usage:
 #   build-deb.sh <k8s-version> <bundle-dir> <out-dir>
@@ -50,13 +50,6 @@ PACKAGING_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 K8S_PATCH="${K8S_VER#v}"
 PACKAGE_NAME="${PACKAGE_PREFIX}-${K8S_PATCH}"
 
-for required in "${SRC}/manifest.json" "${SRC}/manifest.json.sha256"; do
-  if [[ ! -f "${required}" ]]; then
-    echo "build-deb.sh: missing ${required}" >&2
-    exit 1
-  fi
-done
-
 # The container images are what makes a node come up without a registry. A
 # .deb without them is not a product this build produces -- there is no
 # development escape hatch, so a missing tarball means `make bundle` was
@@ -69,11 +62,11 @@ if [[ ! -f "${BASE_TGZ}" || ! -f "${BASE_TGZ}.sha256" ]]; then
   exit 1
 fi
 
-# The FHS-staged runtime tree kubeadm-bundle's `stage` step writes: everything
-# nfpm.yaml pulls in beyond the bare kubeadm/kubectl/kubelet/runc binaries and
-# the image tarball above. Checked here, not just left to nfpm's own missing-
-# file error, so a partial or skipped `make bundle` fails with a message that
-# says what to do about it.
+# The FHS-staged runtime tree bundle.sh writes: everything nfpm.yaml pulls in
+# beyond the bare kubeadm/kubectl/kubelet/runc binaries and the image tarball
+# above. Checked here, not just left to nfpm's own missing-file error, so a
+# partial or skipped `make bundle` fails with a message that says what to do
+# about it.
 STAGE="${SRC}/stage"
 for required in \
   "${STAGE}/usr/local/bin/containerd" \

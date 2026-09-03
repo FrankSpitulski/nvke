@@ -43,7 +43,7 @@ downloaded by a maintainer script. Inside a package:
 | `/etc/crictl.yaml` | crictl pointed at the containerd CRI socket |
 | `/etc/default/kubelet` | conffile carrying operator `KUBELET_EXTRA_ARGS` |
 | `/lib/systemd/system/kubelet.service{,.d/10-kubeadm.conf}`, `containerd.service` | vendor units, plus the kubeadm drop-in |
-| `/usr/lib/nke/k8s-matrix/<version>/` | `manifest.json` and `manifest.json.sha256`, and `amd64/` holding only the control-plane image tarball and its `.sha256` sidecar |
+| `/usr/lib/nke/k8s-matrix/<version>/amd64/` | the control-plane image tarball and its `.sha256` sidecar, and nothing else |
 
 `postinst` only does what a file list cannot express: OS-level state (swap,
 sysctls, kernel modules), service enablement, and importing the bundled
@@ -79,7 +79,7 @@ The package `Depends` on `iptables, iproute2, conntrack, socat, ethtool`.
 
 ## Lock files
 
-Everything a bundle is built from is pinned by digest in `lock/<version>.json`,
+Everything a bundle is built from is pinned by digest in `lock/<version>.lock`,
 committed and reviewed: the `sha256` of every upstream artifact and the
 linux/amd64 manifest digest of every container image. `make debs` refuses to
 build a version that has no lock, verifies each download against the locked
@@ -130,7 +130,7 @@ wired into CI — run it by hand after touching `packaging/` or
 | `K8S_VERSIONS` | `v1.36.3 v1.35.3 v1.34.2` | Kubernetes releases to build |
 | `DEB_REVISION` | `1` | Debian packaging revision |
 | `LOCK_DIR` | `./lock` | The committed lock files |
-| `DIST_DIR` | `./dist` | Artifact cache. A cached upstream artifact is re-checked against the publisher's checksum document every run, so this still needs the network; the `.sha256` sidecar is an output, not the thing that is trusted. Only the container image tarball is reused on the strength of its own sidecar |
+| `DIST_DIR` | `./dist` | Artifact cache. A cached artifact whose bytes already hash to what the lock pins is reused without touching the network, so a second `make debs` is offline; anything else is re-downloaded and re-verified against the publisher's checksum |
 
 ### Build host requirements
 
@@ -150,7 +150,7 @@ apt install dpkg-dev gnupg
 
 `dpkg-dev` is still needed for `dpkg-scanpackages`, which writes the flat apt
 index; `gpg` is needed because runc publishes its checksums as an OpenPGP
-clearsigned list, verified against `packaging/keyrings/runc-release.gpg`.
+clearsigned list, verified against `packaging/keyrings/runc.keyring`.
 Building the `.deb` itself no longer needs `dpkg-deb` — `make debs` downloads
 the pinned `nfpm` (`NFPM_VERSION` in
 [`../../../make/tool-versions.mk`](../../../make/tool-versions.mk)) into
@@ -171,19 +171,18 @@ merge gate runs.
    newest patch of each of the three newest Kubernetes minors: add the new one,
    drop the oldest. Entries may be written `v1.36.3` or `1.36.3`; the package
    name always drops the `v`.
-2. If the bump crosses a **minor**, add a row to `minorPins` in
-   [`cmd/kubeadm-bundle/pins.go`](cmd/kubeadm-bundle/pins.go) with the
-   containerd, runc and Helm releases for it. There is deliberately no fallback:
-   an unlisted minor is an error, so someone has to read containerd's Kubernetes
-   support matrix and Helm's version skew policy rather than inherit whatever
-   the previous newest line was.
+2. If the bump crosses a **minor**, add a row to the `pins_for` table in
+   [`bundle.sh`](bundle.sh) with the containerd, runc and Helm releases for it.
+   There is deliberately no fallback: an unlisted minor is an error, so someone
+   has to read containerd's Kubernetes support matrix and Helm's version skew
+   policy rather than inherit whatever the previous newest line was.
 3. Run `make lock` on a Linux host with network access. It downloads and
    verifies every artifact, runs the verified `kubeadm` for its image list,
-   resolves each tag to a manifest digest, and rewrites `lock/<version>.json`.
+   resolves each tag to a manifest digest, and rewrites `lock/<version>.lock`.
    It prints what changed.
 4. **Review the lock diff** — every URL and every digest — with
    `git diff -- lock/`.
-5. Commit `lock/` together with the `K8S_VERSIONS` and `pins.go` changes.
+5. Commit `lock/` together with the `K8S_VERSIONS` and `bundle.sh` changes.
 
 `make debs` refuses to build a version with no matching lock, so steps 3 to 5
 are not optional.
@@ -191,10 +190,10 @@ are not optional.
 ## Layout
 
 ```text
+bundle.sh                 # build host: pin table, download, verify, pull images, stage the FHS tree
 lock/                     # committed digest pins, one file per Kubernetes version
-cmd/kubeadm-bundle/       # build host: download, verify, pull images, stage the FHS tree, write manifest.json
-internal/bundle/          # manifest and checksum helpers
 packaging/                # build-deb.sh, nfpm.yaml, maintainer scripts, systemd units, runc keyring
+test/                     # Go tests over bundle.sh and build-deb.sh; no product Go here
 ```
 
 postinst never downloads anything and never calls a package manager: `socat`,

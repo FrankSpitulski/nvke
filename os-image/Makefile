@@ -75,7 +75,7 @@ build: ## Build nke-os-image-check into bin/.
 compile: ## Type-check every package, including the ones with no binary.
 	$(GO) build ./...
 
-# packages/kubeadm-distro's deb_test.go shells out to nfpm; the pinned binary
+# packages/kubeadm-distro's test/deb_test.go shells out to nfpm; the pinned binary
 # (or its PATH fallback) has to exist before `go test ./...` reaches it, since
 # the merge gate's ubuntu-latest runner has neither NFPM_BIN set nor nfpm on
 # PATH. The nfpm rule itself lives once, in that package's own Makefile.
@@ -126,7 +126,7 @@ notices: ## Regenerate THIRD_PARTY_NOTICES.md for this module's binaries.
 	@$(MAKE) --no-print-directory -C ../controller go-licenses
 	@MODULE_ROOT="$(CURDIR)" \
 		OUTPUT="$(CURDIR)/THIRD_PARTY_NOTICES.md" \
-		PACKAGES="./cmd/nke-os-image-check ./packages/kubeadm-distro/cmd/kubeadm-bundle" \
+		PACKAGES="./cmd/nke-os-image-check" \
 		GO_LICENSES="$(CURDIR)/../controller/bin/go-licenses" \
 		bash ../controller/hack/generate-notices
 

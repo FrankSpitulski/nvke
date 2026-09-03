@@ -43,16 +43,12 @@ DEB_REVISION ?= 1
 DIST_DIR ?= $(CURDIR)/dist
 BIN_DIR ?= $(CURDIR)/bin
 
-# The committed lock files: one <version>.json per Kubernetes version, holding
+# The committed lock files: one <version>.lock per Kubernetes version, holding
 # the sha256 of every artifact and the digest of every container image. The
 # build refuses to run without them.
 LOCK_DIR ?= $(CURDIR)/lock
 
 ##@ Build
-
-# -trimpath and -s -w keep build-host paths and symbol tables out of the binaries
-# that ship inside the .deb, matching agent/Makefile.
-GO_BUILD_FLAGS := -trimpath -buildvcs=false -ldflags="-s -w"
 
 .PHONY: debs
 debs: check-host check-deb-tools bundle ## Build one .deb per K8S_VERSIONS into OUT_DIR, plus a flat apt index.
@@ -67,12 +63,12 @@ debs: check-host check-deb-tools bundle ## Build one .deb per K8S_VERSIONS into 
 	@cd "$(OUT_DIR)" && dpkg-scanpackages . /dev/null >Packages
 	@echo "wrote $(OUT_DIR)/Packages"
 
-RUNC_KEYRING := $(CURDIR)/packaging/keyrings/runc-release.gpg
-
 .PHONY: bundle
-bundle: check-host $(BIN_DIR)/kubeadm-bundle $(BIN_DIR)/crane ## Download, verify and stage the upstream artifacts into DIST_DIR.
-	$(BIN_DIR)/kubeadm-bundle -versions "$(K8S_VERSIONS_V)" -dist "$(DIST_DIR)" -lock "$(LOCK_DIR)" \
-		-crane "$(BIN_DIR)/crane" -runc-keyring "$(RUNC_KEYRING)"
+bundle: check-host $(BIN_DIR)/crane ## Download, verify and stage the upstream artifacts into DIST_DIR.
+	@set -eu; \
+	for v in $(K8S_VERSIONS_V); do \
+		./bundle.sh --version "$$v" --dist "$(DIST_DIR)" --lock-dir "$(LOCK_DIR)" --crane "$(BIN_DIR)/crane"; \
+	done
 
 .PHONY: repro-check
 repro-check: ## Build `debs` twice into fresh OUT_DIRs (DIST_DIR is reused) and diff every output byte-for-byte, both directions.
@@ -116,18 +112,16 @@ repro-check: ## Build `debs` twice into fresh OUT_DIRs (DIST_DIR is reused) and 
 	echo "kubeadm-distro: reproducible -- every .deb and the sorted Packages index matched byte-for-byte"
 
 .PHONY: lock
-lock: check-host $(BIN_DIR)/kubeadm-bundle $(BIN_DIR)/crane ## Regenerate lock/<version>.json from upstream. Review the diff, then commit it.
+lock: check-host $(BIN_DIR)/crane ## Regenerate lock/<version>.lock from upstream. Review the diff, then commit it.
 	@# Needs Linux and network: it downloads every artifact, runs the verified
 	@# kubeadm for its image list, and resolves each tag to a manifest digest.
-	$(BIN_DIR)/kubeadm-bundle -write-lock -versions "$(K8S_VERSIONS_V)" -dist "$(DIST_DIR)" -lock "$(LOCK_DIR)" \
-		-crane "$(BIN_DIR)/crane" -runc-keyring "$(RUNC_KEYRING)"
+	@set -eu; \
+	for v in $(K8S_VERSIONS_V); do \
+		./bundle.sh --write-lock --version "$$v" --dist "$(DIST_DIR)" --lock-dir "$(LOCK_DIR)" --crane "$(BIN_DIR)/crane"; \
+	done
 	@echo
 	@echo "Review the lock diff before committing it:"
 	@echo "    git diff -- $(LOCK_DIR)"
-
-$(BIN_DIR)/kubeadm-bundle: $(shell find . -name '*.go' -not -name '*_test.go')
-	@mkdir -p $(@D)
-	$(GO) build $(GO_BUILD_FLAGS) -o $@ ./cmd/kubeadm-bundle
 
 $(BIN_DIR)/crane: ## Fetch the pinned crane (go-containerregistry) release for this host.
 	@mkdir -p $(@D)
@@ -200,7 +194,7 @@ $(BIN_DIR)/nfpm:
 
 .PHONY: check-host
 check-host: ## Fail early when this host cannot run the bundle step.
-	@# The bundler runs the downloaded linux kubeadm binary to list the
+	@# bundle.sh runs the downloaded linux kubeadm binary to list the
 	@# control-plane images, and stages the downloaded containerd/CNI/crictl/helm
 	@# tarballs into an FHS tree -- both need a Linux host. There is no
 	@# development shortcut that skips this: a .deb without images or without
@@ -209,13 +203,14 @@ check-host: ## Fail early when this host cannot run the bundle step.
 		echo "kubeadm-distro: the bundle step runs the downloaded linux kubeadm binary, so it needs a Linux host; this is $$(uname -s)." >&2; \
 		exit 1; \
 	fi
-	@# crane itself is fetched by $(BIN_DIR)/crane; these are what fetch it with.
+	@# What bundle.sh downloads, verifies and unpacks with -- and what fetches
+	@# crane itself in the $(BIN_DIR)/crane rule below.
 	@missing=""; \
-	command -v curl >/dev/null 2>&1 || missing="$$missing curl"; \
-	command -v sha256sum >/dev/null 2>&1 || missing="$$missing sha256sum"; \
-	command -v tar >/dev/null 2>&1 || missing="$$missing tar"; \
+	for tool in curl gpg gzip sha256sum tar; do \
+		command -v "$$tool" >/dev/null 2>&1 || missing="$$missing $$tool"; \
+	done; \
 	if [ -n "$$missing" ]; then \
-		echo "kubeadm-distro: missing tools needed to fetch crane:$$missing" >&2; \
+		echo "kubeadm-distro: missing tools needed to bundle the upstream artifacts:$$missing" >&2; \
 		exit 1; \
 	fi
 
@@ -247,5 +242,5 @@ test: $(BIN_DIR)/nfpm ## Run this package's Go tests.
 	NFPM_BIN="$(BIN_DIR)/nfpm" $(GO) test ./...
 
 .PHONY: clean
-clean: ## Remove the built binaries and the downloaded artifact tree.
+clean: ## Remove the downloaded tools and the downloaded artifact tree.
 	rm -rf $(BIN_DIR) $(DIST_DIR)

@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package kubeadmdistro_test
 
 import (
 	"crypto/md5" //nolint:gosec // dpkg's own conffile-integrity mechanism, not a security boundary.
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,18 +18,33 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/NVIDIA/nke/os-image/packages/kubeadm-distro/internal/bundle"
 )
 
 // fixturePauseImage is the sandbox image the stubbed containerd config.toml
-// carries, standing in for what stageComponents renders from the locked
-// image list. TestBuildDeb asserts the packaged config.toml still names it.
+// carries, standing in for what bundle.sh renders from the locked image list.
+// TestBuildDeb asserts the packaged config.toml still names it.
 const fixturePauseImage = "registry.k8s.io/pause:3.10"
 
-// TestBuildDeb runs packaging/build-deb.sh over a stubbed bundle tree — tiny
-// files standing in for the real binaries — and inspects the resulting package.
-// Nothing is downloaded.
+// debVersion is the Kubernetes release every test in this file packages.
+const debVersion = "v1.36.3"
+
+// baseImagesTarball is the file the .deb postinst feeds to
+// `ctr -n k8s.io images import`; the name is part of that contract.
+const baseImagesTarball = "k8s-base-container-images_1.36.3_linux_amd64.tgz"
+
+// buildDebScript is the packaging script under test, relative to this package.
+var buildDebScript = filepath.Join("..", "packaging", "build-deb.sh")
+
+// writeSidecar writes the GNU-format `sha256sum -c` sidecar postinst verifies
+// the image tarball against.
+func writeSidecar(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	line := fmt.Sprintf("%x  %s\n", sha256.Sum256(data), filepath.Base(path))
+	require.NoError(t, os.WriteFile(path+".sha256", []byte(line), 0o644))
+}
+
 // stubBundle writes a bundle tree of tiny files standing in for the real
 // artifacts and the staged FHS runtime tree, and returns the bundle
 // directory. withImages controls whether the container image tarball is
@@ -37,43 +53,28 @@ func stubBundle(t *testing.T, version string, withImages bool) (src string) {
 	t.Helper()
 	dir := t.TempDir()
 	src = filepath.Join(dir, "dist", version)
-	archDir := filepath.Join(src, targetArch)
+	archDir := filepath.Join(src, "amd64")
 	require.NoError(t, os.MkdirAll(archDir, 0o755))
 
-	// The four matrix binaries download.go chmods 0755 in the real bundle;
+	// The four matrix binaries bundle.sh chmods 0755 in the real bundle;
 	// stubbed the same way here so a regression in that chmod shows up as a
 	// mode mismatch in TestBuildDeb's dpkg-deb -c listing instead of passing
 	// silently.
-	executables := map[string]bool{"kubeadm": true, "kubectl": true, "kubelet": true, "runc.amd64": true}
-	stubs := []string{"kubeadm", "kubectl", "kubelet", "runc.amd64"}
-	if withImages {
-		stubs = append(stubs, baseImagesTarballName(version))
+	for _, name := range []string{"kubeadm", "kubectl", "kubelet", "runc.amd64"} {
+		require.NoError(t, os.WriteFile(filepath.Join(archDir, name), []byte("stub "+name+"\n"), 0o755))
 	}
-	for _, name := range stubs {
-		path := filepath.Join(archDir, name)
-		mode := os.FileMode(0o644)
-		if executables[name] {
-			mode = 0o755
-		}
-		require.NoError(t, os.WriteFile(path, []byte("stub "+name+"\n"), mode))
-		_, err := bundle.WriteSHA256Sidecar(path)
-		require.NoError(t, err)
-	}
-
-	require.NoError(t, writeManifest(filepath.Join(src, "manifest.json"), manifestDoc{
-		Version:       version,
-		Architectures: map[string]map[string]manifestComponent{targetArch: {"kubeadm": {File: "kubeadm"}}},
-	}))
-
 	if withImages {
+		path := filepath.Join(archDir, baseImagesTarball)
+		require.NoError(t, os.WriteFile(path, []byte("stub images\n"), 0o644))
+		writeSidecar(t, path)
 		writeStage(t, src)
 	}
 	return src
 }
 
-// writeStage writes the staged FHS runtime tree stageComponents would produce
-// from real containerd/CNI/crictl/helm tarballs: the extracted binaries, the
-// CNI plugin directory, and the rendered containerd and crictl configs.
+// writeStage writes the staged FHS runtime tree bundle.sh would produce from
+// real containerd/CNI/crictl/helm tarballs: the extracted binaries, the CNI
+// plugin directory, and the rendered containerd and crictl configs.
 func writeStage(t *testing.T, src string) {
 	t.Helper()
 	stage := filepath.Join(src, "stage")
@@ -103,9 +104,6 @@ func writeStage(t *testing.T, src string) {
 	require.NoError(t, os.WriteFile(filepath.Join(stage, "etc", "crictl.yaml"), []byte(crictlYAML), 0o644))
 }
 
-// buildDebScript is the packaging script under test, relative to this package.
-var buildDebScript = filepath.Join("..", "..", "packaging", "build-deb.sh")
-
 // nfpmBin resolves the nfpm binary build-deb.sh must run against: NFPM_BIN
 // (set by `make test`, which downloads the pinned version), or nfpm on PATH.
 // Unlike dpkg-deb, which is only used here to inspect the result, nfpm builds
@@ -122,17 +120,19 @@ func nfpmBin(t *testing.T) string {
 	return ""
 }
 
+// TestBuildDeb runs packaging/build-deb.sh over a stubbed bundle tree — tiny
+// files standing in for the real binaries — and inspects the resulting package.
+// Nothing is downloaded.
 func TestBuildDeb(t *testing.T) {
 	nfpm := nfpmBin(t)
 	if _, err := exec.LookPath("dpkg-deb"); err != nil {
 		t.Skip("dpkg-deb is not on PATH")
 	}
 
-	const version = "v1.36.3"
-	src := stubBundle(t, version, true)
+	src := stubBundle(t, debVersion, true)
 	out := filepath.Join(t.TempDir(), "out")
 
-	cmd := exec.Command(buildDebScript, version, src, out)
+	cmd := exec.Command(buildDebScript, debVersion, src, out)
 	cmd.Env = append(os.Environ(), "PEER_VERSIONS=v1.36.3 v1.35.3 v1.34.2", "DEB_REVISION=1", "NFPM_BIN="+nfpm)
 	combined, err := cmd.CombinedOutput()
 	require.NoErrorf(t, err, "build-deb.sh failed: %s", combined)
@@ -245,22 +245,21 @@ func TestBuildDeb(t *testing.T) {
 		"/var/lib/kubelet/",
 		"/etc/cni/net.d/",
 		"/etc/containerd/conf.d/",
-		"/usr/lib/nke/k8s-matrix/v1.36.3/manifest.json",
-		"/usr/lib/nke/k8s-matrix/v1.36.3/manifest.json.sha256",
-		"/usr/lib/nke/k8s-matrix/v1.36.3/amd64/" + baseImagesTarballName(version),
-		"/usr/lib/nke/k8s-matrix/v1.36.3/amd64/" + baseImagesTarballName(version) + ".sha256",
+		"/usr/lib/nke/k8s-matrix/v1.36.3/amd64/" + baseImagesTarball,
+		"/usr/lib/nke/k8s-matrix/v1.36.3/amd64/" + baseImagesTarball + ".sha256",
 		"/usr/share/doc/nke-kubeadm-distro-1.36.3/README.Debian",
 	} {
 		assert.Contains(t, contents, want)
 	}
 
 	// dpkg owns everything now: the node installer, its symlink and sidecar,
-	// and every duplicate binary/tarball that used to be copied under
-	// k8s-matrix/<version>/amd64/ are gone.
+	// every duplicate binary/tarball that used to be copied under
+	// k8s-matrix/<version>/amd64/, and the bundle manifest nothing consumed,
+	// are gone.
 	for _, notWant := range []string{
 		"nke-k8s-installer",
 		"/usr/lib/nke/k8s-matrix/v1.36.3/installer",
-		"/usr/lib/nke/k8s-matrix/v1.36.3/manifest.json.sha256.sha256",
+		"/usr/lib/nke/k8s-matrix/v1.36.3/manifest.json",
 		"/usr/lib/nke/k8s-matrix/v1.36.3/amd64/kubeadm",
 		"/usr/lib/nke/k8s-matrix/v1.36.3/amd64/kubectl",
 		"/usr/lib/nke/k8s-matrix/v1.36.3/amd64/kubelet",
@@ -270,8 +269,8 @@ func TestBuildDeb(t *testing.T) {
 	}
 
 	// /usr/bin/*, /usr/sbin/runc and the staged runtime binaries get 0755 from
-	// nfpm.yaml's own file_info, which would mask a regression in download.go's
-	// chmod or in stageComponents' extraction mode.
+	// nfpm.yaml's own file_info, which would mask a regression in bundle.sh's
+	// chmod or in its tarball extraction mode.
 	for _, want := range []string{
 		"/usr/bin/kubeadm",
 		"/usr/bin/kubectl",
@@ -331,14 +330,13 @@ func TestBuildDebReproducible(t *testing.T) {
 		t.Skip("dpkg-deb is not on PATH")
 	}
 
-	const version = "v1.36.3"
-	src := stubBundle(t, version, true)
+	src := stubBundle(t, debVersion, true)
 
 	build := func(outName string, srcTime time.Time) []byte {
 		chtimesAll(t, src, srcTime)
 		out := filepath.Join(t.TempDir(), outName)
-		cmd := exec.Command(buildDebScript, version, src, out)
-		cmd.Env = append(os.Environ(), "PEER_VERSIONS="+version, "DEB_REVISION=1", "NFPM_BIN="+nfpm)
+		cmd := exec.Command(buildDebScript, debVersion, src, out)
+		cmd.Env = append(os.Environ(), "PEER_VERSIONS="+debVersion, "DEB_REVISION=1", "NFPM_BIN="+nfpm)
 		combined, err := cmd.CombinedOutput()
 		require.NoErrorf(t, err, "build-deb.sh failed: %s", combined)
 		data, err := os.ReadFile(filepath.Join(out, "nke-kubeadm-distro-1.36.3_1_amd64.deb"))
@@ -359,12 +357,11 @@ func TestBuildDebReproducible(t *testing.T) {
 func TestBuildDebRefusesBundleWithoutImages(t *testing.T) {
 	nfpm := nfpmBin(t)
 
-	const version = "v1.36.3"
-	src := stubBundle(t, version, false)
+	src := stubBundle(t, debVersion, false)
 	out := filepath.Join(t.TempDir(), "out")
 
-	cmd := exec.Command(buildDebScript, version, src, out)
-	cmd.Env = append(os.Environ(), "PEER_VERSIONS="+version, "DEB_REVISION=1", "NFPM_BIN="+nfpm)
+	cmd := exec.Command(buildDebScript, debVersion, src, out)
+	cmd.Env = append(os.Environ(), "PEER_VERSIONS="+debVersion, "DEB_REVISION=1", "NFPM_BIN="+nfpm)
 	combined, err := cmd.CombinedOutput()
 	require.Error(t, err, "build-deb.sh must refuse a bundle with no container images")
 	assert.Contains(t, string(combined), "could not bring up a node offline")
@@ -372,18 +369,17 @@ func TestBuildDebRefusesBundleWithoutImages(t *testing.T) {
 }
 
 // TestBuildDebRefusesBundleWithoutStage guards the same offline contract for
-// the staged runtime tree: a bundle whose `stage` step never ran is not
+// the staged runtime tree: a bundle whose stage step never ran is not
 // buildable either.
 func TestBuildDebRefusesBundleWithoutStage(t *testing.T) {
 	nfpm := nfpmBin(t)
 
-	const version = "v1.36.3"
-	src := stubBundle(t, version, true)
+	src := stubBundle(t, debVersion, true)
 	require.NoError(t, os.RemoveAll(filepath.Join(src, "stage")))
 	out := filepath.Join(t.TempDir(), "out")
 
-	cmd := exec.Command(buildDebScript, version, src, out)
-	cmd.Env = append(os.Environ(), "PEER_VERSIONS="+version, "DEB_REVISION=1", "NFPM_BIN="+nfpm)
+	cmd := exec.Command(buildDebScript, debVersion, src, out)
+	cmd.Env = append(os.Environ(), "PEER_VERSIONS="+debVersion, "DEB_REVISION=1", "NFPM_BIN="+nfpm)
 	combined, err := cmd.CombinedOutput()
 	require.Error(t, err, "build-deb.sh must refuse a bundle with no staged runtime tree")
 	assert.Contains(t, string(combined), "missing staged file")

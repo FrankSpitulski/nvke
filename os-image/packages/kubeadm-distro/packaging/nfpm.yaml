@@ -3,11 +3,11 @@
 #
 # nfpm package spec for nke-kubeadm-distro-<x.y.z>. build-deb.sh exports the
 # environment this file expands: PACKAGE_NAME, DEB_REVISION, ARCH, K8S_VER,
-# MATRIX_SUBDIR, PEER_CONFLICTS, SRC (the kubeadm-bundle output tree, holding
-# both the bare arch/ directory and the FHS-staged stage/ tree kubeadm-bundle
-# writes with its `stage` step) and SCRATCH (a directory build-deb.sh writes
-# README.Debian into, plus an mtime-pinned copy of stage/opt/cni/bin -- the
-# one entry below that needs it, see the comment on that entry).
+# MATRIX_SUBDIR, PEER_CONFLICTS, SRC (the bundle.sh output tree, holding both
+# the bare arch/ directory and the FHS-staged stage/ tree bundle.sh writes)
+# and SCRATCH (a directory build-deb.sh writes README.Debian into, plus an
+# mtime-pinned copy of stage/opt/cni/bin -- the one entry below that needs
+# it, see the comment on that entry).
 #
 # nfpm expands ${VAR} in ordinary string fields on its own; content entries
 # additionally need `expand: true` before their own src/dst are expanded.
@@ -98,18 +98,10 @@ scripts:
   postremove: "../bin/.nfpm-scripts/postrm"
 
 contents:
-  # Bundle metadata plus the pre-verified control-plane image tarball. This is
-  # the only content this package still ships under k8s-matrix -- every
-  # upstream binary and tarball that used to be duplicated here now installs
-  # straight to its FHS path instead.
-  - src: "${SRC}/manifest.json"
-    dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/manifest.json"
-    file_info: { mode: 0644 }
-    expand: true
-  - src: "${SRC}/manifest.json.sha256"
-    dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/manifest.json.sha256"
-    file_info: { mode: 0644 }
-    expand: true
+  # The pre-verified control-plane image tarball. This is the only content
+  # this package still ships under k8s-matrix -- every upstream binary and
+  # tarball that used to be duplicated here now installs straight to its FHS
+  # path instead.
   - src: "${SRC}/${ARCH}/k8s-base-container-images_${K8S_PATCH}_linux_${ARCH}.tgz"
     dst: "/usr/lib/nke/${MATRIX_SUBDIR}/${K8S_VER}/${ARCH}/k8s-base-container-images_${K8S_PATCH}_linux_${ARCH}.tgz"
     file_info: { mode: 0644 }
@@ -137,10 +129,9 @@ contents:
     file_info: { mode: 0755 }
     expand: true
 
-  # The runtime components kubeadm-bundle's `stage` step extracted from the
-  # containerd, crictl and helm tarballs. Individual `src:` entries (not
-  # `type: tree`) pick up the top-level `mtime` above directly, so no
-  # SCRATCH copy is needed for these.
+  # The runtime components bundle.sh extracted from the containerd, crictl and
+  # helm tarballs. Individual `src:` entries (not `type: tree`) pick up the
+  # top-level `mtime` above directly, so no SCRATCH copy is needed for these.
   - src: "${SRC}/stage/usr/local/bin/containerd"
     dst: "/usr/local/bin/containerd"
     file_info: { mode: 0755 }
@@ -215,9 +206,9 @@ contents:
     type: dir
 
   # The supported override path for config.toml, which is package-managed and
-  # rewritten on every install (see the `imports` comment in stage.go's
-  # renderContainerdConfig). Empty here; an operator drops a *.toml fragment
-  # in at runtime.
+  # rewritten on every install (see the `imports` comment on the config.toml
+  # bundle.sh renders). Empty here; an operator drops a *.toml fragment in at
+  # runtime.
   - dst: "/etc/containerd/conf.d"
     type: dir
 
