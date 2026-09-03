@@ -131,18 +131,9 @@ type Config struct {
 	// automatic timeout-based provisioning remediation.
 	NodeProvisioningTimeout time.Duration `env:"NODE_PROVISIONING_TIMEOUT" default:"2h"`
 
-	// ControllerManagerDisabled is a flag to disable the controller-manager (cluster reconciliation loop).
-	// This can act as an emergency switch to disable reconciliation.
-	ControllerManagerDisabled bool `env:"CONTROLLER_MANAGER_DISABLED" default:"false"`
-
-	// ControllerManagerPollingInterval is the interval to wait between polling for clusters due for reconciliation
-	ControllerManagerPollingInterval time.Duration `env:"CONTROLLER_MANAGER_POLLING_INTERVAL" default:"30s"`
-
-	// ControllerManagerJitterFactor is the multiplier for how much to randomly vary the controller-manager polling interval
-	ControllerManagerJitterFactor float64 `env:"CONTROLLER_MANAGER_JITTER_FACTOR" default:"0.2"`
-
-	// ControllerManagerInterval is the interval between reconciliation runs for a cluster
-	ControllerManagerInterval time.Duration `env:"CONTROLLER_MANAGER_INTERVAL" default:"2m"`
+	// NodeSchedulingRetryInterval is the retry interval for node scheduling when
+	// external capacity or provider readiness is temporarily unavailable.
+	NodeSchedulingRetryInterval time.Duration `env:"NODE_SCHEDULING_RETRY_INTERVAL" default:"2m"`
 
 	// CertRenewalControllerEnabled enables CWE-owned periodic Kubernetes control-plane certificate renewal.
 	CertRenewalControllerEnabled bool `env:"CERT_RENEWAL_CONTROLLER_ENABLED" default:"true"`
@@ -248,19 +239,6 @@ type Config struct {
 
 	// When true, all mutating requests (POST, PUT, PATCH, DELETE) must include the X-Managed-By header.
 	ManagedByK8sPlatform bool `env:"MANAGED_BY_K8S_PLATFORM" default:"false"`
-
-	// EnableCapi is a feature flag for using Cluster API as the orchestration layer.
-	// When false, no kubernetes controller manager is started and CAPI-dependent
-	// controllers (e.g. machine-spire-entry) are not registered, allowing the worker
-	// to run on clusters where the CAPI core CRDs are not yet installed.
-	EnableCapi bool `env:"ENABLE_CAPI" default:"false"`
-
-	// EnableForgeCapi is a feature flag controlling whether Forge CAPI bridge
-	// controllers and scaffold reconciliation are enabled. Node provisioning remains
-	// routed by the node infra mode; Forge-site clusters with scaffold resources still
-	// use the Forge-direct path until node provisioning is explicitly migrated.
-	// Requires EnableCapi=true.
-	EnableForgeCapi bool `env:"ENABLE_FORGE_CAPI" default:"false"`
 
 	// LocalDevForceDockerMachineBootstrap forces every node through the
 	// DockerMachine bootstrap/preflight + container-mode kubeadm contract
@@ -432,9 +410,6 @@ func (c *Config) Validate() error {
 		return err
 	}
 
-	if c.EnableForgeCapi && !c.EnableCapi {
-		return fmt.Errorf("ENABLE_FORGE_CAPI=true requires ENABLE_CAPI=true")
-	}
 	return nil
 }
 
