@@ -354,13 +354,12 @@ go-licenses: $(GO_LICENSES) ## Build the pinned go-licenses into ./bin.
 
 # crane copies an image between registries without pulling or rebuilding it. The
 # three CAPI provider repositories use it for the same promotion, at the same
-# version.
-CRANE_VERSION ?= v0.21.9
-CRANE         ?= $(CURDIR)/bin/crane
+# version. CRANE_VERSION comes from ../make/tool-versions.mk.
+CRANE ?= $(CURDIR)/bin/crane
 
 $(CRANE):
 	@echo "Installing crane $(CRANE_VERSION)..."
-	@GOBIN=$(CURDIR)/bin go install github.com/google/go-containerregistry/cmd/crane@$(CRANE_VERSION)
+	@GOBIN=$(CURDIR)/bin go install github.com/google/go-containerregistry/cmd/crane@v$(CRANE_VERSION)
 
 .PHONY: crane
 crane: $(CRANE) ## Build the pinned crane into ./bin.

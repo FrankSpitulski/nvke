@@ -25,20 +25,8 @@ ORAS_VERSION        ?= 1.3.3
 PACKER_VERSION      ?= 1.14.2
 GO_LICENSES_VERSION ?= v2.0.1
 
-# os-image/packages/kubeadm-distro/Makefile: resolves and pulls the base
-# container images with crane instead of go-containerregistry as a library.
-# The sha256 pins live here too, next to the version, so a version bump moves
-# both in the same change. Darwin has no pin: a developer's own `crane` (for
-# example via `brew install crane`) is used instead.
+# crane resolves and pulls the kubeadm-distro base images; nfpm packages the
+# .deb. Both are `go install`ed into that package's bin/, so no checksum pin
+# is needed here.
 CRANE_VERSION ?= 0.21.9
-CRANE_LINUX_AMD64_SHA256 ?= 5c16d8ddb971cb1d5e6ed8b1e743da8224414eeba2c2762d8f1a61b2f095699e
-CRANE_LINUX_ARM64_SHA256 ?= 1f4c647b7bb260ab5435661df5b526cf59950ebf95201790db7183ac189cbcbd
-
-# os-image/packages/kubeadm-distro/Makefile: packages nke-kubeadm-distro debs
-# with nfpm instead of dpkg-deb. Same shape as the crane pins above: the
-# sha256 pins live here next to the version, and Darwin has no pin -- a
-# developer's own `nfpm` (for example via `brew install nfpm`) is used
-# instead.
-NFPM_VERSION ?= 2.47.0
-NFPM_LINUX_AMD64_SHA256 ?= 0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783
-NFPM_LINUX_ARM64_SHA256 ?= 1c0f5f2999b9a974bfb04fdb0cc3306096de530ac5dbb25d739cc5f5219c919c
+NFPM_VERSION  ?= 2.47.0

@@ -77,7 +77,7 @@ repository's `bin/`, and `make version-check` runs it with `--version`.
 - `packages/kubeadm-distro/` packages upstream Kubernetes release binaries
   (nothing is compiled) into the staged `nke-kubeadm-distro-<x.y.z>` debs, on
   a Linux/amd64 host with `dpkg-dev` and `gnupg`; `nfpm` and `crane` are
-  downloaded by its `Makefile` and pinned in `make/tool-versions.mk` (also in
+  built by its `Makefile` with `go install`, pinned in `make/tool-versions.mk` (also in
   the Flox environment for developers), so neither needs manual install.
   `K8S_VERSIONS` in `packages/kubeadm-distro/Makefile` is the pin; docs may
   quote the current values. Nothing is installed at bake time: the debs land

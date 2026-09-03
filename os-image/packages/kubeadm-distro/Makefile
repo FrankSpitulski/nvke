@@ -15,21 +15,15 @@ GO ?= go
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 
-# CRANE_VERSION/CRANE_LINUX_*_SHA256 and NFPM_VERSION/NFPM_LINUX_*_SHA256 live
-# together in make/tool-versions.mk at the repository root, so a version bump
-# and its digests move as one change. crane (from go-containerregistry)
-# resolves image tags to manifest digests and pulls the pinned digests; nfpm
-# packages the .deb. Neither is pinned for Darwin: a developer's own `crane`
-# or `nfpm` (for example via `brew install crane`/`brew install nfpm`) is used
-# instead.
+# CRANE_VERSION and NFPM_VERSION come from make/tool-versions.mk.
 include ../../../make/tool-versions.mk
 
-# The Kubernetes releases bundled by `make debs`: the newest patch of each of the
-# three newest minors. This is the single place to bump them; see README.md.
+# The newest patch of each of the three newest Kubernetes minors. Bump them
+# here; see README.md.
 K8S_VERSIONS ?= v1.36.3 v1.35.3 v1.34.2
 
-# Accept 1.36.3 as well as v1.36.3: the bundle directories and the download URLs
-# are all leading-v, so normalise once here. Package names drop the v again.
+# The bundle directories and download URLs are all leading-v, so accept
+# 1.36.3 as well as v1.36.3. Package names drop the v again.
 K8S_VERSIONS_V := $(foreach v,$(K8S_VERSIONS),v$(patsubst v%,%,$(v)))
 
 # Where the .deb files and the apt index are written. Required by `debs`.
@@ -43,9 +37,8 @@ DEB_REVISION ?= 1
 DIST_DIR ?= $(CURDIR)/dist
 BIN_DIR ?= $(CURDIR)/bin
 
-# The committed lock files: one <version>.lock per Kubernetes version, holding
-# the sha256 of every artifact and the digest of every container image. The
-# build refuses to run without them.
+# The committed lock files, one per Kubernetes version. The build refuses to
+# run without them.
 LOCK_DIR ?= $(CURDIR)/lock
 
 ##@ Build
@@ -71,18 +64,14 @@ bundle: check-host $(BIN_DIR)/crane ## Download, verify and stage the upstream a
 	done
 
 .PHONY: repro-check
-repro-check: ## Build `debs` twice into fresh OUT_DIRs (DIST_DIR is reused) and diff every output byte-for-byte, both directions.
-	@# Deliberately no check-host/check-deb-tools prereqs: this target does
-	@# not use $(OUT_DIR) itself (it builds its own via mktemp), and adding
-	@# either prereq here required OUT_DIR to already be set just to
-	@# validate a value nothing below reads, breaking the documented
-	@# `make repro-check` invocation. The nested `debs` calls below carry
-	@# their own check-host/check-deb-tools prereqs, so a genuinely missing
-	@# tool or non-Linux host is still caught, just from inside them.
+repro-check: ## Build `debs` twice into throwaway OUT_DIRs and diff every output byte-for-byte.
+	@# No check-host/check-deb-tools prereqs: they would demand an OUT_DIR
+	@# this target never reads, since it builds its own. The nested `debs`
+	@# calls carry those prereqs themselves.
 	@#
-	@# DIST_DIR is deliberately not overridden: both nested `debs` runs share
-	@# it, so the network download happens at most once and the second build
-	@# is testing nfpm/build-deb.sh determinism, not artifact-fetch flakiness.
+	@# DIST_DIR is shared by both nested runs, so the download happens at
+	@# most once and the second build measures build determinism rather than
+	@# artifact-fetch flakiness.
 	@set -eu; \
 	a="$$(mktemp -d)"; b="$$(mktemp -d)"; \
 	trap 'rm -rf "$$a" "$$b"' EXIT; \
@@ -109,12 +98,12 @@ repro-check: ## Build `debs` twice into fresh OUT_DIRs (DIST_DIR is reused) and 
 		echo "kubeadm-distro: not reproducible, these files differ between the two builds:$$diffs" >&2; \
 		exit 1; \
 	fi; \
-	echo "kubeadm-distro: reproducible -- every .deb and the sorted Packages index matched byte-for-byte"
+	echo "kubeadm-distro: reproducible: every .deb and the sorted Packages index matched byte-for-byte"
 
 .PHONY: lock
 lock: check-host $(BIN_DIR)/crane ## Regenerate lock/<version>.lock from upstream. Review the diff, then commit it.
 	@# Needs Linux and network: it downloads every artifact, runs the verified
-	@# kubeadm for its image list, and resolves each tag to a manifest digest.
+	@# kubeadm for its image list, and resolves each tag to a digest.
 	@set -eu; \
 	for v in $(K8S_VERSIONS_V); do \
 		./bundle.sh --write-lock --version "$$v" --dist "$(DIST_DIR)" --lock-dir "$(LOCK_DIR)" --crane "$(BIN_DIR)/crane"; \
@@ -123,88 +112,29 @@ lock: check-host $(BIN_DIR)/crane ## Regenerate lock/<version>.lock from upstrea
 	@echo "Review the lock diff before committing it:"
 	@echo "    git diff -- $(LOCK_DIR)"
 
-$(BIN_DIR)/crane: ## Fetch the pinned crane (go-containerregistry) release for this host.
-	@mkdir -p $(@D)
-	@set -eu; \
-	if [ "$(UNAME_S)" = "Darwin" ]; then \
-		if command -v crane >/dev/null 2>&1; then \
-			install -m 0755 "$$(command -v crane)" $@; \
-		else \
-			echo "kubeadm-distro: crane is not pinned for Darwin; install it (for example: brew install crane) so it is on PATH." >&2; \
-			exit 1; \
-		fi; \
-	else \
-		case "$(UNAME_M)" in \
-			x86_64|amd64) arch=x86_64; sha=$(CRANE_LINUX_AMD64_SHA256) ;; \
-			aarch64|arm64) arch=arm64; sha=$(CRANE_LINUX_ARM64_SHA256) ;; \
-			*) echo "kubeadm-distro: no pinned crane release for $(UNAME_S)/$(UNAME_M)" >&2; exit 1 ;; \
-		esac; \
-		tmp=$$(mktemp -d); \
-		trap 'rm -rf "$$tmp"' EXIT; \
-		file="go-containerregistry_Linux_$${arch}.tar.gz"; \
-		url="https://github.com/google/go-containerregistry/releases/download/v$(CRANE_VERSION)/$${file}"; \
-		echo "downloading $${url}"; \
-		curl --fail --silent --show-error --location \
-			--connect-timeout 10 --max-time 120 \
-			--retry 3 --retry-delay 5 --retry-connrefused \
-			-o "$$tmp/$${file}" "$${url}"; \
-		echo "$${sha}  $$tmp/$${file}" | sha256sum -c -; \
-		tar -xzf "$$tmp/$${file}" -C "$$tmp" crane; \
-		install -m 0755 "$$tmp/crane" $@; \
-	fi
+$(BIN_DIR)/crane: ## Build the pinned crane (go-containerregistry) into ./bin.
+	@GOBIN=$(BIN_DIR) $(GO) install github.com/google/go-containerregistry/cmd/crane@v$(CRANE_VERSION)
 
-# Named alias, so ../../Makefile's `test` can ask for the binary by a phony
-# name (`$(MAKE) -C packages/kubeadm-distro nfpm`) rather than the absolute
-# $(BIN_DIR)/nfpm target path, matching go-licenses's alias in
-# controller/Makefile.
+# Phony alias so ../../Makefile's `test` can ask for the binary by name rather
+# than by the absolute $(BIN_DIR)/nfpm path.
 .PHONY: nfpm
-nfpm: $(BIN_DIR)/nfpm ## Fetch the pinned nfpm (goreleaser) release for this host.
+nfpm: $(BIN_DIR)/nfpm ## Build the pinned nfpm (goreleaser) into ./bin.
 
 $(BIN_DIR)/nfpm:
-	@mkdir -p $(@D)
-	@set -eu; \
-	if [ "$(UNAME_S)" = "Darwin" ]; then \
-		if command -v nfpm >/dev/null 2>&1; then \
-			install -m 0755 "$$(command -v nfpm)" $@; \
-		else \
-			echo "kubeadm-distro: nfpm is not pinned for Darwin; install it (for example: brew install nfpm) so it is on PATH." >&2; \
-			exit 1; \
-		fi; \
-	else \
-		case "$(UNAME_M)" in \
-			x86_64|amd64) arch=x86_64; sha=$(NFPM_LINUX_AMD64_SHA256) ;; \
-			aarch64|arm64) arch=arm64; sha=$(NFPM_LINUX_ARM64_SHA256) ;; \
-			*) echo "kubeadm-distro: no pinned nfpm release for $(UNAME_S)/$(UNAME_M)" >&2; exit 1 ;; \
-		esac; \
-		tmp=$$(mktemp -d); \
-		trap 'rm -rf "$$tmp"' EXIT; \
-		file="nfpm_$(NFPM_VERSION)_Linux_$${arch}.tar.gz"; \
-		url="https://github.com/goreleaser/nfpm/releases/download/v$(NFPM_VERSION)/$${file}"; \
-		echo "downloading $${url}"; \
-		curl --fail --silent --show-error --location \
-			--connect-timeout 10 --max-time 120 \
-			--retry 3 --retry-delay 5 --retry-connrefused \
-			-o "$$tmp/$${file}" "$${url}"; \
-		echo "$${sha}  $$tmp/$${file}" | sha256sum -c -; \
-		tar -xzf "$$tmp/$${file}" -C "$$tmp" nfpm; \
-		install -m 0755 "$$tmp/nfpm" $@; \
-	fi
+	@GOBIN=$(BIN_DIR) $(GO) install github.com/goreleaser/nfpm/v2/cmd/nfpm@v$(NFPM_VERSION)
 
 ##@ Checks
 
 .PHONY: check-host
 check-host: ## Fail early when this host cannot run the bundle step.
 	@# bundle.sh runs the downloaded linux kubeadm binary to list the
-	@# control-plane images, and stages the downloaded containerd/CNI/crictl/helm
-	@# tarballs into an FHS tree -- both need a Linux host. There is no
-	@# development shortcut that skips this: a .deb without images or without
-	@# the staged runtime tree is not a product this build produces.
+	@# control-plane images and stages the containerd/CNI/crictl/helm tarballs
+	@# into an FHS tree, both of which need a Linux host.
 	@if [ "$$(uname -s)" != "Linux" ]; then \
 		echo "kubeadm-distro: the bundle step runs the downloaded linux kubeadm binary, so it needs a Linux host; this is $$(uname -s)." >&2; \
 		exit 1; \
 	fi
-	@# What bundle.sh downloads, verifies and unpacks with -- and what fetches
-	@# crane itself in the $(BIN_DIR)/crane rule below.
+	@# What bundle.sh downloads, verifies and unpacks with.
 	@missing=""; \
 	for tool in curl gpg gzip sha256sum tar; do \
 		command -v "$$tool" >/dev/null 2>&1 || missing="$$missing $$tool"; \
@@ -242,5 +172,5 @@ test: $(BIN_DIR)/nfpm ## Run this package's Go tests.
 	NFPM_BIN="$(BIN_DIR)/nfpm" $(GO) test ./...
 
 .PHONY: clean
-clean: ## Remove the downloaded tools and the downloaded artifact tree.
+clean: ## Remove the built tools and the downloaded artifact tree.
 	rm -rf $(BIN_DIR) $(DIST_DIR)
