@@ -30,9 +30,9 @@ GO_LICENSES_VERSION ?= v2.0.1
 # The sha256 pins live here too, next to the version, so a version bump moves
 # both in the same change. Darwin has no pin: a developer's own `crane` (for
 # example via `brew install crane`) is used instead.
-CRANE_VERSION ?= 0.22.0
-CRANE_LINUX_AMD64_SHA256 ?= edb74d53fad9a596860f59d1c5d04a43dfb5f441dc71f57060dd0bf39483c833
-CRANE_LINUX_ARM64_SHA256 ?= 971e8e2de7e09172330527a9dfb10689e344b160fd81bac7fb91adcb109bad37
+CRANE_VERSION ?= 0.21.9
+CRANE_LINUX_AMD64_SHA256 ?= 5c16d8ddb971cb1d5e6ed8b1e743da8224414eeba2c2762d8f1a61b2f095699e
+CRANE_LINUX_ARM64_SHA256 ?= 1f4c647b7bb260ab5435661df5b526cf59950ebf95201790db7183ac189cbcbd
 
 # os-image/packages/kubeadm-distro/Makefile: packages nke-kubeadm-distro debs
 # with nfpm instead of dpkg-deb. Same shape as the crane pins above: the

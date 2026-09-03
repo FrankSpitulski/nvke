@@ -9,6 +9,11 @@
       "clusterctl": {
         "pkg-path": "clusterctl"
       },
+      "crane": {
+        "pkg-path": "crane",
+        "pkg-group": "crane",
+        "version": "0.21.9"
+      },
       "dpkg": {
         "pkg-path": "dpkg"
       },
@@ -535,6 +540,93 @@
       },
       "system": "x86_64-linux",
       "group": "kubeconform",
+      "priority": 5
+    },
+    {
+      "attr_path": "nfpm",
+      "broken": false,
+      "derivation": "/nix/store/44lwpyz3b5pmjj8yi7mrrgrl1cvp0ksh-nfpm-2.47.0.drv",
+      "description": "Simple deb and rpm packager written in Go",
+      "install_id": "nfpm",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
+      "name": "nfpm-2.47.0",
+      "pname": "nfpm",
+      "rev": "34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
+      "rev_count": 1064949,
+      "rev_date": "2026-08-31T12:23:27Z",
+      "scrape_date": "2026-09-01T04:58:04.117302Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.47.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/f6z7qaryl23b7477v2470sr8z6l9b9in-nfpm-2.47.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "nfpm",
+      "priority": 5
+    },
+    {
+      "attr_path": "nfpm",
+      "broken": false,
+      "derivation": "/nix/store/kd7hfgda222ifv1lbj78giac642sgviw-nfpm-2.47.0.drv",
+      "description": "Simple deb and rpm packager written in Go",
+      "install_id": "nfpm",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
+      "name": "nfpm-2.47.0",
+      "pname": "nfpm",
+      "rev": "34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
+      "rev_count": 1064949,
+      "rev_date": "2026-08-31T12:23:27Z",
+      "scrape_date": "2026-09-01T05:29:52.523793Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.47.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/61ricc0jql16s8bl4igndq837bshyn8d-nfpm-2.47.0"
+      },
+      "system": "aarch64-linux",
+      "group": "nfpm",
+      "priority": 5
+    },
+    {
+      "attr_path": "nfpm",
+      "broken": false,
+      "derivation": "/nix/store/fjkjh10z8gzx8gpn43snl6j73zz3z2bf-nfpm-2.47.0.drv",
+      "description": "Simple deb and rpm packager written in Go",
+      "install_id": "nfpm",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
+      "name": "nfpm-2.47.0",
+      "pname": "nfpm",
+      "rev": "34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
+      "rev_count": 1064949,
+      "rev_date": "2026-08-31T12:23:27Z",
+      "scrape_date": "2026-09-01T06:06:41.905693Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.47.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/knqpz16ar9qhb8ac67010s0bjvw3z7y0-nfpm-2.47.0"
+      },
+      "system": "x86_64-linux",
+      "group": "nfpm",
       "priority": 5
     },
     {
@@ -1820,90 +1912,96 @@
       "priority": 5
     },
     {
-      "attr_path": "nfpm",
+      "attr_path": "crane",
       "broken": false,
-      "derivation": "/nix/store/44lwpyz3b5pmjj8yi7mrrgrl1cvp0ksh-nfpm-2.47.0.drv",
-      "description": "Simple deb and rpm packager written in Go",
-      "install_id": "nfpm",
-      "license": "MIT",
+      "derivation": "/nix/store/d7y7nwvi1d42b5mxkwi5lm488qqgxbkp-go-containerregistry-0.21.9.drv",
+      "description": "Tools for interacting with remote images and registries including crane and gcrane",
+      "install_id": "crane",
+      "license": "Apache-2.0",
       "locked_url": "https://github.com/flox/nixpkgs?rev=34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
-      "name": "nfpm-2.47.0",
-      "pname": "nfpm",
+      "name": "go-containerregistry-0.21.9",
+      "pname": "crane",
       "rev": "34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
       "rev_count": 1064949,
       "rev_date": "2026-08-31T12:23:27Z",
-      "scrape_date": "2026-09-01T04:58:04.117302Z",
+      "scrape_date": "2026-09-01T04:57:40.370801Z",
       "stabilities": [
         "unstable"
       ],
       "unfree": false,
-      "version": "2.47.0",
+      "version": "0.21.9",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/f6z7qaryl23b7477v2470sr8z6l9b9in-nfpm-2.47.0"
+        "crane": "/nix/store/s062v264ldzwg9x0diwcxrzvvbvjdmb5-go-containerregistry-0.21.9-crane",
+        "gcrane": "/nix/store/43kvp346zryn98zmr1x3wn5fmsaz31gg-go-containerregistry-0.21.9-gcrane",
+        "out": "/nix/store/3cisn99ibw2nphlf8dl5v0bgd2c2kss3-go-containerregistry-0.21.9"
       },
       "system": "aarch64-darwin",
-      "group": "nfpm",
+      "group": "crane",
       "priority": 5
     },
     {
-      "attr_path": "nfpm",
+      "attr_path": "crane",
       "broken": false,
-      "derivation": "/nix/store/kd7hfgda222ifv1lbj78giac642sgviw-nfpm-2.47.0.drv",
-      "description": "Simple deb and rpm packager written in Go",
-      "install_id": "nfpm",
-      "license": "MIT",
+      "derivation": "/nix/store/ba9ng4fciqbm4ijsm6a3z37ddy9fhbim-go-containerregistry-0.21.9.drv",
+      "description": "Tools for interacting with remote images and registries including crane and gcrane",
+      "install_id": "crane",
+      "license": "Apache-2.0",
       "locked_url": "https://github.com/flox/nixpkgs?rev=34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
-      "name": "nfpm-2.47.0",
-      "pname": "nfpm",
+      "name": "go-containerregistry-0.21.9",
+      "pname": "crane",
       "rev": "34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
       "rev_count": 1064949,
       "rev_date": "2026-08-31T12:23:27Z",
-      "scrape_date": "2026-09-01T05:29:52.523793Z",
+      "scrape_date": "2026-09-01T05:29:15.813331Z",
       "stabilities": [
         "unstable"
       ],
       "unfree": false,
-      "version": "2.47.0",
+      "version": "0.21.9",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/61ricc0jql16s8bl4igndq837bshyn8d-nfpm-2.47.0"
+        "crane": "/nix/store/hl4p2lxacywfsyrlc4n1ij3lk4nnbcxk-go-containerregistry-0.21.9-crane",
+        "gcrane": "/nix/store/i4xbwc59pql16z9lp8s2nknr1iyy8w4s-go-containerregistry-0.21.9-gcrane",
+        "out": "/nix/store/ja4illyyl0m9d1h6pcv8fm3lkqkk9vd5-go-containerregistry-0.21.9"
       },
       "system": "aarch64-linux",
-      "group": "nfpm",
+      "group": "crane",
       "priority": 5
     },
     {
-      "attr_path": "nfpm",
+      "attr_path": "crane",
       "broken": false,
-      "derivation": "/nix/store/fjkjh10z8gzx8gpn43snl6j73zz3z2bf-nfpm-2.47.0.drv",
-      "description": "Simple deb and rpm packager written in Go",
-      "install_id": "nfpm",
-      "license": "MIT",
+      "derivation": "/nix/store/0904gmhjcys7ry62yp5dhg7h13s3nzbv-go-containerregistry-0.21.9.drv",
+      "description": "Tools for interacting with remote images and registries including crane and gcrane",
+      "install_id": "crane",
+      "license": "Apache-2.0",
       "locked_url": "https://github.com/flox/nixpkgs?rev=34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
-      "name": "nfpm-2.47.0",
-      "pname": "nfpm",
+      "name": "go-containerregistry-0.21.9",
+      "pname": "crane",
       "rev": "34ab99075ac4f7e40cf037eef32cb1c360bb85e9",
       "rev_count": 1064949,
       "rev_date": "2026-08-31T12:23:27Z",
-      "scrape_date": "2026-09-01T06:06:41.905693Z",
+      "scrape_date": "2026-09-01T06:06:01.662690Z",
       "stabilities": [
         "unstable"
       ],
       "unfree": false,
-      "version": "2.47.0",
+      "version": "0.21.9",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/knqpz16ar9qhb8ac67010s0bjvw3z7y0-nfpm-2.47.0"
+        "crane": "/nix/store/q56y6bvkcyrvg5m9ki5q5w8x8lgwx8ll-go-containerregistry-0.21.9-crane",
+        "gcrane": "/nix/store/wx1ihzs1jys180d1r22axp3gvbihz068-go-containerregistry-0.21.9-gcrane",
+        "out": "/nix/store/7318ps47zwckkqbi10yvwwdwn19zcvjb-go-containerregistry-0.21.9"
       },
       "system": "x86_64-linux",
-      "group": "nfpm",
+      "group": "crane",
       "priority": 5
     }
   ]

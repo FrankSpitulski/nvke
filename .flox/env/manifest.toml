@@ -38,7 +38,7 @@ kind = { pkg-path = "kind", version = "0.32.0", pkg-group = "kind" }
 oapi-codegen = { pkg-path = "oapi-codegen", version = "2.4.1", pkg-group = "oapi-codegen" }
 # os-image/packages/kubeadm-distro/Makefile pins CRANE_VERSION for the Linux
 # release download; this covers local (including Darwin) development.
-crane = { pkg-path = "crane", version = "0.22.0", pkg-group = "crane" }
+crane = { pkg-path = "crane", version = "0.21.9", pkg-group = "crane" }
 gnumake.pkg-path = "gnumake"
 gnumake.outputs = "all"
 temporal-cli.pkg-path = "temporal-cli"
