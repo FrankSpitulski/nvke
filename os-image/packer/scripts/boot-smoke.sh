@@ -49,13 +49,18 @@ fi
 # no /dev/kvm, so -enable-kvm makes QEMU exit instead of booting. Emulated
 # boot is minutes rather than seconds, so the timeout moves with the
 # accelerator.
+#
+# The KVM budget is generous on purpose: the one measured KVM boot on the CI
+# runner took 159 s to finish cloud-init, and a run on the same commit blew
+# through 180 s. Under restrict=on (below) anything in the guest that phones
+# home times out instead of being refused, which makes boot time vary.
 if [[ -c /dev/kvm && -w /dev/kvm ]]; then
   accel_args=(-enable-kvm -cpu host)
-  boot_timeout="${BOOT_TIMEOUT:-180}"
+  boot_timeout="${BOOT_TIMEOUT:-600}"
 else
   echo "boot-smoke: no usable /dev/kvm, booting under software emulation (slower)" >&2
   accel_args=(-accel tcg)
-  boot_timeout="${BOOT_TIMEOUT:-1200}"
+  boot_timeout="${BOOT_TIMEOUT:-1800}"
 fi
 
 if [[ ! -f "${QCOW}" ]]; then
@@ -125,11 +130,23 @@ if [[ -n "${OVMF_CODE}" ]]; then
   )
 fi
 
-echo "boot-smoke: starting VM (ssh on 127.0.0.1:${SSH_PORT})"
+# The guest's serial console goes to build-logs/, the directory the Packer
+# templates already write their install consoles to and CI uploads on
+# failure, so a boot-smoke failure leaves the same evidence a bake failure
+# does. dump_console tails it into the job log on the failure paths below.
+console_log="${ROOT}/build-logs/boot-smoke-console.log"
+mkdir -p "$(dirname "${console_log}")"
+dump_console() {
+  echo "boot-smoke: last 60 lines of the guest console (${console_log}):" >&2
+  tail -n 60 "${console_log}" >&2 2>/dev/null || true
+}
+
+echo "boot-smoke: starting VM (ssh on 127.0.0.1:${SSH_PORT}, console in ${console_log})"
 qemu-system-x86_64 \
   -m 2048 -smp 2 \
   "${accel_args[@]}" \
-  -nographic \
+  -display none \
+  -serial "file:${console_log}" \
   "${efi_args[@]}" \
   -drive if=virtio,file="${disk}",format=qcow2 \
   -drive if=virtio,file="${seed}",format=raw \
@@ -138,16 +155,31 @@ qemu-system-x86_64 \
   -pidfile "${pidfile}" \
   &
 
-deadline=$((SECONDS + boot_timeout))
-# timeout wraps the ssh call itself: ConnectTimeout only bounds the SSH
-# handshake, not 'cloud-init status --wait' actually returning on the guest.
-until ssh_run 30 'cloud-init status --wait' 2>/dev/null; do
+# Two waits, so a failure names what actually failed. First, SSH reachable at
+# all; only the handshake is bounded here. Second, one blocking
+# `cloud-init status --wait` for whatever budget is left, with its output
+# kept: it exits 1 on error and 2 on degraded, and folding it into the SSH
+# loop reported both as "not SSH-reachable" with the reason thrown away.
+boot_start=${SECONDS}
+deadline=$((boot_start + boot_timeout))
+until ssh_run 15 true 2>/dev/null; do
   if ((SECONDS > deadline)); then
-    echo "boot-smoke: VM did not become SSH-reachable within ${boot_timeout}s" >&2
+    echo "boot-smoke: no SSH on 127.0.0.1:${SSH_PORT} within ${boot_timeout}s" >&2
+    dump_console
     exit 1
   fi
   sleep 5
 done
+echo "boot-smoke: SSH reachable after $((SECONDS - boot_start))s"
+
+remaining=$((deadline - SECONDS))
+((remaining > 30)) || remaining=30
+if ! ssh_run "${remaining}" 'cloud-init status --wait --long'; then
+  echo "boot-smoke: cloud-init did not finish cleanly within ${boot_timeout}s of boot" >&2
+  ssh_run 30 'cloud-init status --long; sudo tail -n 100 /var/log/cloud-init.log' >&2 || true
+  dump_console
+  exit 1
+fi
 
 echo "boot-smoke: VM booted and completed cloud-init OK"
 
@@ -255,21 +287,32 @@ echo "kubeadm preflight (2 vCPU / 2GB smoke VM, so NumCPU and Mem are ignored):"
 sudo kubeadm init phase preflight --ignore-preflight-errors=NumCPU,Mem
 EOF
 
-  # Image equality: the delta this install imported, minus the digest aliases
-  # `ctr images import` adds (registry/repo@sha256:... and bare sha256:...,
-  # which kubeadm's list never has), must equal `kubeadm config images list`
-  # exactly -- not merely be a superset.
+  # Two directions, checked separately because images accumulate across the
+  # loop and consecutive releases share some (1.34.2 and 1.35.3 both ship
+  # pause:3.10.1), so "what this install added" is not "what kubeadm needs":
+  #   1. every image kubeadm lists is in containerd after the install;
+  #   2. nothing this install added is outside kubeadm's list.
+  # The digest aliases `ctr images import` adds (registry/repo@sha256:... and
+  # bare sha256:...) are dropped first; kubeadm's list never has them.
   after_images="${workdir}/after-images-${ver}.txt"
   ssh_run 30 'sudo ctr -n k8s.io images ls -q | sort -u' >"${after_images}"
   expected_images="${workdir}/expected-images-${ver}.txt"
   ssh_run 30 "kubeadm config images list --kubernetes-version v${ver} | sort -u" >"${expected_images}"
   delta_images="${workdir}/delta-images-${ver}.txt"
-  comm -13 "${before_images}" "${after_images}" | grep -Ev '(@|^)sha256:' >"${delta_images}" || true
-  if ! diff -u "${expected_images}" "${delta_images}"; then
-    echo "boot-smoke: ${pkg} imported image delta does not equal kubeadm config images list" >&2
+  comm -13 "${before_images}" "${after_images}" | { grep -Ev '(@|^)sha256:' || [[ $? -eq 1 ]]; } >"${delta_images}"
+  missing_images="$(comm -23 "${expected_images}" "${after_images}")"
+  if [[ -n "${missing_images}" ]]; then
+    echo "boot-smoke: ${pkg} did not import every image kubeadm config images list needs; missing:" >&2
+    echo "${missing_images}" >&2
     exit 1
   fi
-  echo "boot-smoke: ${pkg} passed version/unit-state/sysctl/preflight checks and imported exactly the $(wc -l <"${delta_images}" | tr -d ' ') expected images"
+  extra_images="$(comm -13 "${expected_images}" "${delta_images}")"
+  if [[ -n "${extra_images}" ]]; then
+    echo "boot-smoke: ${pkg} imported image(s) kubeadm config images list does not ask for:" >&2
+    echo "${extra_images}" >&2
+    exit 1
+  fi
+  echo "boot-smoke: ${pkg} passed version/unit-state/sysctl/preflight checks; all $(wc -l <"${expected_images}" | tr -d ' ') images kubeadm lists are present and this install added nothing else ($(wc -l <"${delta_images}" | tr -d ' ') new)"
 
   # apt copies the local .deb it installs from into /var/cache/apt/archives
   # even though the source is already on disk under /usr/lib/nke/debs/, so

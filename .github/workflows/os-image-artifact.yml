@@ -146,16 +146,11 @@ jobs:
           echo "Publishing ${version} as: ${aliases[*]}"
           echo "Baking nke-agent ${agent_version} from source"
 
-      - name: Build and test nke-os-image-check
-        working-directory: os-image
-        run: |
-          set -euo pipefail
-          make test
-          make build
-
-      # nfpm and crane are not installed here: os-image/packages/kubeadm-distro's
-      # Makefile `go install`s both, pinned in make/tool-versions.mk, into bin/
-      # on demand, so this workflow needs nothing extra for them.
+      # Before `make test`: packages/kubeadm-distro's bundle tests skip when gpg
+      # is missing, so installing gnupg after the test step would let them skip
+      # silently here (go-build.yml orders these the same way). nfpm and crane
+      # are not installed here: that module's Makefile `go install`s both,
+      # pinned in make/tool-versions.mk, into bin/ on demand.
       - name: Install QEMU, cloud-localds, swtpm, OVMF, 7z, xorriso, dpkg-dev, and gnupg
         run: |
           set -euo pipefail
@@ -164,6 +159,13 @@ jobs:
           qemu-system-x86_64 --version | head -1
           qemu-img --version | head -1
           swtpm --version
+
+      - name: Build and test nke-os-image-check
+        working-directory: os-image
+        run: |
+          set -euo pipefail
+          make test
+          make build
 
       # A gate, deliberately: this runner label is chosen specifically for
       # /dev/kvm (see the comment on runs-on above). A missing device means

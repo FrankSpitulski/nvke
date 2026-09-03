@@ -211,8 +211,10 @@ kubeadm upgrade runbook works around that by installing the next
 For every staged version, `boot-smoke.sh` installs the deb offline and asserts
 `kubeadm version`, that `containerd` is active and enabled and `kubelet` is
 enabled but inactive, that the k8s sysctls are `1` and swap is off, that the
-images this install added to containerd equal `kubeadm config images list`
-exactly, and that `kubeadm init phase preflight` passes. It runs `apt-get
+image set in containerd covers `kubeadm config images list` and this install
+added nothing outside that list (images accumulate across the loop, and
+consecutive releases share some, so the two directions are checked
+separately), and that `kubeadm init phase preflight` passes. It runs `apt-get
 clean` after each install (apt caches a copy of every local `.deb` it
 installs) and checks more than 1 GiB is still free on `/` at the end -- see
 the `disk_size` arithmetic in `packer/nke-node-fde.pkr.hcl`. Finally it
