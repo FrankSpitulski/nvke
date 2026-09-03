@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+hooks:
+  beforeJoinNode:
+    - runbook:
+        name: disable-ipv6-grub
+    - runbook:
+        name: disable-ipv6-sysctl
+    - runbook:
+        name: configure-inotify
+    - runbook:
+        name: enable-ipv4-forward
+    - runbook:
+        name: disable-swap
+    - runbook:
+        name: install-chrony
+    - runbook:
+        name: lvextend
+
+preJoinNodeReboot: true
+labels:
+  - nodeGroup=worker
+  - node.kubernetes.io/instance-type=cpu
+  - nodeType=cpu

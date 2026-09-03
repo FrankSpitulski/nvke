@@ -112,88 +112,95 @@ def register(ctx):
 
     # -----------------------------------------------------------------------
     # Observability stack (Loki + Promtail DaemonSet + Grafana in K8s)
+    #
+    # On by default for a developer. A CI lane turns it off with
+    # "nico_vms_observability": false in tilt_config.json: three Helm installs
+    # and a host Promtail container that nothing in the lane reads, and one more
+    # chart repository and image registry that can be down.
     # -----------------------------------------------------------------------
+    _observability = ctx.cfg.get("nico_vms_observability", True)
     _helm_values = os.path.join(_deploy, "helm-values")
 
-    helm_repo(
-        "grafana",
-        "https://grafana.github.io/helm-charts",
-        labels=["4-observability"],
-        resource_name="grafana-repo",
-    )
+    if _observability:
+        helm_repo(
+            "grafana",
+            "https://grafana.github.io/helm-charts",
+            labels=["4-observability"],
+            resource_name="grafana-repo",
+        )
 
-    _loki_values = os.path.join(_helm_values, "loki.yaml")
-    helm_resource(
-        "loki",
-        "grafana/loki",
-        labels=["4-observability"],
-        release_name="loki",
-        namespace=OBSERVABILITY_NAMESPACE,
-        deps=[_loki_values],
-        flags=[
-          "--create-namespace",
-          "--values", _loki_values,
-          "--version", CHART_VERSION_LOKI,
-          "--wait",
-          "--timeout", "10m",
-        ],
-        resource_deps=["check-management-cluster", "grafana-repo"],
-    )
+        _loki_values = os.path.join(_helm_values, "loki.yaml")
+        helm_resource(
+            "loki",
+            "grafana/loki",
+            labels=["4-observability"],
+            release_name="loki",
+            namespace=OBSERVABILITY_NAMESPACE,
+            deps=[_loki_values],
+            flags=[
+              "--create-namespace",
+              "--values", _loki_values,
+              "--version", CHART_VERSION_LOKI,
+              "--wait",
+              "--timeout", "10m",
+            ],
+            resource_deps=["check-management-cluster", "grafana-repo"],
+        )
 
-    _promtail_values = os.path.join(_helm_values, "promtail.yaml")
-    helm_resource(
-        "promtail",
-        "grafana/promtail",
-        labels=["4-observability"],
-        release_name="promtail",
-        namespace=OBSERVABILITY_NAMESPACE,
-        deps=[_promtail_values],
-        flags=[
-          "--create-namespace",
-          "--values", _promtail_values,
-          "--version", CHART_VERSION_PROMTAIL,
-          "--wait",
-          "--timeout", "10m",
-        ],
-        resource_deps=["loki"],
-    )
+        _promtail_values = os.path.join(_helm_values, "promtail.yaml")
+        helm_resource(
+            "promtail",
+            "grafana/promtail",
+            labels=["4-observability"],
+            release_name="promtail",
+            namespace=OBSERVABILITY_NAMESPACE,
+            deps=[_promtail_values],
+            flags=[
+              "--create-namespace",
+              "--values", _promtail_values,
+              "--version", CHART_VERSION_PROMTAIL,
+              "--wait",
+              "--timeout", "10m",
+            ],
+            resource_deps=["loki"],
+        )
 
-    _grafana_values = os.path.join(_helm_values, "grafana.yaml")
-    helm_resource(
-        "grafana",
-        "grafana/grafana",
-        labels=["4-observability"],
-        release_name="grafana",
-        namespace=OBSERVABILITY_NAMESPACE,
-        deps=[_grafana_values],
-        flags=[
-          "--create-namespace",
-          "--values", _grafana_values,
-          "--version", CHART_VERSION_GRAFANA,
-          "--wait",
-          "--timeout", "10m",
-        ],
-        resource_deps=["loki"],
-    )
+        _grafana_values = os.path.join(_helm_values, "grafana.yaml")
+        helm_resource(
+            "grafana",
+            "grafana/grafana",
+            labels=["4-observability"],
+            release_name="grafana",
+            namespace=OBSERVABILITY_NAMESPACE,
+            deps=[_grafana_values],
+            flags=[
+              "--create-namespace",
+              "--values", _grafana_values,
+              "--version", CHART_VERSION_GRAFANA,
+              "--wait",
+              "--timeout", "10m",
+            ],
+            resource_deps=["loki"],
+        )
 
-    local_resource(
-        "port-forward-grafana",
-        labels=["4-observability"],
-        serve_cmd="while true; do kubectl -n %s port-forward svc/grafana 3000:80 || true; sleep 2; done" % OBSERVABILITY_NAMESPACE,
-        resource_deps=["grafana"],
-        readiness_probe=probe(exec=exec_action(["nc", "-z", "localhost", "3000"]), period_secs=5, failure_threshold=2),
-        allow_parallel=True,
-        links=[_ui_link(3000, "", "Grafana")],
-    )
+        local_resource(
+            "port-forward-grafana",
+            labels=["4-observability"],
+            serve_cmd="while true; do kubectl -n %s port-forward svc/grafana 3000:80 || true; sleep 2; done" % OBSERVABILITY_NAMESPACE,
+            resource_deps=["grafana"],
+            readiness_probe=probe(exec=exec_action(["nc", "-z", "localhost", "3000"]), period_secs=5, failure_threshold=2),
+            allow_parallel=True,
+            links=[_ui_link(3000, "", "Grafana")],
+        )
 
-    local_resource(
-        "port-forward-loki",
-        labels=["4-observability"],
-        serve_cmd="while true; do kubectl -n %s port-forward svc/loki 3100:3100 || true; sleep 2; done" % OBSERVABILITY_NAMESPACE,
-        resource_deps=["loki"],
-        readiness_probe=probe(exec=exec_action(["nc", "-z", "localhost", "3100"]), period_secs=5, failure_threshold=2),
-        allow_parallel=True,
-    )
+        local_resource(
+            "port-forward-loki",
+            labels=["4-observability"],
+            serve_cmd="while true; do kubectl -n %s port-forward svc/loki 3100:3100 || true; sleep 2; done" % OBSERVABILITY_NAMESPACE,
+            resource_deps=["loki"],
+            readiness_probe=probe(exec=exec_action(["nc", "-z", "localhost", "3100"]), period_secs=5, failure_threshold=2),
+            allow_parallel=True,
+        )
 
     # -----------------------------------------------------------------------
     # nico-vms local resources
@@ -245,28 +252,30 @@ def register(ctx):
     )
 
     # Host Promtail: ships nico-vms + VM console logs to Loki in K8s via port-forward.
-    local_resource(
-        "nico-vms-log-shipper",
-        serve_cmd=" ".join([
-            "docker rm -f nico-vms-promtail 2>/dev/null;",
-            "docker run --rm --name nico-vms-promtail",
-            "--network host",
-            "-v %s/logs:/var/log/nke:ro" % _dev,
-            "-v %s/instances:/var/log/vm-instances:ro" % _dev,
-            "-v %s/nico-vms-targets.json:/etc/promtail/nico-vms-targets.json:ro" % _dev,
-            "-v %s/promtail-host.yml:/etc/promtail/promtail.yml:ro" % _deploy,
-            "-v %s/promtail-positions:/var/lib/promtail" % _dev,
-            "grafana/promtail:3.3.2 -config.file=/etc/promtail/promtail.yml",
-        ]),
-        resource_deps=["port-forward-loki", "nico-vms"],
-        labels=["5-nico-vms"],
-    )
+    if _observability:
+        local_resource(
+            "nico-vms-log-shipper",
+            serve_cmd=" ".join([
+                "docker rm -f nico-vms-promtail 2>/dev/null;",
+                "docker run --rm --name nico-vms-promtail",
+                "--network host",
+                "-v %s/logs:/var/log/nke:ro" % _dev,
+                "-v %s/instances:/var/log/vm-instances:ro" % _dev,
+                "-v %s/nico-vms-targets.json:/etc/promtail/nico-vms-targets.json:ro" % _dev,
+                "-v %s/promtail-host.yml:/etc/promtail/promtail.yml:ro" % _deploy,
+                "-v %s/promtail-positions:/var/lib/promtail" % _dev,
+                "grafana/promtail:3.3.2 -config.file=/etc/promtail/promtail.yml",
+            ]),
+            resource_deps=["port-forward-loki", "nico-vms"],
+            labels=["5-nico-vms"],
+        )
 
 
     # -----------------------------------------------------------------------
     # Convenience button: create a sample nico-vms-backed NKE cluster.
     # Defaults to 1 control-plane + 1 worker node using the seed resources.
     # -----------------------------------------------------------------------
+    _cwe_port = os.getenv("CWE_HTTP_PORT", "8080")
     cmd_button(
         "5-create-sample-nico-vms-cluster",
         argv=["bash", "-c", """

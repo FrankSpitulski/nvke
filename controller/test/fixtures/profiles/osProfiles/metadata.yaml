@@ -14,3 +14,13 @@ profiles:
     architecture: amd64
     build_date: "2026-01-01"
     ubuntu_version: "24.04"
+  # The nico-vms backend's OS profile, copied from the fleet profiles so the
+  # nico-vms E2E specs can run against this fixture.
+  # Unlike the other entries, its ipxeScript names real, public image URLs.
+  # See README.md in the parent directory.
+  nke-nico-vms-24.04-amd64-fde:
+    kubernetes_version: ""
+    kubernetes_version_injected: true
+    architecture: amd64
+    build_date: "2026-03-23"
+    ubuntu_version: "24.04"

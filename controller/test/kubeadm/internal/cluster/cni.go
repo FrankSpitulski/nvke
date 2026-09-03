@@ -108,7 +108,22 @@ done
 kubectl wait --for=condition=Established crd/installations.operator.tigera.io --timeout=300s
 
 echo "=== creating the Calico Installation ==="
-kubectl apply -f /tmp/custom-resources.yaml
+# custom-resources.yaml carries more than the Installation: v3.31 adds an
+# APIServer, a Goldmane and a Whisker, and the operator registers those CRDs a
+# moment after installations.operator.tigera.io. A single apply then fails on
+# whichever kind arrived last ("no matches for kind Goldmane"). Retrying the
+# apply covers every kind the stream ships, including ones it adds next.
+for attempt in $(seq 24); do
+  if kubectl apply -f /tmp/custom-resources.yaml; then
+    break
+  fi
+  if [ "$attempt" -eq 24 ]; then
+    echo "ERROR: custom-resources.yaml did not apply after 24 attempts" >&2
+    exit 1
+  fi
+  echo "apply attempt $attempt failed; waiting for the operator's CRDs"
+  sleep 5
+done
 
 echo "=== calico install submitted ==="
 kubectl get pods -n tigera-operator -o wide 2>&1 | head -10

@@ -45,6 +45,13 @@
 #   NICO_VMS_DHCP_HOSTS_DIR    dnsmasq hostsdir        (default /var/lib/nico-vms/dhcp-hosts)
 #   NICO_VMS_DHCP_LEASE_FILE   dnsmasq lease file      (default /var/run/nico-vms-dnsmasq.leases)
 #   NICO_VMS_DHCP_RANGE_END    last DHCP address       (default <prefix>.239)
+#   NKE_CI_HOST_FDE            "true" adds what the NKE FDE node image needs on
+#                              top of the above: UEFI firmware, swtpm, debugfs,
+#                              the carbide-pxe.forge record, and a route from
+#                              the guests to the metadata server that does not
+#                              claim the runner's own IMDS address. Sections 3,
+#                              5, 6 and 6b. Default off; the kubeadm lane boots
+#                              vanilla noble and needs none of it.
 #
 # Idempotent -- safe to re-run. Runs as the current user; sudo is used
 # explicitly for every privileged operation. Undo with teardown-ci-host.sh.
@@ -177,6 +184,24 @@ sudo apt-get install -y -qq -o Dpkg::Options::="--force-confold" \
   genisoimage \
   dnsmasq-base \
   iptables
+
+# The FDE node image, opt-in. It boots UEFI (ovmf), binds LUKS to a TPM on its
+# first boot (swtpm; nico-vms provisions a vTPM only when swtpm_setup is on
+# PATH -- virsh.go:276-282, silently skipped otherwise), and nico-vms rewrites
+# its grub.cfg through debugfs (e2fsprogs) before the first boot. The same
+# four packages setup-linux.sh:157-176 installs for that image.
+FDE="${NKE_CI_HOST_FDE:-false}"
+if [[ "${FDE}" == true ]]; then
+  log "NKE_CI_HOST_FDE=true: installing UEFI firmware, swtpm, e2fsprogs and sshpass"
+  # sshpass: the E2E lane reads each guest's journals through nico-vms'
+  # password-login diagnostic user when a node never registers.
+  sudo apt-get install -y -qq -o Dpkg::Options::="--force-confold" \
+    ovmf \
+    swtpm \
+    swtpm-tools \
+    e2fsprogs \
+    sshpass
+fi
 
 # libvirtd is only needed for the system daemon's helpers; nico-vms itself talks
 # to qemu:///session. Swallow the failure like setup-linux.sh:360-362 does --
@@ -332,7 +357,19 @@ log "dnsmasq upstream DNS: ${UPSTREAM_DNS_ARGS[*]}"
 # interface, which can be after any such check and before dnsmasq starts.
 ALT_DNS_PORT=5353
 
+# The FDE image seeds cloud-init from http://carbide-pxe.forge/api/v0/cloud-init/
+# (nico-vms/internal/lifecycle/network.go:20-24). Resolve that name to the
+# gateway, where nico-vms' metadata server listens; section 6 redirects the
+# port. setup-linux.sh:477 has the same record. Off by default: vanilla noble
+# takes its seed from a local ISO and never asks.
+DNSMASQ_EXTRA_ARGS=()
+if [[ "${FDE}" == true ]]; then
+  DNSMASQ_EXTRA_ARGS+=("--address=/carbide-pxe.forge/${BRIDGE_GW}")
+fi
+
 start_dnsmasq() {
+  # ${arr[@]+"${arr[@]}"} expands to nothing for an empty array, which a bare
+  # "${arr[@]}" does not do under set -u on every bash.
   sudo dnsmasq \
     --interface="${BRIDGE_NAME}" \
     --bind-interfaces \
@@ -344,6 +381,7 @@ start_dnsmasq() {
     --except-interface=lo \
     --no-resolv \
     --no-hosts \
+    ${DNSMASQ_EXTRA_ARGS[@]+"${DNSMASQ_EXTRA_ARGS[@]}"} \
     "${UPSTREAM_DNS_ARGS[@]}" \
     --dhcp-leasefile="${DHCP_LEASE_FILE}" \
     --pid-file="${DNSMASQ_PID_FILE}" \
@@ -413,6 +451,48 @@ if ! sudo iptables -C FORWARD -o "${BRIDGE_NAME}" -d "${BRIDGE_CIDR}" -m conntra
   log "FORWARD rule added: allow return traffic to ${BRIDGE_NAME}"
 fi
 
+# The two ways an FDE guest reaches nico-vms' cloud-init metadata server. Both
+# come from setup-linux.sh, reshaped for a host that must not own
+# 169.254.169.254 (see IMDS in section 4).
+if [[ "${FDE}" == true ]]; then
+  # 1. http://carbide-pxe.forge/ -> ${BRIDGE_GW}:80 -> 7777 (setup-linux.sh:516-525).
+  #    Scoped to the gateway address, so a guest still reaches real port-80
+  #    servers on the internet.
+  if ! sudo iptables -t nat -C PREROUTING -i "${BRIDGE_NAME}" -d "${BRIDGE_GW}" -p tcp --dport 80 -j REDIRECT --to-port 7777 2>/dev/null; then
+    sudo iptables -t nat -A PREROUTING -i "${BRIDGE_NAME}" -d "${BRIDGE_GW}" -p tcp --dport 80 -j REDIRECT --to-port 7777
+    log "REDIRECT added: ${BRIDGE_GW}:80 -> 7777 on ${BRIDGE_NAME}"
+  fi
+  # 2. http://169.254.169.254:7777/, the EC2-style fallback and the phone_home
+  #    target in the fleet userData. setup-linux.sh:398-404 puts that address
+  #    on the bridge, which here would hijack the runner's own IMDS. Instead
+  #    the host answers the guests' ARP for it with a proxy neighbour entry,
+  #    and DNATs the one port to the gateway listener. The kernel proxies the
+  #    address only because the host routes it out of a different interface,
+  #    and that route -- the runner's real IMDS -- is untouched.
+  sudo ip neigh replace proxy 169.254.169.254 dev "${BRIDGE_NAME}"
+  if ! sudo iptables -t nat -C PREROUTING -i "${BRIDGE_NAME}" -d 169.254.169.254 -p tcp --dport 7777 -j DNAT --to-destination "${BRIDGE_GW}:7777" 2>/dev/null; then
+    sudo iptables -t nat -A PREROUTING -i "${BRIDGE_NAME}" -d 169.254.169.254 -p tcp --dport 7777 -j DNAT --to-destination "${BRIDGE_GW}:7777"
+    log "DNAT added: 169.254.169.254:7777 -> ${BRIDGE_GW}:7777 on ${BRIDGE_NAME}"
+  fi
+  # 3. kube-vip on a tenant control plane peers with the gateway on BGP port
+  #    179, hardcoded; nico-vms' speaker listens on 10179 (setup-linux.sh:527-533).
+  #    The speaker installs one ECMP route per control-plane node, and the
+  #    multipath hash policy spreads connections across them (setup-linux.sh:498).
+  if ! sudo iptables -t nat -C PREROUTING -i "${BRIDGE_NAME}" -d "${BRIDGE_GW}" -p tcp --dport 179 -j REDIRECT --to-port 10179 2>/dev/null; then
+    sudo iptables -t nat -A PREROUTING -i "${BRIDGE_NAME}" -d "${BRIDGE_GW}" -p tcp --dport 179 -j REDIRECT --to-port 10179
+    log "REDIRECT added: ${BRIDGE_GW}:179 -> 10179 on ${BRIDGE_NAME}"
+  fi
+  ensure_bridge_input_rule -p tcp --dport 10179
+  sudo sysctl -w net.ipv4.fib_multipath_hash_policy=1 >/dev/null
+  # 4. The nico-vms API and file server on 18080: the fleet userData downloads
+  #    nke-agent from http://carbide-pxe.forge:18080/files/agent/nke-agent.
+  ensure_bridge_input_rule -p tcp --dport 18080
+  # 5. SPIRE and OIDC, which Tilt port-forwards onto the kind gateway address;
+  #    the tenant nodes dial them from the bridge.
+  ensure_bridge_input_rule -p tcp --dport 30440
+  ensure_bridge_input_rule -p tcp --dport 30443
+fi
+
 # Held in reserve, NOT applied. If the runner sits behind the AWS VPC CNI, its
 # AWS-SNAT-CHAIN jump sits earlier in POSTROUTING and rewrites VM<->VM source
 # IPs, which breaks IP-bound peer TLS -- nico-vms/README.md:167 names the exact
@@ -433,7 +513,45 @@ fi
 # (setup-linux.sh:477). All three serve production FDE images, which reach
 # http://carbide-pxe.forge/api/v0/cloud-init/ for their NoCloud seed and run
 # kube-vip on a hardcoded BGP port 179. D7 boots vanilla noble from a local
-# seed ISO and D5 drops CNI, so no guest here asks for any of them.
+# seed ISO and D5 drops CNI, so no guest here asks for any of them. With
+# NKE_CI_HOST_FDE=true all three are added above, because a CWE-driven tenant
+# runs kube-vip and its control plane reaches the metadata server.
+
+# ── 6b. vTPM and console logs for the FDE image ─────────────────────────────
+
+if [[ "${FDE}" == true ]]; then
+  # swtpm_setup runs as the runner user and needs a writable localca statedir
+  # (setup-linux.sh:304-317); without it every domain start fails with
+  # "Need read/write rights on statedir".
+  sudo mkdir -p /var/lib/swtpm-localca
+  sudo chown -R "$(id -u):$(id -g)" /var/lib/swtpm-localca
+
+  # swtpm's AppArmor profile allows `owner @{HOME}/**`, which is /home/* only.
+  # A runner whose HOME or cache lives elsewhere gets "swtpm died"; add those
+  # paths to the local override, as setup-linux.sh:319-356 does.
+  SWTPM_LOCAL=/etc/apparmor.d/local/usr.bin.swtpm
+  if [[ -f /etc/apparmor.d/usr.bin.swtpm ]]; then
+    reload=false
+    for dir in "${HOME}" "${XDG_CACHE_HOME:-${HOME}/.cache}"; do
+      [[ "${dir}" == /home/* ]] && continue
+      rule="owner ${dir}/** rwk,"
+      if ! grep -qF "${rule}" "${SWTPM_LOCAL}" 2>/dev/null; then
+        echo "${rule}" | sudo tee -a "${SWTPM_LOCAL}" >/dev/null
+        reload=true
+      fi
+    done
+    if [[ "${reload}" == true ]]; then
+      sudo apparmor_parser -r /etc/apparmor.d/usr.bin.swtpm && log "AppArmor: swtpm may use ${HOME}"
+    fi
+  fi
+
+  # virtlogd caps each console log at 2 MiB, and a production first boot writes
+  # more than that. The ttyS1 log is the main evidence a failed run leaves, so
+  # raise the cap for the session daemon nico-vms uses (setup-linux.sh:535-593).
+  mkdir -p "${HOME}/.config/libvirt"
+  printf 'max_size = 52428800\nmax_backups = 3\n' >"${HOME}/.config/libvirt/virtlogd.conf"
+  log "virtlogd (session) max_size raised to 50 MiB"
+fi
 
 # ── 7. Base image ───────────────────────────────────────────────────────────
 #
@@ -508,6 +626,9 @@ log "  NICO_VMS_BRIDGE_CIDR=${BRIDGE_CIDR}"
 log "  NICO_VMS_DHCP_HOSTS_DIR=${DHCP_HOSTS_DIR}"
 log "  NICO_VMS_DHCP_LEASE_FILE=${DHCP_LEASE_FILE}"
 log "  NICO_VMS_LIBVIRT_NETWORK unset (native bridge mode -- config.go:93)"
+if [[ "${FDE}" == true ]]; then
+  log "  FDE image support on: ovmf, swtpm, carbide-pxe.forge -> ${BRIDGE_GW}, 169.254.169.254:7777 -> ${BRIDGE_GW}:7777"
+fi
 
 # Hand the same values to the rest of the job so the workflow does not have to
 # repeat the defaults and drift from them. Same mechanism shellcheck.yml:108

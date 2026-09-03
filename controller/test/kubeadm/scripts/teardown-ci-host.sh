@@ -59,6 +59,8 @@ DHCP_HOSTS_DIR="${NICO_VMS_DHCP_HOSTS_DIR:-/var/lib/nico-vms/dhcp-hosts}"
 DHCP_LEASE_FILE="${NICO_VMS_DHCP_LEASE_FILE:-/var/run/nico-vms-dnsmasq.leases}"
 DNSMASQ_PID_FILE="/var/run/nico-vms-dnsmasq.pid"
 LIBVIRT_URI="${NICO_VMS_LIBVIRT_URI:-qemu:///session}"
+# Same derivation as setup-ci-host.sh, which only accepts a network-aligned /24.
+BRIDGE_GW="${BRIDGE_CIDR%.*}.1"
 
 WORKSPACE="${GITHUB_WORKSPACE:-${PWD}}"
 ARTIFACT_DIR="${NKE_BRINGUP_ARTIFACT_DIR:-${WORKSPACE}/.ci-artifacts/kubeadm-bringup}"
@@ -234,7 +236,12 @@ while run_priv iptables -D FORWARD -o "${BRIDGE_NAME}" -d "${BRIDGE_CIDR}" -m co
 for proto in udp tcp; do
   while run_priv iptables -t nat -D PREROUTING -i "${BRIDGE_NAME}" -p "${proto}" --dport 53 -j REDIRECT --to-ports 5353 2>/dev/null; do :; done
 done
-for spec in "-p udp --dport 67" "-p udp --dport 53" "-p tcp --dport 53" "-p tcp --dport 7777" "-p udp --dport 5353" "-p tcp --dport 5353"; do
+# Only present when setup ran with NKE_CI_HOST_FDE=true.
+while run_priv iptables -t nat -D PREROUTING -i "${BRIDGE_NAME}" -d "${BRIDGE_GW}" -p tcp --dport 80 -j REDIRECT --to-port 7777 2>/dev/null; do :; done
+while run_priv iptables -t nat -D PREROUTING -i "${BRIDGE_NAME}" -d "${BRIDGE_GW}" -p tcp --dport 179 -j REDIRECT --to-port 10179 2>/dev/null; do :; done
+while run_priv iptables -t nat -D PREROUTING -i "${BRIDGE_NAME}" -d 169.254.169.254 -p tcp --dport 7777 -j DNAT --to-destination "${BRIDGE_GW}:7777" 2>/dev/null; do :; done
+run_priv ip neigh del proxy 169.254.169.254 dev "${BRIDGE_NAME}" 2>/dev/null
+for spec in "-p udp --dport 67" "-p udp --dport 53" "-p tcp --dport 53" "-p tcp --dport 7777" "-p udp --dport 5353" "-p tcp --dport 5353" "-p tcp --dport 10179" "-p tcp --dport 18080" "-p tcp --dport 30440" "-p tcp --dport 30443"; do
   # Word splitting is intended: each spec is a list of iptables arguments.
   # shellcheck disable=SC2086
   while run_priv iptables -D INPUT -i "${BRIDGE_NAME}" ${spec} -j ACCEPT 2>/dev/null; do :; done

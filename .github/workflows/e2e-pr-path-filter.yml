@@ -11,6 +11,15 @@ name: E2E pull request path filter
 
 on:
   workflow_call:
+    inputs:
+      relevant_paths:
+        description: >-
+          Optional extended regex. When set, a mirror-branch run needs at
+          least one changed file matching it; the default exclusion list is
+          not consulted. For lanes whose inputs are a short list of paths.
+        required: false
+        default: ""
+        type: string
     outputs:
       run_e2e:
         description: Whether the caller must run its E2E job.
@@ -31,6 +40,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REF_NAME: ${{ github.ref_name }}
+          RELEVANT_PATHS: ${{ inputs.relevant_paths }}
         shell: bash
         run: |
           run_e2e=true
@@ -43,6 +53,17 @@ jobs:
                 "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/files?per_page=100" \
                 --jq '.[].filename'
             )"
+
+            if [[ -n "$RELEVANT_PATHS" ]]; then
+              if [[ -n "$changed_files" ]] && grep -qE "$RELEVANT_PATHS" <<< "$changed_files"; then
+                echo "Pull request ${pr_number} touches the lane's inputs: running E2E."
+              else
+                run_e2e=false
+                echo "Skipping E2E for pull request ${pr_number}: no changed file matches ${RELEVANT_PATHS}."
+              fi
+              echo "run_e2e=${run_e2e}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
 
             # The CWE-facing CLI: the REST client, the commands built on it, and
             # the types they exchange. A change here can break against a live
