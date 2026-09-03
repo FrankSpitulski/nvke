@@ -14,18 +14,47 @@ ground truth this repository's own build is checked against, so that
 replacing the internal S3-delivered package with the one this repository
 builds is a reviewed, deliberate change rather than an accident.
 
-Two normalizations make the format deterministic regardless of how the
-package was built: the comma-list control fields (`Provides`, `Depends`,
-`Conflicts`, `Replaces`) are sorted, and `Version` is excluded entirely —
-same as `Installed-Size`, `Maintainer` and `Description` — because it is
-just the Debian packaging revision (`DEB_REVISION`), not part of the
-contract, and is not expected to match the S3 package's own revision.
+Three normalizations make the format deterministic regardless of how the
+package was built:
+
+- the comma-list control fields (`Provides`, `Depends`, `Conflicts`,
+  `Replaces`) are sorted;
+- `Version` is excluded entirely — same as `Installed-Size`, `Maintainer`
+  and `Description` — because it is just the Debian packaging revision
+  (`DEB_REVISION`), not part of the contract, and is not expected to match
+  the S3 package's own revision;
+- every `nke-kubeadm-distro*` entry (this package's own peer family) is
+  dropped from `Conflicts`/`Replaces` entirely, because it is computed from
+  `K8S_VERSIONS` — the set of Kubernetes patches built together — rather
+  than fixed per package, and so is never the same between two builds, let
+  alone between a build and a historical S3 capture. Every manifest states
+  this in its own text, as a comment on the first line of its `## control`
+  section, so the exclusion is visible without reading this file or the Go
+  source.
 
 `make contract-check` (wired into `make debs`, see the module
 [README.md](../../README.md#package-contract)) builds a manifest for each
 `.deb` this build produces with `debmanifest` and compares it against the
 matching `s3-<version>.manifest` here, allowing only the differences listed
 in [`deviations.txt`](deviations.txt).
+
+### Deviation paths may be globs
+
+`removed`, `added` and `mode` in [`deviations.txt`](deviations.txt) take a
+`path.Match` pattern, not only a literal path: `*` matches any run of
+characters within one path segment and `?` matches one such character, but
+neither ever crosses a `/` (no `/**` or other cross-segment wildcard is
+needed). A literal path with no metacharacters matches only itself, so
+existing literal directives keep working unchanged. This exists because some
+drift is genuinely version-specific — the containerd release bundled under
+`/usr/lib/nke/k8s-matrix/v1.36.3/amd64/` is not the same file as under
+`v1.34.2/amd64/` — and a literal line for one Kubernetes patch would be an
+unused, allowlist-rot-flagged no-op for the other two. One glob line —
+`removed /usr/lib/nke/k8s-matrix/*/amd64/containerd-*-linux-amd64.tar.gz` —
+covers all three. A glob directive counts as used once it matches at least
+one entry in the relevant comparison (the golden's files for
+`removed`/`mode`, the actual build's files for `added`), even when it
+matches several at once.
 
 ## Rule: goldens are never edited
 
@@ -94,16 +123,16 @@ goldens exactly. The expected differences are:
 - `Depends` — this build adds `conntrack, socat, ethtool` to the S3
   package's `iptables, iproute2`.
 - `Conflicts` — this build adds `containerd, containerd.io` (this package
-  ships containerd's unit and config, the S3 package does not), and the peer
-  list differs because the S3 index lists more historical rows than
-  `K8S_VERSIONS` builds today.
-- `Replaces` — same peer-list difference as `Conflicts`.
+  ships containerd's unit and config, the S3 package does not).
 - The `.kubelet-keep` placeholder files under
   `/etc/kubernetes/manifests/` and `/var/lib/kubelet/` — the S3 package
   ships them, this build ships the directories empty instead.
 
-(`Version` is not in this list: it is excluded from the manifest entirely,
-not compared at all, so it can never show up as drift.)
+(`Version` and the `nke-kubeadm-distro*` peer rows in `Conflicts`/`Replaces`
+are not in this list: both are excluded from the manifest entirely, not
+compared at all, so neither can ever show up as drift. `Replaces` is not in
+this list either — once peer rows are excluded, this build's `Replaces`
+already matches the S3 package's exactly.)
 
 These are not yet recorded in `deviations.txt`: `make contract-check` prints
 the diff as an advisory warning (see the module README) rather than failing

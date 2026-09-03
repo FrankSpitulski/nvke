@@ -1,12 +1,13 @@
 ## control
+# nke-kubeadm-distro* peer rows are excluded from Conflicts/Replaces: computed from K8S_VERSIONS, not part of the contract.
 Package: nke-kubeadm-distro-1.34.2
 Section: admin
 Priority: optional
 Architecture: amd64
 Provides: nke-kubeadm-distro
 Depends: iproute2, iptables
-Conflicts: cri-tools, helm, kubeadm, kubectl, kubelet, kubernetes-cni, nke-kubeadm-distro, nke-kubeadm-distro-1.31.12, nke-kubeadm-distro-1.31.6, nke-kubeadm-distro-1.31.9, nke-kubeadm-distro-1.32.9, nke-kubeadm-distro-1.33.6, nke-kubeadm-distro-1.35.3, nke-kubeadm-distro-1.36.0, nke-kubeadm-distro-1.36.3, nke-kubeadm-distro-osmo, nke-kubeadm-distro-osmo-1.31.12, nke-kubeadm-distro-osmo-1.34.2, runc
-Replaces: cri-tools, helm, kubeadm, kubectl, kubelet, kubernetes-cni, nke-kubeadm-distro, runc
+Conflicts: cri-tools, helm, kubeadm, kubectl, kubelet, kubernetes-cni, runc
+Replaces: cri-tools, helm, kubeadm, kubectl, kubelet, kubernetes-cni, runc
 ## conffiles
 (none)
 ## scripts

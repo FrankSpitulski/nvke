@@ -47,6 +47,7 @@ func TestManifestStringRoundTrip(t *testing.T) {
 			// revision (DEB_REVISION), not part of the contract, and is
 			// excluded exactly like Installed-Size/Maintainer/Description.
 			want: "## control\n" +
+				"# nke-kubeadm-distro* peer rows are excluded from Conflicts/Replaces: computed from K8S_VERSIONS, not part of the contract.\n" +
 				"Package: nke-kubeadm-distro-1.36.3\n" +
 				"Section: admin\n" +
 				"Priority: optional\n" +
@@ -76,6 +77,7 @@ func TestManifestStringRoundTrip(t *testing.T) {
 				Conffiles: []string{"/etc/default/kubelet"},
 			},
 			want: "## control\n" +
+				"# nke-kubeadm-distro* peer rows are excluded from Conflicts/Replaces: computed from K8S_VERSIONS, not part of the contract.\n" +
 				"Package: x\n" +
 				"## conffiles\n" +
 				"/etc/default/kubelet\n" +
@@ -94,6 +96,7 @@ func TestManifestStringRoundTrip(t *testing.T) {
 				},
 			},
 			want: "## control\n" +
+				"# nke-kubeadm-distro* peer rows are excluded from Conflicts/Replaces: computed from K8S_VERSIONS, not part of the contract.\n" +
 				"Package: x\n" +
 				"## conffiles\n" +
 				"(none)\n" +

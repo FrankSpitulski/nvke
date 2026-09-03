@@ -5,6 +5,7 @@ package debmanifest
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 )
@@ -51,9 +52,9 @@ type Deviation struct {
 //
 // Directive grammar, one per line:
 //
-//	removed <path>                          # reason
-//	added <path>                            # reason
-//	mode <path> <newmode>                   # reason
+//	removed <path-or-glob>                  # reason
+//	added <path-or-glob>                    # reason
+//	mode <path-or-glob> <newmode>            # reason
 //	field <Field> += <v1>, <v2>, ...         # reason
 //	field <Field> -= <v1>, <v2>, ...         # reason
 //	field <Field> = <v1>, <v2>, ...          # reason
@@ -68,6 +69,21 @@ type Deviation struct {
 // Depends, Conflicts, Replaces); a scalar field (Package, Section, Priority,
 // Architecture — see scalarFields) only allows "=", and ParseDeviations
 // rejects "+="/"-=" on one at parse time rather than silently doing nothing.
+//
+// The <path-or-glob> argument to "removed", "added" and "mode" is a
+// path.Match pattern: "*" matches any run of characters within one path
+// segment and "?" matches one such character, but neither ever crosses a
+// "/" — no "/**" or other cross-segment wildcard is needed or supported. A
+// literal path with no metacharacters matches only itself, so existing
+// literal directives keep working unchanged. This is for drift whose exact
+// path is version-specific — e.g.
+// "/usr/lib/nke/k8s-matrix/v1.36.3/amd64/containerd-2.3.0-linux-amd64.tar.gz"
+// vs the "v1.34.2" row's own containerd release — where one glob line
+// (`removed /usr/lib/nke/k8s-matrix/*/amd64/containerd-*-linux-amd64.tar.gz`)
+// covers every Kubernetes patch instead of needing one literal line per
+// version. A glob directive counts as used once it matches at least one
+// entry in the relevant comparison (golden for "removed"/"mode", actual for
+// "added"), even when it also matches several.
 func ParseDeviations(text string) ([]*Deviation, error) {
 	var devs []*Deviation
 	for i, raw := range strings.Split(text, "\n") {
@@ -99,6 +115,16 @@ func ParseDeviations(text string) ([]*Deviation, error) {
 	return devs, nil
 }
 
+// validateGlob reports a syntax error in pattern early, at parse time,
+// rather than letting a malformed glob silently match nothing later in
+// Compare (see pathGlobMatches in compare.go).
+func validateGlob(pattern string) error {
+	if _, err := path.Match(pattern, ""); err != nil {
+		return fmt.Errorf("malformed glob: %w", err)
+	}
+	return nil
+}
+
 func parseDirective(directive string) (*Deviation, error) {
 	fields := strings.Fields(directive)
 	if len(fields) == 0 {
@@ -108,13 +134,19 @@ func parseDirective(directive string) (*Deviation, error) {
 	switch fields[0] {
 	case "removed", "added":
 		if len(fields) != 2 {
-			return nil, fmt.Errorf("%s wants exactly one path, got %q", fields[0], directive)
+			return nil, fmt.Errorf("%s wants exactly one path (or glob), got %q", fields[0], directive)
+		}
+		if err := validateGlob(fields[1]); err != nil {
+			return nil, fmt.Errorf("%s %s: %w", fields[0], fields[1], err)
 		}
 		return &Deviation{Kind: fields[0], Values: []string{fields[1]}}, nil
 
 	case "mode":
 		if len(fields) != 3 {
 			return nil, fmt.Errorf("mode wants \"mode <path> <newmode>\", got %q", directive)
+		}
+		if err := validateGlob(fields[1]); err != nil {
+			return nil, fmt.Errorf("mode %s: %w", fields[1], err)
 		}
 		if !modeStringPattern.MatchString(fields[2]) {
 			return nil, fmt.Errorf("mode %s: %q is not a 9-character permission string (e.g. \"rwxr-xr-x\")", fields[1], fields[2])

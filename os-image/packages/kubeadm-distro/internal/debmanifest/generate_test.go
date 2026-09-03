@@ -167,6 +167,46 @@ func TestPermStringSetuid(t *testing.T) {
 	}
 }
 
+// TestGeneratePeerConflictsExcluded proves that Generate drops every
+// nke-kubeadm-distro* row from Conflicts/Replaces (they are computed from
+// K8S_VERSIONS, not part of the contract — see peerFieldPrefix and
+// controlPeerNote) while keeping the real, non-peer entries.
+func TestGeneratePeerConflictsExcluded(t *testing.T) {
+	if _, err := exec.LookPath("dpkg-deb"); err != nil {
+		t.Skip("dpkg-deb is not on PATH")
+	}
+
+	stage := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(stage, "DEBIAN"), 0o755))
+	control := "Package: nke-kubeadm-distro-1.36.3\n" +
+		"Version: 1\n" +
+		"Architecture: amd64\n" +
+		"Conflicts: kubeadm, kubelet, kubectl, kubernetes-cni, cri-tools, runc, helm, containerd, containerd.io, nke-kubeadm-distro, nke-kubeadm-distro-1.34.2, nke-kubeadm-distro-1.35.3, nke-kubeadm-distro-osmo, nke-kubeadm-distro-osmo-1.34.2\n" +
+		"Replaces: kubeadm, kubelet, kubectl, kubernetes-cni, cri-tools, runc, helm, nke-kubeadm-distro\n" +
+		"Maintainer: NKE <nke-dev@exchange.nvidia.com>\n" +
+		"Description: fixture package for peer-conflict exclusion\n"
+	require.NoError(t, os.WriteFile(filepath.Join(stage, "DEBIAN", "control"), []byte(control), 0o644))
+
+	deb := filepath.Join(t.TempDir(), "nke-kubeadm-distro-1.36.3_1_amd64.deb")
+	cmd := exec.Command("dpkg-deb", "--root-owner-group", "--build", stage, deb)
+	out, err := cmd.CombinedOutput()
+	require.NoErrorf(t, err, "dpkg-deb --build: %s", out)
+
+	m, err := Generate(deb)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"containerd", "containerd.io", "cri-tools", "helm", "kubeadm", "kubectl", "kubelet", "kubernetes-cni", "runc"}, m.Control["Conflicts"],
+		"every nke-kubeadm-distro* peer row must be dropped, and every non-peer entry kept")
+	assert.Equal(t, []string{"cri-tools", "helm", "kubeadm", "kubectl", "kubelet", "kubernetes-cni", "runc"}, m.Control["Replaces"])
+	for _, field := range []string{"Conflicts", "Replaces"} {
+		for _, v := range m.Control[field] {
+			assert.False(t, isPeerFieldValue(v), "%s must not contain a peer row, got %q", field, v)
+		}
+	}
+
+	assert.Contains(t, m.String(), controlPeerNote, "the manifest text must explain the exclusion in the \"## control\" section itself")
+}
+
 func TestGenerateMissingFile(t *testing.T) {
 	if _, err := exec.LookPath("dpkg-deb"); err != nil {
 		t.Skip("dpkg-deb is not on PATH")

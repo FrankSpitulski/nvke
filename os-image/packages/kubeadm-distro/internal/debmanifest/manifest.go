@@ -34,6 +34,37 @@ var controlOrder = []string{"Package", "Section", "Priority", "Architecture", "P
 
 var listFields = map[string]bool{"Provides": true, "Depends": true, "Conflicts": true, "Replaces": true}
 
+// peerFieldPrefix marks the Conflicts/Replaces entries that name this
+// package's own peer family — "nke-kubeadm-distro" itself, plus one row per
+// other Kubernetes patch and Osmo flavor built alongside it. Those rows are
+// computed from K8S_VERSIONS, not part of the package contract, and differ
+// on every build and every historical S3 capture, so Generate drops them
+// entirely rather than comparing them. See controlPeerNote and
+// testdata/golden/README.md.
+const peerFieldPrefix = "nke-kubeadm-distro"
+
+// controlPeerNote is written as a comment on the first line of every
+// manifest's "## control" section, explaining the peerFieldPrefix exclusion
+// in the text itself, not only in code and docs.
+const controlPeerNote = "# nke-kubeadm-distro* peer rows are excluded from Conflicts/Replaces: computed from K8S_VERSIONS, not part of the contract."
+
+// isPeerFieldValue reports whether v is one of the excluded peer rows.
+func isPeerFieldValue(v string) bool {
+	return strings.HasPrefix(v, peerFieldPrefix)
+}
+
+// dropPeerFieldValues returns values with every peerFieldPrefix entry
+// removed, preserving order otherwise (normalize sorts afterward).
+func dropPeerFieldValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if !isPeerFieldValue(v) {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // Manifest is the parsed, comparable contract of a .deb package.
 type Manifest struct {
 	// Control holds the fields named in controlOrder. List fields (see
@@ -99,6 +130,7 @@ func (m *Manifest) String() string {
 	var b strings.Builder
 
 	b.WriteString("## control\n")
+	b.WriteString(controlPeerNote + "\n")
 	for _, field := range controlOrder {
 		vals, ok := m.Control[field]
 		if !ok || len(vals) == 0 {

@@ -80,7 +80,11 @@ func readControlFields(debPath string, m *Manifest) error {
 			return fmt.Errorf("dpkg-deb -f %s: unparseable control line %q", debPath, line)
 		}
 		if listFields[field] {
-			m.Control[field] = splitCommaList(value)
+			vals := splitCommaList(value)
+			if field == "Conflicts" || field == "Replaces" {
+				vals = dropPeerFieldValues(vals)
+			}
+			m.Control[field] = vals
 		} else {
 			m.Control[field] = []string{value}
 		}

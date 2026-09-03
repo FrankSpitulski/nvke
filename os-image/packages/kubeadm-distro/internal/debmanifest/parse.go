@@ -28,7 +28,7 @@ func ParseManifest(text string) (Manifest, error) {
 
 		switch section {
 		case "## control":
-			if line == "" {
+			if line == "" || strings.HasPrefix(line, "#") {
 				continue
 			}
 			field, value, ok := strings.Cut(line, ": ")

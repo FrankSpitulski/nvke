@@ -199,6 +199,106 @@ func TestCompareDoesNotReorderActualFilesInPlace(t *testing.T) {
 	assert.Equal(t, before, actual.Files, "Compare must not sort actual.Files in place")
 }
 
+func TestCompareGlobRemovedMatchesMultipleVersionedEntries(t *testing.T) {
+	golden := baseGolden()
+	golden.Files = append(golden.Files,
+		FileEntry{Type: "f", Mode: "rw-r--r--", Path: "/usr/lib/nke/k8s-matrix/v1.36.3/amd64/containerd-2.3.0-linux-amd64.tar.gz", SHA256: "aaaa"},
+		FileEntry{Type: "f", Mode: "rw-r--r--", Path: "/usr/lib/nke/k8s-matrix/v1.34.2/amd64/containerd-2.1.7-linux-amd64.tar.gz", SHA256: "bbbb"},
+	)
+	golden.normalize()
+	actual := baseGolden()
+
+	// A version-specific literal directive would only cover one of the two
+	// rows; the glob covers both Kubernetes patches with one line, which is
+	// the point of this feature.
+	devs, err := ParseDeviations("removed /usr/lib/nke/k8s-matrix/*/amd64/containerd-*-linux-amd64.tar.gz  # not part of the contract\n")
+	require.NoError(t, err)
+
+	diff, err := Compare(golden, actual, devs)
+	require.NoError(t, err)
+	assert.Empty(t, diff)
+}
+
+func TestCompareGlobDoesNotCrossPathSeparator(t *testing.T) {
+	golden := baseGolden()
+	golden.Files = append(golden.Files,
+		FileEntry{Type: "f", Mode: "rw-r--r--", Path: "/usr/lib/nke/k8s-matrix/v1.36.3/amd64/manifest.json"},
+	)
+	golden.normalize()
+	actual := baseGolden()
+
+	// "*" must not cross "/": this pattern has only one "*" between
+	// "k8s-matrix/" and "/manifest.json", so it should match a manifest.json
+	// directly under a version directory, NOT one an extra "amd64/" segment
+	// deeper — so it must NOT remove the entry above, leaving it unmatched
+	// and the manifests still different.
+	devs, err := ParseDeviations("removed /usr/lib/nke/k8s-matrix/*/manifest.json  # should not cross a path segment\n")
+	require.NoError(t, err)
+
+	diff, err := Compare(golden, actual, devs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "had no effect", "the glob must not have matched the deeper path")
+	assert.Contains(t, diff, "/usr/lib/nke/k8s-matrix/v1.36.3/amd64/manifest.json")
+}
+
+func TestCompareGlobMatchingNothingIsUnused(t *testing.T) {
+	golden := baseGolden()
+	actual := baseGolden()
+
+	devs, err := ParseDeviations("removed /usr/lib/nke/k8s-matrix/*/amd64/does-not-exist-*.tar.gz  # stale glob\n")
+	require.NoError(t, err)
+
+	diff, err := Compare(golden, actual, devs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "had no effect")
+	assert.Empty(t, diff, "manifests still match; only the glob itself is unused")
+}
+
+func TestCompareGlobAddedMatchesMultipleActualEntries(t *testing.T) {
+	golden := baseGolden()
+	actual := baseGolden()
+	actual.Files = append(actual.Files,
+		FileEntry{Type: "f", Mode: "rw-r--r--", Path: "/usr/lib/nke/k8s-matrix/v1.36.3/amd64/extra-1.tar.gz", SHA256: "cccc"},
+		FileEntry{Type: "f", Mode: "rw-r--r--", Path: "/usr/lib/nke/k8s-matrix/v1.34.2/amd64/extra-1.tar.gz", SHA256: "dddd"},
+	)
+	actual.normalize()
+
+	devs, err := ParseDeviations("added /usr/lib/nke/k8s-matrix/*/amd64/extra-*.tar.gz  # newly bundled, one line for every version\n")
+	require.NoError(t, err)
+
+	diff, err := Compare(golden, actual, devs)
+	require.NoError(t, err)
+	assert.Empty(t, diff)
+}
+
+func TestCompareLiteralPathStillMatchesOnlyItself(t *testing.T) {
+	golden := baseGolden()
+	actual := baseGolden()
+	// A path that shares a prefix with, but is longer than, an unrelated
+	// literal deviation below — added fresh so it is not already present
+	// on both sides the way "/usr/bin/kubeadm" already is in baseGolden.
+	actual.Files = append(actual.Files,
+		FileEntry{Type: "f", Mode: "rw-r--r--", Path: "/usr/bin/kubeadmin-not-kubeadm", SHA256: "eeee"},
+	)
+	actual.normalize()
+
+	// A literal path is a glob with no metacharacters: it must match only
+	// that exact path, not a longer, unrelated path that happens to share a
+	// prefix with it.
+	devs, err := ParseDeviations("added /usr/bin/kubeadmin  # literal, exact match only\n")
+	require.NoError(t, err)
+
+	diff, err := Compare(golden, actual, devs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "had no effect", "the literal must not have matched the longer, different path")
+	assert.Contains(t, diff, "/usr/bin/kubeadmin-not-kubeadm")
+}
+
+func TestParseDeviationsRejectsMalformedGlob(t *testing.T) {
+	_, err := ParseDeviations("removed /usr/bin/[unterminated  # bad glob\n")
+	require.Error(t, err)
+}
+
 func TestParseDeviationsRejectsMissingReason(t *testing.T) {
 	_, err := ParseDeviations("removed /usr/bin/nke-k8s-installer\n")
 	require.Error(t, err)

@@ -5,6 +5,7 @@ package debmanifest
 
 import (
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 )
@@ -81,50 +82,76 @@ func cloneManifest(m Manifest) Manifest {
 	return out
 }
 
-// removeFile deletes the file at path from m.Files. It returns whether the
-// path was actually present, which is how Compare tells a used deviation
-// from a stale one.
-func removeFile(m *Manifest, path string) bool {
-	for i, f := range m.Files {
-		if f.Path == path {
-			m.Files = append(m.Files[:i], m.Files[i+1:]...)
-			return true
-		}
-	}
-	return false
+// pathGlobMatches reports whether p matches pattern using path.Match
+// semantics: "*" matches any run of characters within one path segment
+// (never crossing "/"), "?" matches one such character, and a literal
+// pattern with no metacharacters matches only itself. ParseDeviations
+// already validated pattern's syntax, so a malformed pattern here (which
+// should not happen) simply matches nothing rather than panicking.
+func pathGlobMatches(pattern, p string) bool {
+	matched, err := path.Match(pattern, p)
+	return err == nil && matched
 }
 
-// addFile copies path's entry from actual into m.Files. It is a used
-// deviation only if the path is missing from m.Files and present in actual —
-// otherwise there was nothing for it to paper over.
-func addFile(m *Manifest, path string, actual Manifest) bool {
+// removeFile deletes every entry in m.Files whose Path matches pattern
+// (pathGlobMatches). It returns whether anything matched, which is how
+// Compare tells a used deviation from a stale one — a glob is "used" once
+// it matches at least one entry, even if it matches several.
+func removeFile(m *Manifest, pattern string) bool {
+	matched := false
+	kept := make([]FileEntry, 0, len(m.Files))
 	for _, f := range m.Files {
-		if f.Path == path {
-			return false
+		if pathGlobMatches(pattern, f.Path) {
+			matched = true
+			continue
+		}
+		kept = append(kept, f)
+	}
+	m.Files = kept
+	return matched
+}
+
+// addFile copies every entry in actual.Files whose Path matches pattern
+// into m.Files, for any not already present there — regardless of that
+// entry's type, mode or sha256. It is a used deviation once pattern matches
+// at least one entry in actual, whether or not that entry needed copying:
+// asserting "this is expected too" for an already-golden path is still the
+// glob doing real work when it also covers ones that are not.
+func addFile(m *Manifest, pattern string, actual Manifest) bool {
+	matched := false
+	for _, f := range actual.Files {
+		if !pathGlobMatches(pattern, f.Path) {
+			continue
+		}
+		matched = true
+		if !containsPath(m.Files, f.Path) {
+			m.Files = append(m.Files, f)
 		}
 	}
-	for _, f := range actual.Files {
-		if f.Path == path {
-			m.Files = append(m.Files, f)
+	return matched
+}
+
+// containsPath reports whether files has an entry at p.
+func containsPath(files []FileEntry, p string) bool {
+	for _, f := range files {
+		if f.Path == p {
 			return true
 		}
 	}
 	return false
 }
 
-// applyMode overwrites the mode of the file entry at path, returning whether
-// it changed anything.
-func applyMode(m *Manifest, path, newMode string) bool {
+// applyMode overwrites the mode of every entry in m.Files whose Path
+// matches pattern, returning whether pattern matched at least one entry.
+func applyMode(m *Manifest, pattern, newMode string) bool {
+	matched := false
 	for i, f := range m.Files {
-		if f.Path == path {
-			if f.Mode == newMode {
-				return false
-			}
+		if pathGlobMatches(pattern, f.Path) {
+			matched = true
 			m.Files[i].Mode = newMode
-			return true
 		}
 	}
-	return false
+	return matched
 }
 
 // applyField applies a field deviation to m.Control[field], returning
