@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// kubeadm-bundle downloads the upstream Kubernetes node stack for linux/amd64,
-// verifies every artifact against its publisher's checksum, pulls the matching
-// control-plane container images, and writes the per-version bundle tree that
-// packaging/build-deb.sh turns into an nke-kubeadm-distro-<x.y.z> Debian package.
+// kubeadm-bundle downloads the upstream Kubernetes node stack for one
+// linux/<arch>, verifies every artifact against its publisher's checksum,
+// pulls the matching control-plane container images, and writes the
+// per-version bundle tree that packaging/build-deb.sh turns into an
+// nke-kubeadm-distro-<x.y.z> Debian package.
 package main
 
 import (
@@ -15,9 +16,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -25,8 +28,17 @@ import (
 	"github.com/NVIDIA/nke/os-image/packages/kubeadm-distro/internal/bundle"
 )
 
-// targetArch is the only architecture this bundler produces. NKE nodes are amd64.
-const targetArch = "amd64"
+// targetArch is the architecture this run of the bundler produces, set once in
+// run() from the -arch flag before any goroutine reads it. NKE nodes are
+// amd64. The flag and the dist path/tarball name/crane --platform plumbing
+// already carry an arbitrary arch; only the lock file schema is amd64-only
+// (one lock per Kubernetes version, not per arch), so run() rejects anything
+// else until the lock is split per architecture.
+var targetArch = "amd64"
+
+// supportedArches are the architectures -arch accepts. Only amd64 is enabled
+// until the lock file is split per architecture; see run().
+var supportedArches = map[string]struct{}{"amd64": {}}
 
 // manifestDoc is the per-version manifest.json the node-side installer reads.
 type manifestDoc struct {
@@ -49,12 +61,14 @@ type manifestComponent struct {
 
 func main() {
 	versionsFlag := flag.String("versions", "", "Kubernetes versions to bundle, comma- or space-separated (for example \"v1.36.3 v1.35.3\").")
-	distFlag := flag.String("dist", "dist", "Bundle root directory; each version lands in <dist>/<version>/amd64/.")
+	distFlag := flag.String("dist", "dist", "Bundle root directory; each version lands in <dist>/<version>/<arch>/.")
 	keyringFlag := flag.String("runc-keyring", "", "Path to the runc release keyring (default: packaging/keyrings/runc-release.gpg next to this package).")
 	lockDirFlag := flag.String("lock", "lock", "Directory holding the committed lock files, one <version>.json per Kubernetes version.")
 	writeLockFlag := flag.Bool("write-lock", false, "Regenerate the lock files from upstream instead of building a bundle. Review the diff and commit it.")
 	skipImages := flag.Bool("skip-images", false, "Skip the kubeadm image list and container image tarball. Development only: the .deb then has no images to import.")
 	workers := flag.Int("download-workers", 8, "Maximum concurrent downloads per Kubernetes version.")
+	archFlag := flag.String("arch", "amd64", "Target architecture for the bundle. Only amd64 is supported today; the lock file is not yet per-architecture.")
+	craneFlag := flag.String("crane", "crane", "Path to the crane binary (from go-containerregistry), used to resolve and pull container images.")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
@@ -67,6 +81,8 @@ func main() {
 		writeLock:  *writeLockFlag,
 		skipImages: *skipImages,
 		workers:    *workers,
+		arch:       *archFlag,
+		crane:      *craneFlag,
 	}
 	if err := run(opts); err != nil {
 		slog.Error("kubeadm-bundle failed", "err", err)
@@ -83,6 +99,8 @@ type runOptions struct {
 	writeLock  bool
 	skipImages bool
 	workers    int
+	arch       string
+	crane      string
 }
 
 func run(opts runOptions) error {
@@ -96,10 +114,23 @@ func run(opts runOptions) error {
 	if opts.writeLock && opts.skipImages {
 		return fmt.Errorf("-write-lock and -skip-images are contradictory: a lock records the images")
 	}
+	if _, ok := supportedArches[opts.arch]; !ok {
+		return fmt.Errorf("-arch %q: the lock and the .deb are amd64-only for now; another arch needs a per-arch lock", opts.arch)
+	}
+	// Read by every goroutine fetchAllArtifacts starts below, so it must be set
+	// before any of them can run.
+	targetArch = opts.arch
 	needsKubeadm := !opts.skipImages
 	if needsKubeadm && runtime.GOOS != "linux" {
 		return fmt.Errorf("the container images are listed by the downloaded linux kubeadm binary, "+
 			"so this build host (%s) cannot produce a complete bundle; run on Linux or pass -skip-images", runtime.GOOS)
+	}
+	if needsKubeadm {
+		// Fail before a ~1 GiB run of downloads rather than partway through the
+		// first image pull.
+		if _, err := exec.LookPath(opts.crane); err != nil {
+			return fmt.Errorf("crane not found at %q: %w", opts.crane, err)
+		}
 	}
 	keyring := opts.keyring
 	if keyring == "" {
@@ -134,6 +165,7 @@ func run(opts runOptions) error {
 			keyring:    keyring,
 			skipImages: opts.skipImages,
 			workers:    opts.workers,
+			crane:      opts.crane,
 		}); err != nil {
 			return fmt.Errorf("%s: %w", v, err)
 		}
@@ -149,24 +181,19 @@ type versionBuild struct {
 	keyring    string
 	skipImages bool
 	workers    int
+	crane      string
 }
 
-// defaultRuncKeyring locates packaging/keyrings/runc-release.gpg relative to the
-// working directory, which is this package root under `make debs`.
+// defaultRuncKeyring returns packaging/keyrings/runc-release.gpg relative to
+// the working directory, which is this package root under `make debs` and
+// `make lock` (both of which pass -runc-keyring explicitly anyway). This is
+// only the fallback for running the binary directly from this source tree.
 func defaultRuncKeyring() (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
+	candidate := filepath.Join("packaging", "keyrings", "runc-release.gpg")
+	if st, err := os.Stat(candidate); err != nil || st.IsDir() {
+		return "", fmt.Errorf("no runc keyring at %s; run from packages/kubeadm-distro or pass -runc-keyring", candidate)
 	}
-	for dir := cwd; ; dir = filepath.Dir(dir) {
-		candidate := filepath.Join(dir, "packaging", "keyrings", "runc-release.gpg")
-		if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
-			return candidate, nil
-		}
-		if dir == filepath.Dir(dir) {
-			return "", fmt.Errorf("could not find packaging/keyrings/runc-release.gpg from %s; pass -runc-keyring", cwd)
-		}
-	}
+	return candidate, nil
 }
 
 // buildVersion downloads, verifies and records every artifact for one Kubernetes
@@ -202,7 +229,7 @@ func buildVersion(ctx context.Context, b versionBuild) error {
 			return err
 		}
 		tarballPath := filepath.Join(archDir, baseImagesTarballName(b.k8sVersion))
-		if err := writeBaseImagesTarball(ctx, lock.Images, tarballPath); err != nil {
+		if err := writeBaseImagesTarball(ctx, b.crane, lock.Images, tarballPath); err != nil {
 			return err
 		}
 		manifest.Images = lock.Images
@@ -239,7 +266,7 @@ func writeLockForVersion(ctx context.Context, b versionBuild) error {
 	if err != nil {
 		return err
 	}
-	if updated.Images, err = resolveImageDigests(ctx, images); err != nil {
+	if updated.Images, err = resolveImageDigests(ctx, b.crane, images); err != nil {
 		return err
 	}
 
@@ -301,7 +328,11 @@ func fetchAllArtifacts(ctx context.Context, b versionBuild, p pins, lock *lockFi
 				return fmt.Errorf("%s: %w", component, err)
 			}
 			dest := filepath.Join(archDir, fname)
-			digest, err := fetchAndVerify(ctx, component, url, dest, fname, b.keyring)
+			var lockDigest string
+			if lock != nil {
+				lockDigest = lock.Artifacts[component].Sha256
+			}
+			digest, err := fetchAndVerify(ctx, component, url, dest, fname, b.keyring, lockDigest)
 			if err != nil {
 				return fmt.Errorf("%s: %w", component, err)
 			}
@@ -322,13 +353,26 @@ func fetchAllArtifacts(ctx context.Context, b versionBuild, p pins, lock *lockFi
 	return manifest, archDir, nil
 }
 
-// fetchAndVerify downloads url unless dest already verifies against the
-// publisher's checksum, and returns the verified digest. A cached file that
-// fails verification is re-downloaded once, which is what a pin bump looks like.
-func fetchAndVerify(ctx context.Context, component, url, dest, fname, keyring string) (string, error) {
-	checksumURL := upstreamChecksumURL(component, url)
+// fetchAndVerify downloads url unless dest already verifies, and returns the
+// verified digest. A cached file that fails verification is re-downloaded
+// once, which is what a pin bump looks like.
+//
+// When lockDigest is non-empty and the cached file's own sha256 already
+// matches it, the publisher's checksum document is not fetched at all: the
+// lock is what a human reviewed, so a cache hit against it needs no second
+// opinion from the CDN. The publisher document is still consulted at
+// `-write-lock` time (lockDigest is always empty there) and whenever the
+// cache misses or drifts from the lock.
+func fetchAndVerify(ctx context.Context, component, url, dest, fname, keyring, lockDigest string) (string, error) {
 	sidecar := dest + ".sha256"
 	if _, err := os.Stat(dest); err == nil {
+		if lockDigest != "" {
+			if digest, err := bundle.VerifyFileAgainstSidecar(dest, sidecar); err == nil && strings.EqualFold(digest, lockDigest) {
+				slog.Info("reusing artifact that matches the lock", "component", component, "file", fname)
+				return finishArtifact(component, dest, digest)
+			}
+		}
+		checksumURL := upstreamChecksumURL(component, url)
 		if digest, err := verifyUpstreamSHA256(ctx, dest, checksumURL, fname, component, keyring); err == nil {
 			slog.Info("reusing verified artifact", "component", component, "file", fname)
 			return finishArtifact(component, dest, digest)
@@ -349,7 +393,7 @@ func fetchAndVerify(ctx context.Context, component, url, dest, fname, keyring st
 	if err != nil {
 		return "", err
 	}
-	digest, err := verifyUpstreamSHA256(ctx, tmp, checksumURL, fname, component, keyring)
+	digest, err := verifyUpstreamSHA256(ctx, tmp, upstreamChecksumURL(component, url), fname, component, keyring)
 	if err != nil {
 		// An unverified download must not survive under any name.
 		return "", errors.Join(err, removeIfPresent(tmp))

@@ -13,7 +13,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -179,7 +181,7 @@ func TestFetchAndVerify(t *testing.T) {
 	dest := filepath.Join(dir, "kubeadm")
 	url := srv.URL + "/kubeadm"
 
-	got, err := fetchAndVerify(t.Context(), "kubeadm", url, dest, "kubeadm", "")
+	got, err := fetchAndVerify(t.Context(), "kubeadm", url, dest, "kubeadm", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 	assert.Equal(t, 1, artifactHits)
@@ -189,14 +191,14 @@ func TestFetchAndVerify(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), "binaries must be executable in the bundle")
 
 	// A cached artifact that still verifies is not downloaded again.
-	got, err = fetchAndVerify(t.Context(), "kubeadm", url, dest, "kubeadm", "")
+	got, err = fetchAndVerify(t.Context(), "kubeadm", url, dest, "kubeadm", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 	assert.Equal(t, 1, artifactHits)
 
 	// A cached artifact that no longer matches the publisher is replaced.
 	require.NoError(t, os.WriteFile(dest, []byte("stale"), 0o644))
-	got, err = fetchAndVerify(t.Context(), "kubeadm", url, dest, "kubeadm", "")
+	got, err = fetchAndVerify(t.Context(), "kubeadm", url, dest, "kubeadm", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 	assert.Equal(t, 2, artifactHits)
@@ -247,7 +249,7 @@ func TestFetchAndVerifyLeavesNothingBehindOnFailure(t *testing.T) {
 
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "kubeadm")
-	_, err := fetchAndVerify(t.Context(), "kubeadm", srv.URL+"/kubeadm", dest, "kubeadm", "")
+	_, err := fetchAndVerify(t.Context(), "kubeadm", srv.URL+"/kubeadm", dest, "kubeadm", "", "")
 	require.ErrorContains(t, err, "upstream checksum mismatch")
 
 	entries, err := os.ReadDir(dir)
@@ -273,7 +275,7 @@ func TestFetchAndVerifyDropsAStaleCacheWhenTheRedownloadFails(t *testing.T) {
 	_, err := bundle.WriteSHA256Sidecar(dest)
 	require.NoError(t, err)
 
-	_, err = fetchAndVerify(t.Context(), "kubeadm", srv.URL+"/kubeadm", dest, "kubeadm", "")
+	_, err = fetchAndVerify(t.Context(), "kubeadm", srv.URL+"/kubeadm", dest, "kubeadm", "", "")
 	require.ErrorContains(t, err, "upstream checksum mismatch")
 
 	entries, err := os.ReadDir(dir)
@@ -314,4 +316,180 @@ func TestWriteManifest(t *testing.T) {
 	assert.Equal(t, "kubeadm", round.Architectures["amd64"]["kubeadm"].File)
 
 	require.NoError(t, bundle.VerifyManifestDigest(path))
+}
+
+// withFastRetryBackoff shrinks retryBackoff to near-zero for the duration of
+// a test, so a test that exercises real retries does not spend real seconds
+// asleep, and restores it afterward.
+func withFastRetryBackoff(t *testing.T) {
+	t.Helper()
+	prev := retryBackoff
+	retryBackoff = time.Microsecond
+	t.Cleanup(func() { retryBackoff = prev })
+}
+
+// TestDoWithRetrySucceedsAfterTransientServerErrors proves a 500 is retried
+// and a later success is returned, not treated as a terminal failure.
+func TestDoWithRetrySucceedsAfterTransientServerErrors(t *testing.T) {
+	withFastRetryBackoff(t)
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if hits.Add(1) <= 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		fmt.Fprint(w, "ok")
+	}))
+	defer srv.Close()
+
+	resp, err := doWithRetry(t.Context(), srv.URL, time.Second)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.EqualValues(t, 3, hits.Load(), "must retry the two 5xx responses before the third succeeds")
+}
+
+// TestDoWithRetryDoesNotRetryClientErrors proves a 404 fails immediately: a
+// retry cannot change what a nonexistent object returns.
+func TestDoWithRetryDoesNotRetryClientErrors(t *testing.T) {
+	withFastRetryBackoff(t)
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	_, err := doWithRetry(t.Context(), srv.URL, time.Second)
+	require.Error(t, err)
+	assert.EqualValues(t, 1, hits.Load(), "a 404 must not be retried")
+}
+
+// TestDoWithRetryGivesUpAfterMaxAttempts proves a persistently failing server
+// is retried exactly maxDownloadAttempts times, then reports the failure.
+func TestDoWithRetryGivesUpAfterMaxAttempts(t *testing.T) {
+	withFastRetryBackoff(t)
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	_, err := doWithRetry(t.Context(), srv.URL, time.Second)
+	require.Error(t, err)
+	assert.EqualValues(t, maxDownloadAttempts, hits.Load())
+}
+
+// TestDoWithRetryRetriesTooManyRequests proves a 429 is retried like a 5xx,
+// and that a small Retry-After is honored instead of the exponential backoff.
+func TestDoWithRetryRetriesTooManyRequests(t *testing.T) {
+	withFastRetryBackoff(t)
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if hits.Add(1) == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		fmt.Fprint(w, "ok")
+	}))
+	defer srv.Close()
+
+	resp, err := doWithRetry(t.Context(), srv.URL, time.Second)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.EqualValues(t, 2, hits.Load())
+}
+
+// TestRetryAfterDuration is a table test over the values doWithRetry can see
+// on the wire: an honorable small delay, and everything that must fall back
+// to the exponential backoff instead — no header, non-numeric, negative,
+// zero (retry now, not "wait zero"), over the ceiling, and a value large
+// enough that converting it to a time.Duration before bounding it would
+// overflow and wrap negative, which used to slip past the ceiling check.
+func TestRetryAfterDuration(t *testing.T) {
+	tests := []struct {
+		name string
+		v    string
+		want time.Duration
+		ok   bool
+	}{
+		{"absent", "", 0, false},
+		{"honored", "5", 5 * time.Second, true},
+		{"at the ceiling", "30", 30 * time.Second, true},
+		{"just over the ceiling", "31", 0, false},
+		{"zero falls back to the backoff", "0", 0, false},
+		{"negative", "-1", 0, false},
+		{"not a number", "soon", 0, false},
+		{"large enough to overflow a naive seconds-to-Duration conversion", "10000000000", 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := http.Header{}
+			if tt.v != "" {
+				h.Set("Retry-After", tt.v)
+			}
+			got, ok := retryAfterDuration(h)
+			assert.Equal(t, tt.ok, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestFetchAndVerifyReusesLockMatchingCacheWithoutNetwork proves a cached
+// artifact whose sha256 already matches the lock is trusted without
+// consulting the publisher's checksum document at all.
+func TestFetchAndVerifyReusesLockMatchingCacheWithoutNetwork(t *testing.T) {
+	payload := []byte("#!/bin/sh\necho kubeadm\n")
+	digest := sha256.Sum256(payload)
+	want := hex.EncodeToString(digest[:])
+
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		hits.Add(1)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "kubeadm")
+	require.NoError(t, os.WriteFile(dest, payload, 0o644))
+	_, err := bundle.WriteSHA256Sidecar(dest)
+	require.NoError(t, err)
+
+	got, err := fetchAndVerify(t.Context(), "kubeadm", srv.URL+"/kubeadm", dest, "kubeadm", "", want)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	assert.EqualValues(t, 0, hits.Load(), "a cached artifact matching the lock must not touch the network")
+}
+
+// TestFetchAndVerifyFallsBackToUpstreamWhenLockDoesNotMatchCache proves a
+// stale cache (sha256 no longer matching the lock) still falls back to the
+// publisher's checksum document rather than trusting the lock digest blindly.
+func TestFetchAndVerifyFallsBackToUpstreamWhenLockDoesNotMatchCache(t *testing.T) {
+	cachedPayload := []byte("stale cached bytes")
+	freshPayload := []byte("#!/bin/sh\necho kubeadm\n")
+	freshDigest := sha256.Sum256(freshPayload)
+	freshWant := hex.EncodeToString(freshDigest[:])
+
+	var artifactHits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".sha256") {
+			fmt.Fprintf(w, "%s\n", freshWant)
+			return
+		}
+		artifactHits++
+		_, _ = w.Write(freshPayload)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "kubeadm")
+	require.NoError(t, os.WriteFile(dest, cachedPayload, 0o644))
+	_, err := bundle.WriteSHA256Sidecar(dest)
+	require.NoError(t, err)
+
+	got, err := fetchAndVerify(t.Context(), "kubeadm", srv.URL+"/kubeadm", dest, "kubeadm", "", freshWant)
+	require.NoError(t, err)
+	assert.Equal(t, freshWant, got)
+	assert.Equal(t, 1, artifactHits, "a lock digest that does not match the cache must fall back to a real download")
 }

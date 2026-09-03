@@ -45,7 +45,8 @@ show-versions: ## Print every pinned tool version.
 		"CAPI_VERSION"           "$(CAPI_VERSION)" \
 		"ORAS_VERSION"           "$(ORAS_VERSION)" \
 		"PACKER_VERSION"         "$(PACKER_VERSION)" \
-		"GO_LICENSES_VERSION"    "$(GO_LICENSES_VERSION)"
+		"GO_LICENSES_VERSION"    "$(GO_LICENSES_VERSION)" \
+		"CRANE_VERSION"          "$(CRANE_VERSION)"
 	@echo
 	@echo "Pinned in .flox/env/manifest.toml, and printed here from the live"
 	@echo "environment rather than from a second copy of the number:"

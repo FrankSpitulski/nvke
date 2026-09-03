@@ -7,17 +7,21 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/NVIDIA/nke/os-image/packages/kubeadm-distro/internal/bundle"
 )
 
-// httpClient is generous: the containerd and kubelet artifacts are large.
-var httpClient = &http.Client{Timeout: 2 * time.Hour}
+// httpClient carries no client-wide timeout: every request gets its own
+// per-attempt deadline from doWithRetry instead, so a stalled connection
+// cannot tie up a worker for the lifetime of a 2-hour client.
+var httpClient = &http.Client{}
 
 // componentURLs returns the linux/amd64 download URL of every matrix component
 // for one Kubernetes release.
@@ -59,24 +63,140 @@ func upstreamChecksumURL(component, artifactURL string) string {
 // while still refusing to fill the build host's disk with an unexpected body.
 const maxArtifactBytes = 2 << 30
 
+// maxDownloadAttempts is how many times doWithRetry tries one request before
+// giving up.
+const maxDownloadAttempts = 3
+
+// downloadTimeout bounds a single attempt at an artifact download. The
+// largest artifact in the bundle is a few hundred MiB; on a slow link this is
+// generous without leaving a stalled request to run forever.
+const downloadTimeout = 10 * time.Minute
+
+// checksumTimeout bounds a single attempt at fetching a checksum document,
+// which is at most a few KiB.
+const checksumTimeout = 30 * time.Second
+
+// retryBackoff is the delay before the first retry; it doubles after each
+// subsequent attempt. A package var, not a const, so tests can shrink it and
+// not spend real seconds asleep.
+var retryBackoff = time.Second
+
+// maxRetryAfter bounds how long doWithRetry will honor a 429 response's
+// Retry-After header; a longer wait falls back to the exponential backoff
+// instead of blocking a build for however long a server asked for.
+const maxRetryAfter = 30 * time.Second
+
+// isRetryableStatus reports whether an HTTP status is worth retrying: a rate
+// limit or a server-side failure, not a client error like 404 that a retry
+// cannot fix.
+func isRetryableStatus(code int) bool {
+	return code == http.StatusTooManyRequests || (code >= 500 && code <= 599)
+}
+
+// retryAfterDuration reads a 429 response's Retry-After header as a delta-
+// seconds value (the HTTP-date form is left to the standard backoff instead
+// of being parsed here) and reports it when present, positive, and no longer
+// than maxRetryAfter. secs is bounded before the multiply below, not after:
+// converting an arbitrary int straight to time.Duration (nanoseconds) can
+// overflow and wrap negative for a large-but-plausible header value, which
+// would otherwise slip past the maxRetryAfter check and return a zero delay.
+func retryAfterDuration(h http.Header) (time.Duration, bool) {
+	v := h.Get("Retry-After")
+	if v == "" {
+		return 0, false
+	}
+	secs, err := strconv.Atoi(v)
+	if err != nil || secs <= 0 || secs > int(maxRetryAfter/time.Second) {
+		return 0, false
+	}
+	return time.Duration(secs) * time.Second, true
+}
+
+// cancelOnCloseBody cancels a per-attempt context once its body is closed,
+// rather than the moment doWithRetry returns, so the caller can still read
+// the response.
+type cancelOnCloseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *cancelOnCloseBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
+}
+
+// doWithRetry issues a GET to url up to maxDownloadAttempts times, each bound
+// to its own timeout context. It retries network errors and 5xx responses
+// with exponential backoff; any other non-200 status is returned immediately,
+// since a retry cannot change a 404. A canceled or expired parent context
+// stops retrying right away.
+func doWithRetry(ctx context.Context, url string, timeout time.Duration) (*http.Response, error) {
+	var lastErr error
+	backoff := retryBackoff
+	for attempt := 1; attempt <= maxDownloadAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		reqCtx, cancel := context.WithTimeout(ctx, timeout)
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		resp, err := httpClient.Do(req)
+
+		wait := backoff
+		switch {
+		case err == nil && resp.StatusCode == http.StatusOK:
+			resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel}
+			return resp, nil
+		case err == nil && isRetryableStatus(resp.StatusCode):
+			lastErr = fmt.Errorf("%s: %s", url, resp.Status)
+			if resp.StatusCode == http.StatusTooManyRequests {
+				if d, ok := retryAfterDuration(resp.Header); ok {
+					wait = d
+				}
+			}
+			resp.Body.Close()
+			cancel()
+		case err == nil:
+			// A non-retryable status: no amount of waiting fixes a 404.
+			statusErr := fmt.Errorf("%s: %s", url, resp.Status)
+			resp.Body.Close()
+			cancel()
+			return nil, statusErr
+		default:
+			lastErr = err
+			cancel()
+		}
+
+		if attempt == maxDownloadAttempts {
+			break
+		}
+		slog.Warn("retrying after a transient failure", "url", url, "attempt", attempt, "err", lastErr, "wait", wait)
+		timer := time.NewTimer(wait)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		}
+		backoff *= 2
+	}
+	return nil, lastErr
+}
+
 // downloadToTemp writes the body of url to a temp file beside dest and returns
 // its path. The caller renames it into place once the checksum verifies, so a
 // truncated or unverified download never appears under the artifact's name.
-// The request is bound to ctx, so one component failing cancels its siblings
-// rather than leaving them to finish a download nobody will use.
 func downloadToTemp(ctx context.Context, url, dest string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := httpClient.Do(req)
+	resp, err := doWithRetry(ctx, url, downloadTimeout)
 	if err != nil {
 		return "", fmt.Errorf("GET %s: %w", url, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GET %s: %s", url, resp.Status)
-	}
 
 	out, err := os.CreateTemp(filepath.Dir(dest), filepath.Base(dest)+".part-*")
 	if err != nil {
@@ -104,18 +224,11 @@ func downloadToTemp(ctx context.Context, url, dest string) (string, error) {
 // fetchChecksumText downloads a checksum document (bare sha256, sha256sum list,
 // or an OpenPGP clearsigned list).
 func fetchChecksumText(ctx context.Context, url string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := httpClient.Do(req)
+	resp, err := doWithRetry(ctx, url, checksumTimeout)
 	if err != nil {
 		return "", fmt.Errorf("GET %s: %w", url, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GET %s: %s", url, resp.Status)
-	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", url, err)

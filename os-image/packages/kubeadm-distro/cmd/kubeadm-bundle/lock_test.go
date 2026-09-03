@@ -165,7 +165,7 @@ func TestDigestRef(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := digestRef(tt.ref, digest)
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, got.String())
+			assert.Equal(t, tt.want, got)
 		})
 	}
 
@@ -195,4 +195,20 @@ func TestSummarizeLockChange(t *testing.T) {
 	}, summarizeLockChange(old, updated))
 
 	assert.Empty(t, summarizeLockChange(sampleLock(), sampleLock()), "an unchanged lock reports nothing")
+}
+
+// TestSummarizeLockChangeReportsURLAndSha256Independently proves that when a
+// pin bump moves both the URL and the bytes behind it, both are reported
+// rather than only the first one noticed.
+func TestSummarizeLockChangeReportsURLAndSha256Independently(t *testing.T) {
+	old := sampleLock()
+	updated := sampleLock()
+	updated.Artifacts["kubeadm"] = lockArtifact{
+		URL:    "https://dl.k8s.io/release/v1.36.4/bin/linux/amd64/kubeadm",
+		Sha256: strings.Repeat("f", 64),
+	}
+
+	got := summarizeLockChange(old, updated)
+	assert.Contains(t, got, "~ artifact kubeadm url https://dl.k8s.io/release/v1.36.3/bin/linux/amd64/kubeadm -> https://dl.k8s.io/release/v1.36.4/bin/linux/amd64/kubeadm")
+	assert.Contains(t, got, "~ artifact kubeadm sha256 "+strings.Repeat("b", 64)+" -> "+strings.Repeat("f", 64))
 }

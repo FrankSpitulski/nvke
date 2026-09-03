@@ -166,12 +166,16 @@ func summarizeLockChange(old, updated lockFile) []string {
 	for _, component := range sortedKeys(updated.Artifacts) {
 		now := updated.Artifacts[component]
 		before, ok := old.Artifacts[component]
-		switch {
-		case !ok:
+		if !ok {
 			lines = append(lines, fmt.Sprintf("+ artifact %s %s", component, now.URL))
-		case before.URL != now.URL:
+			continue
+		}
+		// A pin bump can move both the URL and the bytes behind it at once; report
+		// each change on its own line rather than only the first one noticed.
+		if before.URL != now.URL {
 			lines = append(lines, fmt.Sprintf("~ artifact %s url %s -> %s", component, before.URL, now.URL))
-		case !strings.EqualFold(before.Sha256, now.Sha256):
+		}
+		if !strings.EqualFold(before.Sha256, now.Sha256) {
 			lines = append(lines, fmt.Sprintf("~ artifact %s sha256 %s -> %s", component, before.Sha256, now.Sha256))
 		}
 	}

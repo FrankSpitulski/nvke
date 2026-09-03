@@ -12,6 +12,17 @@ help: ## Show the available targets.
 
 GO ?= go
 
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+
+# CRANE_VERSION and the CRANE_LINUX_*_SHA256 pins live together in
+# make/tool-versions.mk at the repository root, so a version bump and its
+# digests move as one change. crane (from go-containerregistry) resolves image
+# tags to manifest digests and pulls the pinned digests. Darwin has no pin
+# here, so a developer's own `crane` (for example via `brew install crane`) is
+# used instead.
+include ../../../make/tool-versions.mk
+
 # The Kubernetes releases bundled by `make debs`: the newest patch of each of the
 # three newest minors. This is the single place to bump them; see README.md.
 K8S_VERSIONS ?= v1.36.3 v1.35.3 v1.34.2
@@ -43,9 +54,12 @@ BUNDLE_FLAGS := -skip-images
 # Only a deliberately image-less bundle may be packaged; build-deb.sh refuses
 # otherwise, and the resulting .deb refuses to configure a node.
 DEB_ENV := ALLOW_NO_IMAGES=1
+# No images means no crane pull, so don't require fetching it.
+CRANE_DEP :=
 else
 BUNDLE_FLAGS :=
 DEB_ENV :=
+CRANE_DEP := $(BIN_DIR)/crane
 endif
 
 ##@ Build
@@ -67,15 +81,19 @@ debs: check-host check-deb-tools bundle ## Build one .deb per K8S_VERSIONS into 
 	@cd "$(OUT_DIR)" && dpkg-scanpackages . /dev/null >Packages
 	@echo "wrote $(OUT_DIR)/Packages"
 
+RUNC_KEYRING := $(CURDIR)/packaging/keyrings/runc-release.gpg
+
 .PHONY: bundle
-bundle: check-host $(BIN_DIR)/kubeadm-bundle $(BIN_DIR)/nke-k8s-installer ## Download and verify the upstream artifacts into DIST_DIR.
-	$(BIN_DIR)/kubeadm-bundle -versions "$(K8S_VERSIONS_V)" -dist "$(DIST_DIR)" -lock "$(LOCK_DIR)" $(BUNDLE_FLAGS)
+bundle: check-host $(BIN_DIR)/kubeadm-bundle $(BIN_DIR)/nke-k8s-installer $(CRANE_DEP) ## Download and verify the upstream artifacts into DIST_DIR.
+	$(BIN_DIR)/kubeadm-bundle -versions "$(K8S_VERSIONS_V)" -dist "$(DIST_DIR)" -lock "$(LOCK_DIR)" \
+		-crane "$(BIN_DIR)/crane" -runc-keyring "$(RUNC_KEYRING)" $(BUNDLE_FLAGS)
 
 .PHONY: lock
-lock: check-host $(BIN_DIR)/kubeadm-bundle ## Regenerate lock/<version>.json from upstream. Review the diff, then commit it.
+lock: check-host $(BIN_DIR)/kubeadm-bundle $(BIN_DIR)/crane ## Regenerate lock/<version>.json from upstream. Review the diff, then commit it.
 	@# Needs Linux and network: it downloads every artifact, runs the verified
 	@# kubeadm for its image list, and resolves each tag to a manifest digest.
-	$(BIN_DIR)/kubeadm-bundle -write-lock -versions "$(K8S_VERSIONS_V)" -dist "$(DIST_DIR)" -lock "$(LOCK_DIR)"
+	$(BIN_DIR)/kubeadm-bundle -write-lock -versions "$(K8S_VERSIONS_V)" -dist "$(DIST_DIR)" -lock "$(LOCK_DIR)" \
+		-crane "$(BIN_DIR)/crane" -runc-keyring "$(RUNC_KEYRING)"
 	@echo
 	@echo "Review the lock diff before committing it:"
 	@echo "    git diff -- $(LOCK_DIR)"
@@ -89,6 +107,36 @@ $(BIN_DIR)/nke-k8s-installer: $(shell find . -name '*.go' -not -name '*_test.go'
 	@mkdir -p $(@D)
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build $(GO_BUILD_FLAGS) -o $@ ./cmd/nke-k8s-installer
 
+$(BIN_DIR)/crane: ## Fetch the pinned crane (go-containerregistry) release for this host.
+	@mkdir -p $(@D)
+	@set -eu; \
+	if [ "$(UNAME_S)" = "Darwin" ]; then \
+		if command -v crane >/dev/null 2>&1; then \
+			install -m 0755 "$$(command -v crane)" $@; \
+		else \
+			echo "kubeadm-distro: crane is not pinned for Darwin; install it (for example: brew install crane) so it is on PATH." >&2; \
+			exit 1; \
+		fi; \
+	else \
+		case "$(UNAME_M)" in \
+			x86_64|amd64) arch=x86_64; sha=$(CRANE_LINUX_AMD64_SHA256) ;; \
+			aarch64|arm64) arch=arm64; sha=$(CRANE_LINUX_ARM64_SHA256) ;; \
+			*) echo "kubeadm-distro: no pinned crane release for $(UNAME_S)/$(UNAME_M)" >&2; exit 1 ;; \
+		esac; \
+		tmp=$$(mktemp -d); \
+		trap 'rm -rf "$$tmp"' EXIT; \
+		file="go-containerregistry_Linux_$${arch}.tar.gz"; \
+		url="https://github.com/google/go-containerregistry/releases/download/v$(CRANE_VERSION)/$${file}"; \
+		echo "downloading $${url}"; \
+		curl --fail --silent --show-error --location \
+			--connect-timeout 10 --max-time 120 \
+			--retry 3 --retry-delay 5 --retry-connrefused \
+			-o "$$tmp/$${file}" "$${url}"; \
+		echo "$${sha}  $$tmp/$${file}" | sha256sum -c -; \
+		tar -xzf "$$tmp/$${file}" -C "$$tmp" crane; \
+		install -m 0755 "$$tmp/crane" $@; \
+	fi
+
 ##@ Checks
 
 .PHONY: check-host
@@ -100,6 +148,17 @@ check-host: ## Fail early when this host cannot run the bundle step.
 		echo "kubeadm-distro: the bundle step runs the downloaded linux kubeadm binary, so it needs a Linux host; this is $$(uname -s)." >&2; \
 		echo "  Pass SKIP_IMAGES=1 to build a bundle without the container images (development only)." >&2; \
 		exit 1; \
+	fi
+	@# crane itself is fetched by $(BIN_DIR)/crane; these are what fetch it with.
+	@if [ "$(SKIP_IMAGES)" != "1" ] && [ "$(UNAME_S)" = "Linux" ]; then \
+		missing=""; \
+		command -v curl >/dev/null 2>&1 || missing="$$missing curl"; \
+		command -v sha256sum >/dev/null 2>&1 || missing="$$missing sha256sum"; \
+		command -v tar >/dev/null 2>&1 || missing="$$missing tar"; \
+		if [ -n "$$missing" ]; then \
+			echo "kubeadm-distro: missing tools needed to fetch crane:$$missing" >&2; \
+			exit 1; \
+		fi; \
 	fi
 
 .PHONY: check-deb-tools

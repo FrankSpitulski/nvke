@@ -36,6 +36,9 @@ kubernetes-helm = { pkg-path = "kubernetes-helm", version = "4.2.4", pkg-group =
 # backend-e2e.yml:118 and nkectl-bootstrap-e2e.yml:121.
 kind = { pkg-path = "kind", version = "0.32.0", pkg-group = "kind" }
 oapi-codegen = { pkg-path = "oapi-codegen", version = "2.4.1", pkg-group = "oapi-codegen" }
+# os-image/packages/kubeadm-distro/Makefile pins CRANE_VERSION for the Linux
+# release download; this covers local (including Darwin) development.
+crane = { pkg-path = "crane", version = "0.22.0", pkg-group = "crane" }
 gnumake.pkg-path = "gnumake"
 gnumake.outputs = "all"
 temporal-cli.pkg-path = "temporal-cli"
