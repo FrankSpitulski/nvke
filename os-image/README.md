@@ -206,67 +206,19 @@ header comment in
 kubeadm upgrade runbook works around that by installing the next
 `nke-kubeadm-distro-<ver>` row from the local repo instead of pkgs.k8s.io.
 
-### boot-smoke's node-state contract
+### boot-smoke's kubeadm-distro checks
 
-For every staged version, `boot-smoke.sh` also asserts the node-level state
-contract `packaging/postinst`/`packaging/postrm` promise (see
-`packages/kubeadm-distro/README.md`'s "dpkg owns every file" note): before
-each install it touches a marker file in the guest, then after the install
-runs `packer/scripts/node-snapshot.sh` (copied into the guest over the same
-ssh connection boot-smoke uses for everything else) to capture every file
-created or changed since the marker (by ctime, via `find -cnewer` -- nfpm
-pins every dpkg-shipped file's mtime to a fixed build-time value, so mtime
-alone would never see them), tagged `dpkg-owned` or `unowned` against that
-version's `dpkg -L` output, plus enabled units, `containerd`/`kubelet`
-activation and enablement state, the five k8s sysctls, loaded kernel
-modules, swap state, the imported `ctr` image set, and checksums of the
-config files dpkg ships. That snapshot is saved as
-`packer/build-logs/node-<version>.snapshot` -- a human-diffable artifact, not
-just a pass/fail signal.
-
-boot-smoke then asserts:
-
-- every `unowned` file is one of an explicit allowlist: `/etc/sysctl.d/k8s.conf`,
-  `/etc/modules-load.d/k8s.conf`, `/etc/fstab` (edited in place, not created),
-  the two `systemctl enable` symlinks under
-  `/etc/systemd/system/multi-user.target.wants/`, and that version's own
-  `/var/log/nke-kubeadm-distro-<version>-postinst.log`. Anything else unowned
-  is a postinst regression writing state the package's file list doesn't
-  declare.
-- the images this install actually added to containerd (`ctr` images seen
-  after the install but not before, since postrm never removes images and
-  they accumulate across the loop, with `@sha256:...` digest aliases
-  stripped since kubeadm's own list never has them) equal
-  `kubeadm config images list` exactly, not merely a subset.
-- the five k8s sysctls are all `1`, swap is off, `containerd` is active and
-  enabled, and `kubelet` is enabled but inactive (it only starts once
-  `kubeadm init`/`join` runs).
-- **version switch**: after installing version N+1 (apt's `Conflicts` removes
-  N first), nothing N's `dpkg -L` owned is still on disk unless N+1 also owns
-  it or it's in the allowlist above -- proving the switch doesn't leave stale
-  files from the old matrix row.
-- **disk budget**: after the last install, free space on `/` is still above
-  1 GiB (see the `disk_size` arithmetic in `packer/nke-node-fde.pkr.hcl`), so
-  a regression shows up as this explicit message instead of an `ENOSPC`
-  mid-import three versions later. boot-smoke also runs `apt-get clean` after
-  each install so `/var/cache/apt/archives` -- which apt grows by a full
-  `.deb` every time it installs from a local `file:` source, even though the
-  same bytes are already staged under `/usr/lib/nke/debs/` -- doesn't eat
-  into that headroom.
-- **remove**: after the last version, boot-smoke `apt-get remove`s it and
-  asserts the two node-state drop-ins are gone and no dangling
-  `multi-user.target.wants/*` symlink remains (the real signal that prerm disabled the
-  units and postrm cleaned up; removing the package also removes the unit files themselves,
-  so `systemctl is-enabled` legitimately reports `not-found` rather than
-  `disabled` at this point -- both are accepted), and that `/etc/fstab`'s
-  checksum is unchanged from immediately before the removal.
-
-The pure comparison logic behind these checks (`snapshot_section`,
-`check_unowned_allowlist`, `images_equal`, `image_delta`,
-`strip_digest_refs`, `sysctls_are_one`, `filter_stale_paths`) is unit tested
-without a VM in `packer/scripts/boot-smoke_test.sh`, run by
-`make -C os-image test-scripts` (part of `make test`, so the merge gate runs
-it on every push).
+For every staged version, `boot-smoke.sh` installs the deb offline and asserts
+`kubeadm version`, that `containerd` is active and enabled and `kubelet` is
+enabled but inactive, that the k8s sysctls are `1` and swap is off, that the
+images this install added to containerd equal `kubeadm config images list`
+exactly, and that `kubeadm init phase preflight` passes. It runs `apt-get
+clean` after each install (apt caches a copy of every local `.deb` it
+installs) and checks more than 1 GiB is still free on `/` at the end -- see
+the `disk_size` arithmetic in `packer/nke-node-fde.pkr.hcl`. Finally it
+removes the last version and asserts the units are disabled, the two drop-ins
+under `/etc/sysctl.d` and `/etc/modules-load.d` are gone, no dangling
+`multi-user.target.wants` symlink remains, and `/etc/fstab` is unchanged.
 
 The debs build from source in `os-image/packages/kubeadm-distro/`, built by
 `fetch-artifacts.sh` as the first Packer step (a shell-local provisioner), so

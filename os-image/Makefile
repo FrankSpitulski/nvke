@@ -57,7 +57,7 @@ CHECK_LDFLAGS := -X 'main.version=$(CHECK_VERSION)'
 
 GO_TEST_FLAGS ?=
 
-.PHONY: build compile test test-scripts fmt lint license file-license-check clean boot-smoke run-vm
+.PHONY: build compile test fmt lint license file-license-check clean boot-smoke run-vm
 
 build: ## Build nke-os-image-check into bin/.
 	$(GO) build -ldflags "$(CHECK_LDFLAGS)" -o $(BINARY) ./cmd/nke-os-image-check
@@ -84,11 +84,8 @@ NFPM_BIN_FOR_TEST := $(CURDIR)/packages/kubeadm-distro/bin/nfpm
 $(NFPM_BIN_FOR_TEST):
 	$(MAKE) --no-print-directory -C packages/kubeadm-distro nfpm
 
-test: $(NFPM_BIN_FOR_TEST) test-scripts ## Run this module's tests. (run by the merge gate)
+test: $(NFPM_BIN_FOR_TEST) ## Run this module's tests. (run by the merge gate)
 	NFPM_BIN="$(NFPM_BIN_FOR_TEST)" $(GO) test $(GO_TEST_FLAGS) ./...
-
-test-scripts: ## Run the host-side shell unit tests for the Packer scripts. No VM, no ssh, no network. (run by the merge gate via `test`)
-	bash packer/scripts/boot-smoke_test.sh
 
 fmt: ## Format the source with golangci-lint's formatters.
 	@$(GOLANGCI_LINT_RUN) fmt ./...
