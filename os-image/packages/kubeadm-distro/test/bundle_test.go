@@ -186,6 +186,11 @@ func runcPath() string {
 	return fmt.Sprintf("/opencontainers/runc/releases/download/%s/runc.amd64", fixtureRunc)
 }
 
+func containerdPath() string {
+	return fmt.Sprintf("/containerd/containerd/releases/download/v%s/containerd-%s-linux-amd64.tar.gz",
+		fixtureContainerd, fixtureContainerd)
+}
+
 func runcChecksumPath() string {
 	return fmt.Sprintf("/opencontainers/runc/releases/download/%s/runc.sha256sum", fixtureRunc)
 }
@@ -530,10 +535,51 @@ func TestBundleWarmCacheMakesNoRequests(t *testing.T) {
 	require.NoErrorf(t, err, "first build: %s", out)
 	require.Positive(t, b.server.requests.Load(), "the first build must actually download")
 
+	// The mode is not part of the digest, so a cache hit has to reassert it;
+	// nfpm reads kubeadm straight from here and a 0644 one cannot run.
+	kubeadm := filepath.Join(b.archDir(), "kubeadm")
+	require.NoError(t, os.Chmod(kubeadm, 0o644))
+
 	before := b.server.requests.Load()
 	out, err = b.exec(t)
 	require.NoErrorf(t, err, "second build: %s", out)
 	assert.Equal(t, before, b.server.requests.Load(), "a warm-cache build must make no HTTP requests")
+
+	info, err := os.Stat(kubeadm)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), "a cache hit must reassert the executable bit")
+}
+
+// TestBundleRebuildsCorruptedImageArchive covers the third leg of the reuse
+// gate: an archive whose bytes no longer match the sidecar postinst will
+// check them against has to be rebuilt, not handed on.
+func TestBundleRebuildsCorruptedImageArchive(t *testing.T) {
+	requireBundleTools(t)
+	requireLinux(t)
+	signer := newGPGKey(t, "runc test <runc@example.invalid>")
+	b := newBundleRun(t, signer, signer)
+	require.NoError(t, os.MkdirAll(b.lockDir, 0o755))
+	require.NoError(t, os.WriteFile(b.lockPath(), []byte(b.wantLock()), 0o644))
+
+	out, err := b.exec(t)
+	require.NoErrorf(t, err, "first build: %s", out)
+	tgz := filepath.Join(b.archDir(), baseImagesTarball)
+	good, err := os.ReadFile(tgz)
+	require.NoError(t, err)
+
+	// Same image list, same sidecar, different bytes: only re-hashing the
+	// archive catches this.
+	require.NoError(t, os.WriteFile(tgz, []byte("corrupted"), 0o644))
+	out, err = b.exec(t)
+	require.NoErrorf(t, err, "rebuild: %s", out)
+
+	rebuilt, err := os.ReadFile(tgz)
+	require.NoError(t, err)
+	assert.Equal(t, good, rebuilt, "a corrupted archive must be rebuilt, not reused")
+	check := exec.Command("sha256sum", "-c", baseImagesTarball+".sha256")
+	check.Dir = b.archDir()
+	checkOut, err := check.CombinedOutput()
+	require.NoErrorf(t, err, "sha256sum -c: %s", checkOut)
 }
 
 // TestBundleRejectsArtifactDigestDrift covers a lock that no longer describes
@@ -644,6 +690,8 @@ func TestBundleRepackIsOrderIndependent(t *testing.T) {
 	// does not pin member order and mode would let leak into the bytes.
 	b.dist = filepath.Join(t.TempDir(), "dist2")
 	b.env = []string{"FAKE_CRANE_REVERSE=1"}
+	// Process-wide, and restored below. Nothing in this package calls
+	// t.Parallel(), so no other case can observe the changed umask.
 	previous := syscall.Umask(0o077)
 	t.Cleanup(func() { syscall.Umask(previous) })
 	out, err = b.exec(t)
@@ -686,6 +734,60 @@ func TestBundleRejectsUnexpectedClearsignedChecksum(t *testing.T) {
 	require.Error(t, err, "a clearsigned checksum for helm must be refused")
 	assert.Contains(t, out, "unexpected clearsigned checksum for helm")
 	assert.NoFileExists(t, b.lockPath())
+}
+
+// TestBundleRejectsUnexpectedClearsignedContainerd is the same guard for the
+// one other component with its own checksum-document shape: containerd's
+// `.sha256sum` arm used to skip the check that helm's `.sha256` arm made.
+func TestBundleRejectsUnexpectedClearsignedContainerd(t *testing.T) {
+	requireBundleTools(t)
+	requireLinux(t)
+	signer := newGPGKey(t, "runc test <runc@example.invalid>")
+	b := newBundleRun(t, signer, signer)
+	list := fmt.Sprintf("%s  %s\n", b.server.digestOf(containerdPath()), filepath.Base(containerdPath()))
+	b.server.serve(containerdPath()+".sha256sum", signer.clearsign(t, list))
+
+	out, err := b.exec(t, "--write-lock")
+	require.Error(t, err, "a clearsigned checksum for containerd must be refused")
+	assert.Contains(t, out, "unexpected clearsigned checksum for containerd")
+	assert.NoFileExists(t, b.lockPath())
+}
+
+// TestBundleRejectsConflictingChecksumEntries covers a checksum document that
+// names the artifact twice with different digests. `exit` from an awk main
+// rule still runs END, so this refusal was a no-op until END carried a flag.
+func TestBundleRejectsConflictingChecksumEntries(t *testing.T) {
+	requireBundleTools(t)
+	requireLinux(t)
+	signer := newGPGKey(t, "runc test <runc@example.invalid>")
+	b := newBundleRun(t, signer, signer)
+	name := filepath.Base(helmPath())
+	b.server.serve(helmPath()+".sha256", []byte(fmt.Sprintf("%s  %s\n%s  %s\n",
+		b.server.digestOf(helmPath()), name, strings.Repeat("f", 64), name)))
+
+	out, err := b.exec(t, "--write-lock")
+	require.Error(t, err, "two disagreeing entries for one basename must be refused")
+	assert.Contains(t, out, "no unambiguous SHA-256 digest")
+	assert.NoFileExists(t, b.lockPath())
+}
+
+// TestBundleRejectsNestedCNIMember covers the archive shape check: the CNI
+// plugins land straight in /opt/cni/bin, so a nested path in that tarball
+// would be extracted somewhere nothing ever looks.
+func TestBundleRejectsNestedCNIMember(t *testing.T) {
+	requireBundleTools(t)
+	requireLinux(t)
+	signer := newGPGKey(t, "runc test <runc@example.invalid>")
+	b := newBundleRun(t, signer, signer)
+	cni := fmt.Sprintf("/containernetworking/plugins/releases/download/%s/cni-plugins-linux-amd64-%s.tgz",
+		fixtureCNI, fixtureCNI)
+	b.server.replaceArtifact(cni, tarGz(t, map[string]string{"nested/dir/bridge": "fake bridge\n"}))
+	require.NoError(t, os.MkdirAll(b.lockDir, 0o755))
+	require.NoError(t, os.WriteFile(b.lockPath(), []byte(b.wantLock()), 0o644))
+
+	out, err := b.exec(t)
+	require.Error(t, err, "a nested member in the CNI archive must be refused")
+	assert.Contains(t, out, "is not a flat top-level file")
 }
 
 // TestBundleRejectsUnsignedRuncChecksums covers the downgrade runc's signed

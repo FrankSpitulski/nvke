@@ -24,11 +24,17 @@ GITHUB_URL="${BUNDLE_GITHUB_URL:-https://github.com}"
 HELM_URL="${BUNDLE_HELM_URL:-https://get.helm.sh}"
 RUNC_KEYRING="${BUNDLE_RUNC_KEYRING:-${SCRIPT_DIR}/packaging/keyrings/runc.keyring}"
 
+# 2 GiB: comfortably above the largest artifact here (a few hundred MiB) and
+# well below filling a build host.
+MAX_ARTIFACT_BYTES=2147483648
+
 # A single pin for every row; the CNI plugins are not skewed against the
 # Kubernetes minor.
 CNI_PLUGINS_VERSION=v1.6.0
 
 COMPONENTS=(cni-plugins containerd crictl helm kubeadm kubectl kubelet runc)
+
+CLEARSIGN_MARKER='-----BEGIN PGP SIGNED MESSAGE-----'
 
 die() { echo "bundle.sh: $*" >&2; exit 1; }
 
@@ -75,26 +81,24 @@ component_url() {
 }
 
 # fetch writes url to a scratch path; the caller moves it into place only once
-# it verifies, so a partial body never appears under the artifact's name.
-# No --retry-all-errors: plain --retry already covers transient failures and
-# 429/5xx, and retrying a 404 only makes a pin typo take five times as long.
-# --max-filesize bounds a single artifact at 2 GiB, comfortably above the
-# largest thing here (a few hundred MiB) and well below filling a build host.
+# it verifies, so a partial body never appears under the artifact's name. No
+# --retry-all-errors: plain --retry covers transient failures and 429/5xx,
+# and retrying a 404 only makes a pin typo take five times as long.
 fetch() {
-  curl -fsSL --retry 5 --retry-delay 2 --max-time 600 --max-filesize 2147483648 -o "$2" "$1" ||
-    die "download $1 failed"
+  curl -fsSL --retry 5 --retry-delay 2 --max-time 600 --max-filesize "$MAX_ARTIFACT_BYTES" -o "$2" "$1" || die "download $1 failed"
+  # --max-filesize is advisory: a chunked response has no Content-Length for
+  # curl to check it against, so re-enforce the ceiling on what landed.
+  local size; size="$(stat -c %s "$2")"
+  ((size <= MAX_ARTIFACT_BYTES)) || { rm -f "$2"; die "$1 is ${size} bytes, over the ${MAX_ARTIFACT_BYTES} byte ceiling"; }
 }
 
 file_sha() { sha256sum "$1" | cut -d' ' -f1; }
 
 # checksum_from_doc reads the publisher's digest for one basename out of a
 # checksum document: a GNU `sha256sum` list, or a single bare hex digest.
-#
-# A document that names any file at all is read only by name -- falling back
-# to a bare digest there would let a list that happens not to mention our
-# artifact verify it against somebody else's bytes. Anything ambiguous (two
-# entries for the same name disagreeing, or several bare digests with nothing
-# to tell them apart) prints nothing, and the caller fails.
+# A document that names any file at all is read only by name -- a bare
+# fallback there would verify our artifact against somebody else's bytes.
+# Anything ambiguous prints nothing, and the caller fails.
 checksum_from_doc() {
   awk -v want="$2" '
     $1 !~ /^[0-9a-fA-F]{64}$/ { next }
@@ -107,11 +111,14 @@ checksum_from_doc() {
       if (name == want || (length(name) > length(tail) - 1 && \
           substr(name, length(name) - length(tail) + 1) == tail)) {
         h = tolower($1)
-        if (matched != "" && matched != h) { exit 1 }
+        # `exit` here would still run END, which would print and exit 0, so
+        # the conflict has to be carried into END as a flag.
+        if (matched != "" && matched != h) conflict = 1
         matched = h
       }
     }
     END {
+      if (conflict) exit 1
       if (named_lines > 0) { if (matched == "") exit 1; print matched; exit 0 }
       if (bare_count == 1) { print bare; exit 0 }
       exit 1
@@ -121,27 +128,24 @@ checksum_from_doc() {
 
 # verify_runc_doc checks runc's clearsigned checksum list against the bundled
 # upstream keyring and writes its clear text to $2. gpg runs in a scratch
-# GNUPGHOME that never sees the caller's own keys: --keyring is ignored
-# outright by a homedir with use-keyboxd set, so importing into a throwaway
-# home is the only way to be sure which keys were consulted.
+# GNUPGHOME that never sees the caller's own keys: a homedir with use-keyboxd
+# set ignores --keyring outright, so importing into a throwaway home is the
+# only way to be sure which keys were consulted.
 verify_runc_doc() {
   [[ -f "$RUNC_KEYRING" ]] || die "runc keyring missing at ${RUNC_KEYRING}"
   GPG_HOME="$(mktemp -d)"
   chmod 0700 "$GPG_HOME"
-  gpg --homedir "$GPG_HOME" --no-options --batch --no-tty --quiet --import "$RUNC_KEYRING" ||
-    die "importing ${RUNC_KEYRING} failed"
+  gpg --homedir "$GPG_HOME" --no-options --batch --no-tty --quiet --import "$RUNC_KEYRING" || die "importing ${RUNC_KEYRING} failed"
   local status="${WORK}/gpg-status" rc=0 rejected
-  gpg --homedir "$GPG_HOME" --no-options --batch --no-tty --quiet --status-fd 3 \
-    --verify "$1" 3>"$status" >/dev/null 2>&1 || rc=$?
+  gpg --homedir "$GPG_HOME" --no-options --batch --no-tty --quiet --status-fd 3 --verify "$1" 3>"$status" >/dev/null 2>&1 || rc=$?
   rejected="$(grep -E '^\[GNUPG:\] (EXPKEYSIG|REVKEYSIG|EXPSIG|BADSIG|NO_PUBKEY|ERRSIG)' "$status" || true)"
   [[ -z "$rejected" ]] || die "runc checksum signature rejected: ${rejected}"
   grep -q '^\[GNUPG:\] GOODSIG ' "$status" || die "runc checksum document has no GOODSIG; refusing to trust it"
   grep -q '^\[GNUPG:\] VALIDSIG ' "$status" || die "runc checksum document has no VALIDSIG; refusing to trust it"
-  # A GOODSIG on one signature says nothing about a second one gpg rejected,
-  # so a non-zero exit is fatal even with both lines present.
+  # A GOODSIG on one signature says nothing about a second gpg rejected, so
+  # a non-zero exit is fatal even with both lines present.
   ((rc == 0)) || die "gpg --verify exited ${rc} on the runc checksum document; refusing to trust it"
-  gpg --homedir "$GPG_HOME" --no-options --batch --no-tty --quiet --yes --decrypt --output "$2" "$1" 2>/dev/null ||
-    die "extracting the signed text of $1 failed"
+  gpg --homedir "$GPG_HOME" --no-options --batch --no-tty --quiet --yes --decrypt --output "$2" "$1" 2>/dev/null || die "extracting the signed text of $1 failed"
 }
 
 # publisher_sha returns the digest the component's publisher advertises for
@@ -149,28 +153,25 @@ verify_runc_doc() {
 publisher_sha() {
   local component="$1" file="$2" url doc="${WORK}/checksum-doc"
   url="$(component_url "$component")"
-  case "$component" in
-    containerd) fetch "${url}.sha256sum" "$doc" ;;
-    runc)
-      fetch "${url%/*}/runc.sha256sum" "${doc}.asc"
-      grep -q -- '-----BEGIN PGP SIGNED MESSAGE-----' "${doc}.asc" ||
-        die "runc checksum document is not OpenPGP clearsigned; refusing to trust it"
-      verify_runc_doc "${doc}.asc" "$doc"
-      ;;
-    *)
-      fetch "${url}.sha256" "$doc"
-      # Only runc signs its list. A signed document anywhere else means the
-      # publisher changed shape, and parsing it as plain text would skip the
-      # signature entirely.
-      if grep -q -- '-----BEGIN PGP SIGNED MESSAGE-----' "$doc"; then
-        die "unexpected clearsigned checksum for ${component}"
-      fi
-      ;;
-  esac
+  if [[ "$component" == runc ]]; then
+    fetch "${url%/*}/runc.sha256sum" "${doc}.asc"
+    grep -q -- "$CLEARSIGN_MARKER" "${doc}.asc" || die "runc checksum document is not OpenPGP clearsigned"
+    verify_runc_doc "${doc}.asc" "$doc"
+  else
+    case "$component" in
+      containerd) fetch "${url}.sha256sum" "$doc" ;;
+      *) fetch "${url}.sha256" "$doc" ;;
+    esac
+    # Only runc signs its list. A signed document from any other publisher
+    # is a change of shape, and reading it as plain text would skip the
+    # signature -- so this is checked here, once, for all of them.
+    if grep -q -- "$CLEARSIGN_MARKER" "$doc"; then
+      die "unexpected clearsigned checksum for ${component}"
+    fi
+  fi
   local sum
   sum="$(checksum_from_doc "$doc" "$file")" || sum=""
-  [[ "$sum" =~ ^[0-9a-f]{64}$ ]] ||
-    die "no unambiguous SHA-256 digest for ${file} in the checksum document for ${component}"
+  [[ "$sum" =~ ^[0-9a-f]{64}$ ]] || die "no unambiguous SHA-256 digest for ${file} in the checksum document for ${component}"
   echo "$sum"
 }
 
@@ -187,13 +188,13 @@ download_component() {
   file="${url##*/}"
   dest="${ARCH_DIR}/${file}"
   if ((!WRITE_LOCK)); then
+    # Presence only, for the early message: the whole-line artifact diff
+    # after the downloads compares the URL and the digest.
     locked="$(lock_field "$component" 3)"
     [[ -n "$locked" ]] || die "${component} is not in ${LOCK_FILE}: run make lock and review the diff"
-    [[ "$(lock_field "$component" 4)" == "$url" ]] ||
-      die "${component}: the pins would download ${url} but ${LOCK_FILE} has $(lock_field "$component" 4): run make lock and review the diff"
     if [[ -f "$dest" && "$(file_sha "$dest")" == "$locked" ]]; then
-      # The mode is not part of the digest, so a cache hit has to reassert it:
-      # nfpm reads these straight from here and a 0644 kubeadm cannot run.
+      # The mode is not part of the digest, and nfpm reads these straight
+      # from here: a 0644 kubeadm cannot run.
       make_executable "$component" "$dest"
       ARTIFACT_SHA="$locked"
       return
@@ -217,8 +218,7 @@ download_component() {
 }
 
 # make_executable sets 0755 on the components shipped as bare binaries; an
-# HTTP download lands at 0644 and would not run from the path the .deb
-# installs it to.
+# HTTP download lands at 0644 and would not run from where the .deb puts it.
 make_executable() {
   case "$1" in kubeadm|kubectl|kubelet|runc) chmod 0755 "$2" ;; esac
 }
@@ -234,21 +234,18 @@ resolve_images() {
   : >"${WORK}/resolved"
   while read -r ref; do
     # Everything downstream splits a reference on its last colon to get the
-    # repository, so anything that is not a plain host[:port]/path:tag has to
-    # stop here rather than be silently mangled into the wrong pull.
-    [[ "$ref" =~ ^[a-z0-9]([a-z0-9._-]*[a-z0-9])?(:[0-9]+)?(/[a-z0-9._-]+)*:[A-Za-z0-9._-]+$ ]] ||
-      die "kubeadm listed an image reference this script cannot handle: ${ref}"
-    digest="$("$CRANE" digest --platform "linux/${ARCH}" "$ref")" ||
-      die "crane digest ${ref} failed"
+    # repository, so anything but a plain host[:port]/path:tag stops here
+    # rather than being mangled into the wrong pull.
+    [[ "$ref" =~ ^[a-z0-9]([a-z0-9._-]*[a-z0-9])?(:[0-9]+)?(/[a-z0-9._-]+)*:[A-Za-z0-9._-]+$ ]] || die "kubeadm listed an image reference this script cannot handle: ${ref}"
+    digest="$("$CRANE" digest --platform "linux/${ARCH}" "$ref")" || die "crane digest ${ref} failed"
     [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "crane digest ${ref} returned ${digest}"
     echo "image ${ref} ${digest}" >>"${WORK}/resolved"
   done <"${WORK}/refs"
   LC_ALL=C sort "${WORK}/resolved" >"${WORK}/images"
-  # Two tags of one repository would both rewrite to the same placeholder in
-  # the pulled archive, and the second rewrite would silently win.
+  # Two tags of one repository rewrite to the same placeholder below, and
+  # the second rewrite would silently win.
   dupes="$(awk '{ print $2 }' "${WORK}/images" | sed 's|:[^:/]*$||' | LC_ALL=C sort | uniq -d)"
-  [[ -z "$dupes" ]] ||
-    die "kubeadm asks for two tags of the same repository (${dupes}); this script cannot name them apart in one archive"
+  [[ -z "$dupes" ]] || die "kubeadm asks for two tags of one repository (${dupes}); they cannot be named apart in one archive"
 }
 
 # write_images_tarball pulls every pinned image into the single gzipped
@@ -257,79 +254,83 @@ resolve_images() {
 # archive on disk was built from exactly this image list.
 write_images_tarball() {
   local tgz="${ARCH_DIR}/k8s-base-container-images_${VERSION#v}_linux_${ARCH}.tgz"
-  local base="${tgz##*/}" digests="${tgz}.lock-digests" refs=() ref digest leftover unsafe
-  # Reuse needs all three to agree: the archive is there, it was built from
-  # exactly the images the lock now pins, and its bytes still match the
-  # sidecar postinst will check them against.
+  local base="${tgz##*/}" digests="${tgz}.lock-digests" refs=() ref digest leftover unsafe strays
+  # Reuse needs all three: the archive is there, it was built from exactly
+  # the images the lock now pins, and its bytes still match the sidecar
+  # postinst will check them against.
   if [[ -f "$tgz" && -f "${tgz}.sha256" ]] && cmp -s "$digests" "${WORK}/images" &&
-    (cd "${ARCH_DIR}" && sha256sum -c --quiet "${base}.sha256" >/dev/null 2>&1); then
-    return
-  fi
+    (cd "${ARCH_DIR}" && sha256sum -c --quiet "${base}.sha256" >/dev/null 2>&1); then return; fi
   rm -f "$tgz" "${tgz}.sha256" "$digests"
   while read -r _ ref digest; do
     refs+=("${ref%:*}@${digest}")
   done <"${WORK}/images"
-  "$CRANE" pull --platform "linux/${ARCH}" "${refs[@]}" "${WORK}/images.tar" ||
-    die "crane pull failed"
-  mkdir -p "${WORK}/unpacked"
-  tar -xf "${WORK}/images.tar" --no-same-owner -C "${WORK}/unpacked"
+  "$CRANE" pull --platform "linux/${ARCH}" "${refs[@]}" "${WORK}/images.tar" || die "crane pull failed"
+  # Checked on what crane wrote, before anything is unpacked from it: after
+  # the extract the names come from `find .` and can never be unsafe.
+  unsafe="$(tar -tf "${WORK}/images.tar" | grep -E '^/|(^|/)\.\.(/|$)' || true)"
+  [[ -z "$unsafe" ]] || die "the pulled archive has unsafe member name(s): ${unsafe}"
+  mkdir -p "${WORK}/unpacked" && tar -xf "${WORK}/images.tar" --no-same-owner -C "${WORK}/unpacked"
+  # The repack enumerates with `find -type f`, which would silently drop a
+  # symlink or a device node rather than carry it into the .deb.
+  strays="$(find "${WORK}/unpacked" ! -type f ! -type d)"
+  [[ -z "$strays" ]] || die "the pulled archive has non-regular member(s): ${strays}"
   # crane pulled by digest, so it names each image "<repo>:i-was-a-digest" in
   # the archive's manifest.json. kubelet looks images up by the tag kubeadm
-  # asked for, so put the real tags back before `ctr images import` sees them.
-  # A crane that stops using that placeholder must fail here rather than ship
-  # a package whose images import under a name nothing looks up.
+  # asked for, so put the real tags back before `ctr images import` sees them,
+  # and fail rather than ship a package a crane change quietly mis-names.
   while read -r _ ref _; do
     grep -qF "\"${ref%:*}:i-was-a-digest\"" "${WORK}/unpacked/manifest.json" ||
-      die "crane did not name ${ref} as expected in the pulled archive; it would import under the wrong name"
+      die "crane did not name ${ref} as expected; it would import under the wrong name"
     sed -i "s|\"${ref%:*}:i-was-a-digest\"|\"${ref}\"|g" "${WORK}/unpacked/manifest.json"
   done <"${WORK}/images"
-  # Nothing may still carry the placeholder: crane could have written it
-  # somewhere this loop does not read, and an image named for it imports
-  # under a name nothing looks up.
-  leftover="$(grep -rlF 'i-was-a-digest' "${WORK}/unpacked" || true)"
-  [[ -z "$leftover" ]] ||
-    die "crane's digest placeholder survived in ${leftover}; the images would import under the wrong name"
+  # crane could have written the placeholder to a file the loop above does
+  # not read. Scoped to the top level: a layer blob's contents are the
+  # image's, not crane's.
+  leftover="$(find "${WORK}/unpacked" -maxdepth 1 -type f -exec grep -lF 'i-was-a-digest' {} + || true)"
+  [[ -z "$leftover" ]] || die "crane's digest placeholder survived in ${leftover}"
 
   # crane writes the archive's members in Go map order, so a second pull of
-  # the same images is not byte-identical. Repack the extracted tree instead
-  # of teaching this script to merge image tarballs itself. Every field a
-  # local umask, locale or filesystem could otherwise leak into the bytes is
-  # pinned here: format, member order, mtime, ownership and mode.
+  # the same images is not byte-identical. Repack the extracted tree rather
+  # than teach this script to merge image tarballs itself, pinning every
+  # field a local umask, locale or filesystem could otherwise leak into the
+  # bytes: format, member order (the -T list is sorted), mtime, owner, mode.
   (cd "${WORK}/unpacked" && find . -type f -print | sed 's|^\./||' | LC_ALL=C sort >"${WORK}/members")
-  [[ -s "${WORK}/members" ]] || die "the archive crane pulled contains no files"
-  (cd "${WORK}/unpacked" && LC_ALL=C tar --format=ustar --sort=name \
+  [[ -s "${WORK}/members" ]] || die "the pulled archive contains no files"
+  (cd "${WORK}/unpacked" && LC_ALL=C tar --format=ustar \
     --mtime='2026-01-01 00:00Z' --owner=0 --group=0 --numeric-owner \
     --mode='u+rw,go+r-w,a-s' -cf "${WORK}/repacked.tar" -T "${WORK}/members")
-  # ctr unpacks this on a node as root, so an absolute or climbing member
-  # name is worth refusing here rather than trusting the importer.
-  unsafe="$(tar -tf "${WORK}/repacked.tar" | grep -E '^/|(^|/)\.\.(/|$)' || true)"
-  [[ -z "$unsafe" ]] || die "the repacked image archive has unsafe member name(s): ${unsafe}"
-
   gzip -n -9 -c "${WORK}/repacked.tar" >"${WORK}/images.tgz"
   mv "${WORK}/images.tgz" "$tgz"
   (cd "${ARCH_DIR}" && sha256sum "$base" >"${base}.sha256")
   cp "${WORK}/images" "$digests"
 }
 
-# require_flat_archive rejects a tarball that is anything other than a flat
-# list of regular files. The CNI plugins land straight in /opt/cni/bin, so a
-# nested path, a symlink or a device node in that archive would be extracted
-# somewhere this script never looked.
+# require_flat_archive rejects a tarball that is anything other than a
+# non-empty flat list of regular files. The CNI plugins land straight in
+# /opt/cni/bin, so a nested path, a symlink or a device node there would be
+# extracted somewhere this script never looked. Names and types are read in
+# two passes rather than by splitting `tar -tvzf` on whitespace: a symlink
+# prints as "name -> target", so the last field is not the name at all.
 require_flat_archive() {
-  local archive="$1" line type name
-  while IFS= read -r line; do
-    type="${line:0:1}"
-    name="${line##* }"
+  local archive="$1" name types dirs roots=0 files=0
+  while IFS= read -r name; do
     name="${name#./}"
-    name="${name%/}"
-    if [[ "$type" == d ]]; then
-      [[ -z "$name" ]] || die "${archive}: member ${name}/ is a directory; expected a flat list of files"
+    # The archive's own root entry ("./"), which is a directory and has no
+    # name once the prefix is stripped.
+    if [[ -z "$name" || "$name" == / ]]; then
+      roots=$((roots + 1))
       continue
     fi
-    [[ "$type" == "-" ]] || die "${archive}: member ${name} is not a regular file"
-    [[ "$name" != */* ]] || die "${archive}: member ${name} is not a flat top-level file"
-    [[ -n "$name" ]] || die "${archive}: member with an empty name"
-  done < <(tar -tvzf "$archive")
+    [[ "${name%/}" != */* ]] || die "${archive}: member ${name} is not a flat top-level file"
+    files=$((files + 1))
+  done < <(tar -tzf "$archive")
+  ((files > 0)) || die "${archive}: contains no members"
+  types="$(tar -tvzf "$archive" | cut -c1 | LC_ALL=C sort -u | tr -d 'd-')"
+  [[ -z "$types" ]] || die "${archive}: contains member(s) that are not regular files (tar type '${types}')"
+  # Any other directory is a nested tree this script would extract without
+  # ever looking at it.
+  dirs="$(tar -tvzf "$archive" | cut -c1 | grep -c d || true)"
+  ((dirs == roots)) || die "${archive}: contains a directory member; expected a flat list of files"
 }
 
 # stage_tree lays out everything nfpm.yaml installs beyond the bare
@@ -338,8 +339,7 @@ stage_tree() {
   local stage="${DIST}/${VERSION}/stage" pause cni
   # config.toml below is config version 3, which only containerd 2.x parses;
   # 1.x wants version 2 and a different plugin-id shape entirely.
-  [[ "$CONTAINERD" == v2.* ]] ||
-    die "containerd pin ${CONTAINERD} is below v2.0.0: config version 3 needs containerd 2.x"
+  [[ "$CONTAINERD" == v2.* ]] || die "containerd pin ${CONTAINERD} is below v2.0.0: config version 3 needs containerd 2.x"
   rm -rf "$stage"
   mkdir -p "${stage}/usr/local/bin" "${stage}/usr/bin" "${stage}/opt/cni/bin" "${stage}/etc/containerd"
 
@@ -349,8 +349,6 @@ stage_tree() {
   cni="${ARCH_DIR}/cni-plugins-linux-${ARCH}-${CNI_PLUGINS_VERSION}.tgz"
   require_flat_archive "$cni"
   tar -xzf "$cni" --no-same-owner -C "${stage}/opt/cni/bin"
-  [[ -n "$(find "${stage}/opt/cni/bin" -mindepth 1 -maxdepth 1)" ]] ||
-    die "the cni-plugins archive extracted no files"
   tar -xzf "${ARCH_DIR}/crictl-${CRI_TOOLS}-linux-${ARCH}.tar.gz" --no-same-owner -C "${stage}/usr/bin" crictl
   tar -xzf "${ARCH_DIR}/helm-${HELM}-linux-${ARCH}.tar.gz" --no-same-owner -C "${WORK}" "linux-${ARCH}/helm"
   mv "${WORK}/linux-${ARCH}/helm" "${stage}/usr/bin/helm"
@@ -415,8 +413,7 @@ done
 # The lock is one file per Kubernetes version, not per architecture, so there
 # is nowhere to record a second arch's digests yet.
 [[ "$ARCH" == amd64 ]] || die "--arch ${ARCH}: the lock and the .deb are amd64-only for now"
-[[ "$(uname -s)" == Linux ]] ||
-  die "the container images are listed by the downloaded linux kubeadm binary, so this build host ($(uname -s)) cannot produce a bundle; run on Linux"
+[[ "$(uname -s)" == Linux ]] || die "the container images are listed by the downloaded linux kubeadm binary, so this build host ($(uname -s)) cannot produce a bundle; run on Linux"
 command -v "$CRANE" >/dev/null 2>&1 || die "crane not found at ${CRANE}"
 
 MINOR="${VERSION#v}"
@@ -429,14 +426,17 @@ CRI_TOOLS="v1.${MINOR}.0"
 ARCH_DIR="${DIST}/${VERSION}/${ARCH}"
 LOCK_FILE="${LOCK_DIR}/${VERSION}.lock"
 
-# Checked before anything is created on disk, so a missing or mismatched lock
-# does not leave an empty dist tree behind.
+# Before anything is created on disk, so a bad lock leaves no dist tree.
 if ((!WRITE_LOCK)); then
-  [[ -f "$LOCK_FILE" ]] ||
-    die "no lock for ${VERSION}: run make lock and review the diff (expected ${LOCK_FILE})"
+  [[ -f "$LOCK_FILE" ]] || die "no lock for ${VERSION}: run make lock and review the diff (expected ${LOCK_FILE})"
+  # The comparisons below read only the rows they recognise, so a record this
+  # script does not understand is a lock it cannot enforce.
+  stray_records="$(awk '$1 !~ /^#/ && $1 != "kubernetes" && $1 != "artifact" && $1 != "image" && NF > 0 { print }' "$LOCK_FILE")"
+  [[ -z "$stray_records" ]] || die "${LOCK_FILE} has unrecognised record(s): ${stray_records}"
+  kubernetes_rows="$(grep -c '^kubernetes ' "$LOCK_FILE" || true)"
+  ((kubernetes_rows == 1)) || die "${LOCK_FILE} has ${kubernetes_rows} kubernetes records, want exactly one"
   locked_version="$(awk '$1 == "kubernetes" { print $2; exit }' "$LOCK_FILE")"
-  [[ "$locked_version" == "$VERSION" ]] ||
-    die "${LOCK_FILE} locks '${locked_version}', not ${VERSION}"
+  [[ "$locked_version" == "$VERSION" ]] || die "${LOCK_FILE} locks '${locked_version}', not ${VERSION}"
 fi
 
 mkdir -p "$ARCH_DIR" "$LOCK_DIR"
@@ -463,16 +463,16 @@ resolve_images
 
 if ((WRITE_LOCK)); then
   # Written beside the file it replaces, on the same filesystem, so the lock
-  # is either the old one or the new one and never a half-written mixture.
-  LOCK_TMP="${LOCK_FILE}.tmp"
+  # is either the old one or the new one, never a half-written mixture.
+  LOCK_TMP="$(mktemp "${LOCK_FILE}.XXXXXX")"
   {
     echo "# nke-kubeadm-distro lock for ${VERSION} (${ARCH}). Regenerate with \`make lock\`; review the diff before committing."
     echo "kubernetes ${VERSION}"
     LC_ALL=C sort "${WORK}/artifacts" "${WORK}/images"
   } >"$LOCK_TMP"
   if [[ -f "$LOCK_FILE" ]]; then
-    # `diff | grep` cannot be tested for emptiness by its exit status under
-    # pipefail: diff exits 1 precisely when there is something to report.
+    # `diff | grep` cannot be tested for emptiness by its exit status:
+    # diff exits 1 precisely when it has something to report.
     summary="$(diff -- "$LOCK_FILE" "$LOCK_TMP" | grep -E '^[<>]' || true)"
     if [[ -n "$summary" ]]; then
       printf '%s\n' "$summary"
@@ -488,9 +488,9 @@ if ((WRITE_LOCK)); then
   exit 0
 fi
 
-# Both directions, for artifacts as well as images: a lock carrying a row for
-# something this build never downloaded, or two rows for one component, is not
-# the file that was reviewed.
+# Both directions, for artifacts as well as images: a row for something this
+# build never downloaded, or two rows for one component, is not the file that
+# was reviewed.
 LC_ALL=C sort "${WORK}/artifacts" >"${WORK}/artifacts.sorted"
 if ! diff -q <(grep '^artifact ' "$LOCK_FILE") "${WORK}/artifacts.sorted" >/dev/null; then
   diff -- <(grep '^artifact ' "$LOCK_FILE") "${WORK}/artifacts.sorted" >&2 || true
