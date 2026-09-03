@@ -14,6 +14,17 @@
 # instead of one literal line per Kubernetes patch. A glob directive counts
 # as used once it matches at least one entry in the relevant comparison.
 #
+# Any directive may take an "optional " prefix (e.g.
+#   optional added /usr/lib/nke/k8s-matrix/*/amd64/k8s-base-container-images_*.tgz
+# ) to mean: apply it when it matches, same as any other line, but do not
+# treat matching nothing as unused. This is for per-version asymmetries a
+# glob alone can't express — e.g. the production 1.36.3 package ships no
+# k8s-base-container-images_*.tgz while 1.34.2 and 1.35.3 do, so the line
+# above is needed for 1.36.3's comparison but would look like a stale no-op
+# for the other two. "optional" is not a general escape from allowlist rot:
+# use it only for a real per-version asymmetry, and say which version(s) the
+# line exists for in its reason.
+#
 # Currently empty: the debs `make debs` produces today already differ from
 # the golden manifests (Depends, Conflicts, and the .kubelet-keep
 # placeholders — see README.md "Known drift"), but that drift has not been

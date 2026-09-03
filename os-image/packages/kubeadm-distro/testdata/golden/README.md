@@ -56,6 +56,35 @@ one entry in the relevant comparison (the golden's files for
 `removed`/`mode`, the actual build's files for `added`), even when it
 matches several at once.
 
+### `optional` deviations, for per-version asymmetries
+
+Any directive may take an `optional ` prefix:
+
+```text
+optional added /usr/lib/nke/k8s-matrix/*/amd64/k8s-base-container-images_*.tgz  # 1.34.2 and 1.35.3 only; the 1.36.3 golden ships none
+```
+
+An `optional` directive applies exactly like any other when it matches —
+`optional` changes nothing about *what* it does. It only changes what
+happens when it matches nothing: a plain directive that matches nothing is
+allowlist rot (an error, even in an otherwise-passing comparison); an
+`optional` one is not.
+
+This exists for drift that is real for some Kubernetes patches and absent
+for others, which a glob alone cannot express because a glob still has to
+match *something* in every comparison to avoid being flagged unused. For
+example, the production 1.36.3 package ships no
+`k8s-base-container-images_*.tgz` while 1.34.2 and 1.35.3 do; this build
+ships it for every version. The `added` glob above is needed to allow that
+for 1.34.2 and 1.35.3, but with a plain (non-`optional`) directive it would
+be reported unused for 1.36.3, since there is nothing there for it to match.
+
+`optional` is deliberately narrow: it is for a real per-version asymmetry,
+not a general way to silence allowlist-rot checking. Every `optional` line's
+reason must say which version(s) it applies to (as in the example above),
+so a reviewer can tell "this doesn't apply to 1.36.3, and that's expected"
+from "this line stopped doing anything and nobody noticed."
+
 ## Rule: goldens are never edited
 
 These three files are captured once, from the packages actually being

@@ -17,8 +17,11 @@ var scalarFields = map[string]bool{"Package": true, "Section": true, "Priority":
 // Compare applies dev to a copy of golden, then requires the result to equal
 // a copy of actual exactly. It returns a human-readable diff when they do
 // not match. It is also an error — even when the manifests match — if any
-// deviation in dev had no effect, since an unused entry is exactly the
-// allowlist rot the deviations file exists to prevent.
+// non-optional deviation in dev had no effect, since an unused entry is
+// exactly the allowlist rot the deviations file exists to prevent. A
+// Deviation with Optional set is exempt from that check: it is meant for a
+// per-version asymmetry, so matching nothing in a particular comparison is
+// expected rather than stale.
 //
 // Compare never mutates golden, actual, or the Deviation values in dev: it
 // works on cloned manifests throughout, and tracks which deviations fired in
@@ -53,7 +56,10 @@ func Compare(golden, actual Manifest, dev []*Deviation) (string, error) {
 
 	var unused []string
 	for i, d := range dev {
-		if !used[i] {
+		// An "optional" deviation exists for a per-version asymmetry (see
+		// ParseDeviations): matching nothing in this particular comparison
+		// is expected, not allowlist rot.
+		if !used[i] && !d.Optional {
 			unused = append(unused, fmt.Sprintf("line %d: %q — %s", d.line, d.raw, d.Reason))
 		}
 	}

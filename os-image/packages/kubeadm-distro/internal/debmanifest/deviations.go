@@ -35,6 +35,11 @@ type Deviation struct {
 	Values []string
 	// Reason is the text after " #" on the deviation's line.
 	Reason string
+	// Optional is set by a leading "optional " on the directive line: the
+	// deviation is applied when it matches, same as any other, but is not
+	// reported as unused when it matches nothing. See the "optional" note
+	// in ParseDeviations's doc comment.
+	Optional bool
 
 	// line is the 1-based source line number, for error messages.
 	line int
@@ -50,7 +55,8 @@ type Deviation struct {
 // the start of the reason; ParseDeviations rejects any directive line
 // without one, and rejects an empty reason.
 //
-// Directive grammar, one per line:
+// Directive grammar, one per line. Any directive may take an "optional "
+// prefix — see the note below the table.
 //
 //	removed <path-or-glob>                  # reason
 //	added <path-or-glob>                    # reason
@@ -64,6 +70,7 @@ type Deviation struct {
 //	conffiles += <path> ...                 # reason
 //	conffiles -= <path> ...                 # reason
 //	conffiles = <path> ...                  # reason
+//	optional <any of the above>             # reason (must say which version)
 //
 // "field" only allows "+=" or "-=" on the four list fields (Provides,
 // Depends, Conflicts, Replaces); a scalar field (Package, Section, Priority,
@@ -84,6 +91,17 @@ type Deviation struct {
 // version. A glob directive counts as used once it matches at least one
 // entry in the relevant comparison (golden for "removed"/"mode", actual for
 // "added"), even when it also matches several.
+//
+// A leading "optional " on any directive (e.g. "optional added <glob>  #
+// reason") marks it not-unused when it matches nothing — it still applies
+// normally when it does match. This is for per-version asymmetries a glob
+// alone cannot express: for example the production 1.36.3 package ships no
+// k8s-base-container-images_*.tgz while 1.34.2 and 1.35.3 do, so
+// "added .../k8s-base-container-images_*.tgz" is needed for 1.36.3's
+// comparison but would be a stale-looking no-op for the other two under
+// strict mode. "optional" is for exactly this kind of asymmetry, not a
+// general escape hatch from allowlist rot — every "optional" line's reason
+// must say which version(s) it exists for.
 func ParseDeviations(text string) ([]*Deviation, error) {
 	var devs []*Deviation
 	for i, raw := range strings.Split(text, "\n") {
@@ -126,11 +144,28 @@ func validateGlob(pattern string) error {
 }
 
 func parseDirective(directive string) (*Deviation, error) {
+	optional := false
+	if rest, ok := strings.CutPrefix(directive, "optional "); ok {
+		optional = true
+		directive = strings.TrimSpace(rest)
+	}
+
 	fields := strings.Fields(directive)
 	if len(fields) == 0 {
 		return nil, fmt.Errorf("empty directive")
 	}
 
+	dev, err := parseKindDirective(fields, directive)
+	if err != nil {
+		return nil, err
+	}
+	dev.Optional = optional
+	return dev, nil
+}
+
+// parseKindDirective parses everything after an optional "optional " prefix
+// has already been stripped: the "<kind> ..." directive itself.
+func parseKindDirective(fields []string, directive string) (*Deviation, error) {
 	switch fields[0] {
 	case "removed", "added":
 		if len(fields) != 2 {

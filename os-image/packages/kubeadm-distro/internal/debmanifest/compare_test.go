@@ -299,6 +299,84 @@ func TestParseDeviationsRejectsMalformedGlob(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestParseDeviationsOptionalPrefix(t *testing.T) {
+	devs, err := ParseDeviations("optional added /usr/lib/nke/k8s-matrix/*/amd64/k8s-base-container-images_*.tgz  # 1.34.2 and 1.35.3 only\n")
+	require.NoError(t, err)
+	require.Len(t, devs, 1)
+	assert.True(t, devs[0].Optional)
+	assert.Equal(t, "added", devs[0].Kind)
+	assert.Equal(t, []string{"/usr/lib/nke/k8s-matrix/*/amd64/k8s-base-container-images_*.tgz"}, devs[0].Values)
+}
+
+func TestParseDeviationsOptionalAppliesToAnyKind(t *testing.T) {
+	cases := []string{
+		"optional removed /usr/lib/nke/k8s-matrix/*/amd64/extra-*.tgz  # 1.36.3 only\n",
+		"optional mode /usr/bin/kubeadm rwsr-xr-x  # 1.36.3 only\n",
+		"optional field Depends += conntrack  # 1.36.3 only\n",
+		"optional scripts += postrm  # 1.36.3 only\n",
+		"optional conffiles += /etc/default/kubelet  # 1.36.3 only\n",
+	}
+	for _, line := range cases {
+		t.Run(line, func(t *testing.T) {
+			devs, err := ParseDeviations(line)
+			require.NoError(t, err)
+			require.Len(t, devs, 1)
+			assert.True(t, devs[0].Optional)
+		})
+	}
+}
+
+// TestCompareOptionalAppliesWhenMatching proves an "optional" deviation
+// still does its job when it does match, exactly like a non-optional one.
+func TestCompareOptionalAppliesWhenMatching(t *testing.T) {
+	golden := baseGolden()
+	actual := baseGolden()
+	actual.Files = append(actual.Files,
+		FileEntry{Type: "f", Mode: "rw-r--r--", Path: "/usr/lib/nke/k8s-matrix/v1.34.2/amd64/k8s-base-container-images_1.34.2.tgz", SHA256: "ffff"},
+	)
+	actual.normalize()
+
+	devs, err := ParseDeviations("optional added /usr/lib/nke/k8s-matrix/*/amd64/k8s-base-container-images_*.tgz  # 1.34.2 and 1.35.3 only, not 1.36.3\n")
+	require.NoError(t, err)
+
+	diff, err := Compare(golden, actual, devs)
+	require.NoError(t, err)
+	assert.Empty(t, diff)
+}
+
+// TestCompareOptionalNotUnusedWhenMatchingNothing is the per-version
+// asymmetry case: this comparison (standing in for the 1.36.3 golden, which
+// ships no k8s-base-container-images_*.tgz) has nothing for the glob to
+// match, and that must not be reported as an unused deviation the way a
+// non-optional one would be.
+func TestCompareOptionalNotUnusedWhenMatchingNothing(t *testing.T) {
+	golden := baseGolden()
+	actual := baseGolden()
+
+	devs, err := ParseDeviations("optional added /usr/lib/nke/k8s-matrix/*/amd64/k8s-base-container-images_*.tgz  # 1.34.2 and 1.35.3 only, not 1.36.3\n")
+	require.NoError(t, err)
+
+	diff, err := Compare(golden, actual, devs)
+	require.NoError(t, err)
+	assert.Empty(t, diff)
+}
+
+// TestCompareNonOptionalNonMatchingStillUnused is the control for the two
+// tests above: without "optional", the same glob matching nothing is still
+// reported as allowlist rot.
+func TestCompareNonOptionalNonMatchingStillUnused(t *testing.T) {
+	golden := baseGolden()
+	actual := baseGolden()
+
+	devs, err := ParseDeviations("added /usr/lib/nke/k8s-matrix/*/amd64/k8s-base-container-images_*.tgz  # not optional\n")
+	require.NoError(t, err)
+
+	diff, err := Compare(golden, actual, devs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "had no effect")
+	assert.Empty(t, diff, "manifests still match; only the deviation is unused")
+}
+
 func TestParseDeviationsRejectsMissingReason(t *testing.T) {
 	_, err := ParseDeviations("removed /usr/bin/nke-k8s-installer\n")
 	require.Error(t, err)
