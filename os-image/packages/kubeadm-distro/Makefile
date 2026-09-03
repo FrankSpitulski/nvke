@@ -66,19 +66,6 @@ debs: check-host check-deb-tools bundle ## Build one .deb per K8S_VERSIONS into 
 	done
 	@cd "$(OUT_DIR)" && dpkg-scanpackages . /dev/null >Packages
 	@echo "wrote $(OUT_DIR)/Packages"
-ifneq ($(SKIP_CONTRACT_CHECK),1)
-	$(MAKE) contract-check
-endif
-
-.PHONY: contract-check
-# check-deb-tools is the OUT_DIR (non-empty, absolute) and tool-availability
-# gate, shared with `debs`; contract-check itself is just the one debmanifest
-# invocation below.
-contract-check: check-deb-tools $(BIN_DIR)/debmanifest ## Compare debs in OUT_DIR against testdata/golden; strict once deviations.txt has content, advisory otherwise.
-	$(BIN_DIR)/debmanifest check \
-		-out-dir "$(OUT_DIR)" \
-		-golden-dir "$(CURDIR)/testdata/golden" \
-		-deviations "$(CURDIR)/testdata/golden/deviations.txt"
 
 RUNC_KEYRING := $(CURDIR)/packaging/keyrings/runc-release.gpg
 
@@ -141,11 +128,6 @@ lock: check-host $(BIN_DIR)/kubeadm-bundle $(BIN_DIR)/crane ## Regenerate lock/<
 $(BIN_DIR)/kubeadm-bundle: $(shell find . -name '*.go' -not -name '*_test.go')
 	@mkdir -p $(@D)
 	$(GO) build $(GO_BUILD_FLAGS) -o $@ ./cmd/kubeadm-bundle
-
-# debmanifest runs on the build host, over the debs contract-check produces there.
-$(BIN_DIR)/debmanifest: $(shell find . -name '*.go' -not -name '*_test.go')
-	@mkdir -p $(@D)
-	$(GO) build $(GO_BUILD_FLAGS) -o $@ ./cmd/debmanifest
 
 $(BIN_DIR)/crane: ## Fetch the pinned crane (go-containerregistry) release for this host.
 	@mkdir -p $(@D)

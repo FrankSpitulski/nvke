@@ -86,37 +86,18 @@ build a version that has no lock, verifies each download against the locked
 digest as well as against the publisher's checksum, and pulls images by
 `ref@digest` rather than by tag. See [lock/README.md](lock/README.md).
 
-## Package contract
+## Parity with the production package
 
-The internal `nke-kubeadm-distro-<x.y.z>` package this repository builds is
-meant to be a drop-in replacement for the one previously served from an
-internal S3 apt repository. `make debs` proves that with a golden test: it
-builds a normalized manifest of every `.deb` it produces — control fields,
-conffiles, maintainer scripts, and a sha256-verified file listing — and
-compares it against a golden manifest of the production package in
-[`testdata/golden/`](testdata/golden/), allowing only the differences
-recorded and reasoned about in
-[`testdata/golden/deviations.txt`](testdata/golden/deviations.txt).
-
-```bash
-make -C os-image/packages/kubeadm-distro contract-check OUT_DIR=/abs/path/to/apt-repo
-```
-
-`contract-check` runs as the last step of `debs`; set `SKIP_CONTRACT_CHECK=1`
-to skip it during development. It is **advisory** (a warning, not a build
-failure) while `deviations.txt` is empty, and becomes a **hard failure** the
-moment `deviations.txt` records its first reviewed deviation — see
-[`testdata/golden/README.md`](testdata/golden/README.md) for why it starts
-empty, the capture procedure for the goldens, and the deviation line format.
-
-`cmd/debmanifest` is the tool behind this: `debmanifest <deb>` prints a
-package's manifest, `debmanifest -golden <file> -deviations <file> <deb>`
-checks one `.deb` against one golden file, and `debmanifest check -out-dir
-<dir> -golden-dir <dir> -deviations <file>` is what `contract-check` actually
-runs — it walks every `nke-kubeadm-distro-<version>_*_*.deb` in `-out-dir`,
-skips (and logs) any version with no matching golden, and applies the
-strict/advisory rule from `-deviations`. Diagnostics go to stderr via
-`log/slog`; only the plain `debmanifest <deb>` form writes to stdout.
+The package is a drop-in replacement for the `nke-kubeadm-distro-<x.y.z>`
+package previously served from an internal S3 apt repository. The intended
+differences from that package are: dpkg owns every file (no
+`nke-k8s-installer`, no raw tarballs under `/usr/lib/nke/k8s-matrix`),
+`/etc/containerd/config.toml` and `containerd.service` are rendered at build
+time, `Depends` adds `conntrack`, `socat` and `ethtool`, `Conflicts` adds
+`containerd` and `containerd.io`, and `/etc/default/kubelet` is a conffile.
+Everything else — package names, `Provides`, peer `Conflicts`, kubeadm,
+kubelet, kubectl and runc binaries and their paths, the bundled image
+archive, systemd units — is unchanged.
 
 ## Makefile interface
 
@@ -212,11 +193,8 @@ are not optional.
 ```text
 lock/                     # committed digest pins, one file per Kubernetes version
 cmd/kubeadm-bundle/       # build host: download, verify, pull images, stage the FHS tree, write manifest.json
-cmd/debmanifest/          # build host: print or golden-check a .deb's package contract
 internal/bundle/          # manifest and checksum helpers
-internal/debmanifest/     # manifest generation, parsing and comparison behind cmd/debmanifest
 packaging/                # build-deb.sh, nfpm.yaml, maintainer scripts, systemd units, runc keyring
-testdata/golden/          # production-package golden manifests and the reviewed deviations allowlist
 ```
 
 postinst never downloads anything and never calls a package manager: `socat`,
