@@ -36,8 +36,8 @@ kubernetes-helm = { pkg-path = "kubernetes-helm", version = "4.2.4", pkg-group =
 # backend-e2e.yml:118 and nkectl-bootstrap-e2e.yml:121.
 kind = { pkg-path = "kind", version = "0.32.0", pkg-group = "kind" }
 oapi-codegen = { pkg-path = "oapi-codegen", version = "2.4.1", pkg-group = "oapi-codegen" }
-# os-image/packages/kubeadm-distro/Makefile pins CRANE_VERSION for the Linux
-# release download; this covers local (including Darwin) development.
+# CRANE_VERSION in make/tool-versions.mk; the kubeadm-distro and controller
+# Makefiles `go install` that pin into bin/. This copy is for running crane by hand.
 crane = { pkg-path = "crane", version = "0.21.9", pkg-group = "crane" }
 gnumake.pkg-path = "gnumake"
 gnumake.outputs = "all"
@@ -68,8 +68,8 @@ kubeconform = { pkg-path = "kubeconform", version = "0.7.0", pkg-group = "kubeco
 python3 = { pkg-path = "python313", pkg-group = "python" }
 pyyaml = { pkg-path = "python313Packages.pyyaml", pkg-group = "python" }
 
-# os-image/packages/kubeadm-distro/Makefile pins NFPM_VERSION for the Linux
-# release download; this covers local (including Darwin) development.
+# NFPM_VERSION in make/tool-versions.mk; the kubeadm-distro Makefile `go install`s
+# that pin into bin/. This copy is for running nfpm by hand.
 nfpm = { pkg-path = "nfpm", version = "2.47.0", pkg-group = "nfpm" }
 
 

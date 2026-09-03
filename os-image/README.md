@@ -182,8 +182,8 @@ To pick a version at cluster create:
 apt-get install -y nke-kubeadm-distro-1.36.3
 ```
 
-with no `apt-get update` beforehand: the postinst installs the bundled
-binaries and imports the base images into containerd's `k8s.io` namespace.
+with no `apt-get update` beforehand: the deb ships the binaries and the
+postinst imports the base images into containerd's `k8s.io` namespace.
 `boot-smoke.sh` proves this works fully offline: it boots the guest with no
 egress at all, installs every staged version in turn, and for each one checks
 the exact imported image set against `kubeadm config images list` and runs
@@ -221,11 +221,6 @@ the `disk_size` arithmetic in `packer/nke-node-fde.pkr.hcl`. Finally it
 removes the last version and asserts the units are disabled, the two drop-ins
 under `/etc/sysctl.d` and `/etc/modules-load.d` are gone, no dangling
 `multi-user.target.wants` symlink remains, and `/etc/fstab` is unchanged.
-
-The debs build from source in `os-image/packages/kubeadm-distro/`, built by
-`fetch-artifacts.sh` as the first Packer step (a shell-local provisioner), so
-the bake host must be Linux with `dpkg-dev` and `gnupg`. Bump `K8S_VERSIONS`
-in that module's `Makefile` to add or drop a minor.
 
 ## First boot (cloud-init)
 

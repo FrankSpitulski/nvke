@@ -97,10 +97,11 @@ jobs:
         run: make version-check
 
       # packages/kubeadm-distro's tests exercise dpkg-deb (deb_test.go) and gpg
-      # (gpg_test.go); both skip silently when the tool is missing, so without
-      # this the merge gate would pass without ever running them.
+      # (bundle_test.go); both skip silently when the tool is missing, so without
+      # this the merge gate would pass without ever running them. dpkg-deb comes
+      # from dpkg, which the runner has; gnupg is the package it lacks.
       - name: Install os-image test dependencies
-        run: sudo apt-get update -qq && sudo apt-get install -qq -y dpkg-dev gnupg
+        run: sudo apt-get update -qq && sudo apt-get install -qq -y gnupg
 
       - name: Test OS-image checker
         run: make -C os-image test
