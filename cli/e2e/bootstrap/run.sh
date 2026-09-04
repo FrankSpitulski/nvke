@@ -512,7 +512,9 @@ log "waiting for ${expected_nodes} nodes to report Ready"
 # `kubectl wait --all` only waits for the objects that exist when it starts.
 # Wait for the expected count and readiness together so that the first Ready
 # control-plane node cannot make this stage pass before CAPI creates the rest.
-node_ready_deadline=$((SECONDS + ${NKECTL_E2E_NODE_READY_TIMEOUT_SECONDS:-600}))
+# CWE joins control-plane nodes one at a time, ~6 min apart, so the third
+# kubelet starts ~13 min after the cluster is created; 600 s left no margin.
+node_ready_deadline=$((SECONDS + ${NKECTL_E2E_NODE_READY_TIMEOUT_SECONDS:-1200}))
 ready_nodes=0
 while [ "${SECONDS}" -lt "${node_ready_deadline}" ]; do
   node_states=$(kubectl --kubeconfig "${TENANT_KUBECONFIG}" get nodes \
