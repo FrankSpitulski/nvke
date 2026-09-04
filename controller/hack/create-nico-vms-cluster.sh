@@ -83,9 +83,11 @@ fi
 BODY=$(cat <<EOF
 {
   "name": "${CLUSTER_NAME}",
-  "orgID": "${ORG_ID}",
-  "siteID": "${SITE_ID}",
-  "vpcID": "${VPC_ID}",
+  "nico": {
+    "orgID": "${ORG_ID}",
+    "siteID": "${SITE_ID}",
+    "vpcID": "${VPC_ID}"
+  },
   "controlPlaneKubernetesVersion": "${KUBERNETES_VERSION}",
   "controlPlaneVIP": "${CONTROL_PLANE_VIP}",
   "cniPlugin": "${CNI_PLUGIN}"${CNI_VERSION_JSON},
@@ -95,10 +97,12 @@ BODY=$(cat <<EOF
     {
       "name": "control-plane",
       "nodeNamePrefix": "cp",
-      "vpcPrefixIDs": ["${VPC_PREFIX_ID}"],
-      "instanceTypeID": "${INSTANCE_TYPE_ID}",
-      "osProfile": "${OS_PROFILE}",
-      "configProfile": "${CP_CONFIG_PROFILE}",
+      "nico": {
+        "vpcPrefixIDs": ["${VPC_PREFIX_ID}"],
+        "instanceTypeID": "${INSTANCE_TYPE_ID}",
+        "osProfile": "${OS_PROFILE}",
+        "configProfile": "${CP_CONFIG_PROFILE}"
+      },
       "systemReservedMemory": "${SYSTEM_RESERVED_MEMORY}",
       "controlPlane": true,
       "desiredNodeCount": ${CONTROL_PLANE_DESIRED_COUNT},
@@ -110,10 +114,12 @@ BODY=$(cat <<EOF
     {
       "name": "worker",
       "nodeNamePrefix": "w",
-      "vpcPrefixIDs": ["${VPC_PREFIX_ID}"],
-      "instanceTypeID": "${INSTANCE_TYPE_ID}",
-      "osProfile": "${OS_PROFILE}",
-      "configProfile": "${WORKER_CONFIG_PROFILE}",
+      "nico": {
+        "vpcPrefixIDs": ["${VPC_PREFIX_ID}"],
+        "instanceTypeID": "${INSTANCE_TYPE_ID}",
+        "osProfile": "${OS_PROFILE}",
+        "configProfile": "${WORKER_CONFIG_PROFILE}"
+      },
       "systemReservedMemory": "${SYSTEM_RESERVED_MEMORY}",
       "controlPlane": false,
       "desiredNodeCount": ${WORKER_DESIRED_COUNT},
