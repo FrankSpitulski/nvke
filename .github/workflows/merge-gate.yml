@@ -166,12 +166,13 @@ jobs:
   # Temporal dev server and runs the worker as a built binary, so it is the
   # slowest member here at about six minutes. That still sits under the gate's
   # wall clock, which golangci-lint (controller) sets at about nine.
+  # No secrets passed: gofail reads the CAPNICo CRDs from a committed fixture,
+  # so it passes for fork authors, who get no secrets on a pull_request. Its
+  # drift check runs only on the base repo's own events, not this called path.
   gofail:
     uses: ./.github/workflows/gofail-e2e.yml
     permissions:
       contents: read
-    secrets:
-      NKE_INTERNAL_RO_TOKEN: ${{ secrets.NKE_INTERNAL_RO_TOKEN }}
 
   # govulncheck needs more than contents:read -- it uploads SARIF. A called
   # workflow cannot be granted less than its jobs request, or the whole file

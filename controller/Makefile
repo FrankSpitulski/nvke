@@ -65,7 +65,7 @@ lint: ## Lint source files. (run by the merge gate)
 
 .PHONY: license
 license: ## Ensure license headers at code.
-	go run github.com/google/addlicense@v1.1.1 -f $(REPO_ROOT)/hack/license-header.tmpl -c "NVIDIA CORPORATION & AFFILIATES" -ignore '.local/**' -ignore 'hack/**' -ignore 'test/fixtures/profiles/**' -ignore '**/testUserData.yaml' -ignore 'internal/kubeadmconfig/testdata/**' -ignore 'internal/controllers/tenantaccess/testdata/**' -ignore 'nico-vms/ui/vendor/**' -ignore 'nico-vms/test/integration/testutil/testdata/**' -ignore 'nico-vms/.dev/**' -ignore 'deploy/charts/**' .
+	go run github.com/google/addlicense@v1.1.1 -f $(REPO_ROOT)/hack/license-header.tmpl -c "NVIDIA CORPORATION & AFFILIATES" -ignore '.local/**' -ignore 'hack/**' -ignore 'test/fixtures/profiles/**' -ignore 'test/fixtures/capnico-crds/**' -ignore '**/testUserData.yaml' -ignore 'internal/kubeadmconfig/testdata/**' -ignore 'internal/controllers/tenantaccess/testdata/**' -ignore 'nico-vms/ui/vendor/**' -ignore 'nico-vms/test/integration/testutil/testdata/**' -ignore 'nico-vms/.dev/**' -ignore 'deploy/charts/**' .
 
 # Expected to be run on clean working directory.
 .PHONY: file-license-check
