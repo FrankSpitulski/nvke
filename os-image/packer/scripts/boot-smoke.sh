@@ -98,7 +98,9 @@ ssh_opts=(
 ssh_run() {
   local secs="$1"
   shift
-  timeout "${secs}" ssh "${ssh_opts[@]}" ubuntu@127.0.0.1 "$@"
+  # -n: the version loop below feeds the loop from a here-string, and without
+  # it ssh drains that stdin to EOF, ending the loop after the first version.
+  timeout "${secs}" ssh -n "${ssh_opts[@]}" ubuntu@127.0.0.1 "$@"
 }
 
 # ssh_script <timeout-seconds>  (remote bash script piped in on stdin)

@@ -37,7 +37,8 @@ fi
 # leading [[:space:]]* matters: an indented swap line is still a swap line
 # fstab mounts at the next boot.
 if [ -f /etc/fstab ]; then
-  sed -i -E 's|^([[:space:]]*[^#[:space:]][^[:space:]]*[[:space:]]+[^[:space:]]+[[:space:]]+swap([[:space:]]|$))|#\1|' /etc/fstab
+  # The delimiter is ',' because the pattern needs '|' for its alternation.
+  sed -i -E 's,^([[:space:]]*[^#[:space:]][^[:space:]]*[[:space:]]+[^[:space:]]+[[:space:]]+swap([[:space:]]|$)),#\1,' /etc/fstab
 fi
 
 printf 'overlay\nbr_netfilter\nnf_conntrack\n' >/etc/modules-load.d/k8s.conf
@@ -60,8 +61,10 @@ net.ipv6.conf.default.forwarding    = 1
 EOF
 # The output goes to the log, so on failure show enough of it here to say
 # which key was rejected.
-if ! sysctl --system >>"$LOG" 2>&1; then
-  echo "${PACKAGE}: sysctl --system failed; last 20 lines of ${LOG}:" >&2
+# Only this package's file: `sysctl --system` would re-apply every drop-in on
+# the node and fail the install on a key some other file names.
+if ! sysctl -p /etc/sysctl.d/k8s.conf >>"$LOG" 2>&1; then
+  echo "${PACKAGE}: sysctl -p /etc/sysctl.d/k8s.conf failed; last 20 lines of ${LOG}:" >&2
   tail -n 20 "$LOG" >&2
   exit 1
 fi
