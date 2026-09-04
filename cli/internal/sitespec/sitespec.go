@@ -171,14 +171,17 @@ type KubeletConfig struct {
 	SystemReservedMemory string `yaml:"systemReservedMemory"`
 }
 
-// Registry holds the settings for pulling the bootstrap engine image and chart.
-// The version (image/chart tag) is baked into the nkectl build, so it is not
-// part of the sitespec.
+// Registry holds the settings for pulling the bootstrap engine chart. The
+// version (chart tag) is baked into the nkectl build, so it is not part of the
+// sitespec. The controller image the chart deploys is published separately, to
+// <registry>/<org>/controller, and is not addressed by these fields.
 type Registry struct {
-	// BootstrapRepo is the OCI repository that holds the bootstrap engine image
-	// and chart (e.g. "nvcr.io/org/cloud-workflow-engine").
+	// BootstrapRepo is the OCI repository that holds the bootstrap engine chart
+	// (e.g. "nvcr.io/org").
 	BootstrapRepo string `yaml:"bootstrapRepo"`
-	// BootstrapChart is the bootstrap engine chart name within BootstrapRepo.
+	// BootstrapChart is the bootstrap engine chart name within BootstrapRepo
+	// (e.g. "controller-chart" on NVCR, which has no path segment to keep the
+	// chart from colliding with the controller image's repository).
 	BootstrapChart string `yaml:"bootstrapChart"`
 	// APIKey is an optional registry credential. It is never defaulted: a
 	// secret is only ever used when the operator supplies one, via this field,
