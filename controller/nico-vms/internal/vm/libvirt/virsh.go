@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -30,6 +31,11 @@ func New(uri string) vm.Runtime {
 type virsh struct {
 	uri string
 }
+
+const (
+	startAttempts   = 3
+	startRetryDelay = 2 * time.Second
+)
 
 func (r *virsh) EnsureBridge(ctx context.Context, bridgeName, bridgeCIDR string) error {
 	// Check if bridge already exists and is configured. With qemu:///session the
@@ -93,10 +99,38 @@ func (r *virsh) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (strin
 	if _, err := r.runVirsh(ctx, "autostart", spec.DomainName); err != nil {
 		return "", fmt.Errorf("virsh autostart failed: %w", err)
 	}
-	if _, err := r.runVirsh(ctx, "start", spec.DomainName); err != nil {
+	// Domains that carry a TPM race each other inside libvirt: each start
+	// creates the shared swtpm run directory, and the loser gets
+	// "failed to create directory ...: File exists" and never boots. The
+	// engine marks such an instance Error and stops reconciling it, so one
+	// lost race costs the whole VM. A later attempt finds the directory there.
+	if err := retry(ctx, startAttempts, startRetryDelay, func() error {
+		_, startErr := r.runVirsh(ctx, "start", spec.DomainName)
+		return startErr
+	}); err != nil {
 		return "", fmt.Errorf("virsh start failed: %w", err)
 	}
 	return spec.DomainName, nil
+}
+
+// retry calls fn until it succeeds, up to attempts times, waiting delay
+// between tries. It reports the last error.
+func retry(ctx context.Context, attempts int, delay time.Duration, fn func() error) error {
+	var err error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if err = fn(); err == nil {
+			return nil
+		}
+		if attempt == attempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return fmt.Errorf("gave up after %d attempts: %w", attempts, err)
 }
 
 func (r *virsh) Reboot(ctx context.Context, machineID string) error {
