@@ -47,7 +47,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: Local entrypoint E2E-${{ github.ref }}
+  # The sha keeps main runs apart. Sharing one group, and main never cancels,
+  # means a second main run waits out the first.
+  group: Local entrypoint E2E-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:

@@ -45,7 +45,9 @@ permissions: {}
 concurrency:
   # A literal name, never ${{ github.workflow }} -- in a called workflow that is
   # the caller's name and cancels its siblings. See merge-gate.yml:79-82.
-  group: NICo VMs E2E-${{ github.ref }}
+  # The sha keeps main runs apart. Sharing one group, and main never cancels,
+  # means a second main run waits out the first.
+  group: NICo VMs E2E-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
