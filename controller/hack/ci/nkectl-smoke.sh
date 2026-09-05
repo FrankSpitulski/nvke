@@ -18,6 +18,9 @@ NKECTL_SMOKE_CWE_PORT=8080
 NKECTL_SMOKE_TOKEN_NAMESPACE=nke-clients
 NKECTL_SMOKE_TOKEN_SERVICE_ACCOUNT=nke-client
 NKECTL_SMOKE_AUTH_CONFIGMAP=nke-auth-config
+# A name no lane creates. Used by every negative assertion, so a rename here
+# cannot leave one of them silently matching a real object.
+NKECTL_SMOKE_ABSENT=nkectl-smoke-absent
 
 nkectl_smoke_build() {
   log "compiling nkectl for linux/${1}"
@@ -28,10 +31,15 @@ nkectl_smoke_stage() {
   docker cp "${NKECTL_BIN}" "${RUNNER_NAME}:/usr/local/bin/nkectl"
 }
 
+# Every call is bounded. Nothing here had a timeout, and a hang does not just
+# stall: the job cap sends SIGTERM, handle_signal sets SKIP_DIAGNOSTICS, and the
+# lane loses its whole diagnostics artifact to one stuck CLI call.
+NKECTL_SMOKE_TIMEOUT="${NKECTL_SMOKE_TIMEOUT:-60}"
+
 nkectl_exec() {
   local token="$1"
   shift
-  docker exec \
+  timeout "${NKECTL_SMOKE_TIMEOUT}" docker exec \
     -e KUBECONFIG=/state/management.kubeconfig \
     -e "NKECTL_DEV_TOKEN=${token}" \
     "${RUNNER_NAME}" nkectl "$@"
@@ -40,6 +48,10 @@ nkectl_exec() {
 # Port-forward rather than the apiserver service proxy: the proxy does not
 # forward a bearer token to CWE, which is why wait_for_zero_tenant_clusters
 # counts CAPI objects instead of calling the API.
+# Called bare, not as `nkectl_smoke || exit 1`: bash disables errexit for a
+# whole function body when the call is the left side of ||, which made every
+# unguarded command here unable to fail the lane. Keep the call sites in
+# ci/backend-e2e.sh bare, and keep each assertion an explicit `return 1`.
 nkectl_smoke() {
   local token out rc audience
 
@@ -109,5 +121,98 @@ nkectl_smoke() {
     *) log "nkectl smoke: -o json did not emit JSON: ${out}" >&2; return 1 ;;
   esac
 
-  log "PASS: nkectl reached CWE, authenticated, and listed clusters"
+  # Read-path negatives. Each asserts the message, not just a non-zero exit: an
+  # exit code alone cannot tell "the lookup ran and found nothing" apart from
+  # "the request never left the client".
+
+  # Exercises FindClusterByName's ?name= filter, which the calls above never hit.
+  if out="$(nkectl_exec "${token}" get clusters -c "${NKECTL_SMOKE_ABSENT}" 2>&1)"; then
+    log "nkectl smoke: 'get clusters -c ${NKECTL_SMOKE_ABSENT}' succeeded against a name that does not exist" >&2
+    return 1
+  fi
+  if ! grep -q 'not found' <<<"${out}"; then
+    log "nkectl smoke: 'get clusters -c' failed without a not-found message" >&2
+    return 1
+  fi
+
+  # The two-hop FindClusterByName -> GetCluster path.
+  if out="$(nkectl_exec "${token}" describe cluster "${NKECTL_SMOKE_ABSENT}" 2>&1)"; then
+    log "nkectl smoke: 'describe cluster ${NKECTL_SMOKE_ABSENT}' succeeded against a name that does not exist" >&2
+    return 1
+  fi
+  if ! grep -q 'not found' <<<"${out}"; then
+    log "nkectl smoke: 'describe cluster' failed without a not-found message" >&2
+    return 1
+  fi
+
+  # Rejected by the printer before any request is issued.
+  if out="$(nkectl_exec "${token}" get clusters -o bogus 2>&1)"; then
+    log "nkectl smoke: 'get clusters -o bogus' was accepted" >&2
+    return 1
+  fi
+  if ! grep -qi 'output format' <<<"${out}"; then
+    log "nkectl smoke: '-o bogus' failed for some reason other than the format" >&2
+    return 1
+  fi
+
+  nkectl_smoke_providers "${token}" || return 1
+
+  log "PASS: nkectl reached CWE, authenticated, listed clusters, and read providers"
+}
+
+# `get providers` reads the site kubeconfig through kubectl rather than the CWE
+# REST client, so it is the only smoke assertion covering that subsystem. Both
+# lanes stage CAPNICo and wait for its CRDs (ci/backend-e2e.sh, needs-nico-provider),
+# so crdsEstablished holds on CAPD too; only the NICo lane deploys the manager
+# and the credentials Secret.
+nkectl_smoke_providers() {
+  local token="$1" out types
+
+  if ! out="$(nkectl_exec "${token}" get providers -o json 2>&1)"; then
+    log "nkectl smoke: 'get providers -o json' failed" >&2
+    return 1
+  fi
+
+  types="$(jq -r '[.[].type] | join(",")' <<<"${out}" 2>/dev/null || true)"
+  if [[ "${types}" != "nico,launchlayer" ]]; then
+    log "nkectl smoke: 'get providers' listed [${types}], want [nico,launchlayer]" >&2
+    return 1
+  fi
+
+  # The load-bearing assertion: it fails if the CRD names drift from what the
+  # provider ships, or if the kubeconfig plumbing breaks. Deliberately NOT a
+  # check for state == CONFIGURED -- managerDeployments selects on
+  # app.kubernetes.io/name, a label owned by the provider repository.
+  if [[ "$(jq -r '.[] | select(.type=="nico") | .crdsEstablished' <<<"${out}")" != "true" ]]; then
+    log "nkectl smoke: nico provider reports crdsEstablished=false" >&2
+    return 1
+  fi
+
+  # CAPLL is deployed by neither lane, so this pins the not-installed rendering.
+  if [[ "$(jq -r '.[] | select(.type=="launchlayer") | .state' <<<"${out}")" != "NOT-INSTALLED" ]]; then
+    log "nkectl smoke: launchlayer is not NOT-INSTALLED, so this lane changed shape" >&2
+    return 1
+  fi
+
+  if [[ "${NKE_E2E_BACKEND:-}" == "nico" ]]; then
+    if [[ "$(jq -r '.[] | select(.type=="nico") | .secretPresent' <<<"${out}")" != "true" ]]; then
+      log "nkectl smoke: nico provider reports secretPresent=false on the NICo lane" >&2
+      return 1
+    fi
+  fi
+
+  if ! out="$(nkectl_exec "${token}" get providers 2>&1)"; then
+    log "nkectl smoke: 'get providers' table mode failed" >&2
+    return 1
+  fi
+  if ! grep -q 'PROVIDER' <<<"${out}"; then
+    log "nkectl smoke: 'get providers' printed no table header" >&2
+    return 1
+  fi
+
+  # A site that is not configured must fail before any cluster contact.
+  if out="$(nkectl_exec "${token}" --site "${NKECTL_SMOKE_ABSENT}" get providers 2>&1)"; then
+    log "nkectl smoke: '--site ${NKECTL_SMOKE_ABSENT}' was accepted" >&2
+    return 1
+  fi
 }
