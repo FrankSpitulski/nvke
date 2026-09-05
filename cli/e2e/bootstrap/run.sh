@@ -546,6 +546,12 @@ log "PASS: all ${ready_nodes} pre-provisioned hosts are Ready nodes"
 # uses it: this suite does not mutate the caller's global Helm repository list.
 # service.spec.type, not service.type: the chart puts the Service spec's own
 # fields under `spec`, and a value set at the wrong depth is silently ignored.
+# Which registries the nodes will reach. A pull that falls through to upstream
+# is the difference between a 30 second install and a helm timeout.
+log "node registry routing (${NKECTL_E2E_NAME_PREFIX:-node}1):"
+docker exec "nkectl-e2e-${NKECTL_E2E_NAME_PREFIX:-node}1" \
+  cat /etc/containerd/certs.d/docker.io/hosts.toml 2>&1 | sed 's/^/  /' || true
+
 log "installing traefik on the new cluster"
 helm --kubeconfig "${TENANT_KUBECONFIG}" upgrade --install traefik traefik \
   --repo https://traefik.github.io/charts \

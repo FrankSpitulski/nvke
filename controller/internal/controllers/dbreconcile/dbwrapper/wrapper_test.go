@@ -1157,6 +1157,7 @@ func TestUnit_DBClusterSourceResyncsClusters(t *testing.T) {
 	wrapper := New(database, slog.New(slog.DiscardHandler))
 	source := NewClusterSource(wrapper, dbfilters.Cluster{})
 	source.resyncInterval = 10 * time.Millisecond
+	source.coalesce.window = 0 // this test measures resync, not coalescing
 	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[dbreconcile.Key]())
 	t.Cleanup(queue.ShutDown)
 
@@ -1178,6 +1179,7 @@ func TestUnit_DBNodePoolSourceResyncsNodePools(t *testing.T) {
 	wrapper := New(database, slog.New(slog.DiscardHandler))
 	source := NewNodePoolSource(wrapper, dbfilters.NodePool{})
 	source.resyncInterval = 10 * time.Millisecond
+	source.coalesce.window = 0 // this test measures resync, not coalescing
 	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[dbreconcile.Key]())
 	t.Cleanup(queue.ShutDown)
 
@@ -1199,6 +1201,7 @@ func TestUnit_DBNodeSetSourceResyncsNodeSets(t *testing.T) {
 	wrapper := New(database, slog.New(slog.DiscardHandler))
 	source := NewNodeSetSource(wrapper, dbfilters.NodeSet{})
 	source.resyncInterval = 10 * time.Millisecond
+	source.coalesce.window = 0 // this test measures resync, not coalescing
 	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[dbreconcile.Key]())
 	t.Cleanup(queue.ShutDown)
 
@@ -1220,6 +1223,7 @@ func TestUnit_DBNodeSourceResyncsNodes(t *testing.T) {
 	wrapper := New(database, slog.New(slog.DiscardHandler))
 	source := NewNodeSource(wrapper, dbfilters.Node{})
 	source.resyncInterval = 10 * time.Millisecond
+	source.coalesce.window = 0 // this test measures resync, not coalescing
 	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[dbreconcile.Key]())
 	t.Cleanup(queue.ShutDown)
 

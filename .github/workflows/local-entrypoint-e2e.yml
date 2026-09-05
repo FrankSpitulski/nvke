@@ -14,8 +14,7 @@
 # Path-filtered, because that script and its library change rarely: twice in the
 # script's life so far. This lane costs nothing between those changes.
 #
-# Advisory while it earns a track record, following the nerdctl leg in
-# nkectl-bootstrap-e2e.yml. It is not a merge-gate member.
+# Advisory, like every other E2E lane: not a merge-gate member.
 
 name: Local entrypoint E2E
 

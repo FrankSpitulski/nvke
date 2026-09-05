@@ -872,10 +872,12 @@ func nicoVMSSpec(_ config.Config, name string, shape clusterShape) nke.ClusterSp
 		Name:              name,
 		Backend:           nke.BackendNicoVMS,
 		KubernetesVersion: defaultString(shape.kubernetesVersion, defaultKubernetesVersion),
-		CNIPlugin:         defaultString(shape.cniPlugin, CNIPluginOVN),
-		OrgID:             nicoVMSOrgID,
-		SiteID:            nicoVMSSiteID,
-		VpcID:             nicoVMSVpcID,
+		// NKE_E2E_NICO_VMS_CNI moves the default for entries that do not pin one; Calico's
+		// images are a third of OVN's and import in a third of the time on every node.
+		CNIPlugin: defaultString(shape.cniPlugin, defaultString(os.Getenv("NKE_E2E_NICO_VMS_CNI"), CNIPluginOVN)),
+		OrgID:     nicoVMSOrgID,
+		SiteID:    nicoVMSSiteID,
+		VpcID:     nicoVMSVpcID,
 		ControlPlane: nke.ControlPlane{
 			Pools:           nicoVMSNodePoolSpecs(shape.controlPlanePools, "control-plane", "cp", nicoVMSOSProfile, nicoVMSCPConfigProfile),
 			ControlPlaneVIP: shape.controlPlaneVIP,
