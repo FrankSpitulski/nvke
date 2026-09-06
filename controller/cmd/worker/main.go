@@ -291,15 +291,28 @@ func main() {
 		"enableNodeProvisioningMonitor", enableNodeProvisioningMonitor,
 		"enableSpiffe", cfg.SpiffeEnabled,
 		"enableTenantAccess", cfg.TenantAccessEnabled)
-	machineSpireEntryController := capi.NewMachineSpireEntryController(
-		cfg,
-		k8sControllerManager.GetClient(),
-		logger.With("logger", "machine-spire-entry-controller"),
-		trustDomain,
-	)
-	if err := machineSpireEntryController.SetupWithManager(k8sControllerManager); err != nil {
-		logger.Error("Failed to set up machine SPIRE entry controller", "error", err)
+	// Watches Cluster API's Machine, and takes the manager down where Cluster
+	// API is not installed -- the same failure the NicoMachine watch below had.
+	machineCRDInstalled, err := capi.MachineCRDInstalled(k8sControllerManager.GetRESTMapper())
+	if err != nil {
+		logger.Error("Failed to look up the Machine CRD", "error", err)
 		os.Exit(1)
+	}
+	if !machineCRDInstalled {
+		logger.Warn("Cluster API Machine CRD not installed; skipping the machine SPIRE entry controller")
+	}
+
+	if machineCRDInstalled {
+		machineSpireEntryController := capi.NewMachineSpireEntryController(
+			cfg,
+			k8sControllerManager.GetClient(),
+			logger.With("logger", "machine-spire-entry-controller"),
+			trustDomain,
+		)
+		if err := machineSpireEntryController.SetupWithManager(k8sControllerManager); err != nil {
+			logger.Error("Failed to set up machine SPIRE entry controller", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	// Both controllers below watch NicoMachine, and either takes the manager
