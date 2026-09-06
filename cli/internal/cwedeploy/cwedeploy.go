@@ -261,6 +261,10 @@ type Config struct {
 
 	// ReadyTimeout bounds how long WaitReady polls /readyz before giving up.
 	ReadyTimeout time.Duration
+
+	// PostgresChartRef is where helm pulls the Bitnami postgresql chart from,
+	// as an OCI reference or a local path. Empty uses Docker Hub's OCI registry.
+	PostgresChartRef string
 }
 
 // DefaultConfig reads the package's knobs from the environment, mirroring
@@ -282,6 +286,8 @@ func DefaultConfig() Config {
 
 		HelmTimeout:  envDuration("NKECTL_CWE_HELM_TIMEOUT", 5*time.Minute),
 		ReadyTimeout: envDuration("NKECTL_CWE_READY_TIMEOUT", 5*time.Minute),
+
+		PostgresChartRef: os.Getenv("NKECTL_CWE_POSTGRES_CHART"),
 	}
 }
 
@@ -386,9 +392,13 @@ func (e *Engine) Deploy(ctx context.Context, kubeconfigPath string, cfg Config) 
 	}
 	defer cleanup()
 
-	e.log.Info("installing postgres", "namespace", postgresNamespace, "version", postgresChartVersion)
+	postgresChart := cfg.PostgresChartRef
+	if postgresChart == "" {
+		postgresChart = postgresChartRef
+	}
+	e.log.Info("installing postgres", "namespace", postgresNamespace, "version", postgresChartVersion, "chart", postgresChart)
 	if _, err := e.helm(ctx, kubeconfigPath,
-		"upgrade", "--install", postgresReleaseName, postgresChartRef,
+		"upgrade", "--install", postgresReleaseName, postgresChart,
 		"--namespace", postgresNamespace, "--create-namespace",
 		"--values", postgresValues,
 		"--set-string", "auth.password="+password,

@@ -551,6 +551,11 @@ log "PASS: all ${ready_nodes} pre-provisioned hosts are Ready nodes"
 log "node registry routing (${NKECTL_E2E_NAME_PREFIX:-node}1):"
 docker exec "nkectl-e2e-${NKECTL_E2E_NAME_PREFIX:-node}1" \
   cat /etc/containerd/certs.d/docker.io/hosts.toml 2>&1 | sed 's/^/  /' || true
+# The bootstrap Kind cluster is still up (--keep-bootstrap-cluster above); its
+# node pulls the CWE stack's images, so show where those went too.
+log "bootstrap cluster registry routing (${BOOTSTRAP_KIND_CLUSTER}-control-plane):"
+"${NKECTL_BOOTSTRAP_PROVIDER}" exec "${BOOTSTRAP_KIND_CLUSTER}-control-plane" \
+  cat /etc/containerd/certs.d/docker.io/hosts.toml 2>&1 | sed 's/^/  /' || true
 
 log "installing traefik on the new cluster"
 helm --kubeconfig "${TENANT_KUBECONFIG}" upgrade --install traefik traefik \
