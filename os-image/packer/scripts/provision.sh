@@ -28,6 +28,12 @@ fi
 if ! id -u spire >/dev/null 2>&1; then
   sudo useradd -r -s /bin/false -d /var/lib/spire-agent spire
 fi
+# The TPM node attestor opens /dev/tpmrm0, which udev owns tss:tss. Without this
+# spire-agent crash-loops on "permission denied" and nke-agent never starts,
+# because it waits on a workload socket that never opens.
+if getent group tss >/dev/null 2>&1; then
+  sudo usermod -aG tss spire
+fi
 sudo install -d -m 0750 -o spire -g spire /var/lib/spire-agent
 
 sudo systemctl daemon-reload
