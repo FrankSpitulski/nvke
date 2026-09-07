@@ -28,7 +28,7 @@ The loop is **seed → pivot → mint**:
 
 1. **Seed** — an ephemeral single-node cluster runs the controller, Temporal, and Postgres.
 2. **Bring up** — a durable workflow runs `kubeadm init` against pre-provisioned hosts.
-3. **Pivot** — the new cluster registers itself into its own database and takes over managing itself.
+3. **Pivot** — the new cluster registers itself into its own database. Installing the controller onto it is a separate step today; it does not yet upgrade, cycle or scale itself.
 4. **Tear down** the seed.
 5. **Mint** tenant clusters on demand.
 
@@ -161,6 +161,7 @@ publish OS images; it publishes the recipes for building them.
 
 | Document | Contents |
 |---|---|
+| [docs/first-cluster.md](docs/first-cluster.md) | Three paths to a running cluster, driven by `nkectl` |
 | [docs/architecture.md](docs/architecture.md) | System overview — modules, data flows, deployment model |
 | [docs/getting-started.md](docs/getting-started.md) | Local development setup for the controller and the agent |
 | [docs/branch-protection-settings.md](docs/branch-protection-settings.md) | What `main` requires of a pull request, and which checks block a merge |
