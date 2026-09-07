@@ -33,6 +33,15 @@ sudo systemctl enable nke-spire-configure.service
 sudo systemctl enable spire-agent.service
 sudo systemctl enable nke-agent.service
 
+# Stage the CNI debs as a local flat apt repo, so cluster create's `apt-get
+# install nke-cni-...` resolves offline with apt's dependency handling intact.
+# trusted=yes: the content is already on this root fs. amd64 artifacts only.
+if [[ -d "${SRC}/debs" ]]; then
+  sudo install -d -m 0755 /usr/lib/nke/debs
+  sudo install -m 0644 "${SRC}"/debs/*.deb "${SRC}/debs/Packages" /usr/lib/nke/debs/
+  echo 'deb [trusted=yes] file:/usr/lib/nke/debs ./' | sudo tee /etc/apt/sources.list.d/nke-local.list >/dev/null
+fi
+
 # Golden image: next boot must look like a new instance, without the Packer
 # SSH key or a machine-id from this build VM.
 sudo cloud-init clean --logs --seed || true
@@ -62,6 +71,18 @@ sudo apt-get clean
 sudo rm -rf /var/lib/apt/lists/*
 sudo rm -rf /usr/share/doc/* /usr/share/man/*
 find /usr/share/locale -mindepth 1 -maxdepth 1 ! -name en -exec sudo rm -rf {} +
+
+# Index only the local repo, after the cleanup above, so cluster create needs
+# no apt-get update of its own and no Ubuntu archive lists get baked in.
+if [[ -f /etc/apt/sources.list.d/nke-local.list ]]; then
+  sudo apt-get update \
+    -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/nke-local.list \
+    -o Dir::Etc::sourceparts=- \
+    -o APT::Get::List-Cleanup=0
+fi
+
+# The uploaded artifacts (gigabytes of debs) must not stay in the qcow2.
+sudo rm -rf /tmp/nke-image
 
 sudo fstrim -av || true
 

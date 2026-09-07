@@ -191,11 +191,12 @@ jobs:
       # unconditionally rather than branched on matrix.arch: the extra apt
       # cost is negligible and it keeps this step identical across the
       # matrix.
-      - name: Install QEMU, cloud-localds, swtpm, OVMF/AAVMF, 7z, and xorriso
+      # dpkg-dev: dpkg-scanpackages indexes the CNI debs fetch-artifacts.sh builds.
+      - name: Install QEMU, cloud-localds, swtpm, OVMF/AAVMF, 7z, xorriso, and dpkg-dev
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq qemu-system-x86 qemu-system-arm qemu-utils cloud-image-utils genisoimage unzip swtpm ovmf qemu-efi-aarch64 p7zip-full xorriso
+          sudo apt-get install -y -qq qemu-system-x86 qemu-system-arm qemu-utils cloud-image-utils genisoimage unzip swtpm ovmf qemu-efi-aarch64 p7zip-full xorriso dpkg-dev
           qemu-system-x86_64 --version | head -1
           qemu-system-aarch64 --version | head -1
           qemu-img --version | head -1

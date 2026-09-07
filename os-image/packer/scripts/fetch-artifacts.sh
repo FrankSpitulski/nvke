@@ -3,8 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Run on the Packer host. Builds the nke-agent binary from this checkout's
-# source (agent/) and fetches SPIRE agent from GitHub Releases into
-# ARTIFACTS_DIR.
+# source (agent/), builds the CNI debs (os-image/packages/, staged into the
+# image by provision.sh as a local apt repo) and fetches SPIRE agent from
+# GitHub Releases into ARTIFACTS_DIR.
 
 set -euo pipefail
 
@@ -57,6 +58,31 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 echo "building nke-agent from source (${repo_root}/agent, ${ARCH})"
 make -C "${repo_root}/agent" "${AGENT_BUILD_TARGET}"
 install -m 0755 "${repo_root}/agent/bin/${AGENT_BIN_DIR}/nke-agent" "${ARTIFACTS_DIR}/nke-agent"
+
+# The CNI debs nke-agent installs at cluster create, plus a flat apt index that
+# provision.sh stages as a local repo. amd64 only: the locks pin amd64 digests.
+if [[ "${ARCH}" == amd64 ]]; then
+  echo "building nke-cni-calico debs (${repo_root}/os-image/packages/cni-calico)"
+  cni_calico_args=(OUT_DIR="${ARTIFACTS_DIR}/debs")
+  if [[ -n "${CALICO_VERSIONS:-}" ]]; then
+    cni_calico_args+=(CALICO_VERSIONS="${CALICO_VERSIONS}")
+  fi
+  make -C "${repo_root}/os-image/packages/cni-calico" debs "${cni_calico_args[@]}"
+
+  # OVN's chart and images need an NGC key for nv-ngn; CI has none, so opt-in.
+  if [[ -n "${NGC_API_KEY:-}" ]]; then
+    echo "building nke-cni-ovn debs (${repo_root}/os-image/packages/cni-ovn)"
+    cni_ovn_args=(OUT_DIR="${ARTIFACTS_DIR}/debs")
+    if [[ -n "${OVN_STREAMS:-}" ]]; then
+      cni_ovn_args+=(OVN_STREAMS="${OVN_STREAMS}")
+    fi
+    make -C "${repo_root}/os-image/packages/cni-ovn" debs "${cni_ovn_args[@]}"
+  else
+    echo "NGC_API_KEY is unset; skipping the nke-cni-ovn debs (this image cannot install OVN offline)"
+  fi
+else
+  echo "skipping the CNI debs: the packages build amd64 only, this is ${ARCH}"
+fi
 
 spire_tar="${ARTIFACTS_DIR}/${SPIRE_TARBALL}"
 echo "fetching ${SPIRE_URL}"
