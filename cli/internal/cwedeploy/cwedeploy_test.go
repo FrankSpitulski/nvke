@@ -745,3 +745,28 @@ func TestSpireServesThePortCWEExpects(t *testing.T) {
 			"dial a port nothing publishes: %s", args)
 	}
 }
+
+// DisableMTLS stands the site up without SPIFFE: no SPIRE release at all, and
+// CWE installed with spiffe.enabled=false, which is what makes it dial each
+// node agent in plaintext.
+func TestDeploy_DisableMTLSSkipsSpire(t *testing.T) {
+	runner := &fakeRunner{}
+	cfg := testConfig(t)
+	cfg.DisableMTLS = true
+	cfg.TPMEKFingerprints = []string{"aaa"}
+
+	if err := New(runner, nil).Deploy(context.Background(), "/tmp/kubeconfig", cfg); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+
+	all := strings.Join(helmCalls(runner), "\n")
+	if strings.Contains(all, spireCRDsChartName) || strings.Contains(all, "upgrade --install spire ") {
+		t.Errorf("calls = %q, want no SPIRE release when mTLS is disabled", all)
+	}
+	if strings.Contains(all, "nodeAttestor.tpmDirect.enabled=true") {
+		t.Errorf("calls = %q, want no TPM attestor when mTLS is disabled", all)
+	}
+	if !strings.Contains(all, "spiffe.enabled=false") {
+		t.Errorf("calls = %q, want CWE installed with spiffe.enabled=false", all)
+	}
+}
