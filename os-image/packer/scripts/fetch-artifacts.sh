@@ -42,6 +42,15 @@ SPIRE_TARBALL="spire-${SPIRE_VERSION}-linux-${SPIRE_ARCH}-musl.tar.gz"
 SPIRE_URL="https://github.com/spiffe/spire/releases/download/v${SPIRE_VERSION}/${SPIRE_TARBALL}"
 SPIRE_SHA256="${SPIRE_SHA256:-${SPIRE_SHA256_DEFAULT}}"
 
+# The TPM node attestor, pinned to the same release controller/hack/ci vendors
+# for the CAPD e2e. A site cluster attests its nodes by TPM, so the image needs
+# this plugin to join one; without it the agent can only use a join token, which
+# the site cluster never mints.
+TPM_PLUGIN_VERSION="${TPM_PLUGIN_VERSION:-1.9.0}"
+TPM_PLUGIN_TARBALL="spire_tpm_plugin_tpm_attestor_agent_linux_amd64_v${TPM_PLUGIN_VERSION}.tar.gz"
+TPM_PLUGIN_URL="https://github.com/spiffe/spire-tpm-plugin/releases/download/v${TPM_PLUGIN_VERSION}/${TPM_PLUGIN_TARBALL}"
+TPM_PLUGIN_SHA256="${TPM_PLUGIN_SHA256:-64c9ed83857e802571f9e4c8377994bfb9d220708bcefe6b50674b2eee4bfbd2}"
+
 mkdir -p "${ARTIFACTS_DIR}"
 
 if ! command -v go >/dev/null 2>&1; then
@@ -102,6 +111,25 @@ if [[ -z "${spire_bin}" ]]; then
   exit 1
 fi
 install -m 0755 "${spire_bin}" "${ARTIFACTS_DIR}/spire-agent"
+
+tpm_tar="${ARTIFACTS_DIR}/${TPM_PLUGIN_TARBALL}"
+echo "fetching ${TPM_PLUGIN_URL}"
+curl --fail --silent --show-error --location \
+  --connect-timeout 10 --max-time 60 \
+  --retry 3 --retry-delay 5 --retry-connrefused \
+  -o "${tpm_tar}" "${TPM_PLUGIN_URL}"
+printf '%s  %s\n' "${TPM_PLUGIN_SHA256}" "${tpm_tar}" | sha256sum -c -
+
+tpm_extract="${ARTIFACTS_DIR}/tpm-plugin-extract"
+rm -rf "${tpm_extract}"
+mkdir -p "${tpm_extract}"
+tar -xzf "${tpm_tar}" -C "${tpm_extract}"
+tpm_bin="$(find "${tpm_extract}" -type f -name tpm_attestor_agent -print -quit)"
+if [[ -z "${tpm_bin}" ]]; then
+  echo "tpm plugin tarball did not contain tpm_attestor_agent" >&2
+  exit 1
+fi
+install -m 0755 "${tpm_bin}" "${ARTIFACTS_DIR}/tpm_attestor_agent"
 
 files_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../files" && pwd)"
 install -m 0644 "${files_dir}/nke-agent.service" "${ARTIFACTS_DIR}/nke-agent.service"

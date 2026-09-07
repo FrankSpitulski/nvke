@@ -10,6 +10,8 @@ SRC=/tmp/nke-image
 
 sudo install -d -m 0755 /usr/lib/nke /etc/nke /var/lib/nke /usr/local/bin
 sudo install -m 0755 "${SRC}/spire-agent" /usr/local/bin/spire-agent
+sudo install -d -m 0755 /usr/local/lib/spire-agent
+sudo install -m 0755 "${SRC}/tpm_attestor_agent" /usr/local/lib/spire-agent/tpm_attestor_agent
 sudo install -m 0755 "${SRC}/spire-configure.sh" /usr/lib/nke/spire-configure.sh
 sudo install -m 0755 "${SRC}/wait-spiffe-socket.sh" /usr/lib/nke/wait-spiffe-socket.sh
 sudo install -m 0644 "${SRC}/spire-agent.conf.tmpl" /usr/lib/nke/spire-agent.conf.tmpl
