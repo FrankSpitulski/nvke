@@ -172,8 +172,9 @@ when OIDC is on.
 ## Path C — a real site
 
 Real hardware, a real NICo site, and a site controller that outlives your
-terminal. Unlike A and B, **this path has not been run end to end** — treat a
-surprise here as a bug in this page and say so.
+terminal. Steps 1 to 4 have been run end to end on leased bare metal, to a
+`Ready` control-plane node; steps 5 to 7 have been run against mock NICo rather
+than a real site. Treat a surprise here as a bug in this page and say so.
 
 ### Before you start
 
@@ -181,6 +182,20 @@ surprise here as a bug in this page and say so.
 already imaged and running `nke-agent` and `spire-agent`. You need every node's
 IP and its **TPM EK thumbprint**: the site cluster attests nodes by TPM, and a
 node with no thumbprint cannot join.
+
+**kubeadm on each node, installed by your cloud-init.** An image built from
+[`os-image/`](../os-image/) only *stages* the packages in a local apt repo at
+`/usr/lib/nke/debs`; nothing installs them for a pre-provisioned node, because
+CWE writes no cloud-init for hosts it did not create. Install them yourself:
+
+```yaml
+runcmd:
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y nke-kubeadm-distro-<k8s-version>
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y nke-cni-calico-images-<stream> nke-cni-calico-manifests-<stream>
+```
+
+Skip this and the bootstrap runs its full 30 minutes before failing on
+`NodePreflight` / `check_cloud_init_status`, which never mentions kubeadm.
 
 **A SPIRE CA.** A certificate and key you pass in the site spec, whose
 certificate also reaches each node through cloud-init. Without it SPIRE mints a
@@ -228,6 +243,10 @@ absent — the Kubernetes version, `systemReservedMemory` at 16Gi, and a literal
 `nvcr.io/org` in the registry block. Every field is in
 [sitespec.md](../cli/docs/sitespec.md).
 
+**Check `systemReservedMemory` against the node you actually have.** kubelet
+computes allocatable as capacity minus reserved, so 16Gi on a smaller node
+leaves nothing schedulable and the node never reaches `Ready`.
+
 ### 3. Point at your images
 
 All three are required and the bootstrap fails without them. Outside a checkout
@@ -270,6 +289,19 @@ kind delete cluster --name nkectl-bootstrap
 
 The bootstrap leaves you a plain Kubernetes cluster. Installing CWE onto it is a
 separate job, and the largest step here — `nkectl` has no command for it.
+
+A plain kubeadm cluster is barer than a kind one, in two ways that stop the
+install before it starts:
+
+- **The nodes are all control plane**, so nothing schedules until you untaint
+  them or give every workload a toleration:
+  `kubectl taint nodes --all node-role.kubernetes.io/control-plane-`
+- **There is no storage class.** The database and SPIRE both want a volume and
+  sit `Pending` on `no persistent volumes available for this claim and no
+  storage class is set`. Install a provisioner, or run them without persistence.
+
+`nkectl get providers` is the quickest check that what you installed is wired
+up — it names the missing piece rather than making you infer it.
 
 Use the chart in
 [`controller/deploy/charts/controller`](../controller/deploy/charts/controller).
