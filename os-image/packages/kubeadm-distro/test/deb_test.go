@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -412,6 +413,9 @@ func TestPostinstSwapSedIsValid(t *testing.T) {
 	}
 	if sedLine == "" {
 		t.Fatal("no swap sed line found in postinst; this test is guarding nothing")
+	}
+	if runtime.GOOS == "darwin" {
+		sedLine = strings.Replace(sedLine, "sed -i -E ", "sed -E -i '' ", 1)
 	}
 
 	fstab := filepath.Join(t.TempDir(), "fstab")
