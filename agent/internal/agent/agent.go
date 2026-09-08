@@ -720,6 +720,28 @@ func (s *NodeAgentServer) ExecuteKubeadmInit(
 	return resp, nil
 }
 
+// kubeadmFailureMessage summarises why kubeadm exited, for the one status field
+// the orchestrator can see. kubeadm ends with the phase it failed in
+// ("error execution phase wait-control-plane: ..."), which is the single most
+// useful line, so prefer it and fall back to the process error.
+func kubeadmFailureMessage(err error, output []byte) string {
+	const limit = 300
+	best := ""
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "error") || strings.Contains(line, "error execution phase") {
+			best = line
+		}
+	}
+	if best == "" {
+		best = strings.TrimSpace(err.Error())
+	}
+	if len(best) > limit {
+		best = best[:limit] + "..."
+	}
+	return "kubeadm init failed: " + best
+}
+
 func (s *NodeAgentServer) processKubeadmInit(args []string, req *pb.KubeadmInitRequest) {
 	s.mu.Lock()
 	ns := *s.NodeStatus
@@ -771,9 +793,14 @@ func (s *NodeAgentServer) processKubeadmInit(args []string, req *pb.KubeadmInitR
 		}
 		slog.Error("init failed", "err", err, "stdout", string(output))
 		ns.Status = ErrorStatus
-		ns.ErrorMessage = "kubedam init failed: " + err.Error()
+		ns.ErrorMessage = "kubeadm init failed: " + err.Error()
 		ns.KubeadmErrorMessage = string(output)
 		ns.KubeadmStatus = "init failed"
+		// CurrentMessage is the only one of these the status RPC returns, so
+		// leaving it at "Node is initializing" reports the failure as progress:
+		// the orchestrator prints "kubeadm init failed: Node is initializing",
+		// which names neither the phase nor the reason.
+		ns.CurrentMessage = kubeadmFailureMessage(err, output)
 		return
 	}
 
