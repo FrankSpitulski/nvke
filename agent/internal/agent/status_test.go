@@ -466,6 +466,85 @@ func TestConcurrentStatusUpdates(t *testing.T) {
 	assert.Equal(t, numGoroutines, len(server.NodeStatus.Bundles))
 }
 
+// capturingPersister keeps the last snapshot it was handed, so tests can assert
+// on what would reach the state file rather than on in-memory fields.
+type capturingPersister struct {
+	mu   sync.Mutex
+	last *NodeStatus
+}
+
+func (p *capturingPersister) Persist(status *NodeStatus) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.last = status
+	return nil
+}
+
+func (p *capturingPersister) LoadFromStateFile() (*NodeStatus, error) {
+	return &NodeStatus{}, nil
+}
+
+func (p *capturingPersister) snapshot() *NodeStatus {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.last
+}
+
+// The state file is the only thing reporting a host that is not serving gRPC
+// yet, so the status has to reach the persister and not just the struct.
+func TestSetSPIFFEStatusPersistsSnapshot(t *testing.T) {
+	persister := &capturingPersister{}
+	server := &NodeAgentServer{
+		Persister:  persister,
+		NodeStatus: &NodeStatus{NodeName: "test-node"},
+	}
+
+	server.SetSPIFFEStatus(SPIFFEStatus{
+		State:        SPIFFEStateWaiting,
+		Attempts:     3,
+		LastError:    "no such file or directory",
+		RetrySeconds: 8,
+	})
+
+	persisted := persister.snapshot()
+	if assert.NotNil(t, persisted) {
+		assert.Equal(t, SPIFFEStateWaiting, persisted.SPIFFE.State)
+		assert.Equal(t, 3, persisted.SPIFFE.Attempts)
+		assert.Equal(t, "no such file or directory", persisted.SPIFFE.LastError)
+		assert.Equal(t, 8, persisted.SPIFFE.RetrySeconds)
+		// Unrelated fields survive, since the setter writes a full snapshot.
+		assert.Equal(t, "test-node", persisted.NodeName)
+	}
+
+	server.SetSPIFFEStatus(SPIFFEStatus{
+		State:    SPIFFEStateReady,
+		SpiffeID: "spiffe://example.org/host/node-1",
+	})
+
+	persisted = persister.snapshot()
+	if assert.NotNil(t, persisted) {
+		assert.Equal(t, SPIFFEStateReady, persisted.SPIFFE.State)
+		assert.Equal(t, "spiffe://example.org/host/node-1", persisted.SPIFFE.SpiffeID)
+		// Reaching ready clears the failure detail rather than leaving it behind.
+		assert.Zero(t, persisted.SPIFFE.Attempts)
+		assert.Empty(t, persisted.SPIFFE.LastError)
+	}
+}
+
+// A failing persister must not take down an agent that is otherwise healthy.
+func TestSetSPIFFEStatusSurvivesPersistFailure(t *testing.T) {
+	persister := &ErrorMockPersister{LoadErr: os.ErrPermission}
+	server := &NodeAgentServer{
+		Persister:  persister,
+		NodeStatus: &NodeStatus{},
+	}
+
+	server.SetSPIFFEStatus(SPIFFEStatus{State: SPIFFEStateReady})
+
+	assert.True(t, persister.Called)
+	assert.Equal(t, SPIFFEStateReady, server.NodeStatus.SPIFFE.State)
+}
+
 // ErrorMockPersister is a mock persister that returns an error
 type ErrorMockPersister struct {
 	mu      sync.Mutex

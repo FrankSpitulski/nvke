@@ -57,6 +57,10 @@ type NodeStatus struct {
 	BundleIndexFile string `json:"bundleIndexFile"`
 	BundleServerURL string `json:"bundleServerURL"`
 
+	// SPIFFE reports progress acquiring the identity the mTLS listener serves
+	// with, which is why ListenStatus can sit at "pending" for a long time.
+	SPIFFE SPIFFEStatus `json:"spiffe"`
+
 	// InstalledPackages is the dpkg list of installed packages, refreshed after InstallPackages
 	// and RemovePackages succeed (same source as ListPackages).
 	InstalledPackages []InstalledDebPackage `json:"installedPackages"`
@@ -161,6 +165,32 @@ type NodeAgentOperation struct {
 	Step         string                  `json:"step"`
 	Result       string                  `json:"result,omitempty"`
 	ErrorMessage string                  `json:"errorMessage"`
+}
+
+type SPIFFEState string
+
+const (
+	// SPIFFEStateWaiting means the agent holds no SVID yet. How long that lasts
+	// is a property of the node attestation method rather than of the agent, so
+	// it is an ordinary startup state and not an error.
+	SPIFFEStateWaiting SPIFFEState = "waiting"
+	// SPIFFEStateReady means the agent holds an SVID and can serve mTLS.
+	SPIFFEStateReady SPIFFEState = "ready"
+	// SPIFFEStateDisabled means --disable-mtls was set, so no identity is sought.
+	SPIFFEStateDisabled SPIFFEState = "disabled"
+)
+
+// SPIFFEStatus reports the agent's progress acquiring its own SPIFFE identity.
+// A host whose SPIRE agent has not finished node attestation reports the
+// attempt count and the last failure here rather than looking hung.
+type SPIFFEStatus struct {
+	State    SPIFFEState `json:"state"`
+	SpiffeID string      `json:"spiffeId,omitempty"`
+	// Attempts counts finished acquisition attempts, so a stuck host is
+	// distinguishable from one that has only just booted.
+	Attempts     int    `json:"attempts,omitempty"`
+	LastError    string `json:"lastError,omitempty"`
+	RetrySeconds int    `json:"retrySeconds,omitempty"`
 }
 
 // InstalledDebPackage mirrors deb.Package / proto InstalledPackage for persisted node status.
@@ -322,6 +352,21 @@ func (s *NodeAgentServer) PersistNodeStatus() {
 	err := s.Persister.Persist(&statusCopy)
 	if err != nil {
 		slog.Error("failed to persist NodeStatusSnapshot", "ERR", err)
+	}
+}
+
+// SetSPIFFEStatus records progress acquiring the agent's SPIFFE identity and
+// persists it right away. Persisting on every change matters here because the
+// interesting case is a host that is not serving gRPC yet, so the state file is
+// the only thing reporting why.
+func (s *NodeAgentServer) SetSPIFFEStatus(status SPIFFEStatus) {
+	s.mu.Lock()
+	s.NodeStatus.SPIFFE = status
+	statusCopy := cloneNodeStatus(s.NodeStatus)
+	s.mu.Unlock()
+
+	if err := s.Persister.Persist(&statusCopy); err != nil {
+		slog.Error("failed to persist SPIFFE status", "err", err)
 	}
 }
 

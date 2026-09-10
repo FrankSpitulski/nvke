@@ -21,7 +21,6 @@ import (
 
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
-	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
@@ -29,6 +28,7 @@ import (
 
 	server "github.com/NVIDIA/nke/agent/internal/agent"
 	"github.com/NVIDIA/nke/agent/internal/grpcserver"
+	"github.com/NVIDIA/nke/agent/internal/identity"
 )
 
 const (
@@ -136,22 +136,54 @@ func authorizeClient(agentTrustDomain string) func(spiffeid.ID) error {
 	}
 }
 
-func buildSpiffeMtlsConfig(ctx context.Context, socketPath string) (*tls.Config, error) {
-	source, err := workloadapi.NewX509Source(ctx, workloadapi.WithClientOptions(workloadapi.WithAddr(socketPath)))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create x509 source: %w", err)
+// buildSpiffeMtlsConfig waits for the Workload API to issue this agent an SVID
+// and builds the listener's mTLS config around it.
+//
+// It returns an error only when ctx is done. A host whose SPIRE agent has not
+// completed node attestation retries instead of failing, because attestation
+// can finish long after the agent starts and exiting would only lose the
+// diagnostics.
+func buildSpiffeMtlsConfig(
+	ctx context.Context,
+	socketPath string,
+	observe func(identity.Attempt),
+) (*tls.Config, spiffeid.ID, error) {
+	acquirer := &identity.Acquirer{
+		NewSource: identity.WorkloadAPISource(socketPath),
+		Observe:   observe,
 	}
 
-	svid, err := source.GetX509SVID()
+	source, id, err := acquirer.Acquire(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get x509 SVID: %w", err)
+		return nil, spiffeid.ID{}, err
 	}
 
-	agentTrustDomain := svid.ID.TrustDomain().Name()
+	authorizer := tlsconfig.AdaptMatcher(authorizeClient(id.TrustDomain().Name()))
 
-	authorizer := tlsconfig.AdaptMatcher(authorizeClient(agentTrustDomain))
+	return tlsconfig.MTLSServerConfig(source, source, authorizer), id, nil
+}
 
-	return tlsconfig.MTLSServerConfig(source, source, authorizer), nil
+// spiffeStatusObserver reports failed acquisition attempts into the node status
+// file. Successful attempts are left alone: the ready state carries the SPIFFE
+// ID, and only Acquire returns it.
+func spiffeStatusObserver(agentServer *server.NodeAgentServer) func(identity.Attempt) {
+	return func(attempt identity.Attempt) {
+		if attempt.Err == nil {
+			return
+		}
+
+		slog.Warn("waiting for a SPIFFE identity",
+			"attempt", attempt.N,
+			"retryIn", attempt.RetryIn,
+			"err", attempt.Err,
+		)
+		agentServer.SetSPIFFEStatus(server.SPIFFEStatus{
+			State:        server.SPIFFEStateWaiting,
+			Attempts:     attempt.N,
+			LastError:    attempt.Err.Error(),
+			RetrySeconds: int(attempt.RetryIn.Seconds()),
+		})
+	}
 }
 
 // newAuditLogInterceptor returns an interceptor that logs audit events using the provided logger.
@@ -200,12 +232,24 @@ func startSecureServer(ctx context.Context, cfg AgentConfig, agentServer *server
 		grpc.UnaryInterceptor(newAuditLogInterceptor(auditLogger)),
 	}
 
-	if !cfg.DisableMTLS {
+	if cfg.DisableMTLS {
+		agentServer.SetSPIFFEStatus(server.SPIFFEStatus{State: server.SPIFFEStateDisabled})
+	} else {
 		slog.Info("setting up SPIFFE mTLS for gRPC")
-		tlsCfg, err := buildSpiffeMtlsConfig(ctx, cfg.SPIFFESocketPath)
+		agentServer.SetSPIFFEStatus(server.SPIFFEStatus{State: server.SPIFFEStateWaiting})
+
+		tlsCfg, id, err := buildSpiffeMtlsConfig(ctx, cfg.SPIFFESocketPath, spiffeStatusObserver(agentServer))
 		if err != nil {
-			log.Fatalf("failed to build SPIFFE mTLS config: %v", err)
+			// Acquisition retries forever, so shutdown is the only way here.
+			slog.Info("stopped waiting for a SPIFFE identity", "err", err)
+			return
 		}
+
+		slog.Info("acquired a SPIFFE identity", "spiffeID", id.String())
+		agentServer.SetSPIFFEStatus(server.SPIFFEStatus{
+			State:    server.SPIFFEStateReady,
+			SpiffeID: id.String(),
+		})
 		serverOptions = append(serverOptions, grpc.Creds(credentials.NewTLS(tlsCfg)))
 	}
 
