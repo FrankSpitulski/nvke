@@ -408,7 +408,11 @@ func (a *Activities) waitForCAPIMachineReady(ctx context.Context, input WaitForC
 			}
 		}
 
-		return "", fmt.Errorf("capi machine %s has no IP addresses in status or infrastructure ref", machine.Name)
+		conditionMsg := capiMachineInfrastructureReadyMessage(machine)
+		if conditionMsg != "" {
+			conditionMsg = ": " + conditionMsg
+		}
+		return "", fmt.Errorf("capi machine %s has no IP addresses in status or infrastructure ref%s", machine.Name, conditionMsg)
 	}
 
 	// Record the type the infra provider settled on for templateless Nico nodes
