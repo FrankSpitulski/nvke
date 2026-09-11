@@ -276,14 +276,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      # Downloaded, not `go install`ed: a pinned module version can go
+      # temporarily unresolvable through an internal Go proxy mirror even when
+      # the tag is real, which is what broke this job. See setup-crane/action.yml.
+      - name: Set up crane
+        uses: ./.github/actions/setup-crane
         with:
-          go-version-file: controller/go.mod
-          cache: false
-
-      - name: Build crane
-        run: make -C controller crane
+          crane_version: v0.21.9
 
       # crane copies the whole index, so the per-architecture manifests come
       # with it and the digest is preserved. What GHCR serves is the image NVCR
@@ -304,15 +303,14 @@ jobs:
           version="${GITHUB_REF_NAME#controller/}"
           src="nvcr.io/${NKE_NGC_ORG}/controller:${version}"
           dst="ghcr.io/${GITHUB_REPOSITORY,,}/controller"
-          crane="controller/bin/crane"
 
-          if ! digest="$("${crane}" digest "${src}")"; then
+          if ! digest="$(crane digest "${src}")"; then
             echo "::error::${src} does not exist. The manifest job should have pushed it."
             exit 1
           fi
 
-          "${crane}" copy "${src}" "${dst}:${version}"
-          "${crane}" tag "${dst}:${version}" "sha-${GITHUB_SHA}"
+          crane copy "${src}" "${dst}:${version}"
+          crane tag "${dst}:${version}" "sha-${GITHUB_SHA}"
 
           {
             echo "- \`${dst}:${version}\` is \`${digest}\`"
@@ -335,14 +333,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      # Downloaded, not `go install`ed: a pinned module version can go
+      # temporarily unresolvable through an internal Go proxy mirror even when
+      # the tag is real, which is what broke this job. See setup-crane/action.yml.
+      - name: Set up crane
+        uses: ./.github/actions/setup-crane
         with:
-          go-version-file: controller/go.mod
-          cache: false
-
-      - name: Build crane
-        run: make -C controller crane
+          crane_version: v0.21.9
 
       - name: Promote image
         shell: bash
@@ -375,30 +372,29 @@ jobs:
           image_version="${image_version#controller/}"
           src="nvcr.io/${NKE_NGC_ORG}/controller:${image_version}"
           dst="nvcr.io/${DSX_NGC_ORG_TEAM}/controller"
-          crane="controller/bin/crane"
           layout="${RUNNER_TEMP}/controller-image.oci"
 
           # shellcheck disable=SC2016
-          echo "${NKE_NGC_TOKEN}" | "${crane}" auth login nvcr.io \
+          echo "${NKE_NGC_TOKEN}" | crane auth login nvcr.io \
             -u '$oauthtoken' --password-stdin
 
-          if ! source_digest="$("${crane}" digest "${src}")"; then
+          if ! source_digest="$(crane digest "${src}")"; then
             echo "::error::${src} does not exist. The manifest job should have pushed it."
             exit 1
           fi
 
           mkdir -p "${layout}"
-          "${crane}" pull --format=oci "${src}" "${layout}"
+          crane pull --format=oci "${src}" "${layout}"
 
           # shellcheck disable=SC2016
-          echo "${DSX_NGC_TOKEN}" | "${crane}" auth login nvcr.io \
+          echo "${DSX_NGC_TOKEN}" | crane auth login nvcr.io \
             -u '$oauthtoken' --password-stdin
 
           ensure_immutable_tag() {
             local tag="$1"
             local target="${dst}:${tag}"
 
-            if target_digest="$("${crane}" digest "${target}" 2>/dev/null)"; then
+            if target_digest="$(crane digest "${target}" 2>/dev/null)"; then
               if [[ "${target_digest}" != "${source_digest}" ]]; then
                 echo "::error::${target} already exists with digest ${target_digest}, expected ${source_digest}"
                 exit 1
@@ -407,8 +403,8 @@ jobs:
               return
             fi
 
-            "${crane}" push --index "${layout}" "${target}"
-            target_digest="$("${crane}" digest "${target}")"
+            crane push --index "${layout}" "${target}"
+            target_digest="$(crane digest "${target}")"
             if [[ "${target_digest}" != "${source_digest}" ]]; then
               echo "::error::${target} pushed with digest ${target_digest}, expected ${source_digest}"
               exit 1
@@ -419,10 +415,10 @@ jobs:
           ensure_immutable_tag "sha-${GITHUB_SHA}"
 
           if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
-            "${crane}" tag "${dst}:${image_version}" edge
+            crane tag "${dst}:${image_version}" edge
           fi
 
-          "${crane}" manifest "${dst}:${image_version}" > "${RUNNER_TEMP}/dsx-controller-manifest.json"
+          crane manifest "${dst}:${image_version}" > "${RUNNER_TEMP}/dsx-controller-manifest.json"
           grep -Eq '"architecture"[[:space:]]*:[[:space:]]*"amd64"' "${RUNNER_TEMP}/dsx-controller-manifest.json" \
             || { echo "::error::DSX image is missing linux/amd64"; exit 1; }
           grep -Eq '"architecture"[[:space:]]*:[[:space:]]*"arm64"' "${RUNNER_TEMP}/dsx-controller-manifest.json" \
