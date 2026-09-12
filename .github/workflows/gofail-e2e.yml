@@ -60,7 +60,7 @@ jobs:
   gofail:
     name: Gofail E2E
     runs-on: ubuntu-latest
-    if: github.repository == 'NVIDIA/nke'
+    if: github.repository == 'dsx-ai-factory/nke'
     # The two scenarios took 158s and 188s when measured, and both wait on real
     # heartbeat timeouts, so the budget is deliberately loose.
     timeout-minutes: 25

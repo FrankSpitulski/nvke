@@ -77,7 +77,7 @@ jobs:
     # The one label with /dev/kvm; see kubeadm-bringup-e2e.yml for why.
     runs-on: linux-amd64-gpu-l4-latest-1
     needs: changes
-    if: github.repository == 'NVIDIA/nke' && needs.changes.outputs.run_e2e == 'true'
+    if: github.repository == 'dsx-ai-factory/nke' && needs.changes.outputs.run_e2e == 'true'
     # Unmeasured. Two tenant clusters of three to six VMs, one of them upgraded
     # through two Kubernetes versions. Generous until there is data.
     timeout-minutes: 330

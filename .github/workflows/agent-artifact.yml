@@ -66,7 +66,7 @@ env:
 
 jobs:
   publish:
-    if: github.repository == 'NVIDIA/nke'
+    if: github.repository == 'dsx-ai-factory/nke'
     name: Publish binaries
     # Both architectures are produced by cross-compilation from one runner:
     # the agent is pure Go with CGO disabled, so this needs no arm64 runner and

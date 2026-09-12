@@ -97,7 +97,7 @@ jobs:
     # fallback: there, image pulls go to docker.io at rates that have taken
     # traefik's 55 MB past the smoke install's helm wait.
     runs-on: linux-amd64-cpu16
-    if: github.repository == 'NVIDIA/nke'
+    if: github.repository == 'dsx-ai-factory/nke'
     # Generous margin: building the CAPD base node image (TPM tooling, SPIRE
     # bundle fetch, local agent compile) plus the thin derivation on top has
     # not yet been timed end to end in this CI lane, and the standalone

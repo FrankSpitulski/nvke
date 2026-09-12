@@ -76,7 +76,7 @@ env:
 
 jobs:
   publish:
-    if: github.repository == 'NVIDIA/nke'
+    if: github.repository == 'dsx-ai-factory/nke'
     name: Build, verify, and release (${{ matrix.arch }})
     # No arm64-labeled runner exists in this org's pool, so the arm64 leg
     # cross-builds on this same amd64 runner under QEMU's tcg software

@@ -91,7 +91,7 @@ jobs:
   work-check:
     name: Check go.work and go.work.sum are current
     runs-on: ubuntu-latest
-    if: github.repository == 'NVIDIA/nke'
+    if: github.repository == 'dsx-ai-factory/nke'
     # Raised from 10: step 5 now runs, and it downloads the whole module graph
     # and re-vendors 191 modules. 36s locally with a warm cache.
     timeout-minutes: 20
