@@ -4,7 +4,7 @@
 # Builds the nke-agent .debs on an agent/v* tag, uploads them to the
 # apt-publisher S3 intake, attaches both packages as assets on a GitHub
 # Release for that tag, and publishes the same packages to GHCR as an OCI
-# artifact (ghcr.io/nvidia/nke/agent-deb) for oras pull. Apt intake is
+# artifact (ghcr.io/dsx-ai-factory/nke/agent-deb) for oras pull. Apt intake is
 # tag-only: workflow_dispatch is kept so a failed tag publish can be re-run,
 # but branch dispatches never upload. deb.yml exercises the same packaging
 # path on every agent change and throws the packages away; this workflow is
@@ -266,7 +266,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      REPO: ghcr.io/nvidia/nke/agent-deb
+      REPO: ghcr.io/dsx-ai-factory/nke/agent-deb
     permissions:
       contents: read
       packages: write

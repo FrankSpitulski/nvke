@@ -29,12 +29,12 @@ name: OS Image Artifact
 # entirely, at the cost of `--platform` being informational (for the layer's
 # declared platform metadata) rather than required to disambiguate a pull:
 #
-#   ghcr.io/nvidia/nke/os-image-fde:v0.1.0-amd64
-#   ghcr.io/nvidia/nke/os-image-non-fde:v0.1.0-amd64
-#   ghcr.io/nvidia/nke/os-image-non-fde:v0.1.0-arm64
+#   ghcr.io/dsx-ai-factory/nke/os-image-fde:v0.1.0-amd64
+#   ghcr.io/dsx-ai-factory/nke/os-image-non-fde:v0.1.0-amd64
+#   ghcr.io/dsx-ai-factory/nke/os-image-non-fde:v0.1.0-arm64
 #     `-- platform linux/{amd64,arm64}   layer: nke-node-{fde,non-fde}.qcow2
 #
-#   oras pull ghcr.io/nvidia/nke/os-image-fde:v0.1.0-amd64 --platform linux/amd64
+#   oras pull ghcr.io/dsx-ai-factory/nke/os-image-fde:v0.1.0-amd64 --platform linux/amd64
 #
 # arm64 only builds the non-FDE variant for now (see the matrix below) --
 # there is no os-image-fde-arm64 tag yet. It also only publishes to GHCR, not
@@ -71,8 +71,8 @@ concurrency:
 
 env:
   PACKER_SHA256: "cfefdea4ac580eba7b254ef34d25b756d4961741004e3e701a1476594d13e64a"
-  REPO_FDE: ghcr.io/nvidia/nke/os-image-fde
-  REPO_NON_FDE: ghcr.io/nvidia/nke/os-image-non-fde
+  REPO_FDE: ghcr.io/dsx-ai-factory/nke/os-image-fde
+  REPO_NON_FDE: ghcr.io/dsx-ai-factory/nke/os-image-non-fde
 
 jobs:
   publish:
@@ -407,9 +407,9 @@ jobs:
             Pull the qcow2s with oras (not docker):
 
             ```
-            oras pull ghcr.io/nvidia/nke/os-image-fde:${{ steps.meta.outputs.version }}-amd64 --platform linux/amd64
-            oras pull ghcr.io/nvidia/nke/os-image-non-fde:${{ steps.meta.outputs.version }}-amd64 --platform linux/amd64
-            oras pull ghcr.io/nvidia/nke/os-image-non-fde:${{ steps.meta.outputs.version }}-arm64 --platform linux/arm64
+            oras pull ghcr.io/dsx-ai-factory/nke/os-image-fde:${{ steps.meta.outputs.version }}-amd64 --platform linux/amd64
+            oras pull ghcr.io/dsx-ai-factory/nke/os-image-non-fde:${{ steps.meta.outputs.version }}-amd64 --platform linux/amd64
+            oras pull ghcr.io/dsx-ai-factory/nke/os-image-non-fde:${{ steps.meta.outputs.version }}-arm64 --platform linux/arm64
             ```
 
             **FDE security note**: this image's `LUKS_PASSPHRASE` is the shared,

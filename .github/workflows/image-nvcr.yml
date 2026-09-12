@@ -241,8 +241,8 @@ jobs:
   # Tags only. `main` keeps publishing to NVCR alone, so GHCR carries released
   # versions rather than every commit.
   #
-  # The destination is ghcr.io/nvidia/nke/controller. Charts live under
-  # ghcr.io/nvidia/nke/charts, which is what keeps a chart and an image from
+  # The destination is ghcr.io/dsx-ai-factory/nke/controller. Charts live under
+  # ghcr.io/dsx-ai-factory/nke/charts, which is what keeps a chart and an image from
   # sharing one OCI repository -- on two of the CAPI repos they did, told apart
   # only by whether the tag carried a "v".
   promote-ghcr:
