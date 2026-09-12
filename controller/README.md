@@ -349,7 +349,7 @@ The helper script lives at `./hack/create-forge-nico-cluster.sh`. It assumes:
 `cluster-api-provider-nico` reads NICo credentials from a Secret in its own
 manager namespace; one Secret is shared by every `NicoCluster` the provider
 manages. See the [cluster-api-provider-nico
-README](https://github.com/NVIDIA/cluster-api-provider-nico#install)
+README](https://github.com/dsx-ai-factory/cluster-api-provider-nico#install)
 for the full set of keys.
 
 Pull the Forge tenant token from Vault and apply it as a Secret in the

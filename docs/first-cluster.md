@@ -15,7 +15,7 @@ Three paths. Start with A.
 ## Before you start
 
 ```bash
-git clone https://github.com/NVIDIA/nke.git
+git clone https://github.com/dsx-ai-factory/nke.git
 cd nke
 ```
 
@@ -45,7 +45,7 @@ make -C controller colima-up      # 6 CPU, 12 GiB
 ```
 
 Path A needs nothing internal and no NGC account. Path B needs a checkout of
-`NVIDIA/cluster-api-provider-nico`.
+`dsx-ai-factory/cluster-api-provider-nico`.
 
 ## Path A — the API alone
 
@@ -229,7 +229,7 @@ pulled with nerdctl.
 **On the NICo side:** a site, a VPC, a subnet or VPC prefix, instance types, and
 an **allocation** against each instance type. An instance type with no allocation
 looks healthy and provisions nothing. See
-[CAPNICo's getting started guide](https://github.com/NVIDIA/cluster-api-provider-nico/blob/main/docs/getting-started.md).
+[CAPNICo's getting started guide](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/docs/getting-started.md).
 
 ### 1. Build nkectl
 
@@ -352,7 +352,7 @@ Tenant clusters need it. Install the provider onto the site cluster with a
 `nico-credentials` Secret in `capnico-system` holding the endpoint, org and
 **one** authentication mode. Prefer client credentials: a password-grant token
 stops provisioning when it expires.
-[CAPNICo's guide](https://github.com/NVIDIA/cluster-api-provider-nico/blob/main/docs/getting-started.md)
+[CAPNICo's guide](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/docs/getting-started.md)
 is the reference.
 
 ```bash
@@ -384,5 +384,5 @@ repository.
 - [architecture.md](architecture.md) — how CWE, the agent and CAPI fit together
 - [../cli/docs/sitespec.md](../cli/docs/sitespec.md) — every site spec field
 - [../cli/docs/user-flow.md](../cli/docs/user-flow.md) — the command reference
-- [CAPNICo getting started](https://github.com/NVIDIA/cluster-api-provider-nico/blob/main/docs/getting-started.md)
+- [CAPNICo getting started](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/docs/getting-started.md)
   — the infrastructure provider every real site runs
