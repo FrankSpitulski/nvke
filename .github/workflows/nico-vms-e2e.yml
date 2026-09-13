@@ -122,7 +122,7 @@ jobs:
         id: capnico_version
         run: |
           set -euo pipefail
-          capnico_ref="$(awk '$1 == "github.com/NVIDIA/cluster-api-provider-nico" { print $2; exit }' controller/go.mod)"
+          capnico_ref="$(awk '$1 == "github.com/dsx-ai-factory/cluster-api-provider-nico" { print $2; exit }' controller/go.mod)"
           if [[ -z "${capnico_ref}" ]]; then
             echo "::error::controller/go.mod does not pin cluster-api-provider-nico"
             exit 1

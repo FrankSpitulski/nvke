@@ -60,7 +60,7 @@ This changed in #76, which replaced the internal carbide SDK
 only `agent/` built from public dependencies.
 
 **One internal dependency remains**, and it does not block you:
-`github.com/NVIDIA/cluster-api-provider-nico` is an internal GitHub repository,
+`github.com/dsx-ai-factory/cluster-api-provider-nico` is an internal GitHub repository,
 and it is carried in the committed `vendor/` tree. Building, testing and linting
 all read the vendor tree, so they work without access to it. **Only `go work
 vendor` resolves it for real** — so re-vendoring after a dependency bump needs

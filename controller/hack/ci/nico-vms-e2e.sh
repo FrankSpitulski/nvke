@@ -11,7 +11,7 @@
 # Requires test/kubeadm/scripts/setup-ci-host.sh with NKE_CI_HOST_FDE=true.
 #
 # Environment:
-#   CAPNICO_SOURCE_DIR       checkout of NVIDIA/cluster-api-provider-nico (required)
+#   CAPNICO_SOURCE_DIR       checkout of dsx-ai-factory/cluster-api-provider-nico (required)
 #   NKE_E2E_LABEL_FILTER     Ginkgo label filter        (default: nico-vms && happy-path)
 #   NKE_E2E_GINKGO_TIMEOUT   -ginkgo.timeout            (default: 240m)
 #   NKE_E2E_TILT_TIMEOUT     wait for Tilt readiness    (default: 30m)
@@ -307,7 +307,7 @@ docker info >/dev/null 2>&1 || fail "cannot reach the Docker daemon"
 docker buildx version >/dev/null 2>&1 || fail "docker buildx is required to build CAPNICo from source"
 
 CAPNICO_SOURCE_DIR="${CAPNICO_SOURCE_DIR:-}"
-[[ -n "${CAPNICO_SOURCE_DIR}" ]] || fail "CAPNICO_SOURCE_DIR must point at a checkout of NVIDIA/cluster-api-provider-nico"
+[[ -n "${CAPNICO_SOURCE_DIR}" ]] || fail "CAPNICO_SOURCE_DIR must point at a checkout of dsx-ai-factory/cluster-api-provider-nico"
 [[ -d "${CAPNICO_SOURCE_DIR}/config/default" ]] || fail "${CAPNICO_SOURCE_DIR} is not a cluster-api-provider-nico checkout (config/default is missing)"
 export CAPNICO_SOURCE_DIR
 

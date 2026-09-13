@@ -29,7 +29,7 @@ the fixture as-is.
 To refresh after a `cluster-api-provider-nico` bump in `go.mod`:
 
 ```sh
-ver="$(cd controller && go list -m -f '{{.Version}}' github.com/NVIDIA/cluster-api-provider-nico)"
+ver="$(cd controller && go list -m -f '{{.Version}}' github.com/dsx-ai-factory/cluster-api-provider-nico)"
 for f in nicoclusters nicoclustertemplates nicomachines nicomachinetemplates; do
   gh api "repos/dsx-ai-factory/cluster-api-provider-nico/contents/config/crd/bases/infrastructure.cluster.x-k8s.io_${f}.yaml?ref=${ver}" \
     --jq '.content' | base64 -d \
