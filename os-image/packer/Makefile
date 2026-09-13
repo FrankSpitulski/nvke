@@ -77,8 +77,12 @@ HOST_ARCH := $(shell uname -m)
 # and less legibly than falling back here.
 ACCELERATOR ?= $(shell if [ "$(HOST_ARCH)" = "$(ARCH_UNAME)" ] && [ -c /dev/kvm ] && [ -w /dev/kvm ]; then echo kvm; else echo tcg; fi)
 
-# "host" needs KVM to be meaningful; "max" is the safe choice under TCG.
-CPU_MODEL ?= $(if $(filter kvm,$(ACCELERATOR)),host,max)
+# "host" needs KVM to be meaningful; "max" is the safe choice under TCG. On an
+# arm64 host "max" also turns on pointer authentication, which tcg emulates so
+# slowly that the live installer's userspace stalls (2 h of wall time bought
+# 20 min of guest uptime); pauth-impdef=on keeps the feature and makes it cheap.
+comma := ,
+CPU_MODEL ?= $(if $(filter kvm,$(ACCELERATOR)),host,$(if $(filter arm64,$(ARCH)),max$(comma)pauth-impdef=on,max))
 
 # Emulated boot is minutes, not seconds. Overridable, so a slow runner can
 # raise it without editing this file. 60m wasn't enough under tcg: a real CI
