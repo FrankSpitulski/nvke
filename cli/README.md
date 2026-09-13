@@ -166,9 +166,20 @@ ever disagree.
 | `NKECTL_CWE_IMAGE` | required | CWE image to deploy. Side-loaded from the local image store, so it must already be pulled. |
 | `NKECTL_CWE_PROFILES_IMAGE` | required | Image holding the OS profiles tree at `/profiles` |
 | `NKECTL_CWE_CHART_PATH` | discovered | Path to the CWE chart |
+| `NKECTL_CWE_POSTGRES_CHART` | `oci://registry-1.docker.io/bitnamicharts/postgresql` | Postgres chart, as an OCI reference or a local path. Point it at a mirror or a downloaded tarball. |
+| `NKECTL_CWE_TEMPORAL_CHART` | `temporal` from `https://go.temporal.io/helm-charts` | Temporal chart, as an OCI reference or a local path. Set, it replaces the repo lookup. |
+| `NKECTL_CWE_SPIRE_CHART` | `spire` from `https://spiffe.github.io/helm-charts-hardened/` | SPIRE chart, same semantics |
+| `NKECTL_CWE_SPIRE_CRDS_CHART` | `spire-crds` from `https://spiffe.github.io/helm-charts-hardened/` | SPIRE CRDs chart, same semantics |
 | `NKECTL_CWE_HELM_TIMEOUT` | `5m` | Bounds each `helm upgrade --install --wait` |
 | `NKECTL_CWE_READY_TIMEOUT` | `5m` | Bounds the wait for CWE's `/readyz` |
 | `NKECTL_BOOTSTRAP_DIAGNOSTICS_DIR` | `cluster-diagnostics` | Where a failed bootstrap writes a cluster dump before tearing the cluster down (`--diagnostics-dir`) |
+
+The chart versions stay pinned in `nkectl` whichever source a chart comes
+from. Helm does not check a local path against the pin, so a tarball has to be
+the pinned version. With the four chart variables set, no Helm chart is
+pulled from the internet. The images those charts run still come from their
+registries (`NKECTL_BOOTSTRAP_DOCKERHUB_MIRROR` covers Docker Hub), and
+`clusterctl init` still fetches Cluster API and cert-manager from `github.com`.
 
 ## When a bootstrap fails
 
