@@ -65,8 +65,12 @@ func (r *darwinQEMU) pathsForInstance(instanceID string) darwinInstancePaths {
 	}
 }
 
-// darwinRuntimeManifest is persisted alongside each VM so that Reboot can
-// re-launch vmnet-run with the original arguments after a process restart.
+// darwinRuntimeManifest is persisted alongside each VM. Reboot itself only
+// issues a QMP system_reset and does not read this file — LaunchPath/
+// LaunchArgs record how the instance was originally launched for future use
+// by an adoption path that re-launches vmnet-run + QEMU after a nico-sim
+// process restart; that path does not exist yet (see the unused
+// stopVMProcesses below, added for the same future work).
 type darwinRuntimeManifest struct {
 	LaunchPath string   `json:"launch_path"`
 	LaunchArgs []string `json:"launch_args"`

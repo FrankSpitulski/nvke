@@ -26,6 +26,7 @@ type darwinNetwork struct {
 func (n darwinNetwork) EnsureSetup(ctx context.Context) error {
 	return n.runtime.EnsureBridge(ctx, n.bridgeName, n.bridgeCIDR)
 }
+
 func (n darwinNetwork) NeedsDHCP(state.Instance) bool                                 { return true }
 func (n darwinNetwork) WriteReservation(string, string, string, string, *slog.Logger) {}
 func (n darwinNetwork) MetadataAddrs() []string                                       { return nil }
@@ -38,20 +39,19 @@ func (n darwinNetwork) LookupLease(_ context.Context, mac string) (string, bool,
 	if err != nil {
 		return "", false, fmt.Errorf("read macOS DHCP leases: %w", err)
 	}
-	ip, ok := darwinLease(string(data), mac)
-	if ok {
-		_, subnet, err := net.ParseCIDR(n.bridgeCIDR)
-		if err != nil {
-			return "", false, err
-		}
-		if !subnet.Contains(net.ParseIP(ip)) {
-			return "", false, nil
-		}
+	_, subnet, err := net.ParseCIDR(n.bridgeCIDR)
+	if err != nil {
+		return "", false, err
 	}
+	ip, ok := darwinLease(string(data), mac, subnet)
 	return ip, ok, nil
 }
 
-func darwinLease(data, mac string) (string, bool) {
+// darwinLease returns the latest-expiring, non-expired lease for mac that
+// falls within subnet. Filtering by subnet during selection (not after) is
+// required: a newer lease on another vmnet subnet would otherwise win the
+// "latest expiry" comparison and permanently mask a valid in-subnet lease.
+func darwinLease(data, mac string, subnet *net.IPNet) (string, bool) {
 	want, err := net.ParseMAC(mac)
 	if err != nil {
 		return "", false
@@ -83,7 +83,10 @@ func darwinLease(data, mac string) (string, bool) {
 			}
 		}
 		parsed, err := net.ParseMAC(strings.Join(parts, ":"))
-		if err == nil && parsed.String() == want.String() && net.ParseIP(ip) != nil && expires > time.Now().Unix() && expires > latest {
+		parsedIP := net.ParseIP(ip)
+		if err == nil && parsed.String() == want.String() && parsedIP != nil &&
+			(subnet == nil || subnet.Contains(parsedIP)) &&
+			expires > time.Now().Unix() && expires > latest {
 			found, latest = ip, expires
 		}
 	}

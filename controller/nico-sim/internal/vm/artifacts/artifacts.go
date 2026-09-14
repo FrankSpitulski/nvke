@@ -39,6 +39,40 @@ type BuildOutput struct {
 	SeedISOPath string
 }
 
+// renderNetworkConfig emits the cloud-init network-config YAML directly,
+// with set-name / dhcp-identifier included or omitted at construction time
+// based on PreserveInterfaceName. Do not build a base template and
+// post-edit it with string replacement: a later reindent of the template
+// would silently break the replacement match without failing any test,
+// leaving darwin VMs (which rely on PreserveInterfaceName to keep vmnet's
+// already-configured interface name matching dhcpd_leases) unable to
+// resolve their DHCP lease.
+func renderNetworkConfig(in BuildInput) string {
+	var b strings.Builder
+	b.WriteString("version: 2\n")
+	b.WriteString("ethernets:\n")
+	b.WriteString("  eth0:\n")
+	b.WriteString("    match:\n")
+	fmt.Fprintf(&b, "      macaddress: %q\n", in.NICMAC)
+	if !in.PreserveInterfaceName {
+		b.WriteString("    set-name: eth0\n")
+	}
+	if in.IPAddress == "" {
+		// DHCP mode: VM gets its IP from dnsmasq.
+		b.WriteString("    dhcp4: true\n")
+		if in.PreserveInterfaceName {
+			b.WriteString("    dhcp-identifier: mac\n")
+		}
+		return b.String()
+	}
+	// Static mode: IP baked into seed ISO from IPAM allocation. DNS points
+	// to the bridge gateway where dnsmasq listens.
+	fmt.Fprintf(&b, "    addresses:\n      - %s/%d\n", in.IPAddress, in.PrefixLength)
+	fmt.Fprintf(&b, "    nameservers:\n      addresses:\n        - %s\n", in.GatewayIP)
+	fmt.Fprintf(&b, "    routes:\n      - to: default\n        via: %s\n", in.GatewayIP)
+	return b.String()
+}
+
 func (b Builder) Build(ctx context.Context, in BuildInput) (BuildOutput, error) {
 	if err := os.MkdirAll(in.WorkingDir, 0o755); err != nil {
 		return BuildOutput{}, fmt.Errorf("failed to create working directory: %w", err)
@@ -60,40 +94,7 @@ func (b Builder) Build(ctx context.Context, in BuildInput) (BuildOutput, error) 
 	if err := os.WriteFile(metaDataPath, []byte(metaData), 0o644); err != nil {
 		return BuildOutput{}, fmt.Errorf("failed to write meta-data: %w", err)
 	}
-	var networkConfig string
-	if in.IPAddress == "" {
-		// DHCP mode: VM gets its IP from dnsmasq.
-		networkConfig = fmt.Sprintf(`version: 2
-ethernets:
-  eth0:
-    match:
-      macaddress: "%s"
-    set-name: eth0
-    dhcp4: true
-`, in.NICMAC)
-	} else {
-		// Static mode: IP baked into seed ISO from IPAM allocation.
-		// DNS points to the bridge gateway where dnsmasq listens.
-		networkConfig = fmt.Sprintf(`version: 2
-ethernets:
-  eth0:
-    match:
-      macaddress: "%s"
-    set-name: eth0
-    addresses:
-      - %s/%d
-    nameservers:
-      addresses:
-        - %s
-    routes:
-      - to: default
-        via: %s
-`, in.NICMAC, in.IPAddress, in.PrefixLength, in.GatewayIP, in.GatewayIP)
-	}
-	if in.PreserveInterfaceName {
-		networkConfig = strings.ReplaceAll(networkConfig, "    set-name: eth0\n", "")
-		networkConfig = strings.ReplaceAll(networkConfig, "    dhcp4: true\n", "    dhcp4: true\n    dhcp-identifier: mac\n")
-	}
+	networkConfig := renderNetworkConfig(in)
 	if err := os.WriteFile(networkConfigPath, []byte(networkConfig), 0o644); err != nil {
 		return BuildOutput{}, fmt.Errorf("failed to write network-config: %w", err)
 	}
