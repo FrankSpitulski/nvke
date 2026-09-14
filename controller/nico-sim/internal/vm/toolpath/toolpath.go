@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 )
 
-// VMNet finds an explicitly configured or installed vmnet executable. Every
-// candidate — including the env override — is stat'd and must be an
-// executable regular file; a typo'd override must not be handed back as if
-// it were a resolved path.
-func VMNet(name, env string) string {
+// Find locates an optional host tool: an env var override takes precedence
+// over a PATH lookup. Every candidate — including the override — is stat'd
+// and must be an executable regular file; a typo'd override must not be
+// handed back as if it were a resolved path. Returns "" if neither resolves.
+func Find(name, env string) string {
 	if override := os.Getenv(env); override != "" {
 		if isExecutableRegularFile(override) {
 			return override
@@ -21,6 +21,14 @@ func VMNet(name, env string) string {
 		return ""
 	}
 	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	return ""
+}
+
+// VMNet finds an explicitly configured or installed vmnet executable.
+func VMNet(name, env string) string {
+	if p := Find(name, env); p != "" {
 		return p
 	}
 	for _, prefix := range []string{"/opt/vmnet-helper/bin", "/opt/homebrew/opt/vmnet-helper/libexec", "/usr/local/opt/vmnet-helper/libexec"} {

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,6 +52,7 @@ type darwinInstancePaths struct {
 	QMPSock            string
 	ManifestFile       string
 	VMNetClientLog     string
+	TPM                swtpmPaths
 }
 
 func (r *darwinQEMU) pathsForInstance(instanceID string) darwinInstancePaths {
@@ -62,6 +64,7 @@ func (r *darwinQEMU) pathsForInstance(instanceID string) darwinInstancePaths {
 		QMPSock:            filepath.Join(os.TempDir(), qmpSocketName(instanceID)),
 		ManifestFile:       filepath.Join(dir, "runtime.json"),
 		VMNetClientLog:     filepath.Join(dir, "vmnet-client.log"),
+		TPM:                swtpmPathsForInstance(dir, instanceID),
 	}
 }
 
@@ -74,6 +77,7 @@ func (r *darwinQEMU) pathsForInstance(instanceID string) darwinInstancePaths {
 type darwinRuntimeManifest struct {
 	LaunchPath string   `json:"launch_path"`
 	LaunchArgs []string `json:"launch_args"`
+	TPMEnabled bool     `json:"tpm_enabled"`
 }
 
 func (r *darwinQEMU) EnsureBridge(ctx context.Context, _, _ string) error {
@@ -124,6 +128,11 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 		return "", err
 	}
 
+	tpmEnabled, tpmArgs, err := r.startTPM(ctx, paths)
+	if err != nil {
+		return "", err
+	}
+
 	baseArgs := []string{
 		"-name", spec.DomainName,
 		"-machine", machine,
@@ -145,6 +154,7 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 	}
 
 	qemuArgs := append([]string{}, baseArgs...)
+	qemuArgs = append(qemuArgs, tpmArgs...)
 	qemuArgs = append(qemuArgs,
 		"-netdev", "dgram,id=net0,local.type=fd,local.str=4",
 		"-device", deviceArg,
@@ -156,24 +166,37 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 
 	vmnetPID, err := launchVMNetClient(vmnetClientPath, clientArgs, paths.VMNetClientLog)
 	if err != nil {
+		if tpmEnabled {
+			stopSwtpm(paths.TPM)
+		}
 		return "", err
 	}
 
 	if err := writePIDFile(paths.VMNetClientPIDFile, vmnetPID); err != nil {
 		_ = stopProcessGroup(vmnetPID)
+		if tpmEnabled {
+			stopSwtpm(paths.TPM)
+		}
 		return "", fmt.Errorf("failed to write vmnet-client pid file: %w", err)
 	}
 
 	if err := writeRuntimeManifest(paths.ManifestFile, darwinRuntimeManifest{
 		LaunchPath: vmnetClientPath,
 		LaunchArgs: append([]string{}, clientArgs...),
+		TPMEnabled: tpmEnabled,
 	}); err != nil {
 		_ = stopProcessGroup(vmnetPID)
+		if tpmEnabled {
+			stopSwtpm(paths.TPM)
+		}
 		return "", fmt.Errorf("failed to write runtime manifest: %w", err)
 	}
 
 	if err := waitForPIDFile(paths.PIDFile, 10*time.Second); err != nil {
 		_ = stopProcessGroup(vmnetPID)
+		if tpmEnabled {
+			stopSwtpm(paths.TPM)
+		}
 		logBytes, _ := os.ReadFile(paths.VMNetClientLog)
 		return "", fmt.Errorf("qemu did not start (pidfile %s): %w; log: %s", paths.PIDFile, err, truncateForDebug(string(logBytes), 2000))
 	}
@@ -181,12 +204,78 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 	return spec.InstanceID, nil
 }
 
-func (r *darwinQEMU) Reboot(_ context.Context, machineID string) error {
+// startTPM seeds and starts swtpm for the instance if swtpm is installed,
+// returning the QEMU args that wire it up. A host without swtpm skips TPM
+// support silently (logged once at Info level) rather than failing —
+// matching the libvirt backend's setupTPM contract.
+func (r *darwinQEMU) startTPM(ctx context.Context, paths darwinInstancePaths) (bool, []string, error) {
+	swtpmBin, swtpmSetupBin, ok := swtpmAvailable()
+	if !ok {
+		slog.Info("darwin-qemu: swtpm not found, starting without a TPM", "instance", paths.Dir)
+		return false, nil, nil
+	}
+
+	if _, err := ensureSwtpmState(ctx, swtpmSetupBin, paths.TPM); err != nil {
+		return false, nil, fmt.Errorf("seed swtpm state: %w", err)
+	}
+	if err := startSwtpm(ctx, swtpmBin, paths.TPM); err != nil {
+		return false, nil, fmt.Errorf("start swtpm: %w", err)
+	}
+	return true, tpmQEMUArgs(ctx, r.qemuSystemPath, paths.TPM), nil
+}
+
+func (r *darwinQEMU) Reboot(ctx context.Context, machineID string) error {
 	paths := r.pathsForInstance(machineID)
+	if err := r.reviveSwtpmIfNeeded(ctx, paths); err != nil {
+		return err
+	}
 	return qmpReboot(paths.QMPSock)
 }
 
-func (r *darwinQEMU) TPMEKCert(context.Context, string) (string, error) { return "", nil }
+// reviveSwtpmIfNeeded relaunches swtpm against its existing state directory
+// if a TPM-enabled instance's swtpm process died independently of QEMU (for
+// example across a nico-sim host reboot). QMP's system_reset itself is safe
+// for a live swtpm — it re-INITs, state untouched — so this only acts when
+// swtpm is actually gone.
+func (r *darwinQEMU) reviveSwtpmIfNeeded(ctx context.Context, paths darwinInstancePaths) error {
+	manifest, err := readRuntimeManifest(paths.ManifestFile)
+	if err != nil || !manifest.TPMEnabled {
+		return nil
+	}
+	if pid, pidErr := readPIDFile(paths.TPM.PIDFile); pidErr == nil {
+		if alive, _ := isPIDAlive(pid); alive {
+			return nil
+		}
+	}
+	swtpmBin, _, ok := swtpmAvailable()
+	if !ok {
+		return fmt.Errorf("swtpm state exists for %s but swtpm is no longer on PATH", paths.Dir)
+	}
+	slog.Warn("darwin-qemu: swtpm process was gone, relaunching against existing state before reboot", "instance", paths.Dir)
+	return startSwtpm(ctx, swtpmBin, paths.TPM)
+}
+
+// TPMEKCert reads the base64-encoded EK certificate written at seed time,
+// when the instance's runtime manifest records that TPM support was
+// enabled for it. ("", nil) means no TPM was configured for this instance.
+func (r *darwinQEMU) TPMEKCert(_ context.Context, machineID string) (string, error) {
+	paths := r.pathsForInstance(machineID)
+	manifest, err := readRuntimeManifest(paths.ManifestFile)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read runtime manifest for %s: %w", machineID, err)
+	}
+	if !manifest.TPMEnabled {
+		return "", nil
+	}
+	certData, err := os.ReadFile(paths.TPM.EKCertPath)
+	if err != nil {
+		return "", fmt.Errorf("TPM enabled but failed to read EK cert at %s: %w", paths.TPM.EKCertPath, err)
+	}
+	return strings.TrimSpace(string(certData)), nil
+}
 
 func (r *darwinQEMU) Delete(_ context.Context, machineID string) error {
 	paths := r.pathsForInstance(machineID)
@@ -201,6 +290,12 @@ func (r *darwinQEMU) Delete(_ context.Context, machineID string) error {
 	} else {
 		_ = stopPIDFileProcess(paths.PIDFile)
 	}
+
+	// swtpm is outside the vmnet-run process group, so it needs its own
+	// shutdown, after QEMU is confirmed gone. The state directory itself is
+	// removed by the caller alongside the rest of the instance directory
+	// (disk overlay, seed ISO) — never here, since Reboot must not touch it.
+	stopSwtpm(paths.TPM)
 
 	_ = os.Remove(paths.PIDFile)
 	_ = os.Remove(paths.VMNetClientPIDFile)

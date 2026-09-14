@@ -85,11 +85,11 @@ Three implementations of the `vm.Runtime` interface:
 |---|---|---|
 | `mock` | any | No real VMs. Instant state transitions. For API/logic testing. |
 | `libvirt` | Linux | KVM/QEMU via `virsh`. Bridge networking. UEFI support. |
-| `darwinqemu` | macOS | QEMU via `vmnet-client`. Unprivileged vmnet networking. |
+| `darwinqemu` | macOS (Apple Silicon) | QEMU/HVF via `vmnet-run`. Unprivileged vmnet networking. UEFI (pflash) and software TPM 2.0 support. |
 
 Auto-detection: `mock://` URI → mock; macOS → darwin-qemu; otherwise → libvirt.
 
-The libvirt backend auto-provisions a software TPM 2.0 (swtpm) when `swtpm_setup` is available; the EK cert is stored in `InstanceRow.TpmEkCertificate`. Skipped silently if swtpm is not installed.
+Both the libvirt and darwin-qemu backends auto-provision a software TPM 2.0 (swtpm) when `swtpm`/`swtpm_setup` are available; the EK cert is stored in `InstanceRow.TpmEkCertificate`. Skipped silently if swtpm is not installed — set `NICO_VMS_SWTPM_PATH`/`NICO_VMS_SWTPM_SETUP_PATH` to override discovery. On darwin-qemu, TPM state lives at `<instance-dir>/tpm/` and is seeded exactly once: this is the artifact an FDE guest's LUKS unseal depends on for every boot after the first, so nothing but `Delete` may remove it.
 
 nico-vms injects a diagnostic SSH user (`nico-diag`/`nico-diag`) into every VM's cloud-init, controlled by `DiagSSHEnabled` in config. This user powers the diagnostics API and `scripts/get-kubeconfig.sh`.
 

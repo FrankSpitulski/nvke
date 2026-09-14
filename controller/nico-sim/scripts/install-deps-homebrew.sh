@@ -20,7 +20,7 @@ fi
 
 # ── Core dependencies ─────────────────────────────────────────────────────────
 
-for dep in qemu cdrtools; do
+for dep in qemu cdrtools swtpm; do
 	if brew list --formula "${dep}" >/dev/null 2>&1; then
 		echo "${dep} already installed"
 	else
@@ -63,7 +63,7 @@ fi
 
 echo ""
 echo "Dependency check:"
-for bin in qemu-img mkisofs; do
+for bin in qemu-img mkisofs swtpm swtpm_setup; do
 	if command -v "${bin}" >/dev/null 2>&1; then
 		echo "  ${bin} -> $(command -v "${bin}")"
 	else

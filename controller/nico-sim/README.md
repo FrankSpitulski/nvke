@@ -324,13 +324,19 @@ curl http://localhost:18080/v2/org/novxwn552ssc/carbide/instance/<id>/diagnostic
 
 ### TPM Support
 
-The libvirt backend automatically provisions a software TPM 2.0 (swtpm) for each VM when `swtpm_setup` is available on the host. The EK certificate is captured during provisioning and stored in the database, accessible via the instance API.
+Both the libvirt and darwin-qemu backends automatically provision a software TPM 2.0 (swtpm) for each VM when `swtpm` and `swtpm_setup` are available on the host. The EK certificate is captured during provisioning and stored in the database, accessible via the instance API.
 
-Requirements:
+Requirements (Linux/libvirt):
 - `swtpm` and `swtpm-tools` installed (the setup script handles this)
 - AppArmor configured to allow swtpm access to the working directory (also handled by the setup script)
 
-If `swtpm_setup` is not found in `$PATH`, VMs are created without a TPM — no error, no configuration needed.
+Requirements (macOS/darwin-qemu):
+- `swtpm` installed — `brew install swtpm`, or add it to `.flox/env/manifest.toml` (`aarch64-darwin` is a supported system)
+- No AppArmor equivalent needed; state lives under the instance directory, which is already user-owned
+
+If `swtpm_setup` is not found in `$PATH` (or `NICO_VMS_SWTPM_SETUP_PATH`/`NICO_VMS_SWTPM_PATH` are unset and nothing resolves), VMs are created without a TPM — no error, no configuration needed.
+
+**On darwin-qemu, TPM state (`<instance-dir>/tpm/`) is the only thing that makes a bound FDE guest bootable again.** NKE's FDE node image seals its LUKS key to the TPM on first boot and removes the plaintext passphrase slot entirely — every boot after that needs the *same* swtpm state to unseal the disk. `swtpm_setup` runs exactly once per instance (gated on `tpm/tpm2-00.permall` already existing); a second run would mint a different EK and permanently lock the guest out of its own disk. **Never delete `<instance-dir>/tpm/` for a running FDE VM outside of `Delete`.** Rebooting (QMP `system_reset`) does not touch it, and a nico-sim restart relaunches swtpm against the existing state rather than reseeding.
 
 ## nico-containers
 
@@ -737,13 +743,15 @@ The server also detects orphaned VMs on startup. Set `NICO_VMS_CLEANUP_ORPHANED_
 
 ### macOS
 
-One command installs all dependencies (QEMU, vmnet-helper, cloud-localds):
+One command installs all dependencies (QEMU, vmnet-helper, cloud-localds, swtpm):
 
 ```bash
 make install-deps-homebrew
 ```
 
 The `darwin-qemu` backend runs QEMU via `vmnet-run` — no sudo needed on macOS 26+. On macOS 15 and earlier, vmnet-run uses sudo only to create the vmnet interface, then drops privileges.
+
+swtpm is optional: without it, VMs boot with no TPM (fine for non-FDE images; an FDE image falls back to its passphrase-slot boot path — see [TPM Support](#tpm-support)). With it, TPM state lives at `<instance-dir>/tpm/`, alongside the disk overlay and seed ISO — not in `$TMPDIR`, and not touched by anything except `Delete`.
 
 ### Linux
 
