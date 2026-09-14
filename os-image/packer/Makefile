@@ -100,10 +100,11 @@ CPU_MODEL ?= $(if $(filter kvm,$(ACCELERATOR)),host,$(if $(filter arm64,$(ARCH))
 # postinstall when it hit that wall.
 SSH_TIMEOUT ?= $(if $(filter kvm,$(ACCELERATOR)),30m,180m)
 
-# Guest vCPUs. Under tcg every vCPU is a host thread (MTTCG is the default for
-# arm64 guests) and the CI runners have 16 cores; 8 stays inside the GICv2
-# limit, so the virt machine needs no other change.
-CPUS ?= $(if $(filter kvm,$(ACCELERATOR)),4,8)
+# Guest vCPUs. More is not faster under tcg: every broadcast TLB invalidate
+# has to synchronise all vCPU threads, and run 34791670173 with 8 was still
+# copying the squashfs at 2 h 15 m where run 34771011057 with 4 had reached
+# the postinstall packages at 2 h.
+CPUS ?= 4
 
 # FDE/non-FDE only: how long boot_command waits before typing into GRUB.
 # prepare-installer-iso.sh patches the ISO's own GRUB timeout to 300s, so

@@ -207,7 +207,11 @@ source "qemu" "nke-non-fde" {
   ssh_username           = "ubuntu"
   ssh_private_key_file   = "${local.ssh_dir}/id_ed25519"
   ssh_timeout            = var.ssh_timeout
-  ssh_handshake_attempts = 1000
+  # The live installer runs its own sshd, so every attempt at ubuntu@ before
+  # the reboot is an authentication failure and each one counts here. Under
+  # tcg the install outlasts 1000 of them (~8 s apiece); ssh_timeout is the
+  # wall clock, this must not be.
+  ssh_handshake_attempts = 10000
 
   shutdown_command = "sudo shutdown -P now"
   vm_name          = "nke-node-non-fde-ubuntu-${local.ubuntu_version}-${local.arch}.qcow2"

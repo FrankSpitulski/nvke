@@ -243,7 +243,8 @@ source "qemu" "nke-fde" {
   ssh_username           = "ubuntu"
   ssh_private_key_file   = "${local.ssh_dir}/id_ed25519"
   ssh_timeout            = var.ssh_timeout
-  ssh_handshake_attempts = 1000
+  # See the same setting in nke-node-non-fde.pkr.hcl.
+  ssh_handshake_attempts = 10000
 
   shutdown_command = "sudo shutdown -P now"
   vm_name          = "nke-node-fde-ubuntu-${local.ubuntu_version}-${local.arch}.qcow2"
