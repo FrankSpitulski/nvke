@@ -167,7 +167,7 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 	vmnetPID, err := launchVMNetClient(vmnetClientPath, clientArgs, paths.VMNetClientLog)
 	if err != nil {
 		if tpmEnabled {
-			stopSwtpm(paths.TPM)
+			_ = stopSwtpm(paths.TPM)
 		}
 		return "", err
 	}
@@ -175,7 +175,7 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 	if err := writePIDFile(paths.VMNetClientPIDFile, vmnetPID); err != nil {
 		_ = stopProcessGroup(vmnetPID)
 		if tpmEnabled {
-			stopSwtpm(paths.TPM)
+			_ = stopSwtpm(paths.TPM)
 		}
 		return "", fmt.Errorf("failed to write vmnet-client pid file: %w", err)
 	}
@@ -187,7 +187,7 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 	}); err != nil {
 		_ = stopProcessGroup(vmnetPID)
 		if tpmEnabled {
-			stopSwtpm(paths.TPM)
+			_ = stopSwtpm(paths.TPM)
 		}
 		return "", fmt.Errorf("failed to write runtime manifest: %w", err)
 	}
@@ -195,7 +195,7 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 	if err := waitForPIDFile(paths.PIDFile, 10*time.Second); err != nil {
 		_ = stopProcessGroup(vmnetPID)
 		if tpmEnabled {
-			stopSwtpm(paths.TPM)
+			_ = stopSwtpm(paths.TPM)
 		}
 		logBytes, _ := os.ReadFile(paths.VMNetClientLog)
 		return "", fmt.Errorf("qemu did not start (pidfile %s): %w; log: %s", paths.PIDFile, err, truncateForDebug(string(logBytes), 2000))
@@ -205,13 +205,26 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 }
 
 // startTPM seeds and starts swtpm for the instance if swtpm is installed,
-// returning the QEMU args that wire it up. A host without swtpm skips TPM
-// support silently (logged once at Info level) rather than failing —
-// matching the libvirt backend's setupTPM contract.
+// returning the QEMU args that wire it up. A fresh instance on a host
+// without swtpm degrades to no TPM (logged at Warn, naming the override
+// env vars) — matching the libvirt backend's setupTPM contract. An instance
+// whose TPM state is already seeded is a different case: it may be an
+// already-bound FDE guest, which would hang in initramfs without its TPM,
+// so a missing swtpm there is a hard error instead of a silent downgrade.
 func (r *darwinQEMU) startTPM(ctx context.Context, paths darwinInstancePaths) (bool, []string, error) {
 	swtpmBin, swtpmSetupBin, ok := swtpmAvailable()
 	if !ok {
-		slog.Info("darwin-qemu: swtpm not found, starting without a TPM", "instance", paths.Dir)
+		seeded, err := tpmStateSeeded(paths.TPM)
+		if err != nil {
+			return false, nil, fmt.Errorf("check swtpm state for %s: %w", paths.Dir, err)
+		}
+		if seeded {
+			return false, nil, fmt.Errorf(
+				"swtpm state exists for %s but swtpm/swtpm_setup are no longer on PATH; an already-bound FDE guest cannot boot without its TPM",
+				paths.Dir,
+			)
+		}
+		slog.Warn("darwin-qemu: swtpm not found, starting without a TPM; set NICO_VMS_SWTPM_PATH / NICO_VMS_SWTPM_SETUP_PATH if it is installed elsewhere", "instance", paths.Dir)
 		return false, nil, nil
 	}
 
@@ -224,20 +237,23 @@ func (r *darwinQEMU) startTPM(ctx context.Context, paths darwinInstancePaths) (b
 	return true, tpmQEMUArgs(ctx, r.qemuSystemPath, paths.TPM), nil
 }
 
-func (r *darwinQEMU) Reboot(ctx context.Context, machineID string) error {
+func (r *darwinQEMU) Reboot(_ context.Context, machineID string) error {
 	paths := r.pathsForInstance(machineID)
-	if err := r.reviveSwtpmIfNeeded(ctx, paths); err != nil {
+	if err := r.checkSwtpmBeforeReboot(machineID, paths); err != nil {
 		return err
 	}
 	return qmpReboot(paths.QMPSock)
 }
 
-// reviveSwtpmIfNeeded relaunches swtpm against its existing state directory
-// if a TPM-enabled instance's swtpm process died independently of QEMU (for
-// example across a nico-sim host reboot). QMP's system_reset itself is safe
-// for a live swtpm — it re-INITs, state untouched — so this only acts when
-// swtpm is actually gone.
-func (r *darwinQEMU) reviveSwtpmIfNeeded(ctx context.Context, paths darwinInstancePaths) error {
+// checkSwtpmBeforeReboot refuses to reboot a TPM-enabled instance whose
+// swtpm process has died while QEMU kept running. QEMU's -chardev socket
+// has no reconnect logic, so relaunching swtpm at that point would give the
+// still-live guest nothing — its chardev is already broken — and the fresh
+// PID file a relaunch writes would then hide that failure from any later
+// check. There is also no recovery available across a real host reboot:
+// nothing survives that to relaunch swtpm against, since QEMU's own QMP
+// server is gone too. The instance must be recreated to get a working TPM.
+func (r *darwinQEMU) checkSwtpmBeforeReboot(machineID string, paths darwinInstancePaths) error {
 	manifest, err := readRuntimeManifest(paths.ManifestFile)
 	if err != nil || !manifest.TPMEnabled {
 		return nil
@@ -247,12 +263,7 @@ func (r *darwinQEMU) reviveSwtpmIfNeeded(ctx context.Context, paths darwinInstan
 			return nil
 		}
 	}
-	swtpmBin, _, ok := swtpmAvailable()
-	if !ok {
-		return fmt.Errorf("swtpm state exists for %s but swtpm is no longer on PATH", paths.Dir)
-	}
-	slog.Warn("darwin-qemu: swtpm process was gone, relaunching against existing state before reboot", "instance", paths.Dir)
-	return startSwtpm(ctx, swtpmBin, paths.TPM)
+	return fmt.Errorf("swtpm for %s died under a running QEMU; the guest's TPM is unusable until the instance is recreated", machineID)
 }
 
 // TPMEKCert reads the base64-encoded EK certificate written at seed time,
@@ -280,10 +291,11 @@ func (r *darwinQEMU) TPMEKCert(_ context.Context, machineID string) (string, err
 func (r *darwinQEMU) Delete(_ context.Context, machineID string) error {
 	paths := r.pathsForInstance(machineID)
 
+	var qemuErr error
 	if vmnetPID, err := readPIDFile(paths.VMNetClientPIDFile); err == nil {
 		if stopErr := stopProcessGroup(vmnetPID); stopErr != nil {
 			if pidErr := stopPIDFileProcess(paths.PIDFile); pidErr != nil {
-				return fmt.Errorf("failed stopping process group (pgid %d): %w; pidfile fallback also failed: %v",
+				qemuErr = fmt.Errorf("failed stopping process group (pgid %d): %w; pidfile fallback also failed: %v",
 					vmnetPID, stopErr, pidErr)
 			}
 		}
@@ -292,10 +304,17 @@ func (r *darwinQEMU) Delete(_ context.Context, machineID string) error {
 	}
 
 	// swtpm is outside the vmnet-run process group, so it needs its own
-	// shutdown, after QEMU is confirmed gone. The state directory itself is
-	// removed by the caller alongside the rest of the instance directory
-	// (disk overlay, seed ISO) — never here, since Reboot must not touch it.
-	stopSwtpm(paths.TPM)
+	// shutdown, after QEMU is confirmed gone — run it even if stopping QEMU
+	// failed above, so a live swtpm daemon is never left behind by a Delete
+	// that returns early for an unrelated reason. The state directory
+	// itself is removed by the caller alongside the rest of the instance
+	// directory (disk overlay, seed ISO) — never here, since Reboot must
+	// not touch it.
+	tpmErr := stopSwtpm(paths.TPM)
+
+	if qemuErr != nil || tpmErr != nil {
+		return errors.Join(qemuErr, tpmErr)
+	}
 
 	_ = os.Remove(paths.PIDFile)
 	_ = os.Remove(paths.VMNetClientPIDFile)
