@@ -703,3 +703,15 @@ secrets-check: ## Scan the commits on this branch for credentials, as the secret
 	@gitleaks git . --no-banner --redact \
 	  --log-opts="origin/main..HEAD --diff-merges=first-parent"
 	@echo "gitleaks: no credential found in the commits on this branch."
+
+##@ nico-sim (macOS)
+
+.PHONY: nico-vms-up nico-vms-test nico-vms-test-cluster
+nico-vms-up: ## Run the Mac VM simulator against IMAGE (foreground).
+	ARCH="$(ARCH)" IMAGE="$(IMAGE)" bash controller/nico-sim/scripts/local-mac.sh up
+
+nico-vms-test: ## Test IMAGE with isolated Mac HVF VMs.
+	ARCH="$(ARCH)" IMAGE="$(IMAGE)" bash controller/nico-sim/scripts/local-mac.sh test
+
+nico-vms-test-cluster: ## Boot IMAGE in two Mac VMs and test its staged Kubernetes/CNI packages.
+	ARCH="$(ARCH)" IMAGE="$(IMAGE)" bash controller/nico-sim/scripts/local-mac.sh test-cluster

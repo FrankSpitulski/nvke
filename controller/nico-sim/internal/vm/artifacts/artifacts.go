@@ -21,16 +21,17 @@ type Builder struct {
 }
 
 type BuildInput struct {
-	WorkingDir   string
-	InstanceID   string
-	Hostname     string
-	UserData     string
-	NICMAC       string
-	IPAddress    string
-	GatewayIP    string
-	PrefixLength int
-	BaseImage    string // per-instance override; if empty, uses Builder.BaseImage
-	DiskGiB      int    // required: disk size in GiB for the instance
+	PreserveInterfaceName bool // Match the MAC without renaming an already configured NIC.
+	WorkingDir            string
+	InstanceID            string
+	Hostname              string
+	UserData              string
+	NICMAC                string
+	IPAddress             string
+	GatewayIP             string
+	PrefixLength          int
+	BaseImage             string // per-instance override; if empty, uses Builder.BaseImage
+	DiskGiB               int    // required: disk size in GiB for the instance
 }
 
 type BuildOutput struct {
@@ -88,6 +89,10 @@ ethernets:
       - to: default
         via: %s
 `, in.NICMAC, in.IPAddress, in.PrefixLength, in.GatewayIP, in.GatewayIP)
+	}
+	if in.PreserveInterfaceName {
+		networkConfig = strings.ReplaceAll(networkConfig, "    set-name: eth0\n", "")
+		networkConfig = strings.ReplaceAll(networkConfig, "    dhcp4: true\n", "    dhcp4: true\n    dhcp-identifier: mac\n")
 	}
 	if err := os.WriteFile(networkConfigPath, []byte(networkConfig), 0o644); err != nil {
 		return BuildOutput{}, fmt.Errorf("failed to write network-config: %w", err)

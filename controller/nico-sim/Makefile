@@ -23,7 +23,11 @@ endif
 
 # golangci-lint pin and bootstrap, shared with every other module.
 include ../../make/golangci.mk
+ifeq ($(shell uname -s),Darwin)
+SETCAP := true
+else
 SETCAP := sudo setcap cap_net_admin+ep
+endif
 
 .PHONY: \
 	build build-static build-privileged run run-vm test \

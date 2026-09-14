@@ -743,7 +743,7 @@ One command installs all dependencies (QEMU, vmnet-helper, cloud-localds):
 make install-deps-homebrew
 ```
 
-The `darwin-qemu` backend runs QEMU via `vmnet-client --unprivileged` — no sudo needed on macOS 26+. On macOS 15 and earlier, vmnet-client uses sudo only to create the vmnet interface, then drops privileges.
+The `darwin-qemu` backend runs QEMU via `vmnet-run` — no sudo needed on macOS 26+. On macOS 15 and earlier, vmnet-run uses sudo only to create the vmnet interface, then drops privileges.
 
 ### Linux
 
@@ -830,7 +830,7 @@ For one-shot nico-vms integration tests, sync just this tree and run on the remo
 | `internal/lifecycle/`        | Reconciliation engine. Drives `new → provisioning → running → ready` transitions. DHCP lease reading. Orphan detection. |
 | `internal/state/`            | SQLite persistence via `bun` ORM. Models, queries, IPAM allocation. Single `Store` interface for all DB access.         |
 | `internal/vm/`               | `Runtime` interface + mock implementation.                                                                              |
-| `internal/vm/darwinqemu/`    | macOS QEMU backend. Process management, QMP control, vmnet-client networking.                                           |
+| `internal/vm/darwinqemu/`    | macOS QEMU backend. Process management, QMP control, vmnet-run networking.                                           |
 | `internal/vm/libvirt/`       | Linux libvirt backend. Domain XML generation, virsh CLI wrapper.                                                        |
 | `internal/vm/artifacts/`     | Builds disk overlays (`qemu-img`) and cloud-init seed ISOs (`cloud-localds`). Static vs DHCP network-config.            |
 | `internal/cloudinit/`        | Metadata server: EC2, NoCloud-net, and production NoCloud endpoints. Phone-home handler.                                |
@@ -931,3 +931,63 @@ This starts:
 At startup, Tilt prints the network layout (DHCP pool, VIP pool) derived from `NICO_VMS_BRIDGE_CIDR`.
 
 Grafana is available at `http://localhost:3000` (admin/admin). VM console logs appear under the `vm_console` job with per-instance `instance_name` and `instance_id` labels.
+
+## Testing a locally built image on macOS
+
+Use a native-architecture **non-FDE** image built with `linux-generic` on Apple
+Silicon. Production ARM64 `linux-nvidia-64k` and TPM/FDE acceptance remain Linux
+KVM tests. The VM runtime does not require Flox or Nix.
+
+From the repository root:
+
+```sh
+flox activate                            # exposes the pinned QEMU, Go and ISO tools
+make nico-vms-test ARCH=arm64 IMAGE=/absolute/path/to/nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
+make nico-vms-up ARCH=arm64 IMAGE=/absolute/path/to/nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
+```
+
+`nico-vms-test` creates isolated overlays and tests create/delete, SSH, reboot and
+bidirectional VM traffic. `make nico-vms-test-cluster IMAGE=...` additionally
+boots two VMs, installs the image's staged Kubernetes/Calico packages, and checks
+that both nodes and CoreDNS become ready. It then runs a digest-pinned BusyBox
+pod on each VM to verify bidirectional pod traffic and cluster DNS. The BusyBox
+test image is pulled from Docker Hub, so this cluster test requires registry
+access. Use an image with Calico manifest package revision 2 or later, which
+includes the separate operator CRDs. This test bootstraps Kubernetes directly;
+NKE/CAPI and SPIRE integration are the next layer of validation.
+
+The tests disable orphan cleanup so other sessions' VMs are
+left alone. `nico-vms-up` runs the simulator in the foreground; its per-checkout
+state is under `.dev/mac`. Stopping the server leaves its VMs intact for later
+reconciliation. Delete individual instances through `nico-simctl` before stopping
+it when you want them removed. The base image is never modified.
+
+Install QEMU (including EDK2 firmware), Go and an ISO builder (`cdrtools`, or
+`cloud-utils`) through Flox or your platform's package manager. `flox activate`
+installs the pinned `qemu` and `cdrtools` packages, but vmnet-helper is not yet
+in the Flox catalog and this checkout does not carry a local Flox package for
+it — install it with Homebrew instead (below). If `result-vmnet-helper/bin`
+exists (a local Flox build produced outside this repo), `scripts/local-mac.sh`
+picks it up automatically.
+
+On macOS 26+ use Homebrew's QEMU, cdrtools and
+`nirs/vmnet-helper/vmnet-helper` packages. See the
+[upstream installation guide](https://github.com/nirs/vmnet-helper#installation)
+for macOS 15 and earlier, which requires the upstream root-owned helper and its
+sudoers setup. Do not create Homebrew-to-`/opt` privileged symlinks. Nix-managed
+hosts should use their declarative configuration instead of Homebrew.
+
+Tool discovery uses `PATH` and conventional upstream/Homebrew locations.
+`NICO_VMS_VMNET_RUN_PATH` and `NICO_VMS_VMNET_HELPER_PATH` override helper discovery.
+Firmware comes from the selected QEMU's `-L help` directories. For custom firmware,
+set both `NICO_VMS_EFI_CODE` and `NICO_VMS_EFI_VARS_TEMPLATE`; each VM receives a
+private writable copy of the latter, preserved across reboot.
+
+The Mac lane discovers Apple's shared-network subnet and uses its DHCP. Leave
+`NICO_VMS_BRIDGE_CIDR` unset; an explicit value must match the discovered subnet.
+It reads `/var/db/dhcpd_leases`;
+it never changes that file or Linux dnsmasq reservations. Seeds preserve the NIC
+name and request a MAC DHCP identifier. Cloud-init data comes from the attached
+NoCloud ISO. Linux metadata/BGP routing is not enabled on this path. Full CAPI
+cluster bootstrap, guest-reachable management services and HA endpoint handling
+are separate integration checks from this VM lifecycle test.

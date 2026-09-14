@@ -415,16 +415,17 @@ func (e *Engine) reconcileProvisioning(ctx context.Context, instance state.Insta
 	// Build artifacts. IPAddress empty → DHCP network-config in seed ISO.
 	workingDir := filepath.Join(e.cfg.WorkingDirectory(), instance.ID)
 	artifactsOut, err := e.artifacts.Build(ctx, artifacts.BuildInput{
-		WorkingDir:   workingDir,
-		InstanceID:   instance.ID,
-		Hostname:     instance.Name,
-		UserData:     userData,
-		NICMAC:       nicMAC,
-		IPAddress:    firstIP,
-		GatewayIP:    gw,
-		PrefixLength: prefixLen,
-		BaseImage:    baseImage,
-		DiskGiB:      diskGiB,
+		PreserveInterfaceName: e.cfg.EffectiveVMBackend() == config.VMBackendDarwinQEMU,
+		WorkingDir:            workingDir,
+		InstanceID:            instance.ID,
+		Hostname:              instance.Name,
+		UserData:              userData,
+		NICMAC:                nicMAC,
+		IPAddress:             firstIP,
+		GatewayIP:             gw,
+		PrefixLength:          prefixLen,
+		BaseImage:             baseImage,
+		DiskGiB:               diskGiB,
 	})
 	if err != nil {
 		return e.markError(ctx, instance.ID, fmt.Errorf("artifact creation failed: %w", err))
@@ -528,7 +529,7 @@ func (e *Engine) reconcileRunning(ctx context.Context, instance state.Instance, 
 		}
 
 		if ip == "" {
-			ip, err := e.resolveInstanceIPFromLease(ctx, instance, instance.Interfaces)
+			ip, err = e.resolveInstanceIPFromLease(ctx, instance, instance.Interfaces)
 			if err != nil {
 				return e.markError(ctx, instance.ID, err)
 			}

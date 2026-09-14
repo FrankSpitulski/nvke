@@ -1,0 +1,91 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+package lifecycle
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/state"
+	vmruntime "github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm"
+)
+
+// darwinNetwork uses Apple's DHCP allocator. It never writes the system lease
+// database or dnsmasq reservations; boot data is delivered on the seed ISO.
+type darwinNetwork struct {
+	runtime                vmruntime.Runtime
+	bridgeName, bridgeCIDR string
+}
+
+func (n darwinNetwork) EnsureSetup(ctx context.Context) error {
+	return n.runtime.EnsureBridge(ctx, n.bridgeName, n.bridgeCIDR)
+}
+func (n darwinNetwork) NeedsDHCP(state.Instance) bool                                 { return true }
+func (n darwinNetwork) WriteReservation(string, string, string, string, *slog.Logger) {}
+func (n darwinNetwork) MetadataAddrs() []string                                       { return nil }
+func (n darwinNetwork) Teardown(context.Context) error                                { return nil }
+func (n darwinNetwork) LookupLease(_ context.Context, mac string) (string, bool, error) {
+	data, err := os.ReadFile("/var/db/dhcpd_leases")
+	if os.IsNotExist(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read macOS DHCP leases: %w", err)
+	}
+	ip, ok := darwinLease(string(data), mac)
+	if ok {
+		_, subnet, err := net.ParseCIDR(n.bridgeCIDR)
+		if err != nil {
+			return "", false, err
+		}
+		if !subnet.Contains(net.ParseIP(ip)) {
+			return "", false, nil
+		}
+	}
+	return ip, ok, nil
+}
+
+func darwinLease(data, mac string) (string, bool) {
+	want, err := net.ParseMAC(mac)
+	if err != nil {
+		return "", false
+	}
+	var latest int64
+	var found string
+	for _, record := range strings.Split(data, "}") {
+		var ip, hw string
+		var expires int64
+		for _, line := range strings.Split(record, "\n") {
+			k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
+			if !ok {
+				continue
+			}
+			switch k {
+			case "ip_address":
+				ip = v
+			case "lease":
+				expires, _ = strconv.ParseInt(v, 0, 64)
+			case "hw_address":
+				_, hw, _ = strings.Cut(v, ",")
+			}
+		}
+		// bootpd omits leading zeroes in MAC octets.
+		parts := strings.Split(hw, ":")
+		for i, p := range parts {
+			if len(p) == 1 {
+				parts[i] = "0" + p
+			}
+		}
+		parsed, err := net.ParseMAC(strings.Join(parts, ":"))
+		if err == nil && parsed.String() == want.String() && net.ParseIP(ip) != nil && expires > time.Now().Unix() && expires > latest {
+			found, latest = ip, expires
+		}
+	}
+	return found, found != ""
+}

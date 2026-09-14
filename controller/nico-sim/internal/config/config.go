@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm/toolpath"
 )
 
 func envOrDefault(key, defaultVal string) string {
@@ -136,7 +138,11 @@ func Parse(logger *slog.Logger) (Config, error) {
 		return Config{}, err
 	}
 
-	bgpEnabled := strings.ToLower(envOrDefault("NICO_VMS_BGP_ENABLED", "true")) == "true"
+	bgpDefault := "true"
+	if runtime.GOOS == "darwin" {
+		bgpDefault = "false"
+	}
+	bgpEnabled := strings.ToLower(envOrDefault("NICO_VMS_BGP_ENABLED", bgpDefault)) == "true"
 	bgpListenPort, err := envOrDefaultInt("NICO_VMS_BGP_LISTEN_PORT", 10179)
 	if err != nil {
 		return Config{}, err
@@ -435,6 +441,8 @@ func (c *Config) normalize(logger *slog.Logger) error {
 	}
 
 	if c.EffectiveVMBackend() == VMBackendDarwinQEMU {
+		c.DHCPHostsDir = ""
+		c.DHCPLeaseFile = ""
 		if err := c.normalizeDarwinVMNetBridgeCIDR(logger); err != nil {
 			return err
 		}
@@ -476,15 +484,10 @@ func (c *Config) normalizeDarwinVMNetBridgeCIDR(logger *slog.Logger) error {
 	if runtime.GOOS != "darwin" || c.EffectiveVMBackend() != VMBackendDarwinQEMU {
 		return nil
 	}
-	if c.BridgeCIDR != "" {
-		return nil
-	}
-
 	helperPath := findVMNetHelper()
 	if helperPath == "" {
 		return fmt.Errorf(
-			"vmnet-helper not found; set NICO_VMS_BRIDGE_CIDR manually or install vmnet-helper " +
-				"(brew tap nirs/vmnet-helper && brew install vmnet-helper)",
+			"vmnet-helper not found; see README.md macOS setup or set NICO_VMS_VMNET_HELPER_PATH",
 		)
 	}
 
@@ -497,6 +500,9 @@ func (c *Config) normalizeDarwinVMNetBridgeCIDR(logger *slog.Logger) error {
 		return fmt.Errorf("failed to derive CIDR from vmnet probe: %w", err)
 	}
 
+	if c.BridgeCIDR != "" && c.BridgeCIDR != cidr {
+		return fmt.Errorf("NICO_VMS_BRIDGE_CIDR=%q does not match Apple's shared subnet %s; unset it to use vmnet discovery", c.BridgeCIDR, cidr)
+	}
 	logger.Info("Detected vmnet shared subnet via probe",
 		"cidr", cidr,
 		"gateway", info.StartAddress,
@@ -552,15 +558,5 @@ func vmnetProbeToCIDR(info vmnetProbeResult) (string, error) {
 }
 
 func findVMNetHelper() string {
-	candidates := []string{
-		"/opt/vmnet-helper/bin/vmnet-helper",
-		"/opt/homebrew/opt/vmnet-helper/libexec/vmnet-helper",
-		"/usr/local/opt/vmnet-helper/libexec/vmnet-helper",
-	}
-	for _, p := range candidates {
-		if info, err := os.Stat(p); err == nil && !info.IsDir() {
-			return p
-		}
-	}
-	return ""
+	return toolpath.VMNet("vmnet-helper", "NICO_VMS_VMNET_HELPER_PATH")
 }

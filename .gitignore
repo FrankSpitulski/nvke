@@ -81,3 +81,8 @@ controller/test/e2e/site-e2e.log
 controller/test/e2e/site-e2e.junit.xml
 controller/test/e2e/report.json
 controller/test/e2e/site-diagnostics.tar.gz
+
+# Locally built Flox vmnet-helper package for nico-sim's darwin-qemu backend,
+# never published by development recipes.
+/result-vmnet-helper
+/result-vmnet-helper-log

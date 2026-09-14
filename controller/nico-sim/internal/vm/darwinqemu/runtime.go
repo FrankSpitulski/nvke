@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package darwinqemu implements a vm.Runtime backed by QEMU on macOS
-// using vmnet-client for networking and QMP for machine control.
+// using vmnet-run for networking and QMP for machine control.
 package darwinqemu
 
 import (
@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm"
+	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm/toolpath"
 )
 
 // New returns a vm.Runtime backed by QEMU on macOS with vmnet-client networking.
@@ -31,7 +32,7 @@ func New(qemuSystemPath, instancesDir string) vm.Runtime {
 	}
 }
 
-// darwinQEMU manages QEMU VMs directly on macOS using vmnet-client for
+// darwinQEMU manages QEMU VMs directly on macOS using vmnet-run for
 // networking. All runtime state (PIDs, launch args) is persisted to disk
 // so that VMs survive process restarts.
 type darwinQEMU struct {
@@ -65,7 +66,7 @@ func (r *darwinQEMU) pathsForInstance(instanceID string) darwinInstancePaths {
 }
 
 // darwinRuntimeManifest is persisted alongside each VM so that Reboot can
-// re-launch vmnet-client with the original arguments after a process restart.
+// re-launch vmnet-run with the original arguments after a process restart.
 type darwinRuntimeManifest struct {
 	LaunchPath string   `json:"launch_path"`
 	LaunchArgs []string `json:"launch_args"`
@@ -87,15 +88,15 @@ func (r *darwinQEMU) requireVMNetClient() (string, error) {
 	vmnetClientPath := strings.TrimSpace(r.vmnetClientPath)
 	if vmnetClientPath == "" {
 		return "", fmt.Errorf(
-			"darwin-qemu requires vmnet-client (nirs/vmnet-helper); run `make install-deps-homebrew` or install vmnet-helper so vmnet-client is available",
+			"darwin-qemu requires vmnet-run (vmnet-helper 0.13.0); see README.md macOS setup or set NICO_VMS_VMNET_RUN_PATH",
 		)
 	}
 	info, err := os.Stat(vmnetClientPath)
 	if err != nil {
-		return "", fmt.Errorf("darwin-qemu vmnet-client check failed for %q: %w", vmnetClientPath, err)
+		return "", fmt.Errorf("darwin-qemu vmnet-run check failed for %q: %w", vmnetClientPath, err)
 	}
 	if info.IsDir() {
-		return "", fmt.Errorf("darwin-qemu vmnet-client path %q is a directory", vmnetClientPath)
+		return "", fmt.Errorf("darwin-qemu vmnet-run path %q is a directory", vmnetClientPath)
 	}
 	return vmnetClientPath, nil
 }
@@ -114,7 +115,10 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 	_ = os.Remove(paths.VMNetClientPIDFile)
 	_ = os.Remove(paths.QMPSock)
 
-	machine, cpu, firmwareArg := platformArgs(r.qemuSystemPath)
+	machine, cpu, firmwareArg, err := platformArgs(ctx, r.qemuSystemPath, paths.Dir)
+	if err != nil {
+		return "", err
+	}
 
 	baseArgs := []string{
 		"-name", spec.DomainName,
@@ -141,7 +145,7 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 		"-netdev", "dgram,id=net0,local.type=fd,local.str=4",
 		"-device", deviceArg,
 	)
-	clientArgs := []string{"--unprivileged", "--operation-mode", "shared"}
+	clientArgs := []string{"--operation-mode", "shared"}
 	clientArgs = append(clientArgs, "--")
 	clientArgs = append(clientArgs, r.qemuSystemPath)
 	clientArgs = append(clientArgs, qemuArgs...)
@@ -460,39 +464,6 @@ func stopPIDFileProcess(pidFile string) error {
 
 // --- platform helpers ---
 
-func platformArgs(qemuSystemPath string) (machine, cpu string, firmwareArgs []string) {
-	base := strings.ToLower(filepath.Base(qemuSystemPath))
-	if strings.Contains(base, "aarch64") || strings.Contains(base, "arm64") {
-		firmware := firstExistingFile(
-			"/opt/homebrew/share/qemu/edk2-aarch64-code.fd",
-			"/usr/local/share/qemu/edk2-aarch64-code.fd",
-		)
-		if firmware != "" {
-			return "virt,accel=hvf", "host", []string{"-bios", firmware}
-		}
-		return "virt,accel=hvf", "host", nil
-	}
-	// x86_64: try OVMF for UEFI boot (required for production qcow2 images)
-	firmware := firstExistingFile(
-		"/opt/homebrew/share/qemu/edk2-x86_64-code.fd",
-		"/usr/local/share/qemu/edk2-x86_64-code.fd",
-	)
-	if firmware != "" {
-		return "q35,accel=hvf", "host", []string{"-bios", firmware}
-	}
-	return "q35,accel=hvf", "host", nil
-}
-
-func firstExistingFile(paths ...string) string {
-	for _, p := range paths {
-		info, err := os.Stat(p)
-		if err == nil && !info.IsDir() {
-			return p
-		}
-	}
-	return ""
-}
-
 // qmpSocketName returns a deterministic socket name for the QMP
 // control channel. The name is stable across process restarts so that
 // the socket path can be derived from the instance ID alone.
@@ -531,15 +502,5 @@ func qmpReboot(socketPath string) error {
 // findVMNetClient returns the path to the vmnet-client binary from
 // nirs/vmnet-helper if installed, or empty string if not found.
 func findVMNetClient() string {
-	candidates := []string{
-		"/opt/vmnet-helper/bin/vmnet-client",
-		"/opt/homebrew/opt/vmnet-helper/libexec/vmnet-client",
-		"/usr/local/opt/vmnet-helper/libexec/vmnet-client",
-	}
-	for _, p := range candidates {
-		if info, err := os.Stat(p); err == nil && !info.IsDir() {
-			return p
-		}
-	}
-	return ""
+	return toolpath.VMNet("vmnet-run", "NICO_VMS_VMNET_RUN_PATH")
 }

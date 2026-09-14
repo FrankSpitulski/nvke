@@ -6,6 +6,14 @@
       "actionlint": {
         "pkg-path": "actionlint"
       },
+      "cdrtools": {
+        "pkg-path": "cdrtools",
+        "pkg-group": "cdrtools",
+        "version": "3.02a09",
+        "systems": [
+          "aarch64-darwin"
+        ]
+      },
       "clusterctl": {
         "pkg-path": "clusterctl"
       },
@@ -56,6 +64,14 @@
       "pyyaml": {
         "pkg-path": "python313Packages.pyyaml",
         "pkg-group": "python"
+      },
+      "qemu": {
+        "pkg-path": "qemu",
+        "pkg-group": "qemu",
+        "version": "11.1.0",
+        "systems": [
+          "aarch64-darwin"
+        ]
       },
       "shellcheck": {
         "pkg-path": "shellcheck"
@@ -1819,6 +1835,65 @@
       },
       "system": "x86_64-linux",
       "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "cdrtools",
+      "broken": false,
+      "derivation": "/nix/store/75fkx4l7c416ky7i4k30w1ch4b5vfgp2-cdrtools-3.02a09.drv",
+      "description": "Highly portable CD/DVD/BluRay command line recording software",
+      "install_id": "cdrtools",
+      "license": "[ CDDL-1.0, GPL-2.0-or-later, LGPL-2.1-or-later ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=c59305bab2065cfecc4944690d9eedbb56f3a9fa",
+      "name": "cdrtools-3.02a09",
+      "pname": "cdrtools",
+      "rev": "c59305bab2065cfecc4944690d9eedbb56f3a9fa",
+      "rev_count": 1083223,
+      "rev_date": "2026-10-01T02:47:39Z",
+      "scrape_date": "2026-10-02T04:59:39.198219Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.02a09",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/ccvs7niq96kmcmipfmm35wsb266z4krf-cdrtools-3.02a09"
+      },
+      "system": "aarch64-darwin",
+      "group": "cdrtools",
+      "priority": 5
+    },
+    {
+      "attr_path": "qemu",
+      "broken": false,
+      "derivation": "/nix/store/yc16zfcykcvnav342h5yqcda00a33v1y-qemu-11.1.0.drv",
+      "description": "Generic and open source machine emulator and virtualizer",
+      "install_id": "qemu",
+      "license": "GPL-2.0-or-later",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
+      "name": "qemu-11.1.0",
+      "pname": "qemu",
+      "rev": "20b1ddd1aa5ace70c9468305030aa4f9ef79671b",
+      "rev_count": 1076192,
+      "rev_date": "2026-09-19T02:38:33Z",
+      "scrape_date": "2026-09-20T04:59:33.155455Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "11.1.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "doc": "/nix/store/3jvkybrfyqpwpr8s7mz840gdmwmsdlz1-qemu-11.1.0-doc",
+        "out": "/nix/store/9314hmf6psz3wj7cdlkzbphsqh31dmgq-qemu-11.1.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "qemu",
       "priority": 5
     }
   ]
