@@ -33,7 +33,8 @@ endif
 	build build-static build-privileged run run-vm test \
 	test-integration-all test-integration-mock test-integration-libvirt test-integration-qemu \
 	install-deps-homebrew darwin-qemu-list darwin-qemu-clean \
-	lima-libvirt-list lima-libvirt-clean setup teardown fmt lint
+	lima-libvirt-list lima-libvirt-clean setup teardown fmt lint \
+	nico-vms-up nico-vms-test nico-vms-test-cluster
 
 REAL_VM_TEST_TIMEOUT ?= 5m
 LIMA_VM_NAME ?= nico-vms
@@ -116,6 +117,17 @@ lima-libvirt-clean:
 
 install-deps-homebrew:
 	bash ./scripts/install-deps-homebrew.sh
+
+##@ nico-sim (macOS)
+
+nico-vms-up: ## Run the Mac VM simulator against IMAGE (foreground).
+	ARCH="$(ARCH)" IMAGE="$(IMAGE)" bash ./scripts/local-mac.sh up
+
+nico-vms-test: ## Test IMAGE with isolated Mac HVF VMs.
+	ARCH="$(ARCH)" IMAGE="$(IMAGE)" bash ./scripts/local-mac.sh test
+
+nico-vms-test-cluster: ## Boot IMAGE in two Mac VMs and test its staged Kubernetes/CNI packages.
+	ARCH="$(ARCH)" IMAGE="$(IMAGE)" bash ./scripts/local-mac.sh test-cluster
 
 # Linux host setup: install deps + configure bridge/dnsmasq/iptables (then tilt up).
 setup:

@@ -942,12 +942,12 @@ From the repository root:
 
 ```sh
 flox activate                            # exposes the pinned QEMU, Go and ISO tools
-make nico-vms-test ARCH=arm64 IMAGE=/absolute/path/to/nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
-make nico-vms-up ARCH=arm64 IMAGE=/absolute/path/to/nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
+make -C controller/nico-sim nico-vms-test ARCH=arm64 IMAGE=/absolute/path/to/nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
+make -C controller/nico-sim nico-vms-up ARCH=arm64 IMAGE=/absolute/path/to/nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
 ```
 
 `nico-vms-test` creates isolated overlays and tests create/delete, SSH, reboot and
-bidirectional VM traffic. `make nico-vms-test-cluster IMAGE=...` additionally
+bidirectional VM traffic. `make -C controller/nico-sim nico-vms-test-cluster IMAGE=...` additionally
 boots two VMs, installs the image's staged Kubernetes/Calico packages, and checks
 that both nodes and CoreDNS become ready. It then runs a digest-pinned BusyBox
 pod on each VM to verify bidirectional pod traffic and cluster DNS. The BusyBox
@@ -965,10 +965,7 @@ it when you want them removed. The base image is never modified.
 Install QEMU (including EDK2 firmware), Go and an ISO builder (`cdrtools`, or
 `cloud-utils`) through Flox or your platform's package manager. `flox activate`
 installs the pinned `qemu` and `cdrtools` packages, but vmnet-helper is not yet
-in the Flox catalog and this checkout does not carry a local Flox package for
-it — install it with Homebrew instead (below). If `result-vmnet-helper/bin`
-exists (a local Flox build produced outside this repo), `scripts/local-mac.sh`
-picks it up automatically.
+in the Flox catalog — install it with Homebrew instead (below).
 
 On macOS 26+ use Homebrew's QEMU, cdrtools and
 `nirs/vmnet-helper/vmnet-helper` packages. See the

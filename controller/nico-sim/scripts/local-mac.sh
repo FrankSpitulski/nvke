@@ -5,11 +5,6 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 mode="${1:-test}"
 [[ "$(uname -s)" == Darwin ]] || { echo 'local-mac.sh requires macOS' >&2; exit 1; }
-# Flox builds local packages without publishing them. An external installation
-# remains usable through PATH or the explicit overrides.
-if [[ -x "$root/result-vmnet-helper/bin/vmnet-run" ]]; then
-  export PATH="$root/result-vmnet-helper/bin:$PATH"
-fi
 for tool in go qemu-img; do
  command -v "$tool" >/dev/null || { echo "Missing $tool; see controller/nico-sim/README.md macOS setup" >&2; exit 1; }
 done
