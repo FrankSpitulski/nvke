@@ -73,6 +73,12 @@ variable "cpu_model" {
   description = "QEMU CPU model. Use 'host' with KVM, 'max' with TCG emulation."
 }
 
+variable "cpus" {
+  type        = number
+  default     = 4
+  description = "Guest vCPUs. packer/Makefile raises it under TCG emulation."
+}
+
 variable "ssh_timeout" {
   type        = string
   default     = "60m"
@@ -187,6 +193,8 @@ source "qemu" "nke-fde" {
   # this, QEMU silently drops the guest's TRIM/discard commands, so freed
   # blocks still look "used" to Packer's post-build compaction step.
   disk_discard = "unmap"
+  # See the same setting in nke-node-non-fde.pkr.hcl.
+  disk_cache = "unsafe"
 
   efi_firmware_code = local.efi_firmware_code
   efi_firmware_vars = local.efi_firmware_vars
@@ -242,7 +250,7 @@ source "qemu" "nke-fde" {
   output_directory = "${path.root}/output-fde"
   headless         = true
   memory           = 8192
-  cpus             = 4
+  cpus             = var.cpus
   net_device       = "virtio-net"
 }
 

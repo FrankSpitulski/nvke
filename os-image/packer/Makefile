@@ -94,8 +94,16 @@ CPU_MODEL ?= $(if $(filter kvm,$(ACCELERATOR)),host,$(if $(filter arm64,$(ARCH))
 # genuine /dev/kvm was still mid-autoinstall/second-boot (confirmed clean via
 # the serial console log, no crash) when it hit that wall at 15m48s — FDE's
 # LUKS/LVM/package-install work is heavier than the boot times this value was
-# originally set from.
-SSH_TIMEOUT ?= $(if $(filter kvm,$(ACCELERATOR)),30m,120m)
+# originally set from. 120m wasn't enough for same-arch tcg on the arm64 pool
+# either: with pauth-impdef=on the install runs at roughly 10x the KVM pace
+# (14 min under KVM, so ~140 min), and run 34771011057 was six packages into
+# postinstall when it hit that wall.
+SSH_TIMEOUT ?= $(if $(filter kvm,$(ACCELERATOR)),30m,180m)
+
+# Guest vCPUs. Under tcg every vCPU is a host thread (MTTCG is the default for
+# arm64 guests) and the CI runners have 16 cores; 8 stays inside the GICv2
+# limit, so the virt machine needs no other change.
+CPUS ?= $(if $(filter kvm,$(ACCELERATOR)),4,8)
 
 # FDE/non-FDE only: how long boot_command waits before typing into GRUB.
 # prepare-installer-iso.sh patches the ISO's own GRUB timeout to 300s, so
@@ -146,6 +154,7 @@ os-image-fde: check-deps ssh-key init-fde prepare-installer-iso
 	$(PACKER) build \
 		-var accelerator=$(ACCELERATOR) \
 		-var cpu_model=$(CPU_MODEL) \
+		-var cpus=$(CPUS) \
 		-var ssh_timeout=$(SSH_TIMEOUT) \
 		-var boot_wait=$(BOOT_WAIT) \
 		-var iso_url=$(ISO_URL) \
@@ -163,6 +172,7 @@ os-image-non-fde: check-deps ssh-key init-non-fde prepare-installer-iso
 	$(PACKER) build \
 		-var accelerator=$(ACCELERATOR) \
 		-var cpu_model=$(CPU_MODEL) \
+		-var cpus=$(CPUS) \
 		-var ssh_timeout=$(SSH_TIMEOUT) \
 		-var boot_wait=$(BOOT_WAIT) \
 		-var iso_url=$(ISO_URL) \

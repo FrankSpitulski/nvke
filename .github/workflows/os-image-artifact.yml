@@ -100,7 +100,7 @@ jobs:
             build_fde: true
           - arch: arm64
             runner: linux-arm64-cpu16
-            timeout_minutes: 240
+            timeout_minutes: 300
             build_fde: false
     # Packer QEMU needs /dev/kvm for the amd64 leg. linux-amd64-cpu16 (a
     # container-based pool) never exposed it, forcing every bake onto QEMU's
@@ -118,9 +118,9 @@ jobs:
     # amd64: sized for real KVM (FDE bake + demo-fde.sh + non-FDE bake +
     # boot-smoke, each a few minutes, with real headroom); the KVM gate below
     # fails fast instead of burning the timeout if that ever regresses to
-    # tcg. arm64: non-FDE bake + boot-smoke only, native; 240m covers a
-    # same-arch tcg fallback if the pool has no /dev/kvm -- revisit once real
-    # runs land.
+    # tcg. arm64: the pool has no /dev/kvm, so the non-FDE bake runs under
+    # same-arch tcg at roughly 10x the KVM pace: ~140 min install, ~15 min
+    # provisioning, up to 40 min boot-smoke, plus compress. 300m leaves ~1 h.
     timeout-minutes: ${{ matrix.timeout_minutes }}
     permissions:
       contents: write
