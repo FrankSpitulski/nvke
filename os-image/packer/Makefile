@@ -43,11 +43,14 @@ ARCH ?= amd64
 # ARCH=arm64 build pointed at it. arm64 (and every other non-amd64 arch)
 # is published under cdimage.ubuntu.com/releases/<version>/release/
 # instead, with its own separate SHA256SUMS there.
+#
+# Use 26.04.1 to avoid the GA installer's intermittent overlayfs crash
+# during curtin extraction. Reproduction details: PR #737.
 ifeq ($(ARCH),arm64)
-  ISO_URL      ?= https://cdimage.ubuntu.com/releases/26.04/release/ubuntu-26.04-live-server-arm64.iso
+  ISO_URL      ?= https://cdimage.ubuntu.com/releases/26.04/release/ubuntu-26.04.1-live-server-arm64.iso
   ISO_CHECKSUM ?= file:https://cdimage.ubuntu.com/releases/26.04/release/SHA256SUMS
 else
-  ISO_URL      ?= https://releases.ubuntu.com/26.04/ubuntu-26.04-live-server-$(ARCH).iso
+  ISO_URL      ?= https://releases.ubuntu.com/26.04/ubuntu-26.04.1-live-server-$(ARCH).iso
   ISO_CHECKSUM ?= file:https://releases.ubuntu.com/26.04/SHA256SUMS
 endif
 

@@ -17,7 +17,7 @@ packer {
 
 variable "iso_url" {
   type        = string
-  default     = "https://releases.ubuntu.com/26.04/ubuntu-26.04-live-server-amd64.iso"
+  default     = "https://releases.ubuntu.com/26.04/ubuntu-26.04.1-live-server-amd64.iso"
   description = "Ubuntu 26.04 Server installer ISO (autoinstall needs the installer, not the cloud image)."
 }
 
@@ -133,11 +133,7 @@ source "qemu" "nke-non-fde" {
   # See the comment on this in nke-node-fde.pkr.hcl.
   iso_checksum = "none"
 
-  # See the comment on this block in nke-node-fde.pkr.hcl: machine_type is
-  # the QEMU chipset, not a CPU setting. q35 avoids the legacy "pc" (i440fx)
-  # + OVMF/UEFI pairing that produced intermittent guest-kernel crashes
-  # while developing these variants. "virt" is its arm64 equivalent -- see
-  # local.machine_type's comment.
+  # Use q35 for amd64 UEFI and virt for arm64; cpu_model selects the CPU.
   qemu_binary    = local.qemu_binary
   machine_type   = local.machine_type
   cpu_model      = var.cpu_model

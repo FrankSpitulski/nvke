@@ -23,7 +23,7 @@ packer {
 
 variable "iso_url" {
   type        = string
-  default     = "https://releases.ubuntu.com/26.04/ubuntu-26.04-live-server-amd64.iso"
+  default     = "https://releases.ubuntu.com/26.04/ubuntu-26.04.1-live-server-amd64.iso"
   description = "Ubuntu 26.04 Server installer ISO (autoinstall needs the installer, not the cloud image)."
 }
 
@@ -173,15 +173,7 @@ source "qemu" "nke-fde" {
   # the original download against var.iso_checksum before patching it.
   iso_checksum = "none"
 
-  # machine_type is the QEMU virtual chipset, not a CPU setting — cpu_model
-  # (below) is the actual CPU. This matters here because this variant boots
-  # via OVMF/UEFI (efi_boot below), and the legacy "pc" (i440fx) machine type
-  # QEMU falls back to when machine_type is left unset predates PCIe/UEFI as
-  # first-class targets — a known-fragile pairing with OVMF. q35 (a modern
-  # PCIe-based chipset) resolved intermittent guest-kernel crashes (overlayfs
-  # page faults during curtin's install-time rsync) seen while developing
-  # this variant on "pc". "virt" is arm64's equivalent -- see
-  # local.machine_type's comment.
+  # Use q35 for amd64 UEFI and virt for arm64; cpu_model selects the CPU.
   qemu_binary    = local.qemu_binary
   machine_type   = local.machine_type
   cpu_model      = var.cpu_model
