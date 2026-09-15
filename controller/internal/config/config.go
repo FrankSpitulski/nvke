@@ -121,6 +121,13 @@ type Config struct {
 	// NodeRebootPollingInterval is the polling interval for the node reboot workflow.
 	NodeRebootPollingInterval time.Duration `env:"NODE_REBOOT_POLLING_INTERVAL" default:"1m"`
 
+	// NodeRebootSoftRebootEnabled selects a CAPI node reboot's strategy: true tries the in-guest
+	// soft reboot RPC first, falling back to a hard reboot only on RPC error - matching behavior
+	// from before this flag existed. false skips straight to the hard CAPI Machine reboot
+	// annotation, for any backend where the in-guest reboot path can never produce a real,
+	// detectable boot change.
+	NodeRebootSoftRebootEnabled bool `env:"NODE_REBOOT_SOFT_REBOOT_ENABLED" default:"true"`
+
 	// NodeProvisioningTimeout is the maximum time a worker node may remain provisioning
 	// before the provisioning monitor gives up and recycles it. A value of 0 disables
 	// automatic timeout-based provisioning remediation.
