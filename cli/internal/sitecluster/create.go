@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -22,6 +23,9 @@ import (
 // time for a retry loop — the same shape cwedeploy's waitReadyPollInterval uses.
 var pollInterval = 10 * time.Second
 
+// DefaultWaitTimeout bounds a wait whose caller supplied no budget of its own.
+const DefaultWaitTimeout = 30 * time.Minute
+
 // ClusterAPI is the part of the CWE client this package needs.
 //
 // An interface rather than *clients.CWEClient so the create-and-wait flow can
@@ -32,6 +36,7 @@ var pollInterval = 10 * time.Second
 type ClusterAPI interface {
 	CreateCluster(ctx context.Context, req api.CreateClusterJSONRequestBody) (*api.Cluster, error)
 	GetCluster(ctx context.Context, id openapi_types.UUID) (*api.Cluster, error)
+	ListControlPlaneNodes(ctx context.Context, clusterID openapi_types.UUID) ([]api.Node, error)
 }
 
 // ErrClusterFailed is returned when CWE reports a state the cluster cannot come
@@ -75,7 +80,7 @@ func WaitProvisioned(
 	log *slog.Logger,
 ) (*api.Cluster, error) {
 	if timeout <= 0 {
-		timeout = 30 * time.Minute
+		timeout = DefaultWaitTimeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -90,6 +95,7 @@ func WaitProvisioned(
 			// if the wait runs out.
 			lastErr = err
 		} else {
+			lastErr = nil
 			status := clusterstate.Status(cluster)
 			if status != lastStatus {
 				log.Info("cluster state", "cluster", cluster.Name, "status", status)
@@ -115,4 +121,107 @@ func WaitProvisioned(
 		case <-time.After(pollInterval):
 		}
 	}
+}
+
+// WaitControlPlaneJoined polls CWE until want control-plane nodes report
+// Provisioned, or timeout elapses.
+//
+// This wait exists because the cluster's own Provisioned condition does not
+// mean what a caller tearing down orchestration needs it to mean. CWE sets it
+// as soon as the one node it picked as the initial control-plane node has run
+// kubeadm init and had its CNI installed — deliberately, because the remaining
+// nodes cannot join until there is something to join, and the controller that
+// starts those joins waits on exactly this condition. They then join through
+// their own workflows, one at a time. Stopping at the cluster condition would
+// leave every node that had not got its turn yet stranded with no workflow
+// engine left to finish it.
+//
+// Provisioned rather than Joined is the bar: Joined flips when kubeadm join
+// returns, while the node's workflow still has its after-join hooks and
+// labelling left to run.
+func WaitControlPlaneJoined(
+	ctx context.Context,
+	client ClusterAPI,
+	id openapi_types.UUID,
+	want int,
+	timeout time.Duration,
+	log *slog.Logger,
+) error {
+	if want <= 0 {
+		return nil
+	}
+	// No DefaultWaitTimeout fallback here, unlike WaitProvisioned: this wait is
+	// handed what is left of a deadline it shares with that one, so a
+	// non-positive value means the budget is spent, not that the caller wants a
+	// default. Starting a fresh 30 minutes on it would overrun --timeout.
+	if timeout <= 0 {
+		return fmt.Errorf("sitecluster: no time left to wait for the %d control plane nodes "+
+			"of cluster %s to join", want, id)
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	log.Info("waiting for the control plane nodes to join", "cluster", id, "nodes", want)
+
+	lastProvisioned := -1
+	lastErr := error(nil)
+	outstanding := "no nodes reported yet"
+	for {
+		nodes, err := client.ListControlPlaneNodes(ctx, id)
+		if err != nil {
+			// As in WaitProvisioned: a failed read is not a failed cluster.
+			lastErr = err
+		} else {
+			// The read recovered, so it is no longer what went wrong. Left set,
+			// it would be reported as the reason a node never joined and send
+			// the operator after CWE instead of the node.
+			lastErr = nil
+			provisioned, pending := controlPlaneProgress(nodes, want)
+			outstanding = pending
+			if provisioned != lastProvisioned {
+				log.Info("control plane nodes joined",
+					"cluster", id, "provisioned", provisioned, "of", want)
+				lastProvisioned = provisioned
+			}
+			if provisioned >= want {
+				return nil
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("sitecluster: only %d of %d control plane nodes of cluster %s "+
+				"finished provisioning within %s (outstanding: %s, last error=%v)",
+				max(lastProvisioned, 0), want, id, timeout, outstanding, lastErr)
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
+// controlPlaneProgress counts the control-plane nodes that finished
+// provisioning and describes the ones that have not.
+//
+// The description is what the operator gets when the wait runs out, so it
+// carries each outstanding node's condition message — the difference between
+// "a node is slow" and "a node is stuck on something" — and says how many
+// nodes CWE has not created a record for at all.
+func controlPlaneProgress(nodes []api.Node, want int) (int, string) {
+	provisioned := 0
+	pending := make([]string, 0, len(nodes))
+	for i := range nodes {
+		node := &nodes[i]
+		if clusterstate.IsTrue(&node.Conditions.Provisioned) {
+			provisioned++
+			continue
+		}
+		pending = append(pending, fmt.Sprintf("%s (provisioned=%s: %s)",
+			node.Name, node.Conditions.Provisioned.Status, node.Conditions.Provisioned.Message))
+	}
+	if missing := want - len(nodes); missing > 0 {
+		pending = append(pending, fmt.Sprintf("%d node(s) not yet created", missing))
+	}
+	if len(pending) == 0 {
+		return provisioned, "none"
+	}
+	return provisioned, strings.Join(pending, ", ")
 }
