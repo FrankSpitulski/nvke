@@ -167,6 +167,13 @@ The cluster name SPIRE is told is the ephemeral cluster's own name, from
 because the bootstrap cluster has one name and two ways to say it could only
 ever disagree.
 
+When SPIRE is enabled, `bootstrap site` exports the live `ClusterStaticEntry`
+CRD definition and CWE's cluster-scoped workload registration policy before it
+removes the bootstrap cluster. It writes `clusterstaticentry-crd.yaml` and
+`clusterstaticentries.yaml` in the same directory as the site kubeconfig. The
+files contain no source UIDs, resource versions, status, or other server-owned
+metadata.
+
 ### Bootstrap cluster and CWE
 
 | Variable | Default | Purpose |
