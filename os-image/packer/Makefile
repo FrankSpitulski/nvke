@@ -140,10 +140,13 @@ prepare-installer-iso:
 
 check-deps:
 	@command -v go >/dev/null 2>&1 || { \
-		echo "go is required to build nke-agent from source (agent/)" >&2; \
-		echo "https://go.dev/dl/" >&2; \
+		echo "go is required to build nke-agent and the pinned nfpm" >&2; \
 		exit 1; \
 	}
+
+.PHONY: test
+test: ## Check artifact staging without downloading or building bundles.
+	python3 scripts/test_fetch_artifacts.py
 
 # Full-disk-encryption variant: boots the Ubuntu Server installer to lay down
 # an LVM-on-LUKS layout via autoinstall, then provisions nke-agent/spire-agent,
