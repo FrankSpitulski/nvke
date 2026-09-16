@@ -96,8 +96,21 @@ env:
   REPO_NON_FDE: ghcr.io/dsx-ai-factory/nke/os-image-non-fde
 
 jobs:
+  # A mirror-branch push carries base-branch commits, so the paths above fire
+  # for pull requests that touch no os-image file. Nine of eleven runs queued
+  # for the 64 GiB runner on 2026-09-16 were those. Read the pull request's own
+  # files instead. Tags and dispatch pass through.
+  changes:
+    uses: ./.github/workflows/e2e-pr-path-filter.yml
+    permissions:
+      pull-requests: read
+    with:
+      # Keep in step with the push paths above.
+      relevant_paths: '^os-image/|^\.github/workflows/os-image-artifact\.yml$'
+
   matrix:
-    if: github.repository == 'dsx-ai-factory/nke'
+    needs: changes
+    if: github.repository == 'dsx-ai-factory/nke' && needs.changes.outputs.run_e2e == 'true'
     name: Pick the legs to build
     runs-on: ubuntu-latest
     outputs:
