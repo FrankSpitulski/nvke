@@ -485,13 +485,17 @@ registry-mirror: ## Start Docker Hub and registry.k8s.io pull-through caches
 	fi
 	@$(kind-docker-host) docker network connect kind registry-k8s-mirror 2>/dev/null || true
 
+# The rollout waits below are 300s, not 120s. These pods mount a secret
+# cert-manager issues, and cert-manager pulls from quay.io with no mirror in
+# front of it; one ImagePullBackOff there stalls the chain, and that backoff
+# grows to 5 minutes. A healthy rollout takes 4 seconds either way.
 .PHONY: capd-up
 capd-up: kind-up clusterctl-install capd-image registry-mirror ## Bring up the local CAPD management cluster workflow (builds the CAPD node image first)
 	@echo "Installing CAPI core + CAPD providers..."
 	@PATH="$(LOCAL_BIN):$$PATH" $(kind-docker-host) CLUSTER_TOPOLOGY=true clusterctl init --core cluster-api:$(CAPI_CORE_VERSION) --infrastructure docker:$(CAPD_PROVIDER_VERSION)
 	@echo "Waiting for CAPI and CAPD controllers to be ready..."
-	@kubectl rollout status deployment/capi-controller-manager -n capi-system --timeout=120s
-	@kubectl rollout status deployment/capd-controller-manager -n capd-system --timeout=120s
+	@kubectl rollout status deployment/capi-controller-manager -n capi-system --timeout=300s
+	@kubectl rollout status deployment/capd-controller-manager -n capd-system --timeout=300s
 	@$(MAKE) capi-spiffe-exec-auth
 	@echo "✅ CAPD management cluster is ready"
 	@echo "Next step: tilt up"
