@@ -183,7 +183,8 @@ sudo apt-get install -y -qq -o Dpkg::Options::="--force-confold" \
   cloud-image-utils \
   genisoimage \
   dnsmasq-base \
-  iptables
+  iptables \
+  ethtool
 
 # The FDE node image, opt-in. It boots UEFI (ovmf), binds LUKS to a TPM on its
 # first boot (swtpm; nico-vms provisions a vTPM only when swtpm_setup is on
@@ -200,16 +201,17 @@ if [[ "${FDE}" == true ]]; then
     swtpm \
     swtpm-tools \
     e2fsprogs \
-    sshpass \
-    ethtool
+    sshpass
+fi
 
-  # GRO merges inbound segments into super-frames the tap cannot take, so guest
-  # downloads crawl on retransmits: 1.6-5 MB/s, against 62 with it off.
-  uplink="$(ip -4 route show default | awk '/default/ {print $5; exit}')"
-  if [[ -n "${uplink}" ]]; then
-    sudo ethtool -K "${uplink}" gro off lro off 2>/dev/null || warn "could not change receive offloads on ${uplink}"
-    log "offloads on ${uplink}: $(ethtool -k "${uplink}" 2>/dev/null | grep -E '^(generic-receive-offload|large-receive-offload):' | tr -s ' ' | tr '\n' ' ')"
-  fi
+# GRO merges inbound segments into super-frames the tap cannot take, so guest
+# downloads crawl or stall: 1.6-5 MB/s against 62 with it off, and outright
+# timeouts where the uplink's MTU exceeds the bridge's. Every lane here bridges
+# guests through the uplink, so this is not FDE-specific.
+uplink="$(ip -4 route show default | awk '/default/ {print $5; exit}')"
+if [[ -n "${uplink}" ]]; then
+  sudo ethtool -K "${uplink}" gro off lro off 2>/dev/null || warn "could not change receive offloads on ${uplink}"
+  log "offloads on ${uplink}: $(ethtool -k "${uplink}" 2>/dev/null | grep -E '^(generic-receive-offload|large-receive-offload):' | tr -s ' ' | tr '\n' ' ')"
 fi
 
 # libvirtd is only needed for the system daemon's helpers; nico-vms itself talks
