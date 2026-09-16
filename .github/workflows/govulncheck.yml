@@ -67,8 +67,10 @@ on:
   push:
     branches: [main]
   schedule:
-    # Monday 06:30 UTC. New advisories land without the code changing.
-    - cron: '30 6 * * 1'
+    # Daily 06:30 UTC. New advisories land without the code changing, and the
+    # only other trigger is the next push to main, which pins the red on
+    # whoever merged next.
+    - cron: '30 6 * * *'
   workflow_call:
   workflow_dispatch:
 
