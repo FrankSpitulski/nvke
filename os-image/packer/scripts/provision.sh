@@ -10,15 +10,7 @@ SRC=/tmp/nke-image
 ROOT_FS_LABEL="${ROOT_FS_LABEL:?ROOT_FS_LABEL is required}"
 
 sudo install -d -m 0755 /usr/lib/nke /etc/nke /var/lib/nke /usr/local/bin
-sudo install -m 0755 "${SRC}/spire-agent" /usr/local/bin/spire-agent
-sudo install -d -m 0755 /usr/local/lib/spire-agent
-sudo install -m 0755 "${SRC}/tpm_attestor_agent" /usr/local/lib/spire-agent/tpm_attestor_agent
-sudo install -m 0755 "${SRC}/get_tpm_pubhash" /usr/local/bin/get_tpm_pubhash
-sudo install -m 0755 "${SRC}/spire-configure.sh" /usr/lib/nke/spire-configure.sh
 sudo install -m 0755 "${SRC}/wait-spiffe-socket.sh" /usr/lib/nke/wait-spiffe-socket.sh
-sudo install -m 0644 "${SRC}/spire-agent.conf.tmpl" /usr/lib/nke/spire-agent.conf.tmpl
-sudo install -m 0644 "${SRC}/spire-agent.service" /etc/systemd/system/spire-agent.service
-sudo install -m 0644 "${SRC}/nke-spire-configure.service" /etc/systemd/system/nke-spire-configure.service
 
 sudo install -m 0755 "${SRC}/nke-agent" /usr/local/bin/nke-agent
 sudo install -m 0644 "${SRC}/nke-agent.service" /etc/systemd/system/nke-agent.service
@@ -27,38 +19,35 @@ if [[ ! -f /etc/default/nke-agent ]]; then
   echo 'AGENT_ARGS=""' | sudo tee /etc/default/nke-agent >/dev/null
 fi
 
-if ! id -u spire >/dev/null 2>&1; then
-  sudo useradd -r -s /bin/false -d /var/lib/spire-agent spire
-fi
-# The TPM node attestor opens /dev/tpmrm0, which udev owns tss:tss. Without this
-# spire-agent crash-loops on "permission denied" and nke-agent never starts,
-# because it waits on a workload socket that never opens.
-if getent group tss >/dev/null 2>&1; then
-  sudo usermod -aG tss spire
-fi
-sudo install -d -m 0750 -o spire -g spire /var/lib/spire-agent
-
 sudo systemctl daemon-reload
-sudo systemctl enable nke-spire-configure.service
-sudo systemctl enable spire-agent.service
 sudo systemctl enable nke-agent.service
 
 # Stage the CNI debs as a local flat apt repo, so cluster create's `apt-get
 # install nke-cni-...` resolves offline with apt's dependency handling intact.
-# trusted=yes: the content is already on this root fs. amd64 artifacts only.
+# trusted=yes: the content is already on this root fs.
 if [[ -d "${SRC}/debs" ]]; then
   sudo install -d -m 0755 /usr/lib/nke/debs
   sudo install -m 0644 "${SRC}"/debs/*.deb "${SRC}/debs/Packages" /usr/lib/nke/debs/
   echo 'deb [trusted=yes] file:/usr/lib/nke/debs ./' | sudo tee /etc/apt/sources.list.d/nke-local.list >/dev/null
 fi
 
-# Install the Calico manifest package. The content-only ARM64 build writes an
-# `_all.deb` package, while the normal AMD64 build writes an `_amd64.deb`
-# package.
+# Install the Calico manifest package for this image architecture.
 calico_manifest_deb="$(find "${SRC}/debs" -maxdepth 1 -type f -name 'nke-cni-calico-manifests-*.deb' -print -quit 2>/dev/null || true)"
 if [[ -n "${calico_manifest_deb}" ]]; then
   sudo dpkg -i "${calico_manifest_deb}"
 fi
+
+# Install the spire-agent package. Unlike the CNI and kubeadm-distro debs --
+# which nke-agent installs by name at cluster create, choosing a variant and a
+# version then -- SPIRE is how a node gets an identity at all, so it is baked
+# in rather than staged for later. Its postinst creates the spire user, adds it
+# to tss and enables both units, so nothing here repeats that.
+spire_agent_deb="$(find "${SRC}/debs" -maxdepth 1 -type f -name 'spire-agent_*.deb' -print -quit 2>/dev/null || true)"
+if [[ -z "${spire_agent_deb}" ]]; then
+  echo "no spire-agent deb in ${SRC}/debs; the image would have no SPIRE agent and could not join a cluster" >&2
+  exit 1
+fi
+sudo dpkg -i "${spire_agent_deb}"
 
 # Give cloud-image importers a stable root-filesystem identifier. Do not rely
 # on a device path because it can change between the build VM and a target.
@@ -120,8 +109,9 @@ done
 # Querying with no pattern (filtering in awk instead) also avoids dpkg-query
 # exiting 1 -- which set -euo pipefail would treat as fatal here -- on a
 # system where dpkg has no record at all matching the glob.
+# Consume all input: exiting awk early can give dpkg-query SIGPIPE under pipefail.
 generic_image_pkg="$(dpkg-query -W -f='${Package}\t${Status}\n' 2>/dev/null |
-  awk -F'\t' '$1 ~ /^linux-image-.*-generic$/ && $2 == "install ok installed" { print $1; exit }')"
+  awk -F'\t' '!found && $1 ~ /^linux-image-.*-generic$/ && $2 == "install ok installed" { print $1; found=1 }')"
 if [[ -n "${generic_image_pkg}" ]]; then
   ver="${generic_image_pkg#linux-image-}"      # e.g. 7.0.0-31-generic
   ver_noflavor="${ver%-generic}"                # e.g. 7.0.0-31
