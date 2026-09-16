@@ -104,9 +104,9 @@ DHCP_RANGE_END="${NICO_VMS_DHCP_RANGE_END:-${BRIDGE_PREFIX}.239}"
 # rather than hanging on a password prompt no one can answer.
 sudo -n true 2>/dev/null || fail "passwordless sudo is required to create the bridge and iptables rules"
 
-# Lifted from setup-linux.sh:66-82. The lane is amd64 (design D-arm64: no arm64
-# label in the fleet has KVM, so there is nothing to grow into), but resolving
-# the package by architecture turns an obscure apt failure into a clear one.
+# Lifted from setup-linux.sh:66-82. Resolving the package by architecture turns
+# an obscure apt failure into a clear one, and both architectures need it now:
+# the arm64 scale set nke-arm64-16c64g gives its runners nested KVM.
 DEB_ARCH="$(dpkg --print-architecture)"
 case "${DEB_ARCH}" in
   amd64) QEMU_SYSTEM_PKG="qemu-system-x86" ;;
