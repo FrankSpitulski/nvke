@@ -201,6 +201,12 @@ test "$(dpkg-query -S /usr/local/bin/spire-agent | cut -d: -f1)" = spire-agent
 # A unit left in /etc would mask the vendor unit the package ships in /lib.
 test ! -e /etc/systemd/system/spire-agent.service
 id -u spire >/dev/null
+# A profile's agent.conf carries plugin_checksum = "${TPM_PLUGIN_CHECKSUM}"
+# verbatim. Without both halves of this, SPIRE compares the plugin against that
+# literal string, refuses to load it, and the node never attests.
+test "$(. /etc/spire-agent/spire-agent.env; echo "${TPM_PLUGIN_CHECKSUM}")" \
+    = "$(sha256sum /usr/local/lib/spire-agent/tpm_attestor_agent | cut -d' ' -f1)"
+grep -Fq -- -expandEnv /lib/systemd/system/spire-agent.service
 
 # The local apt repo has to offer what a node installs at cluster create.
 # These are staged rather than installed, so nothing above would notice them
