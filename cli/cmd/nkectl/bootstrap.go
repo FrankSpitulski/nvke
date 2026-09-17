@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -103,7 +104,21 @@ type bootstrapSiteOptions struct {
 	// tests substitute it so they do not require a real nerdctl installation,
 	// the same seam bootstrapRunner and cweRunner provide for the commands.
 	lookPath func(string) (string, error)
+
+	// dialContext is how the pre-create probe reaches each site spec host.
+	// Nil uses a net.Dialer; tests substitute it so no real host is dialled.
+	dialContext func(ctx context.Context, network, address string) (net.Conn, error)
 }
+
+const (
+	// kubeAPIServerPort is where a control plane answers. A site spec host that
+	// accepts a connection there already runs one.
+	kubeAPIServerPort = "6443"
+
+	// hostProbeTimeout bounds each dial. A host with nothing listening refuses
+	// at once; the timeout is for one that drops the packet instead.
+	hostProbeTimeout = 3 * time.Second
+)
 
 func newBootstrapSiteCmd() *cobra.Command {
 	opts := &bootstrapSiteOptions{}
@@ -226,17 +241,34 @@ func runBootstrapSite(out io.Writer, opts *bootstrapSiteOptions) (err error) {
 		})
 	}
 
-	// Last check before anything is built. A key file already at the output
-	// path belongs to an earlier bootstrap of this cluster name. It is never
-	// overwritten, so the run would fail at the very end; better to say so now,
-	// where it costs a message rather than a Kind cluster and half an hour.
+	engine := bootstrapengine.New(opts.bootstrapRunner, logger)
+
+	// Last checks before anything is built. Each refuses a state a fresh
+	// bootstrap cannot run over, names it, and says what to do; each costs a
+	// message here and a Kind cluster plus half an hour anywhere later. None of
+	// them changes anything: what an earlier run left behind is left for the
+	// operator to deal with, and for a later resume to pick up.
+	//
+	// A bootstrap cluster still running is the strongest sign of an earlier
+	// attempt, and may hold that attempt's encryption key.
+	if err := requireNoBootstrapCluster(ctx, engine, cfg.ClusterName); err != nil {
+		return err
+	}
+	// A key file already at the output path belongs to an earlier bootstrap of
+	// this cluster name. It is never overwritten, so the run would fail at the
+	// very end.
 	if inv.Cluster.EtcdEncryptionEnabled() {
 		if err := requireNoKeyFile(etcdKeyPath(opts, inv.ClusterName)); err != nil {
 			return err
 		}
 	}
+	// A host that already serves a control plane is either a retry over a
+	// half-built site or a site spec pointed at a live cluster; provisioning
+	// over either ends badly.
+	if err := requireNoControlPlane(ctx, inv.Cluster.Nodes, opts.dialContext); err != nil {
+		return err
+	}
 
-	engine := bootstrapengine.New(opts.bootstrapRunner, logger)
 	logger.Info("creating ephemeral bootstrap kind cluster", "cluster", cfg.ClusterName)
 	cluster, err := engine.Create(ctx, cfg)
 	if err != nil {
@@ -540,6 +572,75 @@ func siteKubeconfigPath(clusterName string, opts *bootstrapSiteOptions) string {
 		return opts.kubeconfigOut
 	}
 	return clusterName + ".kubeconfig"
+}
+
+// requireNoBootstrapCluster refuses to start while a bootstrap cluster from an
+// earlier run is still running.
+//
+// A leftover is kept on purpose — by --keep-bootstrap-cluster, or by a run that
+// failed after building its site cluster. In the second case it may hold the
+// only copy of that cluster's etcd encryption key that is not on a node, and
+// the natural response to "already exists" is the delete that loses it. The
+// message leads with saving the key. Nothing is deleted or reused here.
+func requireNoBootstrapCluster(ctx context.Context, engine *bootstrapengine.Engine, name string) error {
+	exists, err := engine.Exists(ctx, name)
+	if err != nil {
+		return fmt.Errorf("checking for a bootstrap cluster from an earlier run: %w", err)
+	}
+	if !exists {
+		return nil
+	}
+	return fmt.Errorf("bootstrap cluster %q from an earlier run is still running. If that run built an encrypted "+
+		"site cluster and did not save its key, the key is in this cluster: get its kubeconfig with "+
+		"`KIND_EXPERIMENTAL_PROVIDER=nerdctl kind get kubeconfig --name %s`, save any etcd-encryption-key-* Secret "+
+		"in namespace %s, then delete it with `KIND_EXPERIMENTAL_PROVIDER=nerdctl kind delete cluster --name %s` and re-run",
+		name, name, cwedeploy.Namespace, name)
+}
+
+// requireNoControlPlane refuses to bootstrap over a host that already accepts
+// connections on the Kubernetes API port.
+//
+// It is a TCP connect, nothing more: enough to catch a control plane left by
+// an earlier attempt, which is the case a bootstrap cannot recover from on
+// its own. Encryption is configured at kubeadm init, so a second attempt over
+// an initialised node cannot pick up the key the node already holds, and the
+// only way forward is to reset the node and start again. Saying so here, with
+// the node named, beats a workflow error twenty minutes in.
+//
+// Any dial error counts as nothing listening, a timeout included. A
+// pre-provisioned host commonly filters every port but the agent's, and
+// refusing on that would block bootstraps that are fine. kubeadm's own
+// preflight still rejects an initialised node; this check is the early,
+// legible form of that rejection, not the guard.
+func requireNoControlPlane(
+	ctx context.Context,
+	nodes []sitespec.Node,
+	dial func(ctx context.Context, network, address string) (net.Conn, error),
+) error {
+	if dial == nil {
+		dial = (&net.Dialer{}).DialContext
+	}
+
+	var serving []string
+	for _, node := range nodes {
+		probeCtx, cancel := context.WithTimeout(ctx, hostProbeTimeout)
+		conn, err := dial(probeCtx, "tcp", net.JoinHostPort(node.IP, kubeAPIServerPort))
+		cancel()
+		if err != nil {
+			continue
+		}
+		_ = conn.Close()
+		serving = append(serving, fmt.Sprintf("%s (%s)", node.Name, node.IP))
+	}
+	if len(serving) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("port %s, the Kubernetes API port, is accepting connections on: %s. "+
+		"A control plane is most likely already running there. If this is a retry of a failed bootstrap, "+
+		"confirm the node has kubeadm state (/etc/kubernetes/manifests), run `kubeadm reset -f` on every node "+
+		"that does, and re-run. If something else is listening, check the node list in the site spec",
+		kubeAPIServerPort, strings.Join(serving, ", "))
 }
 
 // envDurationOrDefault reads a duration from the environment, falling back to a
