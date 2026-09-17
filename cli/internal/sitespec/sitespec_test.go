@@ -563,3 +563,59 @@ func TestLoad_AggregatesDataAndReferenceErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadDefaultsEtcdEncryptionOn(t *testing.T) {
+	// validYAML says nothing about encryption; the loaded spec must resolve
+	// that to on, so every reader downstream sees a decided value.
+	inv, err := Load(writeTemp(t, validYAML))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if inv.Cluster.EtcdEncryption == nil || !*inv.Cluster.EtcdEncryption {
+		t.Errorf("EtcdEncryption = %v, want &true after Load", inv.Cluster.EtcdEncryption)
+	}
+	if !inv.Cluster.EtcdEncryptionEnabled() {
+		t.Error("EtcdEncryptionEnabled() = false for an unset field, want true")
+	}
+}
+
+func TestLoadEnvDisablesEtcdEncryption(t *testing.T) {
+	t.Setenv("CLUSTER_ETCD_ENCRYPTION", "false")
+
+	inv, err := Load(writeTemp(t, validYAML))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if inv.Cluster.EtcdEncryptionEnabled() {
+		t.Error("CLUSTER_ETCD_ENCRYPTION=false did not disable encryption")
+	}
+}
+
+func TestEtcdEncryptionEnabled(t *testing.T) {
+	on, off := true, false
+	for _, tc := range []struct {
+		name  string
+		field *bool
+		want  bool
+	}{
+		{"unset", nil, true},
+		{"true", &on, true},
+		{"false", &off, false},
+	} {
+		if got := (Cluster{EtcdEncryption: tc.field}).EtcdEncryptionEnabled(); got != tc.want {
+			t.Errorf("%s: EtcdEncryptionEnabled() = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestLoadRejectsEmptyEtcdEncryption: the decoder would read "" as false,
+// which for this field is a permanent, silent opt-out. It is refused instead.
+func TestLoadRejectsEmptyEtcdEncryption(t *testing.T) {
+	for _, value := range []string{`""`, `''`} {
+		spec := strings.Replace(validYAML, "cluster:\n", "cluster:\n  etcdEncryption: "+value+"\n", 1)
+		_, err := Load(writeTemp(t, spec))
+		if err == nil || !strings.Contains(err.Error(), pathEtcdEncryption) || !strings.Contains(err.Error(), "not a boolean") {
+			t.Errorf("etcdEncryption: %s: err = %v, want one naming %s as not a boolean", value, err, pathEtcdEncryption)
+		}
+	}
+}

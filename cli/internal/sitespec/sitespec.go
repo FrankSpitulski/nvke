@@ -37,6 +37,10 @@ const (
 	// site spec does not set cluster.nodeAgentPort.
 	DefaultNodeAgentPort = "15005"
 
+	// DefaultEtcdEncryption is what cluster.etcdEncryption means when the site
+	// spec leaves it unset.
+	DefaultEtcdEncryption = true
+
 	// SiteSpec field paths — the single source of truth for the dotted paths
 	// shared by the environment bindings and the validator messages.
 	pathClusterName          = "clusterName"
@@ -48,6 +52,7 @@ const (
 	pathServiceCidr          = "cluster.serviceCidr"
 	pathSystemReservedMemory = "cluster.kubeletConfig.systemReservedMemory"
 	pathNodeAgentPort        = "cluster.nodeAgentPort"
+	pathEtcdEncryption       = "cluster.etcdEncryption"
 	pathBootstrapRepo        = "registry.bootstrapRepo"
 	pathBootstrapChart       = "registry.bootstrapChart"
 	pathAPIKey               = "registry.apiKey"
@@ -133,8 +138,19 @@ type Cluster struct {
 	// NodeAgentPort is the gRPC port nke-agent listens on. Defaults to
 	// DefaultNodeAgentPort when unset.
 	NodeAgentPort string `yaml:"nodeAgentPort"`
+	// EtcdEncryption enables encryption at rest for the Kubernetes API's etcd
+	// data. A pointer so "not set" can be told from "set to false": the
+	// default is on, and an explicit false is permanent — a cluster built
+	// without encryption cannot be encrypted afterwards.
+	EtcdEncryption *bool `yaml:"etcdEncryption,omitempty"`
 	// KubeletConfig holds optional kubelet resource reservations.
 	KubeletConfig KubeletConfig `yaml:"kubeletConfig"`
+}
+
+// EtcdEncryptionEnabled reports whether the cluster's etcd data is encrypted
+// at rest. Unset means enabled; see EtcdEncryption.
+func (c Cluster) EtcdEncryptionEnabled() bool {
+	return c.EtcdEncryption == nil || *c.EtcdEncryption
 }
 
 // Node is a single pre-provisioned host.
@@ -208,6 +224,7 @@ func envBindings() map[string]string {
 		"CLUSTER_SERVICE_CIDR":           pathServiceCidr,
 		"CLUSTER_SYSTEM_RESERVED_MEMORY": pathSystemReservedMemory,
 		"CLUSTER_NODE_AGENT_PORT":        pathNodeAgentPort,
+		"CLUSTER_ETCD_ENCRYPTION":        pathEtcdEncryption,
 		"REGISTRY_BOOTSTRAP_REPO":        pathBootstrapRepo,
 		"REGISTRY_BOOTSTRAP_CHART":       pathBootstrapChart,
 		"REGISTRY_API_KEY":               pathAPIKey,
@@ -250,6 +267,14 @@ func Load(path string) (*SiteSpec, error) {
 			return nil, err
 		}
 		v.Set(pathNodes, nodes)
+	}
+
+	// The decoder reads "" as false for a bool. Here that would disable
+	// encryption silently and for the life of the cluster, and "" is what an
+	// unset template variable produces. Refuse it before decoding loses it.
+	if raw, ok := v.Get(pathEtcdEncryption).(string); ok && raw == "" {
+		return nil, fmt.Errorf("site spec file %s: %s: %q is not a boolean (true or false)",
+			path, pathEtcdEncryption, raw)
 	}
 
 	var inv SiteSpec
@@ -306,6 +331,10 @@ func parseNodesEnv(s string) ([]map[string]string, error) {
 func (inv *SiteSpec) SetDefaults() {
 	if inv.Cluster.NodeAgentPort == "" {
 		inv.Cluster.NodeAgentPort = DefaultNodeAgentPort
+	}
+	if inv.Cluster.EtcdEncryption == nil {
+		enabled := DefaultEtcdEncryption
+		inv.Cluster.EtcdEncryption = &enabled
 	}
 }
 

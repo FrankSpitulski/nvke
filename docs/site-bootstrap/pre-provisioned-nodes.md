@@ -142,6 +142,8 @@ NKECTL_CAPI_PROVISIONED_IMAGE="nvcr.io/<org>/cluster-api-provider-provisioned:ed
 
 Use `--keep-bootstrap-cluster` to leave the Kind cluster running after bootstrap for debugging.
 
+When bootstrap finishes it writes two files into the working directory: `<clusterName>.kubeconfig`, the cluster's admin credential, and `<clusterName>-etcd-encryption-key.json`, the key that encrypts the cluster's etcd data. Both are secrets. The cluster does not depend on the key file: every control-plane node holds the key at `/etc/kubernetes/kube-api-encryption/encryption-config.yaml`, and that is what kube-apiserver reads. The file is for two things the nodes cannot do. It is what a controller installed later is given, so nobody has to pull the key off a node by hand, and it is the copy that restores etcd onto new hosts when no control-plane node survives. **Move it off this host** — this host is one of the nodes it protects — and keep it with the cluster's other credentials. Use `--kubeconfig-out` and `--encryption-key-out` to write the files elsewhere.
+
 **Duration**: Approximately **30–45 minutes**
 
 > **Do NOT run bootstrap on join nodes** — they are joined automatically via gRPC from the init node.
@@ -160,8 +162,8 @@ All nodes should show `Ready` status.
 
 1. Install your environment SBOM so NKE can drive day-2 operations through NICo.
 2. Wait until the SBOM is fully deployed and healthy.
-3. Complete NKE and NICo ingestion with the NKE team. Keep the ephemeral Kind cluster until this step succeeds. **TODO:** Publish ingestion runbook here once it exists.
-4. Delete the Kind cluster, then operate the site through NKE day-2 workflows.
+3. Complete NKE and NICo ingestion with the NKE team. Keep the etcd encryption key file until this step succeeds: ingestion applies it to the controller, which needs it to join control-plane nodes and rotate the key. **TODO:** Publish ingestion runbook here once it exists.
+4. Operate the site through NKE day-2 workflows.
 
 **Unmanaged sites:** Deploy workloads with whatever tooling fits your environment. No NKE site-controller installation is required.
 
@@ -182,6 +184,34 @@ sudo systemctl status nke-agent
 sudo cat /var/log/nke-agent.log
 sudo systemctl restart nke-agent
 ```
+
+**Bootstrap failed with "its encryption key was not saved":**
+
+The cluster is built and encrypted, and its kubeconfig is written; only the last step, saving the key to disk, failed. The bootstrap Kind cluster is kept because it holds the key. Do not delete it and do not re-run bootstrap. Run the command the error prints: it saves the Secret exactly as the bootstrap cluster holds it, owner-readable only, to the same path a successful run would have used. That file carries a `metadata.namespace` of `cloud-workflow-engine`; remove that line before applying it anywhere else. Then delete the Kind cluster:
+
+```bash
+KIND_EXPERIMENTAL_PROVIDER=nerdctl kind delete cluster --name nkectl-bootstrap
+```
+
+**A control-plane node added by hand never starts its API server:**
+
+`kubeadm join --control-plane` times out with "waiting for the kubelet to boot up the control plane", and the kubelet log shows kube-apiserver failing on a missing `/etc/kubernetes/kube-api-encryption/encryption-config.yaml`. The cluster's kubeadm configuration points every API server at that file, and a node joined outside NKE has not been given it. Copy it from a working control-plane node before running `kubeadm join`:
+
+```bash
+sudo install -d -m 0755 /etc/kubernetes/kube-api-encryption
+sudo scp <working-node>:/etc/kubernetes/kube-api-encryption/encryption-config.yaml /etc/kubernetes/kube-api-encryption/
+sudo chmod 0600 /etc/kubernetes/kube-api-encryption/encryption-config.yaml
+```
+
+**Restoring etcd onto new hosts:**
+
+The etcd data is encrypted, so a snapshot restored onto fresh control-plane nodes needs the key at `/etc/kubernetes/kube-api-encryption/encryption-config.yaml` on each of them before kube-apiserver starts. The value that goes after `secret:` in that file is the saved manifest's `data.active`, base64-decoded **once** — the manifest encodes the key a second time, as every Kubernetes Secret does:
+
+```bash
+jq -r .data.active <clusterName>-etcd-encryption-key.json | base64 -d
+```
+
+Without that file, and without a surviving control-plane node to copy from, the data cannot be read.
 
 **Bootstrap stalled waiting for a node to join:**
 
