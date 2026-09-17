@@ -45,6 +45,11 @@ type fakeCWE struct {
 	// createStatus and createBody, when set, make every POST fail with them.
 	createStatus int
 	createBody   string
+	// deleteStatus and deleteBody, when set, make every DELETE fail with them
+	// instead of removing the pool. The list lookup keeps working, so a test
+	// can reach the delete call.
+	deleteStatus int
+	deleteBody   string
 }
 
 // failCreateWith makes the fake reject every POST /nodePools with status and
@@ -71,6 +76,16 @@ func (f *fakeCWE) failPatchWith(status int, body string) {
 	f.patchStatus, f.patchBody = status, body
 }
 
+// failDeleteWith makes the fake reject every DELETE with status and body
+// instead of removing the pool, while still answering the list lookup
+// normally. Used to pin CWE rejections (e.g. last control-plane pool)
+// verbatim through the CLI.
+func (f *fakeCWE) failDeleteWith(status int, body string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleteStatus, f.deleteBody = status, body
+}
+
 // seed is a node pool to serve, together with the name of the cluster that
 // owns it. Pools sharing a cluster name are served under one cluster ID.
 type seed struct {
@@ -83,8 +98,8 @@ type seed struct {
 }
 
 // newFakeCWE starts a fake CWE holding a node pool per seed, and returns it
-// together with a ClientFn wired to it.
-func newFakeCWE(t *testing.T, seeds ...seed) (*fakeCWE, ClientFn) {
+// together with a CWEClientFn wired to it.
+func newFakeCWE(t *testing.T, seeds ...seed) (*fakeCWE, CWEClientFn) {
 	t.Helper()
 	f := &fakeCWE{clusterNames: map[uuid.UUID]string{}}
 	clusterIDs := map[string]uuid.UUID{}
@@ -120,9 +135,9 @@ func conditionsFor(s seed) api.NodePoolConditions {
 	return api.NodePoolConditions{Provisioned: api.Condition{Status: api.ConditionStatusTrue}}
 }
 
-// newBrokenCWE returns a ClientFn for a server that answers every request with
+// newBrokenCWE returns a CWEClientFn for a server that answers every request with
 // status and body, for the error paths.
-func newBrokenCWE(t *testing.T, status int, body string) ClientFn {
+func newBrokenCWE(t *testing.T, status int, body string) CWEClientFn {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -136,7 +151,7 @@ func newBrokenCWE(t *testing.T, status int, body string) ClientFn {
 // clientFnFor builds a real CWEClient against url. Nothing here is a stub: the
 // client is the one the binary uses, so a change to its URL handling, status
 // checks or error parsing shows up in these tests.
-func clientFnFor(url string) ClientFn {
+func clientFnFor(url string) CWEClientFn {
 	return func() (*clients.CWEClient, error) {
 		return clients.New(config.SiteConfig{URL: url})
 	}
@@ -212,6 +227,8 @@ func (f *fakeCWE) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.listClusters(w, r.URL.Query().Get("name"))
 	case isItem && r.Method == http.MethodPatch:
 		f.update(w, r, id)
+	case isItem && r.Method == http.MethodDelete:
+		f.delete(w, id)
 	default:
 		writeJSON(w, http.StatusNotFound,
 			api.GenericError{Message: "no route for " + r.Method + " " + path})
@@ -326,6 +343,25 @@ func (f *fakeCWE) create(w http.ResponseWriter, r *http.Request) {
 	}
 	f.nodePools = append(f.nodePools, pool)
 	writeJSON(w, http.StatusCreated, pool)
+}
+
+// delete answers DELETE /nodePools/{id}, removing the pool from the store on
+// success. CWE's real response carries no body on 202.
+func (f *fakeCWE) delete(w http.ResponseWriter, id string) {
+	if f.deleteStatus != 0 {
+		writeJSON(w, f.deleteStatus, json.RawMessage(f.deleteBody))
+		return
+	}
+
+	for i, p := range f.nodePools {
+		if p.ID.String() != id {
+			continue
+		}
+		f.nodePools = append(f.nodePools[:i], f.nodePools[i+1:]...)
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	writeJSON(w, http.StatusNotFound, api.GenericError{Message: "node pool " + id + " not found"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
