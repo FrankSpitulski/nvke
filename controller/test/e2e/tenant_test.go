@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -990,11 +991,15 @@ const (
 	nicoVMSInstanceTypeID  = "a1b2c3d4-0005-4000-8000-000000000001"
 	nicoVMSLargeInstanceID = "a1b2c3d4-0005-4000-8000-000000000003"
 	nicoVMSSSHKeyGroupID   = "a1b2c3d4-0006-4000-8000-000000000001"
-	nicoVMSOSProfile       = "nke-nico-vms-24.04-amd64-fde"
 	nicoVMSCPConfigProfile = "nico-vms-cp"
 	nicoVMSWConfigProfile  = "nico-vms-worker"
 	nicoVMSControlPlaneVIP = "172.31.0.10"
 )
+
+// nicoVMSOSProfile is the profile the nico-vms specs boot. nico-sim takes the
+// guest architecture from the host it runs on, never from the profile, so the
+// profile has to match the runner. hack/ci/nico-vms-e2e.sh builds the same name.
+var nicoVMSOSProfile = "nke-nico-vms-24.04-" + runtime.GOARCH + "-fde"
 
 // nicoVMSSpec builds a nico-vms topology using the local emulator's seed
 // identifiers. kube-vip is left enabled (the nico-vms BGP speaker advertises

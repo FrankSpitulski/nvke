@@ -184,9 +184,15 @@ jobs:
           set -euo pipefail
           version="$(grep -oE 'TILT_VERSION:=v[0-9.]+' controller/hack/ci/backend-e2e.sh | head -1 | sed 's/.*:=v//')"
           [[ -n "${version}" ]] || { echo "could not read the pinned Tilt version" >&2; exit 1; }
+          # Tilt names the 64-bit ARM asset arm64, not aarch64.
+          case "$(uname -m)" in
+            x86_64) tilt_arch=x86_64 ;;
+            aarch64) tilt_arch=arm64 ;;
+            *) echo "Tilt publishes no release asset for $(uname -m)" >&2; exit 1 ;;
+          esac
           tmp="$(mktemp -d)"
           curl -fsSL -o "${tmp}/tilt.tgz" \
-            "https://github.com/tilt-dev/tilt/releases/download/v${version}/tilt.${version}.linux.x86_64.tar.gz"
+            "https://github.com/tilt-dev/tilt/releases/download/v${version}/tilt.${version}.linux.${tilt_arch}.tar.gz"
           tar -xzf "${tmp}/tilt.tgz" -C "${tmp}" tilt
           sudo install -m 0755 "${tmp}/tilt" /usr/local/bin/tilt
           tilt version

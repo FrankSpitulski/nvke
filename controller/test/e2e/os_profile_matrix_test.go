@@ -45,9 +45,12 @@ type osProfileExclusion struct {
 const legacyAutoinstallExclusionReason = "profile boots vmlinuz, initrd, and ISO directly; nico-vms currently requires a qcow-imager chain with image_url"
 
 // nicoVMSOSProfileExclusions classifies active profiles that the local
-// x86_64 nico-vms backend cannot use. New active profiles are otherwise
-// required by the matrix, so an unsupported profile must be added here with
-// an explicit reason before the suite will register.
+// nico-vms backend cannot use on any host. Profiles built for another
+// architecture are not listed here. nico-sim takes the guest architecture from
+// its host, so nicoVMSOSProfileMatrix drops those by architecture instead. New
+// active profiles are otherwise required by the matrix, so an unsupported
+// profile must be added here with an explicit reason before the suite will
+// register.
 var nicoVMSOSProfileExclusions = map[string]osProfileExclusion{
 	"nke-1.29.7-251119": {
 		reason: legacyAutoinstallExclusionReason,
@@ -75,27 +78,6 @@ var nicoVMSOSProfileExclusions = map[string]osProfileExclusion{
 	},
 	"nke-260511-22.04-amd64": {
 		reason: legacyAutoinstallExclusionReason,
-	},
-	"nke-1.31.9-251124-24.04-arm64": {
-		reason: "nico-vms currently provisions x86_64 VMs and cannot boot arm64 images",
-	},
-	"nke-1.34.2-251201-arm64-ytl": {
-		reason: "nico-vms currently provisions x86_64 VMs and cannot boot arm64 images",
-	},
-	"nke-1.34.2-260616-arm64-ytl": {
-		reason: "nico-vms currently provisions x86_64 VMs and cannot boot arm64 images",
-	},
-	"nke-260602-24.04-arm64-fde": {
-		reason: "nico-vms currently provisions x86_64 VMs and cannot boot arm64 images",
-	},
-	"nke-260611-24.04-arm64-fde": {
-		reason: "nico-vms currently provisions x86_64 VMs and cannot boot arm64 images",
-	},
-	"nke-260625-24.04-arm64-fde": {
-		reason: "nico-vms currently provisions x86_64 VMs and cannot boot arm64 images",
-	},
-	"nke-260625-24.04-arm64-fde-na-0.1.29": {
-		reason: "nico-vms currently provisions x86_64 VMs and cannot boot arm64 images",
 	},
 	"nke-local-dev-kindest-arm64": {
 		reason: "local kindest profile is an arm64 development placeholder, not a tenant OS profile",
@@ -191,12 +173,15 @@ func nicoVMSOSProfileMatrix() ([]nicoVMSOSProfileEntry, error) {
 		}
 
 		metadata := index.Profiles[name]
-		if metadata.Architecture != "amd64" {
+		if metadata.Architecture != "amd64" && metadata.Architecture != "arm64" {
 			return nil, fmt.Errorf(
 				"active profile %q has architecture %q; add a supported nico-vms entry or a documented exclusion",
 				name,
 				metadata.Architecture,
 			)
+		}
+		if metadata.Architecture != runtime.GOARCH {
+			continue
 		}
 		if !metadata.KubernetesVersionInjected && metadata.KubernetesVersion == "" {
 			return nil, fmt.Errorf("active profile %q has neither an embedded nor injectable Kubernetes version", name)
@@ -205,6 +190,22 @@ func nicoVMSOSProfileMatrix() ([]nicoVMSOSProfileEntry, error) {
 	}
 
 	return profiles, nil
+}
+
+// otherArchProfiles counts active profiles this host cannot boot because they
+// are built for another architecture, ignoring any the exclusion map already
+// covers so the two never count the same profile twice.
+func otherArchProfiles(index osProfileMetadataIndex) int {
+	count := 0
+	for name, metadata := range index.Profiles {
+		if _, excluded := nicoVMSOSProfileExclusions[name]; excluded {
+			continue
+		}
+		if metadata.Architecture != runtime.GOARCH {
+			count++
+		}
+	}
+	return count
 }
 
 func loadActiveOSProfileMetadata() (osProfileMetadataIndex, error) {
@@ -278,9 +279,14 @@ func TestNicoVMSOSProfileMatrix(t *testing.T) {
 		}
 		t.Fatalf("loading active metadata: %v", err)
 	}
-	expectedProfiles := len(index.Profiles) - len(nicoVMSOSProfileExclusions)
+	expectedProfiles := len(index.Profiles) - len(nicoVMSOSProfileExclusions) - otherArchProfiles(index)
 	if len(profiles) != expectedProfiles {
-		t.Fatalf("matrix contains %d profiles, want %d active profiles minus exclusions", len(profiles), expectedProfiles)
+		t.Fatalf("matrix contains %d profiles, want %d active %s profiles minus exclusions", len(profiles), expectedProfiles, runtime.GOARCH)
+	}
+	for _, profile := range profiles {
+		if profile.metadata.Architecture != runtime.GOARCH {
+			t.Errorf("matrix has %s profile %s; nico-vms boots %s guests here", profile.metadata.Architecture, profile.name, runtime.GOARCH)
+		}
 	}
 
 	for name, exclusion := range nicoVMSOSProfileExclusions {
@@ -304,7 +310,20 @@ func TestNicoVMSOSProfileMatrix(t *testing.T) {
 		t.Errorf("fixed-version profile uses Kubernetes %q, want 1.29.7", fixedVersionSpec.shape.kubernetesVersion)
 	}
 
-	productionSpec := nicoVMSOSProfileTestSpec(profilesByName["nke-260625-24.04-x86-fde"], 1)
+	// Which profiles the matrix holds depends on the host architecture, so take
+	// an injected-version profile from it rather than naming one. profiles is
+	// sorted by name, so the choice is the same every run.
+	var injected nicoVMSOSProfileEntry
+	for _, profile := range profiles {
+		if profile.metadata.KubernetesVersionInjected {
+			injected = profile
+			break
+		}
+	}
+	if injected.name == "" {
+		t.Fatal("matrix has no profile with an injected Kubernetes version")
+	}
+	productionSpec := nicoVMSOSProfileTestSpec(injected, 1)
 	if productionSpec.shape.kubernetesVersion != defaultKubernetesVersion {
 		t.Errorf("injected profile uses Kubernetes %q, want suite default %q", productionSpec.shape.kubernetesVersion, defaultKubernetesVersion)
 	}

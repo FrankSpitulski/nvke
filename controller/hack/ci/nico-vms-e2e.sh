@@ -363,8 +363,12 @@ esac
 # root is set explicitly: the default sits beside the database in .dev/, which
 # this script wipes.
 export NICO_SIM_FILES_DIR="${NICO_SIM_DIR}/var/files"
-AGENT_URL_PATH="$(grep -oE 'files/[a-z-]+/nke-agent' "${CWE_PROFILES_DIR}/osProfiles/nke-nico-vms-24.04-amd64-fde/userData.tmpl" | head -1)"
-[[ -n "${AGENT_URL_PATH}" ]] || fail "the nico-vms OS profile no longer downloads nke-agent from /files/"
+# nico-sim boots guests of the host's architecture, so the specs use the
+# matching profile. Keep this name in step with nicoVMSOSProfile in
+# test/e2e/tenant_test.go.
+OS_PROFILE="nke-nico-vms-24.04-${host_arch}-fde"
+AGENT_URL_PATH="$(grep -oE 'files/[a-z-]+/nke-agent' "${CWE_PROFILES_DIR}/osProfiles/${OS_PROFILE}/userData.tmpl" | head -1)"
+[[ -n "${AGENT_URL_PATH}" ]] || fail "${OS_PROFILE} no longer downloads nke-agent from /files/"
 log "building nke-agent from ${WORKSPACE_ROOT}/agent"
 make -C "${WORKSPACE_ROOT}/agent" "build-${host_arch}" >"${STATE_DIR}/agent-build.log" 2>&1 ||
   { tail -n 50 "${STATE_DIR}/agent-build.log" >&2; fail "building nke-agent failed"; }

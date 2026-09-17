@@ -9,6 +9,10 @@
 # Only the three fields the matrix reads are copied. build_date, ubuntu_version
 # and variant are deliberately left out.
 #
+# The nke-nico-vms-* entries are the suite's own profiles rather than fleet
+# ones, and the matrix needs them here because it reads this index on both
+# architectures.
+#
 # Refresh this when profiles are added or retired upstream. A stale copy still
 # runs the matrix, but stops catching a profile retired in nke-site-deploy.
 
@@ -97,6 +101,10 @@ profiles:
     kubernetes_version: ""
     kubernetes_version_injected: true
     architecture: "amd64"
+  nke-nico-vms-24.04-arm64-fde:
+    kubernetes_version: ""
+    kubernetes_version_injected: true
+    architecture: "arm64"
   nke-local-dev-kindest-arm64:
     kubernetes_version: "1.34.2"
     architecture: "arm64"

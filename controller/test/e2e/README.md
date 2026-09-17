@@ -257,8 +257,8 @@ When adding an OS profile:
 1. Add its directory and active metadata entry to the fleet profiles
    directory (for NVIDIA maintainers, the internal fleet repository; otherwise
    the directory `$CWE_PROFILES_DIR` points at).
-2. For an amd64 tenant profile, no separate e2e list update is required; the
-   matrix includes it automatically.
+2. For a tenant profile, no separate e2e list update is required; the matrix
+   includes it automatically on a runner of its architecture.
 3. If nico-vms cannot support it, add it to
    `nicoVMSOSProfileExclusions` in `test/e2e/os_profile_matrix_test.go` with
    the concrete reason and an owning follow-up ticket when one can remove the
@@ -266,13 +266,15 @@ When adding an OS profile:
 4. Run the focused matrix test and then the new profile's label before running
    the complete matrix.
 
-The current exclusions are arm64 images (forge-vms provisions x86_64 VMs), the
-arm64 `nke-local-dev-kindest` placeholder (not a tenant OS profile), and legacy
-autoinstall profiles whose iPXE scripts boot a kernel, initrd and ISO directly
-where forge-vms requires a `chain` to `qcow-imager.efi` with an `image_url`.
+The matrix holds the active profiles built for the runner's own architecture.
+nico-sim takes the guest architecture from the host it runs on, never from the
+profile, so an amd64 runner boots the amd64 profiles and an arm64 runner boots
+the arm64 ones. A profile for the other architecture is left out without an
+exclusion entry.
 
-- arm64 images because nico-vms provisions x86_64 VMs;
-- the arm64 `nke-local-dev-kindest` placeholder because it is not a tenant OS
+`nicoVMSOSProfileExclusions` holds the profiles no runner can boot:
+
+- the arm64 `nke-local-dev-kindest` placeholder, because it is not a tenant OS
   profile; and
 - legacy autoinstall profiles whose iPXE scripts boot a kernel, initrd, and ISO
   directly. nico-vms currently requires a `chain` to `qcow-imager.efi` with an
