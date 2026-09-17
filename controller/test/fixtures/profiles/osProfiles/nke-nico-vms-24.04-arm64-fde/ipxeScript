@@ -1,5 +1,9 @@
 #!ipxe
-set boot-loader https://d1veq6e8nuk2fy.cloudfront.net/nke-isos/qcow/efi/aarch64/2026-06-25/1782410719/qcow-imager.efi
+# nico-sim boots the qcow2 directly and never chains an EFI, so this URL is
+# only here because the chain line's grammar needs it. Kept unreachable rather
+# than pointing at CloudFront, which nothing would fetch. Same value as
+# controller/test/kubeadm/internal/nicovms/launch.go.
+set boot-loader http://127.0.0.1/qcow-imager.efi
 set image-url https://d1veq6e8nuk2fy.cloudfront.net/nke-isos/qcow/images/24.04/aarch64/lvm/2026-06-25/1035/nke-24.04-aarch64-lvm-2026-06-25-1035.qcow2
 set disk-strategy {{ .DiskSelectionStrategy }}
 

@@ -417,7 +417,13 @@ if [[ -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
   done
   (( repointed > 0 )) ||
     fail "no osProfile ipxeScript carries a 'set image-url' line to repoint"
-  log "tenant nodes boot ${qcow} (${repointed} profile(s) repointed)"
+  # With the image repointed, nothing in these scripts should name CloudFront
+  # any more. Assert it rather than hope: a profile that grew a new CloudFront
+  # URL would put back the dependency this path exists to remove.
+  if grep -l cloudfront.net "${CWE_PROFILES_DIR}"/osProfiles/*/ipxeScript 2>/dev/null; then
+    fail "the ipxeScript(s) listed above still name CloudFront after repointing"
+  fi
+  log "tenant nodes boot ${qcow} (${repointed} profile(s) repointed, no CloudFront left)"
 fi
 
 # A previous run's database, instances and logs would confuse this one.
