@@ -57,21 +57,12 @@ if [[ -n "${CALICO_VERSIONS:-}" ]]; then
 fi
 make -C "${repo_root}/os-image/packages/cni-calico" debs "${cni_calico_args[@]}"
 
-# OVN's chart and images need an NGC key for nv-ngn; CI has none, so opt-in.
-# amd64 only: nothing has locked the arm64 image set, which differs in
-# membership rather than just in digests.
-if [[ "${ARCH}" == amd64 && -n "${NGC_API_KEY:-}" ]]; then
-  echo "building nke-cni-ovn debs (${repo_root}/os-image/packages/cni-ovn)"
-  cni_ovn_args=(OUT_DIR="${ARTIFACTS_DIR}/debs" ARCH="${ARCH}")
-  if [[ -n "${OVN_STREAMS:-}" ]]; then
-    cni_ovn_args+=(OVN_STREAMS="${OVN_STREAMS}")
-  fi
-  make -C "${repo_root}/os-image/packages/cni-ovn" debs "${cni_ovn_args[@]}"
-elif [[ "${ARCH}" == amd64 ]]; then
-  echo "NGC_API_KEY is unset; skipping the nke-cni-ovn debs (this image cannot install OVN offline)"
-else
-  echo "skipping the nke-cni-ovn debs: no arm64 lock (this image cannot install OVN offline)"
+echo "building nke-cni-ovn debs (${repo_root}/os-image/packages/cni-ovn)"
+cni_ovn_args=(OUT_DIR="${ARTIFACTS_DIR}/debs" ARCH="${ARCH}")
+if [[ -n "${OVN_STREAMS:-}" ]]; then
+  cni_ovn_args+=(OVN_STREAMS="${OVN_STREAMS}")
 fi
+make -C "${repo_root}/os-image/packages/cni-ovn" debs "${cni_ovn_args[@]}"
 
 # The spire-agent deb: the upstream SPIRE agent and the TPM node attestor
 # plugin, plus the units that run them. Its lock pins both architectures.
