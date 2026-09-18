@@ -4,18 +4,17 @@
 # nico-vms backend E2E: the only lane that runs the nico-vms specs, on real KVM
 # tenant nodes booted from the NKE FDE image. Body: controller/hack/ci/nico-vms-e2e.sh,
 # host mode, because nico-vms needs libvirt, the host bridge and CAP_NET_ADMIN.
-# Advisory. A run takes about 2.5 hours, so the push paths are only the lane's
-# own inputs, and a mirror-branch run is skipped unless the pull request itself
-# touches them; everything else the lane depends on is covered by the
-# twice-daily schedule. Mirror-branch pushes are the PR trigger; self-hosted
-# runners get no pull_request events.
+# Advisory. A happy-path run takes 40 minutes on arm64 and 90 on amd64, so the
+# push paths are only the lane's own inputs, and a mirror-branch run is skipped
+# unless the pull request itself touches them; everything else the lane depends
+# on is covered by the twice-daily schedule. Mirror-branch pushes are the PR
+# trigger; self-hosted runners get no pull_request events.
 #
 # Two legs, one per architecture. amd64 uses the hosted GPU label, the only
 # hosted one with /dev/kvm; arm64 uses the self-hosted fleet, which gained
 # nested KVM in #797. Both resolve their node image from GHCR rather than the
-# profile's CloudFront URL, which the fleet answers 403 to. The arm64 leg has
-# never booted a tenant VM, so read a failure there as new information rather
-# than as a regression.
+# profile's CloudFront URL, which the fleet answers 403 to. Both went green in
+# #804, so a failure on either is a regression.
 
 name: NICo VMs E2E
 
@@ -51,7 +50,7 @@ on:
   workflow_dispatch:
     inputs:
       label-filter:
-        description: Ginkgo label filter. The default is the 16 happy-path specs.
+        description: Ginkgo label filter. The default is the 15 happy-path specs.
         required: false
         default: nico-vms && happy-path
         type: string
@@ -90,7 +89,7 @@ jobs:
     needs: changes
     if: github.repository == 'dsx-ai-factory/nke' && needs.changes.outputs.run_e2e == 'true'
     strategy:
-      # arm64 is unproven; a failure there must not cancel amd64.
+      # One architecture failing must not hide the other's result.
       fail-fast: false
       # amd64 is linux-amd64-gpu-l4-latest-1, the one hosted label with
       # /dev/kvm; see kubeadm-bringup-e2e.yml. arm64 is nke-arm64-16c64g on the
@@ -102,8 +101,8 @@ jobs:
             runner: linux-amd64-gpu-l4-latest-1
           - arch: arm64
             runner: nke-arm64-16c64g
-    # Unmeasured. Two tenant clusters of three to six VMs, one of them upgraded
-    # through two Kubernetes versions. Generous until there is data.
+    # Happy path in #804: arm64 41m, amd64 1h31m. Generous for the wider label
+    # filters a dispatch can ask for.
     timeout-minutes: 330
     permissions:
       contents: read
@@ -126,7 +125,8 @@ jobs:
       KIND_CLUSTER_NAME: cwe-nico-vms
       NKE_E2E_RUN_ID: github-nico-vms-${{ github.run_id }}-${{ github.run_attempt }}
       NKE_E2E_LABEL_FILTER: ${{ github.event.inputs.label-filter || 'nico-vms && happy-path' }}
-      # Empty on a schedule or a push, so those keep the pinned image.
+      # Empty on a schedule or a push, which is what makes the lane resolve the
+      # newest published image for each architecture. Only a dispatch pins one.
       NKE_E2E_OS_IMAGE_TAG: ${{ github.event.inputs.os-image-tag }}
       NKE_E2E_GINKGO_TIMEOUT: 270m
       # One upgrade hop (1.34 -> 1.35); the second recycles all three control-plane nodes again, ~45 min.
