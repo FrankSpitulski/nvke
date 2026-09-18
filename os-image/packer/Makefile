@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 PACKER      ?= packer
+PYTHON      ?= python3
+PACKER_MAKEFILE := $(abspath $(lastword $(MAKEFILE_LIST)))
 SSH_DIR     := $(CURDIR)/.ssh
 ARTIFACTS   := $(CURDIR)/artifacts
 # Deliberately separate from ARTIFACTS: the FDE/non-FDE "file" provisioner
@@ -11,12 +13,25 @@ ARTIFACTS   := $(CURDIR)/artifacts
 # uploaded too -- this is exactly what caused an FDE build to try uploading
 # 5.8GB instead of ~120MB and fail with a misleading "Disk quota exceeded".
 ISO_CACHE   := $(CURDIR)/iso-cache
+# Keep Packer's build/download cache in the existing ignored build cache
+# instead of its default ./.packer_cache, which would make the checkout dirty
+# and fail the source-cleanliness gates. Callers may still supply their own
+# cache directory.
+PACKER_CACHE_DIR ?= $(ISO_CACHE)/packer-cache
+ifeq ($(strip $(PACKER_CACHE_DIR)),)
+  override PACKER_CACHE_DIR := $(ISO_CACHE)/packer-cache
+endif
+export PACKER_CACHE_DIR
 # FDE/non-FDE only: where the guest's serial console (boot + autoinstall
 # output) gets captured, for CI to upload as an artifact on failure -- no
 # VNC/monitor access there to inspect a stuck build interactively.
 BUILD_LOGS  := $(CURDIR)/build-logs
 PKR_FILE_FDE := $(CURDIR)/nke-node-fde.pkr.hcl
 PKR_FILE_NON_FDE := $(CURDIR)/nke-node-non-fde.pkr.hcl
+SOURCE_ROOT ?= $(abspath ../..)
+QCOW2_DIST_DIR ?=
+EXPECTED_SOURCE_COMMIT ?=
+export SOURCE_ROOT EXPECTED_SOURCE_COMMIT PYTHON
 
 LUKS_PASSPHRASE ?= changeit
 # Label applied to the root filesystem. Cloud-image importers can use this
@@ -116,7 +131,7 @@ CPUS ?= 4
 # nke-node-fde.pkr.hcl.
 BOOT_WAIT ?= $(if $(filter kvm,$(ACCELERATOR)),10s,30s)
 
-.PHONY: os-image-fde os-image-non-fde init-fde init-non-fde ssh-key prepare-installer-iso clean check-deps
+.PHONY: os-image-fde os-image-non-fde init-fde init-non-fde ssh-key prepare-installer-iso clean check-deps check-source collect-qcow2-fde collect-qcow2-non-fde
 
 ssh-key: $(SSH_DIR)/id_ed25519
 
@@ -124,10 +139,25 @@ $(SSH_DIR)/id_ed25519:
 	mkdir -p $(SSH_DIR)
 	ssh-keygen -t ed25519 -N '' -f $(SSH_DIR)/id_ed25519
 
-init-fde:
+check-source:
+	@set -eu; \
+	actual_commit="$$(git -C "$$SOURCE_ROOT" rev-parse --verify HEAD)"; \
+	git -C "$$SOURCE_ROOT" rev-parse --verify 'HEAD^{tree}' >/dev/null; \
+	if [ -n "$$EXPECTED_SOURCE_COMMIT" ] && [ "$$actual_commit" != "$$EXPECTED_SOURCE_COMMIT" ]; then \
+		echo "source commit $$actual_commit does not match expected $$EXPECTED_SOURCE_COMMIT" >&2; \
+		exit 1; \
+	fi; \
+	status="$$(git -C "$$SOURCE_ROOT" status --porcelain=v1 --untracked-files=normal)"; \
+	if [ -n "$$status" ]; then \
+		echo "source checkout is dirty; build and collection require an exact clean Git tree" >&2; \
+		printf '%s\n' "$$status" >&2; \
+		exit 1; \
+	fi
+
+init-fde: check-source
 	$(PACKER) init $(PKR_FILE_FDE)
 
-init-non-fde:
+init-non-fde: check-source
 	$(PACKER) init $(PKR_FILE_NON_FDE)
 
 # FDE/non-FDE only. See prepare-installer-iso.sh's header for why this
@@ -143,10 +173,92 @@ check-deps:
 		echo "go is required to build nke-agent and the pinned nfpm" >&2; \
 		exit 1; \
 	}
+	@command -v $(PYTHON) >/dev/null 2>&1 || { \
+		echo "Python 3.10 or newer is required to validate the compressed QCOW2" >&2; \
+		exit 1; \
+	}
+	@$(PYTHON) -c 'import sys; raise SystemExit(sys.version_info < (3, 10))' || { \
+		echo "Python 3.10 or newer is required to validate the compressed QCOW2" >&2; \
+		exit 1; \
+	}
+	@command -v qemu-img >/dev/null 2>&1 || { \
+		echo "qemu-img is required to build and compress the QCOW2" >&2; \
+		exit 1; \
+	}
 
 .PHONY: test
-test: ## Check artifact staging without downloading or building bundles.
-	python3 scripts/test_fetch_artifacts.py
+test: ## Check artifact staging, QCOW2 collection, and workflow wiring.
+	$(PYTHON) -B -m unittest discover -s scripts -p 'test_*.py'
+
+# Copy the one completed image without changing its bytes. Collection is a
+# separate target so local builds and CI use the same source-owned boundary.
+# Callers must supply QCOW2_DIST_DIR and capture the single basename printed on
+# stdout (use make --silent when stdout is machine-consumed).
+define collect_qcow2
+	@set -eu; \
+	if [ -z "$$QCOW2_DIST_DIR" ]; then \
+		echo "QCOW2_DIST_DIR is required for $(1) QCOW2 collection" >&2; \
+		exit 1; \
+	fi; \
+	source_dir="$(CURDIR)/output-$(1)"; \
+	set -- "$$source_dir"/*.qcow2; \
+	if [ "$$#" -eq 1 ] && [ ! -e "$$1" ] && [ ! -L "$$1" ]; then \
+		set --; \
+	fi; \
+	if [ "$$#" -ne 1 ]; then \
+		echo "expected exactly one QCOW2 in $$source_dir; found $$#" >&2; \
+		exit 1; \
+	fi; \
+	source="$$1"; \
+	if [ ! -f "$$source" ] || [ -L "$$source" ]; then \
+		echo "QCOW2 source is not a regular file: $$source" >&2; \
+		exit 1; \
+	fi; \
+	iso_name="$(notdir $(ISO_URL))"; \
+	case "$$iso_name" in \
+		ubuntu-*-live-server-"$(ARCH)".iso) ;; \
+		*) echo "ISO_URL does not identify an $(ARCH) Ubuntu installer: $(ISO_URL)" >&2; exit 1 ;; \
+	esac; \
+	version="$${iso_name#ubuntu-}"; \
+	version="$${version%-live-server-$(ARCH).iso}"; \
+	expected="nke-node-$(1)-ubuntu-$$version-$(ARCH).qcow2"; \
+	name="$${source##*/}"; \
+	if [ "$$name" != "$$expected" ]; then \
+		echo "expected $(1) $(ARCH) QCOW2 $$expected; found $$name" >&2; \
+		exit 1; \
+	fi; \
+	mkdir -p "$$QCOW2_DIST_DIR"; \
+	if [ ! -d "$$QCOW2_DIST_DIR" ] || [ -L "$$QCOW2_DIST_DIR" ]; then \
+		echo "QCOW2_DIST_DIR is not a regular directory: $$QCOW2_DIST_DIR" >&2; \
+		exit 1; \
+	fi; \
+	destination="$$QCOW2_DIST_DIR/$$name"; \
+	if [ -L "$$destination" ]; then \
+		echo "refusing to replace symlink destination: $$destination" >&2; \
+		exit 1; \
+	fi; \
+	cp "$$source" "$$destination"; \
+	if [ ! -f "$$destination" ] || [ -L "$$destination" ]; then \
+		echo "collected QCOW2 is not a regular file: $$destination" >&2; \
+		exit 1; \
+	fi; \
+	if ! cmp -s "$$source" "$$destination"; then \
+		rm -f "$$destination"; \
+		echo "collected QCOW2 differs from source: $$destination" >&2; \
+		exit 1; \
+	fi; \
+	printf '%s\n' "$$name"
+endef
+
+collect-qcow2-fde collect-qcow2-non-fde: export QCOW2_DIST_DIR := $(QCOW2_DIST_DIR)
+
+collect-qcow2-fde:
+	@$(MAKE) --no-print-directory --silent --file "$(PACKER_MAKEFILE)" check-source
+	$(call collect_qcow2,fde)
+
+collect-qcow2-non-fde:
+	@$(MAKE) --no-print-directory --silent --file "$(PACKER_MAKEFILE)" check-source
+	$(call collect_qcow2,non-fde)
 
 # Full-disk-encryption variant: boots the Ubuntu Server installer to lay down
 # an LVM-on-LUKS layout via autoinstall, then provisions nke-agent/spire-agent,

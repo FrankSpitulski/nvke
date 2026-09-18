@@ -250,6 +250,7 @@ jobs:
           set -euo pipefail
           make test
           make build
+          make -C packer test
 
       # qemu-system-arm provides qemu-system-aarch64; qemu-efi-aarch64
       # provides the AAVMF firmware the arm64 leg needs (arm64's equivalent
@@ -352,7 +353,8 @@ jobs:
           trap 'kill "${console_pid}"; wait "${console_pid}" || true' EXIT
           status=0
           timeout --signal=TERM "${remaining}s" \
-            make -C os-image/packer os-image-fde ARCH=${{ matrix.arch }} || status=$?
+            make -C os-image/packer os-image-fde \
+              ARCH=${{ matrix.arch }} ACCELERATOR=kvm || status=$?
           if [[ "${status}" -eq 124 ]]; then
             echo "::error::FDE build did not finish within ${remaining}s (job timeout minus a 30s buffer)"
             echo "::group::os-image/packer/build-logs (dumped before exiting on self-timeout)"
@@ -399,7 +401,8 @@ jobs:
           trap 'kill "${console_pid}"; wait "${console_pid}" || true' EXIT
           status=0
           timeout --signal=TERM "${remaining}s" \
-            make -C os-image/packer os-image-non-fde ARCH=${{ matrix.arch }} || status=$?
+            make -C os-image/packer os-image-non-fde \
+              ARCH=${{ matrix.arch }} ACCELERATOR=kvm || status=$?
           if [[ "${status}" -eq 124 ]]; then
             echo "::error::non-FDE build did not finish within ${remaining}s (job timeout minus a 30s buffer)"
             echo "::group::os-image/packer/build-logs (dumped before exiting on self-timeout)"
@@ -439,26 +442,32 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      # Keeps Packer's filename (vm_name in the .pkr.hcl), e.g.
-      # nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2. The layer is named the same.
-      - name: Compress the qcow2s for publish
+      # Make owns the final QCOW2 conversion and collection. Its collection
+      # targets require a clean source and exactly one regular image, preserve
+      # Packer's basename, and compare the copied bytes before returning it.
+      - name: Collect the finalized qcow2s
         id: disks
+        env:
+          EXPECTED_SOURCE_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
           mkdir -p dist
-          # Writes to GITHUB_OUTPUT rather than stdout; qemu-img uses stdout.
-          compress() {
-            local dir="$1" key="$2" src name
-            src="$(ls "${dir}"/*.qcow2)"
-            name="$(basename "${src}")"
-            qemu-img convert -p -c -O qcow2 "${src}" "dist/${name}"
-            qemu-img info "dist/${name}"
-            echo "${key}=${name}" >> "$GITHUB_OUTPUT"
-          }
           if [[ "${{ matrix.build_fde }}" == "true" ]]; then
-            compress os-image/packer/output-fde fde
+            fde_name="$(
+              make --no-print-directory --silent -C os-image/packer \
+                collect-qcow2-fde \
+                ARCH=${{ matrix.arch }} \
+                QCOW2_DIST_DIR="$PWD/dist"
+            )"
+            echo "fde=${fde_name}" >> "$GITHUB_OUTPUT"
           fi
-          compress os-image/packer/output-non-fde non_fde
+          non_fde_name="$(
+            make --no-print-directory --silent -C os-image/packer \
+              collect-qcow2-non-fde \
+              ARCH=${{ matrix.arch }} \
+              QCOW2_DIST_DIR="$PWD/dist"
+          )"
+          echo "non_fde=${non_fde_name}" >> "$GITHUB_OUTPUT"
 
       # --artifact-platform is still marked experimental in the ORAS CLI. It is
       # load-bearing: without it the manifest has no platform in its config and

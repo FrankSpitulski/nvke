@@ -24,8 +24,9 @@ Prereqs, on a Linux host:
 |---|---|---|
 | [Packer](https://developer.hashicorp.com/packer) | >= 1.10.0 | https://developer.hashicorp.com/packer/install |
 | [Go](https://go.dev/) | per `go.work` | https://go.dev/dl/ |
+| Python | >= 3.10, standard library only | via your package manager |
 | `curl` | any | via your package manager |
-| `qemu-system-x86_64`, `cloud-localds`, `swtpm`, OVMF | any | via your package manager |
+| `qemu-system-x86_64`, `qemu-system-aarch64`, `qemu-img`, `cloud-localds`, `swtpm`, OVMF | any | via your package manager |
 | `xorriso`, `p7zip-full` (`7z`) | any | via your package manager |
 
 Both variants boot the Ubuntu Server installer (not a prebuilt cloud image),
@@ -80,6 +81,17 @@ QEMU binary (`qemu-system-aarch64`), machine type (`virt`), and UEFI firmware
 
 The build-time cloud-init seed is only for Packer's SSH. The provisioner runs
 `cloud-init clean` and drops the build key, so each qcow2 is a golden image.
+
+Each Packer build applies the publication QCOW2 conversion once through its
+existing `compress-qcow2.sh` post-processor. Before replacing Packer's output,
+that path verifies the converted temporary file is a self-contained,
+unencrypted QCOW2 with a positive virtual size and no backing file. The
+source-owned Make targets check that the checkout is clean before Packer starts
+and again before collection. Collection requires exactly one finalized QCOW2,
+preserves its basename, and verifies that the copied publication bytes are
+identical. By default, the Makefile exports `PACKER_CACHE_DIR` under the ignored
+`packer/iso-cache/` tree so Packer's build/download cache does not dirty the
+checkout; callers may override that directory without changing the recipe.
 
 ## Full-disk-encryption (FDE) variant
 
@@ -170,6 +182,11 @@ multi-platform manifest shared across arches, see the workflow's header
 comment for why — then cuts a GitHub Release attaching `nke-os-image-check`
 and a `checksums.txt` covering all four qcow2s and the checker binary.
 
+The workflow selects the source-owned Make collection target for each matrix
+variant. Make copies the final QCOW2 under its existing basename and verifies
+that the publication copy is byte-identical. Existing `oras pull` output
+remains one qcow2.
+
 The pulled file keeps the name Packer gave it, so it carries the Ubuntu point
 release and the architecture and two arches can share a directory:
 
@@ -198,10 +215,10 @@ none, forcing every bake onto `tcg` software emulation (confirmed directly: a
 full FDE bake took 1h39m under `tcg` vs a few minutes locally under real
 KVM). The job's "Enable KVM access" step fails immediately if that
 assumption turns out wrong, rather than silently falling back to the
-~10x-slower emulated path. The arm64 leg runs on that same amd64 runner —
-there is no arm64-labeled runner in this org's pool yet — always
-cross-building under `tcg`, since KVM can't accelerate a guest arch that
-doesn't match the host.
+~10x-slower emulated path. The arm64 leg runs natively on
+`nke-arm64-16c64g`, also with `/dev/kvm`; the workflow fails immediately if
+that device is absent or unusable. The Makefile still retains its portable
+same-architecture KVM probe and TCG fallback for local builds.
 
 If the FDE/non-FDE build or boot-smoke steps fail in CI, download the
 `fde-install-console-logs` artifact from the run — it's the guest's own
