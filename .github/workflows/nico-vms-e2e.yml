@@ -4,11 +4,18 @@
 # nico-vms backend E2E: the only lane that runs the nico-vms specs, on real KVM
 # tenant nodes booted from the NKE FDE image. Body: controller/hack/ci/nico-vms-e2e.sh,
 # host mode, because nico-vms needs libvirt, the host bridge and CAP_NET_ADMIN.
-# Advisory. A run takes about 2.5 hours on the one KVM runner, so the push
-# paths are only the lane's own inputs, and a mirror-branch run is skipped
-# unless the pull request itself touches them; everything else the lane depends
-# on is covered by the twice-daily schedule. Mirror-branch pushes are the PR
-# trigger; self-hosted runners get no pull_request events.
+# Advisory. A run takes about 2.5 hours, so the push paths are only the lane's
+# own inputs, and a mirror-branch run is skipped unless the pull request itself
+# touches them; everything else the lane depends on is covered by the
+# twice-daily schedule. Mirror-branch pushes are the PR trigger; self-hosted
+# runners get no pull_request events.
+#
+# Two legs, one per architecture. amd64 uses the hosted GPU label, the only
+# hosted one with /dev/kvm; arm64 uses the self-hosted fleet, which gained
+# nested KVM in #797. Both resolve their node image from GHCR rather than the
+# profile's CloudFront URL, which the fleet answers 403 to. The arm64 leg has
+# never booted a tenant VM, so read a failure there as new information rather
+# than as a regression.
 
 name: NICo VMs E2E
 
@@ -49,7 +56,7 @@ on:
         default: nico-vms && happy-path
         type: string
       os-image-tag:
-        description: "Boot the node image this repository built, e.g. v0.1.0-rc.1. Empty keeps the profile's pinned CloudFront image."
+        description: "Pin every leg to one node image, e.g. v0.1.0-rc.1. The tag needs an image for each architecture the run covers, because each leg appends its own. Empty is usually what you want: it resolves the newest per architecture."
         required: false
         default: ""
         type: string
@@ -78,16 +85,32 @@ jobs:
       relevant_paths: '^agent/(internal/agent/open_vswitch.*\.go$|pkg/agent/proto/node_agent\.proto$)|^controller/(Tiltfile$|internal/temporal/activities/configure_open_vswitch\.go$|internal/temporal/workflows/provision_node\.go$|nico-sim/|hack/nico-provider/|hack/ci/nico-vms-e2e\.sh$|test/e2e/open_vswitch_test\.go$|test/kubeadm/scripts/)|^\.github/workflows/(nico-vms-e2e|e2e-pr-path-filter)\.yml$'
 
   nico-vms-e2e:
-    name: nico-vms-e2e (amd64, KVM)
-    # The one label with /dev/kvm; see kubeadm-bringup-e2e.yml for why.
-    runs-on: linux-amd64-gpu-l4-latest-1
+    name: nico-vms-e2e (${{ matrix.arch }}, KVM)
+    runs-on: ${{ matrix.runner }}
     needs: changes
     if: github.repository == 'dsx-ai-factory/nke' && needs.changes.outputs.run_e2e == 'true'
+    strategy:
+      # arm64 is unproven; a failure there must not cancel amd64.
+      fail-fast: false
+      # amd64 is linux-amd64-gpu-l4-latest-1, the one hosted label with
+      # /dev/kvm; see kubeadm-bringup-e2e.yml. arm64 is nke-arm64-16c64g on the
+      # self-hosted fleet, which holds two of that shape, so one run takes half
+      # of it.
+      matrix:
+        include:
+          - arch: amd64
+            runner: linux-amd64-gpu-l4-latest-1
+          - arch: arm64
+            runner: nke-arm64-16c64g
     # Unmeasured. Two tenant clusters of three to six VMs, one of them upgraded
     # through two Kubernetes versions. Generous until there is data.
     timeout-minutes: 330
     permissions:
       contents: read
+      # os-image-tag pulls the node image from GHCR, and those packages are
+      # private. A job-level permissions block replaces the defaults, so
+      # without this the token cannot read them.
+      packages: read
     env:
       # nico-vms needs cgo for sqlite; without it the binary fails at the first query.
       CGO_ENABLED: "1"
@@ -167,6 +190,14 @@ jobs:
       # step list the same either way.
       - name: Set up ORAS
         uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      # Same pair as os-image-artifact.yml, which pushes these packages.
+      # Unconditional, like the step above, so the step list does not change
+      # with the input.
+      - name: Sign in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${GHCR_TOKEN}" | oras login ghcr.io --username "${{ github.actor }}" --password-stdin
 
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
@@ -262,7 +293,9 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: nico-vms-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          # The architecture belongs in the name: both legs upload, and without
+          # it the two are one name and you cannot tell which leg you opened.
+          name: nico-vms-e2e-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.NKE_E2E_STATE_DIR }}/
             !${{ env.NKE_E2E_STATE_DIR }}/cwe-e2e.test

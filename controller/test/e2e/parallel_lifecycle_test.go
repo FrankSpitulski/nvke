@@ -38,6 +38,7 @@ var _ = Describe("Parallel tenant cluster lifecycle", Ordered, ContinueOnFailure
 	Label("nico-vms", "extended", "parallel-lifecycle"), func() {
 		shapes := []clusterShape{
 			{
+				// Needs an image carrying OVN debs; one built here has none.
 				cniPlugin:         CNIPluginOVN,
 				controlPlanePools: []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
 				workerPools:       []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},

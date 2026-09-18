@@ -376,13 +376,47 @@ install -D -m 0755 "${WORKSPACE_ROOT}/agent/bin/linux_${host_arch}/nke-agent" "$
 log "staged nke-agent for the tenant nodes: $(git -C "${WORKSPACE_ROOT}" describe --match 'agent/v*' --tags --always 2>/dev/null || echo unknown)"
 
 # ── The node image the tenant VMs boot ──────────────────────────────────────
-# Opt in with NKE_E2E_OS_IMAGE_TAG. Unset, the profiles keep their pinned
-# CloudFront image and this lane behaves exactly as before.
+# Set NKE_E2E_OS_IMAGE_TAG to pin one image. Unset, the newest published one
+# for this architecture is resolved below, because the profile's own image-url
+# is CloudFront and the self-hosted fleet gets 403 from it.
 #
 # No server: nico-sim resolves image-url on the host, never in a guest, and
 # copies a local path straight into its image cache. See localImagePath and
 # copyLocal in nico-sim/internal/ipxe/imagecache.go, whose own comment gives
 # the reason -- an image built in the same job is already on disk.
+# The newest tag GHCR holds for this architecture. Registry tag order is not
+# chronological and sha-<hex> carries no ordering, so this reads updated_at
+# from the packages API. The -<arch> suffix comes off, because image_ref adds
+# it back.
+newest_os_image_tag() {
+  local arch="$1" repo path org pkg
+  # Keep this in step with image_repo below: both lanes booted an LVM image
+  # before this, and -fde is a different boot path that has to unlock first.
+  repo="${NKE_E2E_OS_IMAGE_REPO:-ghcr.io/dsx-ai-factory/nke/os-image-non-fde}"
+  path="${repo#ghcr.io/}"
+  org="${path%%/*}"
+  pkg="${path#*/}"
+  gh api --paginate \
+      "/orgs/${org}/packages/container/${pkg//\//%2F}/versions?per_page=100" \
+      --jq '.[] | {u: .updated_at, t: (.metadata.container.tags // [])[]}' 2>/dev/null |
+    jq -rs --arg a "-${arch}" \
+      'map(select(.t | endswith($a))) | sort_by(.u) | last | .t // empty' |
+    sed "s/-${arch}\$//"
+}
+
+os_image_tag_pinned=no
+[[ -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]] && os_image_tag_pinned=yes
+
+if [[ -z "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
+  NKE_E2E_OS_IMAGE_TAG="$(newest_os_image_tag "${host_arch}" || true)"
+  # No fallback. The profile's image-url is CloudFront, and this lane does not
+  # depend on it. Stopping here costs a minute; falling back spends the whole
+  # run to arrive somewhere we have decided not to go.
+  [[ -n "${NKE_E2E_OS_IMAGE_TAG}" ]] ||
+    fail "no os-image published for ${host_arch}. Build one with os-image-artifact.yml, or set NKE_E2E_OS_IMAGE_TAG."
+  log "newest published os-image for ${host_arch}: ${NKE_E2E_OS_IMAGE_TAG}"
+fi
+
 if [[ -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
   command -v oras >/dev/null 2>&1 ||
     fail "NKE_E2E_OS_IMAGE_TAG is set but oras is not on PATH"
@@ -394,7 +428,15 @@ if [[ -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
   log "pulling ${image_ref}"
   oras pull "${image_ref}" --platform "linux/${host_arch}" -o "${image_dir}" \
     >"${STATE_DIR}/os-image-pull.log" 2>&1 ||
-    { tail -n 20 "${STATE_DIR}/os-image-pull.log" >&2; fail "pulling ${image_ref} failed"; }
+    {
+      tail -n 20 "${STATE_DIR}/os-image-pull.log" >&2
+      # One tag input covers every leg, and each appends its own architecture.
+      # Pinning a tag built for one architecture fails the others here.
+      if [[ "${os_image_tag_pinned}" == yes ]]; then
+        fail "pulling ${image_ref} failed. A pinned tag needs an image for every architecture the run covers; this leg wanted -${host_arch}. Build it, or leave the tag empty to resolve one per architecture."
+      fi
+      fail "pulling ${image_ref} failed"
+    }
 
   shopt -s nullglob
   pulled=("${image_dir}"/*.qcow2)
@@ -417,11 +459,12 @@ if [[ -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
   done
   (( repointed > 0 )) ||
     fail "no osProfile ipxeScript carries a 'set image-url' line to repoint"
-  # With the image repointed, nothing in these scripts should name CloudFront
-  # any more. Assert it rather than hope: a profile that grew a new CloudFront
-  # URL would put back the dependency this path exists to remove.
-  if grep -l cloudfront.net "${CWE_PROFILES_DIR}"/osProfiles/*/ipxeScript 2>/dev/null; then
-    fail "the ipxeScript(s) listed above still name CloudFront after repointing"
+  # Every profile file, not just the ipxeScript. The bundle server sat in
+  # userData.tmpl and this check used to walk straight past it, so the lane
+  # reported "no CloudFront left" while still shipping a CloudFront URL to
+  # every node it created.
+  if grep -rl cloudfront.net "${CWE_PROFILES_DIR}" 2>/dev/null; then
+    fail "the profile file(s) listed above still name CloudFront after repointing"
   fi
   log "tenant nodes boot ${qcow} (${repointed} profile(s) repointed, no CloudFront left)"
 fi

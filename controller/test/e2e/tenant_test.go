@@ -394,7 +394,9 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 			},
 			workerPools: []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
 		},
-		options:  nke.Options{Provision: 90 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
+		// A healthy create takes about 8.5 minutes, and nothing below gives up on
+		// its own, so this wait is what a broken node costs.
+		options:  nke.Options{Provision: 30 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
 		validate: validations{controlPlaneController: true, controlPlaneControllerUpdate: true, controlPlaneControllerRollingUpdate: true},
 	}),
 	// NICo gets the same bounded pull-request contract as CAPD. Keep this entry
@@ -460,13 +462,13 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 		buildSpec: nicoVMSSpec,
 		shape: clusterShape{
 			kubernetesVersion: "1.34.2",
-			cniPlugin:         CNIPluginOVN, // Required by the Open vSwitch typed-path assertion below.
-			// Default cpu2-mem2gb cannot schedule ovnkube-node (500m/1500Mi).
+			// The openVSwitch assertion needs OVN, which this image cannot install.
+			// Large instances kept: cpu2-mem2gb was sized against ovnkube-node.
 			controlPlanePools: []nke.NodePoolSpec{{DesiredNodeCount: 3, InstanceTypeID: nicoVMSLargeInstanceID}},
 			workerPools:       []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
 		},
-		options:  nke.Options{Provision: 90 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
-		validate: validations{scale: true, reboot: true, openVSwitch: true},
+		options:  nke.Options{Provision: 30 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
+		validate: validations{scale: true, reboot: true},
 	}),
 	Entry("nico-vms k8s upgrade", Ordered, ContinueOnFailure, Label("nico-vms", "happy-path", "upgrade"), testSpec{
 		buildSpec: nicoVMSSpec,
@@ -475,7 +477,7 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 			controlPlanePools: []nke.NodePoolSpec{{DesiredNodeCount: 3, InstanceTypeID: nicoVMSLargeInstanceID}},
 			workerPools:       []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
 		},
-		options:  nke.Options{Provision: 90 * time.Minute, Upgrade: 90 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
+		options:  nke.Options{Provision: 30 * time.Minute, Upgrade: 90 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
 		validate: validations{upgrade: true},
 	}),
 	Entry("CAPD with etcd encryption", Ordered, ContinueOnFailure, Label("capd", "extended", "encryption"), testSpec{
@@ -524,20 +526,18 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 		buildSpec: nicoVMSMultiPodCIDRSpec,
 		shape: clusterShape{
 			kubernetesVersion: "1.34.2",
-			cniPlugin:         CNIPluginOVN,
 			controlPlanePools: []nke.NodePoolSpec{{DesiredNodeCount: 3, InstanceTypeID: nicoVMSLargeInstanceID}},
 			workerPools:       []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
 		},
-		options: nke.Options{Provision: 90 * time.Minute, Delete: 10 * time.Minute, Poll: 30 * time.Second},
+		options: nke.Options{Provision: 30 * time.Minute, Delete: 10 * time.Minute, Poll: 30 * time.Second},
 	}),
 	Entry("nico-vms node pool lifecycle", Ordered, ContinueOnFailure, Label("nico-vms", "extended", "nodepool"), testSpec{
 		buildSpec: nicoVMSSpec,
 		shape: clusterShape{
-			cniPlugin:         CNIPluginOVN, // OVN provisions faster than the Calico default.
 			controlPlanePools: []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
 			workerPools:       []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
 		},
-		options:  nke.Options{Provision: 90 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
+		options:  nke.Options{Provision: 30 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
 		validate: validations{clusterConfig: true, nodeReplacement: true, manualScaleDown: true, nodePoolLifecycle: true, nodePoolCascade: true},
 	}),
 	// Opt-in via the "cp-rotation" label: it exercises a 2-to-1 etcd member
@@ -545,11 +545,10 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 	Entry("nico-vms single-node control-plane rotation", Ordered, ContinueOnFailure, Label("nico-vms", "extended", "cp-rotation"), testSpec{
 		buildSpec: nicoVMSSpec,
 		shape: clusterShape{
-			cniPlugin:         CNIPluginOVN, // OVN provisions faster than the Calico default.
 			controlPlanePools: []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
 			workerPools:       []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
 		},
-		options:  nke.Options{Provision: 90 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
+		options:  nke.Options{Provision: 30 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
 		validate: validations{cpRotation: true},
 	}),
 )...)
@@ -1046,9 +1045,9 @@ func nicoVMSSpec(_ config.Config, name string, shape clusterShape) nke.ClusterSp
 		Name:              name,
 		Backend:           nke.BackendNicoVMS,
 		KubernetesVersion: defaultString(shape.kubernetesVersion, defaultKubernetesVersion),
-		// NKE_E2E_NICO_VMS_CNI moves the default for entries that do not pin one; Calico's
-		// images are a third of OVN's and import in a third of the time on every node.
-		CNIPlugin: defaultString(shape.cniPlugin, defaultString(os.Getenv("NKE_E2E_NICO_VMS_CNI"), CNIPluginOVN)),
+		// Calico, like the other two backends. An image built here has no OVN debs:
+		// fetch-artifacts.sh needs an NGC key, and skips arm64 entirely.
+		CNIPlugin: defaultString(shape.cniPlugin, defaultString(os.Getenv("NKE_E2E_NICO_VMS_CNI"), CNIPluginCalico)),
 		OrgID:     nicoVMSOrgID,
 		SiteID:    nicoVMSSiteID,
 		VpcID:     nicoVMSVpcID,
