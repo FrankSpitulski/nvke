@@ -1,5 +1,7 @@
 # Using Pre-Provisioned Nodes
 
+> **Which path is this?** This guide covers bootstrap on nodes you bring yourself — no SPIRE workload API, no TPM, `--disable-mtls` on `nke-agent`. If your nodes are built from the NKE OS image (SPIRE agent pre-installed, mTLS on by default), see [`os-image/SPEC.md`](../../os-image/SPEC.md) for the image contract and [`docs/first-cluster.md`](../first-cluster.md) Path C for the full flow.
+
 If you already have nodes provisioned and running, you can manually prepare them for tier-0 bootstrap.
 
 > **Tested platforms:** Tier-0 bootstrap on pre-provisioned nodes is tested on **Ubuntu 24.04 (Noble) and 26.04 (Resolute)** with **Kubernetes up to 1.34**. Kubernetes 1.35 and 1.36 are experimental. Ubuntu 22.04 (Jammy) is no longer supported.
@@ -49,6 +51,22 @@ Run these commands on **all nodes** (both join and init nodes):
 
 ### Install Kubernetes Components
 
+How you install kubeadm depends on whether your nodes were built from an NKE OS image.
+
+**Nodes built from the NKE OS image** — the image stages versioned Kubernetes Debian packages in a local apt repository at `/usr/lib/nke/debs`, but does not install them. Install them via cloud-init `runcmd` before the node is handed to bootstrap:
+
+```yaml
+runcmd:
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y nke-kubeadm-distro-<k8s-version>
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y nke-cni-calico-images-<stream> nke-cni-calico-manifests-<stream>
+```
+
+Replace `<k8s-version>` with the version matching `cluster.k8sVersion` in your site spec, and `<stream>` with the CNI stream for your Kubernetes version. If you skip this step, bootstrap runs its full 30-minute timeout and fails on `NodePreflight` / `check_cloud_init_status` — the error does not mention kubeadm.
+
+**Nodes not built from the NKE OS image** — follow the steps below to install kubeadm and all required runtime dependencies from scratch.
+
+> **Warning:** If you skip or partially complete the steps below, `nkectl bootstrap site` will reach `cluster state status=Provisioning` and then sit silently for the full `--timeout` (default 30 minutes) before failing. The log will say nothing useful. All of the steps below are required.
+
 ```bash
 # Create keyrings directory
 sudo mkdir -p -m 755 /etc/apt/keyrings
@@ -60,12 +78,72 @@ curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key | \
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /' | \
   sudo tee /etc/apt/sources.list.d/kubernetes.list
 
+# Add Docker repository (for containerd.io).
+# Skip this block if containerd is already present on your nodes
+# (e.g. installed via DOCA or a pre-baked OS image) — use whatever
+# version is already there and proceed to the configuration step below.
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+  sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list
+
 sudo apt-get update
-sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-get install -y kubelet kubeadm kubectl containerd.io conntrack cri-tools
 sudo apt-mark hold kubelet kubeadm kubectl
 ```
 
 > **Warning:** The repository minor version (`v1.34` above) determines which `kubeadm` is installed, and it must match `cluster.k8sVersion` in your bootstrap configuration. `kubeadm` refuses to create a control plane more than one minor version older than itself.
+
+### Configure the Container Runtime
+
+containerd ships with the systemd cgroup driver disabled. kubeadm requires it. Without this step, the kubelet and containerd disagree about cgroup management and the control plane never becomes ready.
+
+```bash
+sudo containerd config default | sudo tee /etc/containerd/config.toml
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+sudo systemctl restart containerd
+sudo systemctl enable containerd
+```
+
+### Configure Kernel Modules and Sysctls
+
+kubeadm's preflight checks require `br_netfilter`, `overlay`, and three sysctls. Load them now and persist them across reboots.
+
+```bash
+sudo modprobe overlay
+sudo modprobe br_netfilter
+
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+
+sudo sysctl --system
+
+# Disable swap — kubeadm requires it
+sudo swapoff -a
+sudo sed -i '/\bswap\b/s/^/#/' /etc/fstab
+```
+
+### Install CNI Plugin Binaries
+
+`kubernetes-cni` (installed as a kubeadm dependency) does not populate `/opt/cni/bin` in the layout containerd expects. Install the containernetworking plugins explicitly:
+
+```bash
+CNI_VERSION="v1.6.0"
+ARCH=$(dpkg --print-architecture)
+sudo mkdir -p /opt/cni/bin
+curl -fsSL "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz" | \
+  sudo tar -C /opt/cni/bin -xz
+```
 
 ### Install Node-Agent
 
@@ -171,7 +249,7 @@ All nodes should show `Ready` status.
 
 - **Join nodes don't need `nkectl`** — only the init node runs it
 - **`nke-agent` must be running on all nodes** — verify `systemctl status nke-agent` before starting bootstrap
-- **Network connectivity** — init node must reach join nodes on the configured gRPC port (default `15005`)
+- **Network connectivity** — CWE must reach each node on **15005** (nke-agent gRPC) and **6443** (API server); nodes with a TPM EK thumbprint also need **30081** reachable for attestation
 - **Hostnames and IPs** — use actual hostnames and IPs that nodes use to communicate with each other
 - **User permissions** — commands must run with `sudo` or as root
 
