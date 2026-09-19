@@ -314,6 +314,7 @@ jobs:
             capd-controller.log
             dsx-identity-exchange.log
             cwe.log
+            cwe-follow.log
           )
           for file in "${files[@]}"; do
             [[ -f "${state_dir}/${file}" ]] || continue

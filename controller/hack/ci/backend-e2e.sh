@@ -75,6 +75,7 @@ STATE_VOLUME_OWNED=false
 BUNDLE_VOLUME_OWNED=false
 CAPD_NODE_IMAGE_OWNED=false
 STATE_MONITOR_PID=""
+CWE_LOG_PID=""
 
 if [[ "${RUNNER_DOCKER_HOST}" == "unix:///var/run/docker.sock" ]]; then
   [[ -S /var/run/docker.sock ]] || {
@@ -321,9 +322,34 @@ start_state_monitor() {
     done
   ) >"${STATE_DIR}/capi-state-timeline.log" 2>&1 &
   STATE_MONITOR_PID=$!
+  start_cwe_log_follower
+}
+
+# CWE is the one deployment this run rolls: redeploy_cwe flips the
+# control-plane-controller flag between the legs, and it rolls again near the
+# end. `kubectl logs deployment/...` at teardown only reaches the pod that
+# survived, so every line before the last roll is gone. Run 35364887944
+# shipped a 20-line cwe.log starting 50 minutes after the first spec failed,
+# which is why that failure was never root-caused. Follow the deployment for
+# the whole run instead and re-attach after each roll; --prefix names the pod
+# per line so the seams stay readable.
+start_cwe_log_follower() {
+  (
+    while true; do
+      runner_exec kubectl -n cloud-workflow-engine logs -f deployment/cloud-workflow-engine \
+        --all-containers --prefix --tail=-1 --pod-running-timeout=1m || true
+      sleep 5
+    done
+  ) >"${STATE_DIR}/cwe-follow.log" 2>&1 &
+  CWE_LOG_PID=$!
 }
 
 stop_state_monitor() {
+  if [[ -n "${CWE_LOG_PID}" ]]; then
+    kill "${CWE_LOG_PID}" >/dev/null 2>&1 || true
+    wait "${CWE_LOG_PID}" >/dev/null 2>&1 || true
+    CWE_LOG_PID=""
+  fi
   if [[ -z "${STATE_MONITOR_PID}" ]]; then
     return
   fi
