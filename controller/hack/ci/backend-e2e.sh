@@ -43,8 +43,10 @@ case "${BACKEND}" in
   nico) BACKEND_LABEL=nico-containers ;;
   *) BACKEND_LABEL="${BACKEND}" ;;
 esac
-# Run the nkectl checks in hack/ci/nkectl-smoke.sh once the suite passes.
+# Run the nkectl checks in hack/ci/nkectl-smoke.sh once the suite passes. This
+# lane has an inner runner, so the smoke drives the CLI inside it.
 NKECTL_SMOKE="${NKE_E2E_NKECTL_SMOKE:-false}"
+NKECTL_SMOKE_RUNNER="${RUNNER_NAME}"
 if [[ "${SINGLE_RUNNER_CONTROL_PLANE_MODES}" == "true" ]]; then
   PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=true
 fi

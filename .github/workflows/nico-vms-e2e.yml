@@ -27,6 +27,9 @@ on:
       - "controller/nico-sim/**"
       - "controller/hack/nico-provider/**"
       - "controller/hack/ci/nico-vms-e2e.sh"
+      # This lane runs the nkectl smoke, and is the only one that exercises its
+      # host-mode branch.
+      - "controller/hack/ci/nkectl-smoke.sh"
       - "controller/test/kubeadm/scripts/**"
       # The Tiltfile is the lane's CWE deployment recipe (#683).
       - controller/Tiltfile
@@ -81,7 +84,7 @@ jobs:
       pull-requests: read
     with:
       # Keep in step with the push paths above.
-      relevant_paths: '^agent/(internal/agent/open_vswitch.*\.go$|pkg/agent/proto/node_agent\.proto$)|^controller/(Tiltfile$|internal/temporal/activities/configure_open_vswitch\.go$|internal/temporal/workflows/provision_node\.go$|nico-sim/|hack/nico-provider/|hack/ci/nico-vms-e2e\.sh$|test/e2e/open_vswitch_test\.go$|test/kubeadm/scripts/)|^\.github/workflows/(nico-vms-e2e|e2e-pr-path-filter)\.yml$'
+      relevant_paths: '^agent/(internal/agent/open_vswitch.*\.go$|pkg/agent/proto/node_agent\.proto$)|^controller/(Tiltfile$|internal/temporal/activities/configure_open_vswitch\.go$|internal/temporal/workflows/provision_node\.go$|nico-sim/|hack/nico-provider/|hack/ci/nico-vms-e2e\.sh$|hack/ci/nkectl-smoke\.sh$|test/e2e/open_vswitch_test\.go$|test/kubeadm/scripts/)|^\.github/workflows/(nico-vms-e2e|e2e-pr-path-filter)\.yml$'
 
   nico-vms-e2e:
     name: nico-vms-e2e (${{ matrix.arch }}, KVM)
@@ -299,6 +302,10 @@ jobs:
           path: |
             ${{ env.NKE_E2E_STATE_DIR }}/
             !${{ env.NKE_E2E_STATE_DIR }}/cwe-e2e.test
+            # The smoke's own nkectl state: a cached CWE token lives here.
+            !${{ env.NKE_E2E_STATE_DIR }}/nkectl-home
+            !${{ env.NKE_E2E_STATE_DIR }}/nkectl-no-auth
+            !${{ env.NKE_E2E_STATE_DIR }}/nkectl
             !${{ env.NKE_E2E_STATE_DIR }}/kubeconfig
           if-no-files-found: warn
           retention-days: 7
