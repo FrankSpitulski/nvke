@@ -574,6 +574,210 @@ jobs:
           retention-days: 7
 
   # Fans the matrix back in: checksums.txt covers every disk both legs built.
+  # Separate jobs, not more steps in "publish": that job also runs on
+  # pull-request/* mirror branches with no publish step, and an
+  # `environment:` gate would apply to the whole job, not just the push
+  # step. Pulls the qcow2 just pushed to GHCR instead of rebuilding it.
+  publish-nvcr:
+    needs: [matrix, publish]
+    if: >-
+      github.repository == 'dsx-ai-factory/nke' &&
+      github.event.inputs.dry_run != 'true' &&
+      (startsWith(github.ref, 'refs/tags/os-image/') ||
+       github.event_name == 'workflow_dispatch')
+    name: Publish to NVCR (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    environment: nvcr
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.matrix.outputs.legs) }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read pinned tool versions
+        id: versions
+        run: |
+          echo "oras_version=$(make --no-print-directory print-ORAS_VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+        with:
+          version: ${{ steps.versions.outputs.oras_version }}
+
+      - name: Resolve tag
+        id: meta
+        env:
+          ARCH: ${{ matrix.arch }}
+          NKE_NGC_ORG: ${{ vars.NKE_NGC_ORG }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${NKE_NGC_ORG}" ]]; then
+            echo "::error::NKE_NGC_ORG is not set in the nvcr environment"
+            exit 1
+          fi
+          tag="sha-${GITHUB_SHA}-${ARCH}"
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF_NAME#os-image/}-${ARCH}"
+          fi
+          {
+            echo "tag=${tag}"
+            echo "nvcr_fde=nvcr.io/${NKE_NGC_ORG}/nke-os-image-fde"
+            echo "nvcr_non_fde=nvcr.io/${NKE_NGC_ORG}/nke-os-image-non-fde"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Log in to GHCR (pull) and NVCR (push)
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NGC_TOKEN: ${{ secrets.NGC_REGISTRY_TOKEN_NKE }}
+        run: |
+          set -euo pipefail
+          echo "${GHCR_TOKEN}" | oras login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
+          # shellcheck disable=SC2016
+          echo "${NGC_TOKEN}" | oras login nvcr.io \
+            --username '$oauthtoken' --password-stdin
+
+      - name: Copy GHCR to NVCR
+        shell: bash
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          NVCR_FDE: ${{ steps.meta.outputs.nvcr_fde }}
+          NVCR_NON_FDE: ${{ steps.meta.outputs.nvcr_non_fde }}
+          BUILD_FDE: ${{ matrix.build_fde }}
+        run: |
+          set -euo pipefail
+          oras cp "${REPO_NON_FDE}:${TAG}" "${NVCR_NON_FDE}:${TAG}"
+          if [[ "${BUILD_FDE}" == "true" ]]; then
+            oras cp "${REPO_FDE}:${TAG}" "${NVCR_FDE}:${TAG}"
+          fi
+
+  # Same "separate job" reasoning as publish-nvcr. Downloads the qcow2 from
+  # GHCR rather than the runner's local disk, since this job doesn't share a
+  # filesystem with the "publish" matrix leg that built it.
+  publish-s3:
+    needs: [matrix, publish]
+    if: >-
+      github.repository == 'dsx-ai-factory/nke' &&
+      github.event.inputs.dry_run != 'true' &&
+      startsWith(github.ref, 'refs/tags/os-image/')
+    name: Publish to S3 (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    environment: s3-publish
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.matrix.outputs.legs) }}
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read pinned tool versions
+        id: versions
+        run: |
+          echo "oras_version=$(make --no-print-directory print-ORAS_VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+        with:
+          version: ${{ steps.versions.outputs.oras_version }}
+
+      - name: Log in to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "${GHCR_TOKEN}" | oras login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
+
+      - name: Resolve release and pull qcow2s
+        id: meta
+        env:
+          ARCH: ${{ matrix.arch }}
+          BUILD_FDE: ${{ matrix.build_fde }}
+          S3_URI: ${{ vars.S3_PUBLISH_S3_URI }}
+          ROLE_ARN: ${{ vars.S3_PUBLISH_AWS_ROLE_ARN }}
+          REGION: ${{ vars.S3_PUBLISH_AWS_REGION }}
+          CF_DOMAIN: ${{ vars.S3_PUBLISH_CLOUDFRONT_DOMAIN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${S3_URI}" || -z "${ROLE_ARN}" || -z "${CF_DOMAIN}" ]]; then
+            echo "::error::S3_PUBLISH_S3_URI / S3_PUBLISH_AWS_ROLE_ARN / S3_PUBLISH_CLOUDFRONT_DOMAIN not set in the s3-publish environment"
+            exit 1
+          fi
+          release="${GITHUB_REF_NAME#os-image/}"
+          tag="${release}-${ARCH}"
+          mkdir -p dist
+          oras pull "${REPO_NON_FDE}:${tag}" -o dist
+          if [[ "${BUILD_FDE}" == "true" ]]; then
+            oras pull "${REPO_FDE}:${tag}" -o dist
+          fi
+          {
+            echo "s3_uri=${S3_URI}"
+            echo "role_arn=${ROLE_ARN}"
+            echo "region=${REGION:-us-west-2}"
+            echo "release=${release}"
+            echo "cf_domain=${CF_DOMAIN}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: ${{ steps.meta.outputs.role_arn }}
+          aws-region: ${{ steps.meta.outputs.region }}
+
+      - name: Upload to S3
+        shell: bash
+        env:
+          S3_URI: ${{ steps.meta.outputs.s3_uri }}
+          RELEASE: ${{ steps.meta.outputs.release }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          for f in dist/*.qcow2; do
+            S3_PREFIX="os-image/releases/${RELEASE}/${ARCH}" \
+              ./scripts/upload-s3-flat.sh "$f"
+          done
+
+      - name: Verify CloudFront reachability
+        shell: bash
+        env:
+          CF_DOMAIN: ${{ steps.meta.outputs.cf_domain }}
+          S3_URI: ${{ steps.meta.outputs.s3_uri }}
+          RELEASE: ${{ steps.meta.outputs.release }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          # Same key layout upload-s3-flat.sh writes to: everything in S3_URI
+          # after the bucket name, then the same S3_PREFIX used to upload.
+          s3_path="${S3_URI#s3://*/}"
+          for f in dist/*.qcow2; do
+            bn="$(basename "$f")"
+            url="https://${CF_DOMAIN}/${s3_path}/os-image/releases/${RELEASE}/${ARCH}/${bn}"
+            status="$(curl -s -o /dev/null -w '%{http_code}' -I "${url}")"
+            if [[ "${status}" != "200" ]]; then
+              echo "::error::${url} returned ${status}, not 200"
+              exit 1
+            fi
+            echo "OK ${url}"
+          done
+
   release:
     needs: publish
     if: >-

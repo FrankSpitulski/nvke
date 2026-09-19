@@ -84,8 +84,9 @@ themselves, after they have built and verified the real artifacts:
 
 | Tag | Workflow | What ships |
 |---|---|---|
-| `agent/vX.Y.Z` | `agent-deb-publish.yml` (+ `agent-artifact.yml`) | `.deb`s, GitHub Release assets, GHCR binary |
-| `os-image/vX.Y.Z` | `os-image-artifact.yml` | qcow2 on GHCR (`ghcr.io/dsx-ai-factory/nke/os-image`), `nke-os-image-check` on the GitHub Release |
+| `agent/vX.Y.Z` | `agent-deb-publish.yml` (+ `agent-artifact.yml`) | `.deb`s, GitHub Release assets, GHCR binary, NVCR binary + `.deb`, S3/CloudFront `.deb` |
+| `os-image/vX.Y.Z` | `os-image-artifact.yml` | qcow2 on GHCR, NVCR, and S3/CloudFront; `nke-os-image-check` on the GitHub Release |
+| `cli/vX.Y.Z` | `release.yml` (+ `cli-artifact.yml`, `cli-artifact-nvcr.yml`, `cli-s3-publish.yml`) | binaries on GitHub Release, GHCR, NVCR, S3/CloudFront |
 
 An `os-image/` tag that fails Packer or the boot-smoke test never publishes the
 OCI artifact and never promotes the GitHub Release out of draft.

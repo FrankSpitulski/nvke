@@ -1,0 +1,153 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: CLI S3 Publish
+
+# Publishes nkectl binaries to S3, fronted by the same CloudFront distribution
+# agent/scripts/upload-s3-apt-intake.sh already uses for the agent .deb --
+# confirmed live and unauthenticated. Uses scripts/upload-s3-flat.sh, a
+# generic uploader, not that apt-specific one (it shells to dpkg-deb and
+# writes an apt-publisher index.json; nkectl is neither a .deb nor
+# apt-consumed).
+#
+# Needs a new `s3-publish` GitHub Environment (Settings -> Environments),
+# not a reuse of `apt-intake` -- that name and scope are conceptually
+# apt-specific. Required environment vars:
+#
+#   S3_PUBLISH_S3_URI             variable  e.g. s3://nke-prod-assets/nke-packages
+#   S3_PUBLISH_AWS_ROLE_ARN       variable  role ARN with write access to the
+#                                           nkectl/* prefix under that URI
+#   S3_PUBLISH_AWS_REGION         variable  optional, defaults to us-west-2
+#   S3_PUBLISH_CLOUDFRONT_DOMAIN  variable  domain fronting that bucket, used
+#                                           to verify the upload is actually
+#                                           reachable (e.g. d1veq6e8nuk2fy.cloudfront.net)
+#
+# The role's permission policy needs nke-packages/nkectl/* added -- see
+# artifacts.md section 19 for the exact IAM diff. Until that widening lands,
+# this workflow will fail at the upload step with an access-denied error, not
+# silently do nothing.
+
+on:
+  push:
+    tags:
+      - "cli/v[0-9]+.[0-9]+.[0-9]+"
+      - "cli/v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: CLI S3 Publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'dsx-ai-factory/nke' &&
+      startsWith(github.ref, 'refs/tags/cli/v')
+    name: Publish to S3
+    runs-on: ubuntu-latest
+    environment: s3-publish
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write  # the malware scan uploads SARIF
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.work
+          cache: true
+          cache-dependency-path: |
+            go.work.sum
+            **/go.sum
+
+      - name: Resolve release
+        id: meta
+        shell: bash
+        env:
+          S3_URI: ${{ vars.S3_PUBLISH_S3_URI }}
+          ROLE_ARN: ${{ vars.S3_PUBLISH_AWS_ROLE_ARN }}
+          REGION: ${{ vars.S3_PUBLISH_AWS_REGION }}
+          CF_DOMAIN: ${{ vars.S3_PUBLISH_CLOUDFRONT_DOMAIN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${S3_URI}" ]]; then
+            echo "::error::S3_PUBLISH_S3_URI is not set in the s3-publish environment"
+            exit 1
+          fi
+          if [[ -z "${ROLE_ARN}" ]]; then
+            echo "::error::S3_PUBLISH_AWS_ROLE_ARN is not set in the s3-publish environment"
+            exit 1
+          fi
+          if [[ -z "${CF_DOMAIN}" ]]; then
+            echo "::error::S3_PUBLISH_CLOUDFRONT_DOMAIN is not set in the s3-publish environment"
+            exit 1
+          fi
+
+          # Job-level if already requires refs/tags/cli/v*; no branch/sha path.
+          release="${GITHUB_REF_NAME#cli/}"
+
+          {
+            echo "s3_uri=${S3_URI}"
+            echo "role_arn=${ROLE_ARN}"
+            echo "region=${REGION:-us-west-2}"
+            echo "release=${release}"
+            echo "cf_domain=${CF_DOMAIN}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "Publishing nkectl release ${release} to ${S3_URI}"
+
+      - name: Build binaries
+        run: make -C cli build-cross DIST="${GITHUB_WORKSPACE}/dist"
+
+      - name: Malware scan
+        uses: ./.github/actions/malware-scan
+        with:
+          scan_path: 'dist'
+          category: 'clamav-cli-s3'
+          output_file: 'clamav-cli-s3.sarif'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: ${{ steps.meta.outputs.role_arn }}
+          aws-region: ${{ steps.meta.outputs.region }}
+
+      - name: Upload to S3
+        shell: bash
+        env:
+          S3_URI: ${{ steps.meta.outputs.s3_uri }}
+          RELEASE: ${{ steps.meta.outputs.release }}
+        run: |
+          set -euo pipefail
+          for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            S3_PREFIX="nkectl/releases/${RELEASE}/${platform}" \
+              ./scripts/upload-s3-flat.sh "dist/nkectl-${platform}"
+          done
+
+      - name: Verify CloudFront reachability
+        shell: bash
+        env:
+          CF_DOMAIN: ${{ steps.meta.outputs.cf_domain }}
+          S3_URI: ${{ steps.meta.outputs.s3_uri }}
+          RELEASE: ${{ steps.meta.outputs.release }}
+        run: |
+          set -euo pipefail
+          # Same key layout upload-s3-flat.sh writes to: everything in S3_URI
+          # after the bucket name, then the same S3_PREFIX used to upload.
+          s3_path="${S3_URI#s3://*/}"
+          for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            url="https://${CF_DOMAIN}/${s3_path}/nkectl/releases/${RELEASE}/${platform}/nkectl-${platform}"
+            status="$(curl -s -o /dev/null -w '%{http_code}' -I "${url}")"
+            if [[ "${status}" != "200" ]]; then
+              echo "::error::${url} returned ${status}, not 200"
+              exit 1
+            fi
+            echo "OK ${url}"
+          done
