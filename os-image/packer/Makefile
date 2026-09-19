@@ -3,9 +3,16 @@
 
 PACKER      ?= packer
 PYTHON      ?= python3
-PACKER_MAKEFILE := $(abspath $(lastword $(MAKEFILE_LIST)))
+ifneq ($(origin MAKEFILE_LIST),file)
+  $(error MAKEFILE_LIST is internal and cannot be overridden)
+endif
+override PACKER_MAKEFILE := $(abspath $(lastword $(MAKEFILE_LIST)))
+override PACKER_ROOT := $(abspath $(dir $(PACKER_MAKEFILE)))
 SSH_DIR     := $(CURDIR)/.ssh
-ARTIFACTS   := $(CURDIR)/artifacts
+# Packer's HCL consumes this mutable scratch path. Keep it Make-owned because
+# prepare-artifacts replaces it and clean removes it. Externally staged inputs
+# need a separate read-only path rather than an override of this directory.
+override ARTIFACTS := $(PACKER_ROOT)/artifacts
 # Deliberately separate from ARTIFACTS: the FDE/non-FDE "file" provisioner
 # uploads ARTIFACTS/ to the guest wholesale (it's meant to hold only
 # fetch-artifacts.sh's nke-agent/spire-agent downloads). The installer ISO
@@ -131,11 +138,11 @@ CPUS ?= 4
 # nke-node-fde.pkr.hcl.
 BOOT_WAIT ?= $(if $(filter kvm,$(ACCELERATOR)),10s,30s)
 
-.PHONY: os-image-fde os-image-non-fde init-fde init-non-fde ssh-key prepare-installer-iso clean check-deps check-source collect-qcow2-fde collect-qcow2-non-fde
+.PHONY: os-image-fde os-image-non-fde preflight init-fde init-non-fde ssh-key prepare-installer-iso prepare-artifacts clean check-deps check-source collect-qcow2-fde collect-qcow2-non-fde
 
-ssh-key: $(SSH_DIR)/id_ed25519
+ssh-key: preflight $(SSH_DIR)/id_ed25519
 
-$(SSH_DIR)/id_ed25519:
+$(SSH_DIR)/id_ed25519: | preflight
 	mkdir -p $(SSH_DIR)
 	ssh-keygen -t ed25519 -N '' -f $(SSH_DIR)/id_ed25519
 
@@ -154,19 +161,76 @@ check-source:
 		exit 1; \
 	fi
 
-init-fde: check-source
+preflight: check-source check-deps
+
+init-fde: preflight
 	$(PACKER) init $(PKR_FILE_FDE)
 
-init-non-fde: check-source
+init-non-fde: preflight
 	$(PACKER) init $(PKR_FILE_NON_FDE)
 
 # FDE/non-FDE only. See prepare-installer-iso.sh's header for why this
 # exists: widening the installer ISO's own GRUB timeout to 300s means
 # boot_command's blind VNC keystrokes just need to land sometime in a wide
 # window, not a narrow, unpredictable one, under slow/tcg boots.
-prepare-installer-iso:
+prepare-installer-iso: preflight
 	mkdir -p $(ISO_CACHE)
 	ISO_URL=$(ISO_URL) ISO_CHECKSUM=$(ISO_CHECKSUM) OUT_DIR=$(ISO_CACHE) ./scripts/prepare-installer-iso.sh
+
+# Stage the source-built packages before Packer starts the VM. Keeping this in
+# Make preserves the current workflow and leaves Packer responsible only for
+# consuming already-prepared image inputs.
+prepare-artifacts: preflight
+	@set -eu; \
+	artifacts="$(ARTIFACTS)"; \
+	if [ -L "$$artifacts" ] || { [ -e "$$artifacts" ] && [ ! -d "$$artifacts" ]; }; then \
+		echo "refusing unsafe artifact staging path: $$artifacts" >&2; \
+		exit 1; \
+	fi; \
+	stage="$$(mktemp -d "$(PACKER_ROOT)/.artifacts.tmp.XXXXXX")"; \
+	backup=""; \
+	cleanup() { \
+		status="$$?"; \
+		trap - 0 1 2 15; \
+		if [ -n "$$backup" ] && [ -d "$$backup" ]; then \
+			if [ ! -e "$$artifacts" ] && [ ! -L "$$artifacts" ]; then \
+				if mv -- "$$backup" "$$artifacts"; then \
+					backup=""; \
+				else \
+					echo "failed to restore previous artifacts directory: $$backup" >&2; \
+					status=1; \
+				fi; \
+			elif [ ! -e "$$stage" ] && [ -d "$$artifacts" ] && [ ! -L "$$artifacts" ]; then \
+				rm -rf -- "$$backup"; \
+				backup=""; \
+			fi; \
+		fi; \
+		if [ -n "$$stage" ]; then \
+			rm -rf -- "$$stage"; \
+		fi; \
+		exit "$$status"; \
+	}; \
+	trap cleanup 0; \
+	trap 'exit 1' 1 2 15; \
+	ARTIFACTS_DIR="$$stage" \
+	ARCH="$(ARCH)" \
+	"$(PACKER_ROOT)/scripts/fetch-artifacts.sh"; \
+	if [ -L "$$artifacts" ] || { [ -e "$$artifacts" ] && [ ! -d "$$artifacts" ]; }; then \
+		echo "refusing unsafe artifact staging path: $$artifacts" >&2; \
+		exit 1; \
+	fi; \
+	if [ -d "$$artifacts" ]; then \
+		backup="$$(mktemp -d "$(PACKER_ROOT)/.artifacts.backup.XXXXXX")"; \
+		rmdir -- "$$backup"; \
+		mv -- "$$artifacts" "$$backup"; \
+	fi; \
+	mv -- "$$stage" "$$artifacts"; \
+	stage=""; \
+	if [ -n "$$backup" ]; then \
+		rm -rf -- "$$backup"; \
+		backup=""; \
+	fi; \
+	trap - 0 1 2 15
 
 check-deps:
 	@command -v go >/dev/null 2>&1 || { \
@@ -264,8 +328,8 @@ collect-qcow2-non-fde:
 # an LVM-on-LUKS layout via autoinstall, then provisions nke-agent/spire-agent,
 # plus TPM2 binding scaffolding deferred to first boot. See
 # ../docs/full-disk-encryption.md.
-os-image-fde: check-deps ssh-key init-fde prepare-installer-iso
-	mkdir -p $(ARTIFACTS) $(BUILD_LOGS)
+os-image-fde: ssh-key init-fde prepare-installer-iso prepare-artifacts
+	mkdir -p $(BUILD_LOGS)
 	@if [ "$(ACCELERATOR)" = "tcg" ]; then \
 		echo "no usable /dev/kvm: building with software emulation, which is far slower"; \
 	fi
@@ -283,8 +347,8 @@ os-image-fde: check-deps ssh-key init-fde prepare-installer-iso
 
 # Non-FDE variant: LVM-backed ext4 without LUKS. See
 # nke-node-non-fde.pkr.hcl.
-os-image-non-fde: check-deps ssh-key init-non-fde prepare-installer-iso
-	mkdir -p $(ARTIFACTS) $(BUILD_LOGS)
+os-image-non-fde: ssh-key init-non-fde prepare-installer-iso prepare-artifacts
+	mkdir -p $(BUILD_LOGS)
 	@if [ "$(ACCELERATOR)" = "tcg" ]; then \
 		echo "no usable /dev/kvm: building with software emulation, which is far slower"; \
 	fi
