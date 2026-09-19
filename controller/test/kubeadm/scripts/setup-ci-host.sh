@@ -158,6 +158,12 @@ fi
 #                           or produces nothing (artifacts.go:192-201)
 #   dnsmasq-base            section 5
 #   iptables                sections 5 and 6
+#   build-essential         make, and the C toolchain nico-sim's CGO_ENABLED=1
+#                           build needs (internal/state/store.go imports "C").
+#                           The ARC scale-set image ships neither; the EC2
+#                           fleet it replaced did.
+#   libcap2-bin             setcap, for `make build-privileged`
+#                           (nico-sim/Makefile:26)
 #
 # Dropped from setup-linux.sh, each for a reason:
 #   ovmf, qemu-efi-aarch64  the lane boots vanilla Ubuntu noble on BIOS; no UEFI
@@ -184,7 +190,9 @@ sudo apt-get install -y -qq -o Dpkg::Options::="--force-confold" \
   genisoimage \
   dnsmasq-base \
   iptables \
-  ethtool
+  ethtool \
+  build-essential \
+  libcap2-bin
 
 # The FDE node image, opt-in. It boots UEFI (ovmf), binds LUKS to a TPM on its
 # first boot (swtpm; nico-vms provisions a vTPM only when swtpm_setup is on
