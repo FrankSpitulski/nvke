@@ -107,10 +107,15 @@ sudo -n true 2>/dev/null || fail "passwordless sudo is required to create the br
 # Lifted from setup-linux.sh:66-82. Resolving the package by architecture turns
 # an obscure apt failure into a clear one, and both architectures need it now:
 # the arm64 scale set nke-arm64-16c64g gives its runners nested KVM.
+# UEFI_PKG is arm64-only: aarch64 has no BIOS, so domain_xml.go:35-36 emits
+# <os firmware='efi'> for every aarch64 guest whatever the UEFI flag says.
+# Without the firmware libvirt refuses the domain with "Unable to find 'efi'
+# firmware that is compatible with the current configuration". amd64 boots
+# BIOS here and needs nothing.
 DEB_ARCH="$(dpkg --print-architecture)"
 case "${DEB_ARCH}" in
-  amd64) QEMU_SYSTEM_PKG="qemu-system-x86" ;;
-  arm64) QEMU_SYSTEM_PKG="qemu-system-arm" ;;
+  amd64) QEMU_SYSTEM_PKG="qemu-system-x86"; UEFI_PKG="" ;;
+  arm64) QEMU_SYSTEM_PKG="qemu-system-arm"; UEFI_PKG="qemu-efi-aarch64" ;;
   *) fail "unsupported architecture: ${DEB_ARCH} (supported: amd64, arm64)" ;;
 esac
 
@@ -164,9 +169,12 @@ fi
 #                           fleet it replaced did.
 #   libcap2-bin             setcap, for `make build-privileged`
 #                           (nico-sim/Makefile:26)
+#   ${UEFI_PKG}             arm64 only, see section 1. Empty on amd64.
 #
 # Dropped from setup-linux.sh, each for a reason:
-#   ovmf, qemu-efi-aarch64  the lane boots vanilla Ubuntu noble on BIOS; no UEFI
+#   ovmf                    amd64 boots vanilla Ubuntu noble on BIOS. This is
+#                           an amd64-only statement: the arm64 guests have no
+#                           BIOS and get qemu-efi-aarch64 above.
 #   swtpm, swtpm-tools      no LUKS/FDE image, so no vTPM. virsh.go:276-278
 #                           returns ("", false, nil) -- TPM skipped, no error --
 #                           when exec.LookPath("swtpm_setup") fails
@@ -197,7 +205,8 @@ sudo -E apt-get install -y -qq -o DPkg::Lock::Timeout=600 -o Dpkg::Options::="--
   iptables \
   ethtool \
   build-essential \
-  libcap2-bin
+  libcap2-bin \
+  ${UEFI_PKG:+"${UEFI_PKG}"}
 
 # The FDE node image, opt-in. It boots UEFI (ovmf), binds LUKS to a TPM on its
 # first boot (swtpm; nico-vms provisions a vTPM only when swtpm_setup is on
