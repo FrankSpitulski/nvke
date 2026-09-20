@@ -27,8 +27,19 @@ runs:
       run: |
         set -euo pipefail
         # One definition, in make/tool-versions.mk, so a bump there reaches CI.
+        #
+        # env -u, not a plain call: this step exports CRANE_VERSION, and an
+        # empty input exports it empty. tool-versions.mk assigns with ?=, which
+        # make skips when the name is already set in the environment -- empty
+        # counts as set. print-CRANE_VERSION then echoes nothing, the URL
+        # becomes .../download/v/ and every fetch 404s.
         if [ -z "${CRANE_VERSION}" ]; then
-          CRANE_VERSION="v$(make -C "${GITHUB_WORKSPACE}" --no-print-directory print-CRANE_VERSION)"
+          CRANE_VERSION="v$(env -u CRANE_VERSION make -C "${GITHUB_WORKSPACE}" --no-print-directory print-CRANE_VERSION)"
+        fi
+        # Fail on the pin, not six retries later on a 404.
+        if [ "${CRANE_VERSION}" = "v" ]; then
+          echo "::error::crane version resolved empty from make/tool-versions.mk"
+          exit 1
         fi
         arch=$(uname -m)
         case "${arch}" in aarch64) arch=arm64 ;; esac
