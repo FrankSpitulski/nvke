@@ -83,9 +83,11 @@ jobs:
           tmp="$(mktemp -d)"
 
           curl -fsSL -o "${tmp}/${tar}" "${base}/${tar}"
-          curl -fsSL -o "${tmp}/checksums.txt" "${base}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          # A committed digest, not the release's checksums.txt: that file comes
+          # from the host that serves the artifact, so it proves transport, not
+          # provenance. make/tool-versions.mk carries it beside the version.
+          expected="$(make --no-print-directory print-ACTIONLINT_SHA256_AMD64)"
 
-          expected="$(awk -v t="${tar}" '$2 == t {print $1}' "${tmp}/checksums.txt")"
           if [ -z "${expected}" ]; then
             echo "::error::no checksum entry for ${tar}"
             exit 1
