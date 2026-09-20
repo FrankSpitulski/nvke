@@ -49,6 +49,16 @@ jobs:
   capd-dsx-identity-exchange:
     needs: changes
     if: needs.changes.outputs.run_e2e == 'true'
+    # Same two pools capd-e2e uses. Neither needs /dev/kvm.
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: linux-amd64-cpu16
+          - arch: arm64
+            runner: linux-arm64-cpu16
     uses: ./.github/workflows/backend-e2e.yml
     permissions:
       contents: read
@@ -56,8 +66,8 @@ jobs:
       NKE_INTERNAL_RO_TOKEN: ${{ secrets.NKE_INTERNAL_RO_TOKEN }}
     with:
       backend: capd-dsx-identity
-      arch: amd64
-      runner: linux-amd64-cpu16
+      arch: ${{ matrix.arch }}
+      runner: ${{ matrix.runner }}
       label-filter: identity-exchange
       providers: '["capi_core", "bgp-containers", "capd", "capd-reboot-controller", "dsx-identity-exchange"]'
       install-cni-after-init: true

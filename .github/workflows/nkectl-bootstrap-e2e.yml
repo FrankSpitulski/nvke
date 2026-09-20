@@ -61,11 +61,23 @@ concurrency:
 
 jobs:
   e2e:
-    name: e2e
+    name: e2e (${{ matrix.arch }})
     # The bootstrap cluster and three nested control planes need the 16-CPU
-    # pool; pull requests reach it through the mirror branch.
-    runs-on: linux-amd64-cpu16
+    # pool; pull requests reach it through the mirror branch. Neither leg needs
+    # /dev/kvm. Both stay on the fleet for NKECTL_CWE_POSTGRES_CHART below:
+    # cwedeploy Engine.Deploy defaults it only when empty, so it has no
+    # fallback.
+    runs-on: ${{ matrix.runner }}
     if: github.repository == 'dsx-ai-factory/nke'
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: linux-amd64-cpu16
+          - arch: arm64
+            runner: linux-arm64-cpu16
     # A full run takes 12-17 minutes on this pool, most of it the node image
     # build and CWE's three sequential control-plane joins. The margin covers
     # a cold image cache and a slow mirror; queue time does not count.
@@ -93,7 +105,9 @@ jobs:
       # nerdctl-full bundles a matching containerd, runc and CNI plugins, so
       # nothing here depends on the containerd shipped with the image's Docker.
       NERDCTL_VERSION: 2.3.5
-      NERDCTL_FULL_SHA256: b697295c623639734aaab737523c808fd3cc8d3046039fd94fff1744e4c317aa
+      # Both, from the release's SHA256SUMS. The script picks by host arch.
+      NERDCTL_FULL_SHA256_AMD64: b697295c623639734aaab737523c808fd3cc8d3046039fd94fff1744e4c317aa
+      NERDCTL_FULL_SHA256_ARM64: 6e4b687f1d138e750a3c8372abc0f81d3d7490b6359c48c0562fc7dfe98859b2
       # A standalone socket and data root. Docker's containerd.io package owns
       # a unit also named `containerd.service`, on
       # /run/containerd/containerd.sock; reusing it would mean this job is
@@ -205,7 +219,7 @@ jobs:
           set -Eeuo pipefail
           curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused \
             -o /tmp/clusterctl \
-            "https://github.com/kubernetes-sigs/cluster-api/releases/download/${CAPI_VERSION}/clusterctl-linux-amd64"
+            "https://github.com/kubernetes-sigs/cluster-api/releases/download/${CAPI_VERSION}/clusterctl-linux-$(dpkg --print-architecture)"
           chmod +x /tmp/clusterctl
           sudo mv /tmp/clusterctl /usr/local/bin/clusterctl
           got="$(clusterctl version -o short)"
@@ -256,7 +270,7 @@ jobs:
         run: |
           sudo -E env "PATH=$PATH" nerdctl build \
             --file controller/Dockerfile \
-            --platform linux/amd64 \
+            --platform "linux/${{ matrix.arch }}" \
             --tag "${CWE_IMAGE}" \
             --build-arg "BUILD_VERSION=nkectl-bootstrap-e2e" \
             --build-arg "GIT_VERSION=${GITHUB_SHA}" \
@@ -290,7 +304,8 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: nkectl-bootstrap-e2e-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          # The arch too: GitHub keeps two same-named artifacts.
+          name: nkectl-bootstrap-e2e-diagnostics-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: cli/cluster-diagnostics/
           if-no-files-found: ignore
           retention-days: 7

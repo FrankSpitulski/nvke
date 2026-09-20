@@ -205,7 +205,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: kubeadm-bringup-${{ github.run_id }}-${{ github.run_attempt }}
+          # The arch too: GitHub keeps two same-named artifacts, so without it
+          # a download cannot tell the legs apart.
+          name: kubeadm-bringup-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           # The smoke test generates a throwaway SSH keypair for VMs that no
           # longer exist by upload time, but a private key still has no business
           # in a downloadable artifact.
