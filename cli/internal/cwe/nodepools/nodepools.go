@@ -6,7 +6,7 @@
 package nodepools
 
 import (
-	"github.com/NVIDIA/nke/cli/internal/clients"
+	"github.com/dsx-ai-factory/nke/cli/internal/clients"
 )
 
 // CWEClientFn is a factory that returns an authenticated CWE client.

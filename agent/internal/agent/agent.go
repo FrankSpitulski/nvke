@@ -36,11 +36,11 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/NVIDIA/nke/agent/internal/k8s"
-	pb "github.com/NVIDIA/nke/agent/pkg/agent/proto"
-	"github.com/NVIDIA/nke/agent/pkg/agentupgrade"
-	"github.com/NVIDIA/nke/agent/pkg/deb"
-	nkeutils "github.com/NVIDIA/nke/agent/pkg/utils"
+	"github.com/dsx-ai-factory/nke/agent/internal/k8s"
+	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	"github.com/dsx-ai-factory/nke/agent/pkg/agentupgrade"
+	"github.com/dsx-ai-factory/nke/agent/pkg/deb"
+	nkeutils "github.com/dsx-ai-factory/nke/agent/pkg/utils"
 )
 
 var (

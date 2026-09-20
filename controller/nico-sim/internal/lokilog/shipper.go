@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/NVIDIA/nke/controller/nico-sim/internal/state"
+	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/state"
 )
 
 // Config controls the targets file writer.

@@ -15,10 +15,10 @@ import (
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/NVIDIA/nke/agent/pkg/nkeauth"
+	"github.com/dsx-ai-factory/nke/agent/pkg/nkeauth"
 
-	"github.com/NVIDIA/nke/controller/internal/auth"
-	"github.com/NVIDIA/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nke/controller/internal/auth"
+	"github.com/dsx-ai-factory/nke/controller/internal/db"
 )
 
 const (

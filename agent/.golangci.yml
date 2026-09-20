@@ -203,8 +203,8 @@ formatters:
     goimports:
       local-prefixes:
         - github.com/NVIDIA
-        - github.com/NVIDIA/nke
-        - github.com/NVIDIA/nke/agent
+        - github.com/dsx-ai-factory/nke
+        - github.com/dsx-ai-factory/nke/agent
   exclusions:
     generated: lax
     paths:

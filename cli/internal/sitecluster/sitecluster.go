@@ -14,8 +14,8 @@ package sitecluster
 import (
 	"fmt"
 
-	"github.com/NVIDIA/nke/cli/internal/sitespec"
-	api "github.com/NVIDIA/nke/controller/api"
+	"github.com/dsx-ai-factory/nke/cli/internal/sitespec"
+	api "github.com/dsx-ai-factory/nke/controller/api"
 )
 
 const (

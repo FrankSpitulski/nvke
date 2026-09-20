@@ -143,12 +143,12 @@ print-%:
 # -buildvcs=false because the version comes from the -X ldflag below. See the note
 # on work-check-offline in the root Makefile.
 build: ## Build controller into bin/.
-	CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-X github.com/NVIDIA/nke/controller/internal/version.Version=${BUILD_VERSION} $(RELEASE_LDFLAGS)" -o ./bin/$(WORKER_BIN_NAME) ./cmd/worker/
+	CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-X github.com/dsx-ai-factory/nke/controller/internal/version.Version=${BUILD_VERSION} $(RELEASE_LDFLAGS)" -o ./bin/$(WORKER_BIN_NAME) ./cmd/worker/
 
 .PHONY: fmt
 fmt: ## Format code (gofumpt + goimports; matches .golangci.yml formatters).
 	go run mvdan.cc/gofumpt@v0.11.0 -w -extra .
-	go run golang.org/x/tools/cmd/goimports@v0.48.0 -w -local github.com/NVIDIA/nke/controller .
+	go run golang.org/x/tools/cmd/goimports@v0.48.0 -w -local github.com/dsx-ai-factory/nke/controller .
 
 # GO_TEST_FLAGS lets CI add -race without the workflow having to restate the
 # test command, so `make test` stays the one definition of what "the tests" are.
@@ -410,7 +410,7 @@ license-policy-check: $(GO_LICENSES) ## Verify every third-party dependency uses
 	@# that genuinely need ignoring are named explicitly.
 	@GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO_LICENSES) check ./cmd/worker \
 		--allowed_licenses=$(ALLOWED_LICENSES) \
-		--ignore="$$(GOWORK=off go list -m),github.com/NVIDIA/nke/agent,github.com/dsx-ai-factory/cluster-api-provider-nico"
+		--ignore="$$(GOWORK=off go list -m),github.com/dsx-ai-factory/nke/agent,github.com/dsx-ai-factory/cluster-api-provider-nico"
 
 .PHONY: notices
 notices: $(GO_LICENSES) ## Regenerate THIRD_PARTY_NOTICES.md for the released worker binary.

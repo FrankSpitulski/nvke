@@ -1,4 +1,4 @@
-module github.com/NVIDIA/nke/cluster-api-provider-provisioned
+module github.com/dsx-ai-factory/nke/cluster-api-provider-provisioned
 
 go 1.26.5
 

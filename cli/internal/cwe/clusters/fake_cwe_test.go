@@ -17,9 +17,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
-	"github.com/NVIDIA/nke/cli/internal/clients"
-	"github.com/NVIDIA/nke/cli/internal/config"
-	api "github.com/NVIDIA/nke/controller/api"
+	"github.com/dsx-ai-factory/nke/cli/internal/clients"
+	"github.com/dsx-ai-factory/nke/cli/internal/config"
+	api "github.com/dsx-ai-factory/nke/controller/api"
 )
 
 // run executes cmd with args and returns everything it wrote.

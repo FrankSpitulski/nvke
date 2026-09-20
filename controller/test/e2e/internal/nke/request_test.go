@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/nke/controller/api"
+	"github.com/dsx-ai-factory/nke/controller/api"
 )
 
 func TestApplyNetworkConfig(t *testing.T) {

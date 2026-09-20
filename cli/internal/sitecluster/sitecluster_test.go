@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/nke/cli/internal/sitespec"
-	api "github.com/NVIDIA/nke/controller/api"
+	"github.com/dsx-ai-factory/nke/cli/internal/sitespec"
+	api "github.com/dsx-ai-factory/nke/controller/api"
 )
 
 func capiInfraCluster(t *testing.T, req api.CreateClusterJSONRequestBody) map[string]interface{} {

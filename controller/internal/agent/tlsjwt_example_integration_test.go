@@ -26,11 +26,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	nkeproto "github.com/NVIDIA/nke/agent/pkg/agent/proto"
-	"github.com/NVIDIA/nke/agent/pkg/nkeauth"
+	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	"github.com/dsx-ai-factory/nke/agent/pkg/nkeauth"
 
-	"github.com/NVIDIA/nke/controller/internal/auth"
-	"github.com/NVIDIA/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nke/controller/internal/auth"
+	"github.com/dsx-ai-factory/nke/controller/internal/db"
 )
 
 func readCertificatePool(t *testing.T, path string) *x509.CertPool {

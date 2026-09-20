@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	api "github.com/NVIDIA/nke/controller/api"
+	api "github.com/dsx-ai-factory/nke/controller/api"
 )
 
 // rows splits table output into whitespace-separated fields per line, so the

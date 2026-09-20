@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/NVIDIA/nke/controller/internal/db"
-	"github.com/NVIDIA/nke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
 )
 
 // reconcileRequestedDeletes turns accepted control-plane node deletes into

@@ -11,8 +11,8 @@ import (
 
 	"go.temporal.io/sdk/client"
 
-	"github.com/NVIDIA/nke/controller/internal/config"
-	"github.com/NVIDIA/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nke/controller/internal/config"
+	"github.com/dsx-ai-factory/nke/controller/internal/db"
 )
 
 // reconciler reconciles control planes.

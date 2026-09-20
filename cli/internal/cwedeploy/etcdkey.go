@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/nke/cli/internal/etcdkey"
+	"github.com/dsx-ai-factory/nke/cli/internal/etcdkey"
 )
 
 // EtcdEncryptionKey reads the etcd encryption key CWE holds for clusterID and

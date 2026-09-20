@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	pb "github.com/NVIDIA/nke/agent/pkg/agent/proto"
+	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
 )
 
 const defaultCloudInitStatusCheckName = "cloud-init-status"

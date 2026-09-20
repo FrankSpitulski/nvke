@@ -1,4 +1,4 @@
-module github.com/NVIDIA/nke/controller/hack/capd-reboot-controller
+module github.com/dsx-ai-factory/nke/controller/hack/capd-reboot-controller
 
 go 1.26.5
 

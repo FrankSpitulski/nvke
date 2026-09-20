@@ -22,14 +22,14 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/NVIDIA/nke/cli/internal/bootstrapengine"
-	"github.com/NVIDIA/nke/cli/internal/clients"
-	"github.com/NVIDIA/nke/cli/internal/config"
-	"github.com/NVIDIA/nke/cli/internal/cwedeploy"
-	"github.com/NVIDIA/nke/cli/internal/etcdkey"
-	"github.com/NVIDIA/nke/cli/internal/sitecluster"
-	"github.com/NVIDIA/nke/cli/internal/sitespec"
-	"github.com/NVIDIA/nke/cli/internal/spireentrydump"
+	"github.com/dsx-ai-factory/nke/cli/internal/bootstrapengine"
+	"github.com/dsx-ai-factory/nke/cli/internal/clients"
+	"github.com/dsx-ai-factory/nke/cli/internal/config"
+	"github.com/dsx-ai-factory/nke/cli/internal/cwedeploy"
+	"github.com/dsx-ai-factory/nke/cli/internal/etcdkey"
+	"github.com/dsx-ai-factory/nke/cli/internal/sitecluster"
+	"github.com/dsx-ai-factory/nke/cli/internal/sitespec"
+	"github.com/dsx-ai-factory/nke/cli/internal/spireentrydump"
 )
 
 const (

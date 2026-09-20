@@ -75,7 +75,7 @@ NKECTL_LDFLAGS := \
 	-X '$(NKECTL_PKG).gitCommit=$(NKECTL_COMMIT)' \
 	-X '$(NKECTL_PKG).gitTreeState=$(NKECTL_TREE)' \
 	-X '$(NKECTL_PKG).buildDate=$(NKECTL_DATE)' \
-	-X 'github.com/NVIDIA/nke/cli/internal/cwedeploy.capiVersion=$(CAPI_VERSION)' \
+	-X 'github.com/dsx-ai-factory/nke/cli/internal/cwedeploy.capiVersion=$(CAPI_VERSION)' \
 	$(RELEASE_LDFLAGS)
 
 .PHONY: build build-cross test test-e2e-bootstrap fmt lint license file-license-check check-no-docker \

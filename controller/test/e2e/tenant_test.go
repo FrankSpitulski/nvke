@@ -20,12 +20,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/NVIDIA/nke/controller/api"
-	"github.com/NVIDIA/nke/controller/test/e2e/internal/config"
-	"github.com/NVIDIA/nke/controller/test/e2e/internal/kube"
-	"github.com/NVIDIA/nke/controller/test/e2e/internal/nke"
-	"github.com/NVIDIA/nke/controller/test/e2e/internal/nkectl"
-	"github.com/NVIDIA/nke/controller/test/e2e/internal/tenantauth"
+	"github.com/dsx-ai-factory/nke/controller/api"
+	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/config"
+	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube"
+	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nkectl"
+	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/tenantauth"
 )
 
 // clusterLifecycle creates a cluster, reads it back, and deletes it again.

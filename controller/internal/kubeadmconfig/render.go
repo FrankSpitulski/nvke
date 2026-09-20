@@ -13,10 +13,10 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 
-	"github.com/NVIDIA/nke/controller/internal/constants"
-	kubeadmv1beta3 "github.com/NVIDIA/nke/controller/internal/kubeadmconfig/thirdparty/kubeadmtypes/v1beta3"
-	kubeletconfigv1beta1 "github.com/NVIDIA/nke/controller/internal/kubeadmconfig/thirdparty/kubeletconfig/v1beta1"
-	kubeproxyconfigv1alpha1 "github.com/NVIDIA/nke/controller/internal/kubeadmconfig/thirdparty/kubeproxyconfig/v1alpha1"
+	"github.com/dsx-ai-factory/nke/controller/internal/constants"
+	kubeadmv1beta3 "github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig/thirdparty/kubeadmtypes/v1beta3"
+	kubeletconfigv1beta1 "github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig/thirdparty/kubeletconfig/v1beta1"
+	kubeproxyconfigv1alpha1 "github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig/thirdparty/kubeproxyconfig/v1alpha1"
 )
 
 const (

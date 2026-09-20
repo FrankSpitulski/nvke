@@ -16,8 +16,8 @@ import (
 	"time"
 
 	semver "github.com/Masterminds/semver/v3"
-	pb "github.com/NVIDIA/nke/agent/pkg/agent/proto"
-	nkeutils "github.com/NVIDIA/nke/agent/pkg/utils"
+	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nkeutils "github.com/dsx-ai-factory/nke/agent/pkg/utils"
 	yaml "gopkg.in/yaml.v2"
 )
 

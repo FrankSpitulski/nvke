@@ -654,7 +654,7 @@ license-deps-check: ## Check dependency licenses in every workspace module. (run
 		echo "- dependency licences: $$module"; \
 		GOTOOLCHAIN=local ./controller/bin/go-licenses check "./$$module/..." \
 			--disallowed_types=restricted,reciprocal,forbidden,unknown \
-			--ignore github.com/NVIDIA/nke \
+			--ignore github.com/dsx-ai-factory/nke \
 			--ignore github.com/dsx-ai-factory/cluster-api-provider-nico || exit 1; \
 	 done
 

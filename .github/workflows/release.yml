@@ -69,7 +69,7 @@ jobs:
           persist-credentials: false
 
       # A tag is <module-directory>/vX.Y.Z, because that is what Go requires of a
-      # submodule: github.com/NVIDIA/nke/cli is tagged cli/vX.Y.Z. So the
+      # submodule: github.com/dsx-ai-factory/nke/cli is tagged cli/vX.Y.Z. So the
       # directory is read back off the tag and nothing below needs to name a
       # component. Move a module and its tag prefix moves with it, because Go
       # makes them the same string; go.work then says whether the directory is

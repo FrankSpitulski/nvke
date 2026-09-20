@@ -160,7 +160,7 @@ jobs:
     # boot-smoke, each a few minutes, with real headroom); the KVM gate below
     # fails fast instead of burning the timeout if that ever regresses to
     # tcg. Bumped from 120m to 180m after a real run's amd64 leg still timed
-    # out (https://github.com/NVIDIA/nke/actions/runs/34525233526) for a
+    # out (https://github.com/dsx-ai-factory/nke/actions/runs/34525233526) for a
     # cause not yet root-caused -- see #695 for one confirmed contributor
     # (a bloated golden image) and the self-timeout + console-log dump on
     # the build steps below for diagnosing the next one. arm64: 180m now it

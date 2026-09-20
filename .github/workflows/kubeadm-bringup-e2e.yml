@@ -98,7 +98,7 @@ jobs:
 
       # Not a gate. nico-vms picks its domain type from a bare os.Stat("/dev/kvm")
       # and logs nothing, so this is the only place a run says which it got.
-      # FIXME: https://github.com/NVIDIA/nke/issues/219 -- move to bare metal.
+      # FIXME: https://github.com/dsx-ai-factory/nke/issues/219 -- move to bare metal.
       - name: Report the accelerator
         run: |
           set -euo pipefail

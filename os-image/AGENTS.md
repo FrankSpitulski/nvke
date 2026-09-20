@@ -3,7 +3,7 @@
 Reference node OS image (spec + Packer recipe) and the `nke-os-image-check`
 connectivity binary.
 
-**Module path:** `github.com/NVIDIA/nke/os-image`
+**Module path:** `github.com/dsx-ai-factory/nke/os-image`
 
 The directory is `os-image/` on purpose. `image.yml` / `image-nvcr.yml` already
 publish **container** images; this module is the Ubuntu qcow2 a node boots.

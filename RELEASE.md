@@ -75,7 +75,7 @@ git push upstream cli/v0.2.0
 ```
 
 The prefix is the module's directory because Go requires it: the module
-`github.com/NVIDIA/nke/cli` can only be resolved by a tag named `cli/vX.Y.Z`.
+`github.com/dsx-ai-factory/nke/cli` can only be resolved by a tag named `cli/vX.Y.Z`.
 `.github/workflows/release.yml` reads the directory back off the tag and checks
 it against `go.work`, so a prefix naming no module fails the run.
 

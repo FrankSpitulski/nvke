@@ -1,4 +1,4 @@
-module github.com/NVIDIA/nke/controller/nico-sim
+module github.com/dsx-ai-factory/nke/controller/nico-sim
 
 go 1.26.0
 

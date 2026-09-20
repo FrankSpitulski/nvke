@@ -2,7 +2,7 @@
 
 NKE control-plane CLI. Bootstraps site controllers and manages tenant cluster lifecycle.
 
-**Module:** `github.com/NVIDIA/nke/cli`  
+**Module:** `github.com/dsx-ai-factory/nke/cli`  
 **Binary:** `nkectl`  
 **Releases:** `cli/v*` tags
 

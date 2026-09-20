@@ -25,10 +25,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/nke/cli/internal/bootstrapengine"
-	"github.com/NVIDIA/nke/cli/internal/cwedeploy"
-	"github.com/NVIDIA/nke/cli/internal/sitespec"
-	api "github.com/NVIDIA/nke/controller/api"
+	"github.com/dsx-ai-factory/nke/cli/internal/bootstrapengine"
+	"github.com/dsx-ai-factory/nke/cli/internal/cwedeploy"
+	"github.com/dsx-ai-factory/nke/cli/internal/sitespec"
+	api "github.com/dsx-ai-factory/nke/controller/api"
 )
 
 // fakeCWERunner is a scripted cwedeploy.CommandRunner: every helm call

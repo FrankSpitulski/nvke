@@ -18,15 +18,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/NVIDIA/nke/controller/nico-sim/internal/cloudinit"
-	"github.com/NVIDIA/nke/controller/nico-sim/internal/config"
-	"github.com/NVIDIA/nke/controller/nico-sim/internal/ipxe"
-	"github.com/NVIDIA/nke/controller/nico-sim/internal/netutil"
-	"github.com/NVIDIA/nke/controller/nico-sim/internal/state"
-	"github.com/NVIDIA/nke/controller/nico-sim/internal/vm"
-	"github.com/NVIDIA/nke/controller/nico-sim/internal/vm/artifacts"
-	"github.com/NVIDIA/nke/controller/nico-sim/internal/vm/darwinqemu"
-	"github.com/NVIDIA/nke/controller/nico-sim/internal/vm/libvirt"
+	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/cloudinit"
+	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/config"
+	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/ipxe"
+	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/netutil"
+	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/state"
+	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm"
+	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm/artifacts"
+	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm/darwinqemu"
+	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm/libvirt"
 )
 
 type Engine struct {

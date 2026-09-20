@@ -19,10 +19,6 @@ github.com/Microsoft/go-winio/pkg/guid
 ## explicit; go 1.25.4
 github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard
 github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard/helpers
-# github.com/NVIDIA/nke/agent v0.0.0-00010101000000-000000000000 => ./agent
-## explicit; go 1.26.0
-# github.com/NVIDIA/nke/controller/api v0.0.0-00010101000000-000000000000 => ./controller/api
-## explicit; go 1.26.5
 # github.com/apapsch/go-jsonmerge/v2 v2.0.0
 ## explicit; go 1.12
 github.com/apapsch/go-jsonmerge/v2
@@ -61,6 +57,10 @@ github.com/davecgh/go-spew/spew
 # github.com/dsx-ai-factory/cluster-api-provider-nico v0.0.45
 ## explicit; go 1.26.6
 github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1
+# github.com/dsx-ai-factory/nke/agent v0.0.0-00010101000000-000000000000 => ./agent
+## explicit; go 1.26.0
+# github.com/dsx-ai-factory/nke/controller/api v0.0.0-00010101000000-000000000000 => ./controller/api
+## explicit; go 1.26.5
 # github.com/emicklei/go-restful/v3 v3.13.0
 ## explicit; go 1.13
 github.com/emicklei/go-restful/v3
