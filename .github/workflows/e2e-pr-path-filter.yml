@@ -30,6 +30,7 @@ permissions: {}
 jobs:
   filter:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       pull-requests: read
     outputs:
