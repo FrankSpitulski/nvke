@@ -13,8 +13,8 @@ bare metal and want to hand out production Kubernetes clusters on it, and
 engineers integrating against that control plane.
 
 > **Status: early.** This repository is being prepared for open source. Layout,
-> interfaces, and build inputs are still changing, and there are no releases yet.
-> Expect breaking changes.
+> interfaces, and build inputs are still changing, and every product line is
+> still on pre-releases. Expect breaking changes.
 
 ## Overview
 
