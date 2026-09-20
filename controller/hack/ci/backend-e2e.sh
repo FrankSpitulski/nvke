@@ -127,6 +127,18 @@ require_command() {
   }
 }
 
+# Every other long-running call here is bounded by the tool's own flag: kubectl
+# --timeout, kind --wait, curl --connect-timeout, ginkgo --timeout. Docker has
+# no equivalent, so the three calls that reach a registry use coreutils
+# `timeout` instead. It is absent from a stock macOS, where this script is also
+# run by hand, so fall back to running unbounded rather than failing outright.
+: "${DOCKER_PULL_TIMEOUT:=10m}"
+if command -v timeout >/dev/null 2>&1; then
+  bounded() { timeout "$@"; }
+else
+  bounded() { shift; "$@"; }
+fi
+
 redact_diagnostics() {
   local file_list="${TMP_DIR}/diagnostic-files"
   local file
@@ -860,19 +872,19 @@ log "starting the CAPD bundle mirror on the Kind Docker network"
 docker volume create "${BUNDLE_VOLUME}" >/dev/null
 BUNDLE_VOLUME_OWNED=true
 BUNDLE_LOADER_OWNED=true
-docker create --name "${BUNDLE_LOADER_NAME}" -v "${BUNDLE_VOLUME}:/bundle" alpine:3.22 true >/dev/null
+bounded "${DOCKER_PULL_TIMEOUT}" docker create --name "${BUNDLE_LOADER_NAME}" -v "${BUNDLE_VOLUME}:/bundle" alpine:3.22 true >/dev/null
 docker cp "${BUNDLE_DIR}/." "${BUNDLE_LOADER_NAME}:/bundle/"
 docker rm "${BUNDLE_LOADER_NAME}" >/dev/null
 BUNDLE_LOADER_OWNED=false
 BUNDLE_MIRROR_OWNED=true
-docker run -d \
+bounded "${DOCKER_PULL_TIMEOUT}" docker run -d \
   --name "${BUNDLE_MIRROR_NAME}" \
   --network kind \
   -v "${BUNDLE_VOLUME}:/usr/share/nginx/html:ro" \
   nginx:alpine >/dev/null
 
 log "starting inner runner on the Kind Docker network"
-docker pull "${RUNNER_IMAGE}"
+bounded "${DOCKER_PULL_TIMEOUT}" docker pull "${RUNNER_IMAGE}"
 docker volume create "${STATE_VOLUME}" >/dev/null
 STATE_VOLUME_OWNED=true
 RUNNER_OWNED=true
