@@ -96,8 +96,16 @@ jobs:
       - name: Build
         run: make version-check
 
+      # -race like controller-test.yml:133-135. The provisioned provider is a
+      # controller-runtime reconciler, so it is concurrent by construction.
       - name: Test OS-image checker
+        env:
+          CGO_ENABLED: "1"
+          GO_TEST_FLAGS: -race
         run: make -C os-image test
 
       - name: Test provisioned infrastructure provider
+        env:
+          CGO_ENABLED: "1"
+          GO_TEST_FLAGS: -race
         run: make -C cluster-api-provider-provisioned test

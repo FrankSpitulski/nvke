@@ -413,9 +413,11 @@ API_DEPENDENTS := controller cli controller/test/e2e
 # matching it costs nothing.
 RACE_MODULES := agent \
                 cli \
+                cluster-api-provider-provisioned \
                 controller \
                 controller/nico-sim \
-                controller/test/e2e
+                controller/test/e2e \
+                os-image
 
 # Root lint covers every module CI lints. Root fmt excludes generated API code,
 # whose formatting belongs to controller's generator.
