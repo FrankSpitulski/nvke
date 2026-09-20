@@ -119,3 +119,31 @@ jobs:
 
       - name: Verify generated provider code, CRDs, and RBAC are up to date
         run: make -C cluster-api-provider-provisioned generate-check
+
+  # The third generated artifact. buf downloads its two remote plugins, both
+  # version-pinned in agent/buf.gen.yaml, so this needs the network the other
+  # two jobs do not.
+  proto-generate-check:
+    name: Check generated proto code is up to date
+    runs-on: ubuntu-latest
+    if: github.repository == 'dsx-ai-factory/nke'
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.work
+          cache: true
+          cache-dependency-path: |
+            go.work.sum
+            agent/go.sum
+
+      - name: Verify proto formatting and generated code are up to date
+        run: make -C agent check-protos
