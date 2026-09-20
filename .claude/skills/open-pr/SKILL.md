@@ -46,8 +46,8 @@ column of green ticks with checks simply missing.
 gh pr checks <number> --repo dsx-ai-factory/nke --json name,workflow
 ```
 
-Compare against [docs/branch-protection-settings.md](../../../docs/branch-protection-settings.md)
-for which checks must appear. `gate` and DCO always report; golangci-lint,
+Which checks block a merge is a repository setting. Read it with
+`gh api repos/dsx-ai-factory/nke/rules/branches/main --jq '[.[].type]'`. `gate` and DCO always report; golangci-lint,
 CodeQL, govulncheck, gitleaks, grype, actionlint, shellcheck, the image build,
 and the notices gate depend on the mirror and are legitimately absent for
 unvetted authors — flag that state rather than treating it as passing.

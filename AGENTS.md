@@ -305,8 +305,11 @@ that the checks you care about are *present*, not just passing:
 gh pr checks <number> --repo dsx-ai-factory/nke --json name,workflow
 ```
 
-See [docs/branch-protection-settings.md](docs/branch-protection-settings.md) for
-which checks fall into which group.
+Which checks block a merge is a repository setting, not a file. Read it live:
+
+```bash
+gh api repos/dsx-ai-factory/nke/rules/branches/main --jq '[.[].type]'
+```
 
 ## Skills
 

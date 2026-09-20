@@ -15,7 +15,7 @@
 # Deliberately NOT path-filtered, unlike most workflows here. A filtered check
 # does not report on a pull request that misses the filter, and a required check
 # that never reports leaves that pull request waiting forever -- so filtering
-# would make this unrequirable. See docs/branch-protection-settings.md. That is
+# would make this unrequirable. See .github/workflows/README.md. That is
 # not theoretical: a red run merged to main once and, because every branch
 # inherits the workflow file, the failure then reported on every open pull
 # request as though that pull request had caused it.

@@ -266,5 +266,5 @@ copy runs from the PR or mirror branch, and the final `gate` context reports.
 For an advisory workflow, confirm its expected trigger actually produced a
 check; an absent advisory check does not look like a failure.
 
-See [the branch-protection guide](../../docs/branch-protection-settings.md) for
-what `main` requires of a pull request.
+What `main` requires of a pull request is a repository setting. Read it with
+`gh api repos/dsx-ai-factory/nke/rules/branches/main --jq '[.[].type]'`.

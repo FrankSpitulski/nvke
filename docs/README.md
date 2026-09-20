@@ -22,7 +22,6 @@ indexes both.
 | [go-workspace.md](go-workspace.md) | The Go workspace, which modules are in it, and how to keep `go.work.sum` current |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | How to get a change reviewed and merged |
 | [../.github/workflows/README.md](../.github/workflows/README.md) | How CI is wired, and the invariants a new workflow has to hold to |
-| [branch-protection-settings.md](branch-protection-settings.md) | What `main` requires of a pull request, and which checks block a merge |
 
 ## Standing up a site
 
