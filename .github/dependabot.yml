@@ -110,10 +110,14 @@ updates:
     # Close any RC-bump PRs manually; they resolve on their own once the stable
     # release is available and Dependabot replaces them.
 
-  # Shared GitHub Actions workflows (repo root). Inert until workflows land on
-  # the default branch; kept here so updates start automatically once they do.
+  # Workflows and the composite actions they call. "/" covers
+  # .github/workflows/ only; it does not recurse into .github/actions/. That
+  # gap already drifted: malware-scan/action.yml sat on upload-sarif v4.37.8
+  # while all four workflow references were on v4.38.0.
   - package-ecosystem: github-actions
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/actions/*"
     schedule:
       interval: weekly
     commit-message:
