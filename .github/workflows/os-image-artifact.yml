@@ -755,7 +755,7 @@ jobs:
               ./scripts/upload-s3-flat.sh "$f"
           done
 
-      - name: Verify CloudFront reachability
+      - name: Verify upload
         shell: bash
         env:
           CF_DOMAIN: ${{ steps.meta.outputs.cf_domain }}
@@ -764,18 +764,22 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          # Same key layout upload-s3-flat.sh writes to: everything in S3_URI
-          # after the bucket name, then the same S3_PREFIX used to upload.
+          # head-object, not curl on the CloudFront URL: that domain sits
+          # behind a WAF IP allowlist that GitHub-hosted runners are never
+          # on (confirmed live -- a real upload 403's from here every time),
+          # so an HTTP check can never pass from CI. head-object uses this
+          # job's own IAM role instead, so it verifies the same fact --
+          # the object is really there -- without needing network access
+          # to the CDN itself.
+          bucket="${S3_URI#s3://}"
+          bucket="${bucket%%/*}"
           s3_path="${S3_URI#s3://*/}"
           for f in dist/*.qcow2; do
             bn="$(basename "$f")"
-            url="https://${CF_DOMAIN}/${s3_path}/os-image/releases/${RELEASE}/${ARCH}/${bn}"
-            status="$(curl -s -o /dev/null -w '%{http_code}' -I "${url}")"
-            if [[ "${status}" != "200" ]]; then
-              echo "::error::${url} returned ${status}, not 200"
-              exit 1
-            fi
-            echo "OK ${url}"
+            key="${s3_path}/os-image/releases/${RELEASE}/${ARCH}/${bn}"
+            aws s3api head-object --bucket "${bucket}" --key "${key}" >/dev/null
+            url="https://${CF_DOMAIN}/${key}"
+            echo "OK s3://${bucket}/${key} (${url})"
           done
 
   release:

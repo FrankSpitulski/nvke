@@ -131,7 +131,7 @@ jobs:
               ./scripts/upload-s3-flat.sh "dist/nkectl-${platform}"
           done
 
-      - name: Verify CloudFront reachability
+      - name: Verify upload
         shell: bash
         env:
           CF_DOMAIN: ${{ steps.meta.outputs.cf_domain }}
@@ -139,15 +139,19 @@ jobs:
           RELEASE: ${{ steps.meta.outputs.release }}
         run: |
           set -euo pipefail
-          # Same key layout upload-s3-flat.sh writes to: everything in S3_URI
-          # after the bucket name, then the same S3_PREFIX used to upload.
+          # head-object, not curl on the CloudFront URL: that domain sits
+          # behind a WAF IP allowlist that GitHub-hosted runners are never
+          # on (confirmed live -- a real upload 403's from here every time),
+          # so an HTTP check can never pass from CI. head-object uses this
+          # job's own IAM role instead, so it verifies the same fact --
+          # the object is really there -- without needing network access
+          # to the CDN itself.
+          bucket="${S3_URI#s3://}"
+          bucket="${bucket%%/*}"
           s3_path="${S3_URI#s3://*/}"
           for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
-            url="https://${CF_DOMAIN}/${s3_path}/nkectl/releases/${RELEASE}/${platform}/nkectl-${platform}"
-            status="$(curl -s -o /dev/null -w '%{http_code}' -I "${url}")"
-            if [[ "${status}" != "200" ]]; then
-              echo "::error::${url} returned ${status}, not 200"
-              exit 1
-            fi
-            echo "OK ${url}"
+            key="${s3_path}/nkectl/releases/${RELEASE}/${platform}/nkectl-${platform}"
+            aws s3api head-object --bucket "${bucket}" --key "${key}" >/dev/null
+            url="https://${CF_DOMAIN}/${key}"
+            echo "OK s3://${bucket}/${key} (${url})"
           done
