@@ -53,7 +53,8 @@ updates:
           - "k8s.io/*"
           - "sigs.k8s.io/*"
     ignore:
-      # sigs.k8s.io/cluster-api/test v1.14.0 and later cannot be consumed. Its
+      # sigs.k8s.io/cluster-api and sigs.k8s.io/cluster-api/test both go
+      # unresolvable at v1.14.0 and later: from that version on, each one's
       # go.mod carries local replaces:
       #
       #   replace (
@@ -66,11 +67,16 @@ updates:
       # behind, which does not exist. Requiring the real api module instead
       # gives an ambiguous import, because api/ was split out of
       # sigs.k8s.io/cluster-api between v1.12 and v1.14 and both still provide
-      # the same packages while the parent stays at v1.12.
+      # the same packages while the parent stays at v1.13. Dependabot hit this
+      # on the bare module too, grouped in with a controller-runtime bump --
+      # #901.
       #
-      # Taking it needs a deliberate cluster-api 1.12 -> 1.14 migration of
+      # Taking it needs a deliberate cluster-api 1.13 -> 1.14 migration of
+      # controller, cluster-api-provider-provisioned and
       # controller/hack/capd-reboot-controller, moving the parent and the new
-      # api module together. Drop this entry when that happens. See #88.
+      # api module together. Drop these two entries when that happens. See #88.
+      - dependency-name: "sigs.k8s.io/cluster-api"
+        versions: [">=1.14.0"]
       - dependency-name: "sigs.k8s.io/cluster-api/test"
         versions: [">=1.14.0"]
 
