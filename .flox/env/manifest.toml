@@ -35,7 +35,6 @@ golangci-lint = { pkg-path = "golangci-lint", version = "2.12.2", pkg-group = "g
 kubernetes-helm = { pkg-path = "kubernetes-helm", version = "4.2.4", pkg-group = "helm" }
 # backend-e2e.yml:118 and nkectl-bootstrap-e2e.yml:121.
 kind = { pkg-path = "kind", version = "0.32.0", pkg-group = "kind" }
-oapi-codegen = { pkg-path = "oapi-codegen", version = "2.4.1", pkg-group = "oapi-codegen" }
 gnumake.pkg-path = "gnumake"
 gnumake.outputs = "all"
 temporal-cli.pkg-path = "temporal-cli"

@@ -10,6 +10,9 @@ GOVULNCHECK_WAIVED_MODULES ?= controller/nico-sim
 
 ACTIONLINT_VERSION ?= 1.7.12
 SHELLCHECK_VERSION ?= 0.11.0
+# Next to the version so a bump cannot change one without the other.
+# linux.x86_64 tarball for the version above.
+SHELLCHECK_SHA256  ?= 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
 GITLEAKS_VERSION   ?= 8.30.1
 
 KUBECONFORM_VERSION ?= v0.7.0

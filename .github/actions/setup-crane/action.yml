@@ -12,8 +12,11 @@ description: Download crane at a pinned version, verify sha256, add it to PATH
 
 inputs:
   crane_version:
-    description: go-containerregistry release tag, for example v0.21.9
-    required: true
+    description: >-
+      go-containerregistry release tag, for example v0.21.9. Empty reads
+      CRANE_VERSION from make/tool-versions.mk, which is where the pin lives.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -23,6 +26,10 @@ runs:
         CRANE_VERSION: ${{ inputs.crane_version }}
       run: |
         set -euo pipefail
+        # One definition, in make/tool-versions.mk, so a bump there reaches CI.
+        if [ -z "${CRANE_VERSION}" ]; then
+          CRANE_VERSION="v$(make -C "${GITHUB_WORKSPACE}" --no-print-directory print-CRANE_VERSION)"
+        fi
         arch=$(uname -m)
         case "${arch}" in aarch64) arch=arm64 ;; esac
         os=$(uname -s)

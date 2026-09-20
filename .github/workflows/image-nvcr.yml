@@ -281,8 +281,6 @@ jobs:
       # the tag is real, which is what broke this job. See setup-crane/action.yml.
       - name: Set up crane
         uses: ./.github/actions/setup-crane
-        with:
-          crane_version: v0.21.9
 
       # crane copies the whole index, so the per-architecture manifests come
       # with it and the digest is preserved. What GHCR serves is the image NVCR
@@ -338,8 +336,6 @@ jobs:
       # the tag is real, which is what broke this job. See setup-crane/action.yml.
       - name: Set up crane
         uses: ./.github/actions/setup-crane
-        with:
-          crane_version: v0.21.9
 
       - name: Promote image
         shell: bash
