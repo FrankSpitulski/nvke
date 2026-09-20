@@ -20,6 +20,14 @@ endif
 # so it is dropped from the environment the recipes pass on.
 unexport GOWORK
 
+# go.work owns the Go version. strcase (vendored via teleport/api) asserts its
+# Unicode tables match the stdlib's, so a toolchain newer than the `go`
+# directive panics at init -- controller/Makefile:7 has pinned against that
+# for a while. Exporting it here extends the same pin to every module this
+# Makefile delegates to. An explicit GOTOOLCHAIN, as CI sets, still wins.
+GOTOOLCHAIN ?= go$(shell awk '/^go /{print $$2; exit}' $(CURDIR)/go.work)
+export GOTOOLCHAIN
+
 GO      ?= go
 BIN_DIR ?= $(CURDIR)/bin
 

@@ -4,7 +4,8 @@
 # Canonical tool versions. This file contains values only so module Makefiles
 # can include it without adding root targets to their help output.
 
-GOVULNCHECK_GO_VERSION ?= 1.26.6
+# Derived, not duplicated: go.work owns the Go version.
+GOVULNCHECK_GO_VERSION ?= $(shell awk '/^go /{print $$2; exit}' $(dir $(lastword $(MAKEFILE_LIST)))../go.work)
 GOVULNCHECK_VERSION    ?= v1.6.0
 GOVULNCHECK_WAIVED_MODULES ?= controller/nico-sim
 
