@@ -20,6 +20,26 @@
 # Advisory, not gating: this lane is not in merge-gate.yml's `gate` and has no
 # workflow_call for one to reach it by, so a red run has to be looked at
 # deliberately rather than blocking a merge.
+#
+# WHY IT STAYS ADVISORY, so the question stops being reopened. It fails all
+# three tests README.md's "Adding a required gate member" asks, and invariant 5
+# there is explicit that such work stays advisory:
+#
+#   Self-hosted runner.  Both legs need linux-*-cpu16 for a bootstrap cluster
+#   and three nested control planes. merge-gate.yml runs on `pull_request`, and
+#   a fork pull request cannot reach the NVIDIA pool at all.
+#
+#   Internal dependency with no fallback.  NKECTL_CWE_POSTGRES_CHART below
+#   pins an OCI chart on dc.local.gha-runners.nvidia.com, and cwedeploy's
+#   Engine.Deploy substitutes its default only when that value is empty. A
+#   non-empty unreachable value fails the deploy rather than falling back.
+#
+#   Latency.  12-17 minutes against a gate whose wall clock is about nine.
+#
+# Making it required would mean `gate` never reporting on a fork pull request,
+# so it could never merge -- the same failure the required-member rules exist
+# to prevent. Making it gateable means removing both dependencies first, which
+# is a change to the lane, not to its gate membership.
 name: nkectl bootstrap e2e
 
 # No workflow_call: this lane left the merge gate when it moved to the mirror

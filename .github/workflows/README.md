@@ -69,6 +69,10 @@ First confirm that the job belongs in the required gate:
 
 If any answer is no, add an advisory workflow instead.
 
+`nkectl-bootstrap-e2e.yml` is the worked example of a no, and its header
+records which answers fail and what would have to change first. Read that
+before proposing it, or any other e2e lane, as a member again.
+
 ### 1. Make the workflow reusable
 
 A typical required member owns `main` directly and is called for pull requests:
