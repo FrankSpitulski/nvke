@@ -90,9 +90,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/pull-request/') }}
 
 env:
-  # packer_<version>_linux_{amd64,arm64}.zip from the HashiCorp SHA256SUMS file.
-  PACKER_SHA256: "cfefdea4ac580eba7b254ef34d25b756d4961741004e3e701a1476594d13e64a"
-  PACKER_SHA256_ARM64: "370002d15b07c0dc47dd0d188cdea8e6746606f6fcc3b4de48d02496d71d74ee"
   REPO_FDE: ghcr.io/dsx-ai-factory/nke/os-image-fde
   REPO_NON_FDE: ghcr.io/dsx-ai-factory/nke/os-image-non-fde
 
@@ -217,6 +214,8 @@ jobs:
           {
             echo "oras_version=$(make --no-print-directory print-ORAS_VERSION)"
             echo "packer_version=$(make --no-print-directory print-PACKER_VERSION)"
+            echo "packer_sha256_amd64=$(make --no-print-directory print-PACKER_SHA256_AMD64)"
+            echo "packer_sha256_arm64=$(make --no-print-directory print-PACKER_SHA256_ARM64)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Set up ORAS
@@ -307,8 +306,8 @@ jobs:
       - name: Install Packer
         env:
           PACKER_VERSION: ${{ steps.versions.outputs.packer_version }}
-          PACKER_SHA256: ${{ env.PACKER_SHA256 }}
-          PACKER_SHA256_ARM64: ${{ env.PACKER_SHA256_ARM64 }}
+          PACKER_SHA256: ${{ steps.versions.outputs.packer_sha256_amd64 }}
+          PACKER_SHA256_ARM64: ${{ steps.versions.outputs.packer_sha256_arm64 }}
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
