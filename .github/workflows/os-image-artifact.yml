@@ -736,6 +736,34 @@ jobs:
             echo "cf_domain=${CF_DOMAIN}"
           } >> "${GITHUB_OUTPUT}"
 
+      # The pull above resolves a mutable tag, so what lands in dist/ is
+      # whatever that tag points at now, not necessarily what this run built.
+      # The build leg recorded the sha256 of each disk it produced; compare
+      # against it before anything reaches S3.
+      - name: Download this leg's checksums
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-assets-${{ matrix.arch }}
+          path: expected
+
+      - name: Verify the pulled qcow2s
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          sums="expected/checksums-${ARCH}.txt"
+          # --ignore-missing, because the amd64 leg's file also lists
+          # nke-os-image-check, which is a release asset rather than a disk.
+          # That makes an empty dist/ pass, so count the disks separately.
+          disks=(dist/*.qcow2)
+          if [[ ! -e "${disks[0]}" ]]; then
+            echo "::error::the oras pull produced no qcow2 to verify"
+            exit 1
+          fi
+          ( cd dist && sha256sum -c --ignore-missing "../${sums}" )
+          echo "verified ${#disks[@]} disk(s) against ${sums}"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
@@ -854,6 +882,20 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-rc.') }}
           make_latest: false
           generate_release_notes: false
+
+      # The name-and-size check below proves an asset arrived, not that it
+      # arrived whole. The shared action hashes what the release carries
+      # against checksums.txt, which is the bar release.yml already held.
+      # require-all is false because the same file also covers the four
+      # qcow2s, which ship as OCI artifacts rather than release assets.
+      - name: Verify the release assets
+        uses: ./.github/actions/verify-release-assets
+        with:
+          release-id: ${{ steps.release.outputs.id }}
+          checksums: dist/checksums.txt
+          expected-count: "2"
+          require-all: "false"
+          github-token: ${{ github.token }}
 
       - name: Publish the release
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

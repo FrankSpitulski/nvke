@@ -571,11 +571,25 @@ jobs:
       # publishing it is what seals it. An agent/v* tag also runs release.yml,
       # which creates a release for the same tag, so the two workflows can
       # reach the same release object.
+      # Counting .deb files proved one arrived, not that it arrived whole: an
+      # asset reports 'uploaded' with a non-zero size even when the upload was
+      # truncated. The shared action reads every asset back and hashes it
+      # against checksums.txt, which is the bar release.yml already held.
+      - name: Verify the release assets
+        uses: ./.github/actions/verify-release-assets
+        with:
+          release-id: ${{ steps.release.outputs.id }}
+          checksums: agent/bin/checksums.txt
+          github-token: ${{ github.token }}
+
       - name: Publish the release
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.id }}
         with:
+          retries: 3
           script: |
-            const release_id = Number('${{ steps.release.outputs.id }}');
+            const release_id = Number(process.env.RELEASE_ID);
 
             const { data: rel } = await github.rest.repos.getRelease({
               ...context.repo, release_id,
