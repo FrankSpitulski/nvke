@@ -19,6 +19,15 @@ import (
 	"strings"
 )
 
+// The chart directories, so a caller names one by constant rather than by
+// literal. These are directory names: the nke-controller chart lives in
+// controller/, because a chart is named for the OCI repository it publishes
+// to rather than for where it is kept.
+const (
+	NKEController = "controller"
+	Postgresql    = "postgresql"
+)
+
 // all: so that templates/_helpers.tpl is included; plain go:embed skips files
 // whose names start with "_" or ".", and a chart without its helpers renders
 // nothing useful.
