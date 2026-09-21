@@ -80,6 +80,17 @@ updates:
       - dependency-name: "sigs.k8s.io/cluster-api/test"
         versions: [">=1.14.0"]
 
+      # A submodule of a repository whose root module is +incompatible:
+      # resolution walks up to the root, lands on v4.3.10, and finds no api/
+      # there. Nothing here requires the root module. Bump it by hand.
+      - dependency-name: "github.com/gravitational/teleport/api"
+
+      # Renamed its module path to github.com/NVIDIA/infra-controller-rest at
+      # v1.5.0, so any bump past v1.4.3 fails path validation. Taking it means
+      # rewriting the import in nico-sim, not editing go.mod.
+      - dependency-name: "github.com/NVIDIA/ncx-infra-controller-rest"
+        versions: [">=1.5.0"]
+
   # Dockerfiles anywhere in the tree (controller/, controller/hack/*, agent/, ...).
   - package-ecosystem: docker
     directories:
