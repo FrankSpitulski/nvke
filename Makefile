@@ -54,8 +54,7 @@ LICENSE_FILES = git ls-files -- '*.go' '*.sh' '*.py' '*.js' '*.css' '*.html' '*.
 	| grep -vE '^generated/' \
 	| grep -vE '\.pb\.go$$' \
 	| grep -vE '^controller/deploy/charts/' \
-	| grep -vE '^controller/test/fixtures/' \
-	| grep -vE '^(\.github/|build/|\.grype\.yaml$$)'
+	| grep -vE '^controller/test/fixtures/'
 
 # Modules in go.work — every module in the repository. Building needs no
 # NVIDIA credentials: the one still-INTERNAL dependency

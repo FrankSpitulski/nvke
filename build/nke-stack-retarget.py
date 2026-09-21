@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Repoint the first-party deps at REGISTRY and pin CWE to the built version."""
 import re, sys
 path, registry, version = sys.argv[1], sys.argv[2], sys.argv[3]
