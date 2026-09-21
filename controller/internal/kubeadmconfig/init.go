@@ -216,6 +216,8 @@ func clusterConfiguration(config *InitConfig) kubeadmv1beta3.ClusterConfiguratio
 				"kubelet-certificate-authority":           defaultKubeletCertificateAuth,
 				"profiling":                               defaultProfilingDisabled,
 				"bind-address":                            defaultBindAddress,
+				"service-account-extend-token-expiration": defaultServiceAccountExtendTokenExpiration,
+				"tls-cipher-suites":                       defaultTLSCipherSuites,
 				"shutdown-delay-duration":                 defaultAPIServerShutdownDelay,
 				"shutdown-send-retry-after":               defaultAPIServerShutdownRetry,
 				"shutdown-watch-termination-grace-period": defaultAPIServerShutdownWatch,
