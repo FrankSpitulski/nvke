@@ -37,8 +37,17 @@ const (
 	// and arm64 builds under one checksums file.
 	downloadScript = `set -e
 cd /tmp
-wget -qO "$ASSET" "$URL/$ASSET"
-wget -qO checksums.txt "$URL/$CHECKSUMS"
+# Both fetches reach github.com, and busybox wget has no backoff of its own,
+# so a 504 there fails the suite on the first try.
+fetch() {
+  for delay in 5 15 30 60 0; do
+    wget -qO "$1" "$2" && return 0
+    [ "${delay}" -eq 0 ] && return 1
+    sleep "${delay}"
+  done
+}
+fetch "$ASSET" "$URL/$ASSET"
+fetch checksums.txt "$URL/$CHECKSUMS"
 grep " $ASSET$" checksums.txt | sha256sum -c -
 tar xzf "$ASSET"
 install -m 0755 k8s-spiffe-workload-jwt-exec-auth ` + pluginInstallPath + `
