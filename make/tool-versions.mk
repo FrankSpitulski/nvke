@@ -7,7 +7,16 @@
 # Derived, not duplicated: go.work owns the Go version.
 GOVULNCHECK_GO_VERSION ?= $(shell awk '/^go /{print $$2; exit}' $(dir $(lastword $(MAKEFILE_LIST)))../go.work)
 GOVULNCHECK_VERSION    ?= v1.6.0
-GOVULNCHECK_WAIVED_MODULES ?= controller/nico-sim
+# Waived govulncheck findings, as <module>=<OSV-id>[,<OSV-id>...]. Scoped to
+# the advisory, not the module: a second, unrelated reachable vulnerability
+# in the same module must still fail the gate.
+#
+# GO-2026-4736 is gobgp's NEXT_HOP denial of service. It is reachable for
+# real and has no fixed release -- see govulncheck.yml for the full reasoning.
+GOVULNCHECK_WAIVED ?= controller/nico-sim=GO-2026-4736
+# FIXME: a team cannot own a security waiver; name a person here.
+GOVULNCHECK_WAIVER_OWNER  ?= @dsx-ai-factory/nke-maintainer
+GOVULNCHECK_WAIVER_REVIEW ?= 2026-12-19
 
 # Committed digests, not fetched from the release. A checksum served by the
 # same host as the artifact shares its compromise boundary; a committed one

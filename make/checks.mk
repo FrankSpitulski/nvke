@@ -118,7 +118,9 @@ vulncheck: ## Report vulnerabilities reachable from each module. (run by the mer
 	 for m in $(WORK_MODULES); do \
 		echo "- $$m"; \
 		GOTOOLCHAIN=go$(GOVULNCHECK_GO_VERSION) \
-		GOVULNCHECK_WAIVED_MODULES="$(GOVULNCHECK_WAIVED_MODULES)" \
+		GOVULNCHECK_WAIVED="$(GOVULNCHECK_WAIVED)" \
+		GOVULNCHECK_WAIVER_OWNER="$(GOVULNCHECK_WAIVER_OWNER)" \
+		GOVULNCHECK_WAIVER_REVIEW="$(GOVULNCHECK_WAIVER_REVIEW)" \
 			./hack/govulncheck-gate.sh "$$m"; \
 		rc=$$?; \
 		[ $$rc -eq 0 ] || fail=1; \

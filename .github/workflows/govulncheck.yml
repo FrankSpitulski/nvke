@@ -42,10 +42,17 @@
 # is no release to move to. It needs an upstream fix or a documented VEX Not
 # Affected, neither of which is a CI change.
 #
-# The waiver is written so it cannot outlive its reason: a waived module that
-# comes back CLEAN fails this job and asks to be un-waived. An exclusion nobody
-# is forced to revisit is how the previous single-module scope survived long
-# after the dependency that justified it was gone.
+# The waiver cannot outlive its reason, and it is scoped to the advisory rather
+# than the module. GOVULNCHECK_WAIVED names controller/nico-sim=GO-2026-4736,
+# so a second, unrelated reachable vulnerability there still fails the gate --
+# which a module-wide waiver would have hidden -- and a waived advisory that
+# stops being called fails and asks to be un-waived. An exclusion nobody is
+# forced to revisit is how the previous single-module scope survived long after
+# the dependency that justified it was gone.
+#
+# GOVULNCHECK_WAIVER_REVIEW warns past its date rather than failing. A date that
+# broke the build would get the whole mechanism deleted the first time it fired;
+# the un-waive check is what actually stops rot.
 #
 # The gate runs after the upload so that a failure still leaves the findings in
 # the Security tab rather than losing them with the job.
@@ -155,7 +162,9 @@ jobs:
           {
             echo "go=$(make --no-print-directory print-GOVULNCHECK_GO_VERSION)"
             echo "tool=$(make --no-print-directory print-GOVULNCHECK_VERSION)"
-            echo "waived=$(make --no-print-directory print-GOVULNCHECK_WAIVED_MODULES)"
+            echo "waived=$(make --no-print-directory print-GOVULNCHECK_WAIVED)"
+            echo "waiver_owner=$(make --no-print-directory print-GOVULNCHECK_WAIVER_OWNER)"
+            echo "waiver_review=$(make --no-print-directory print-GOVULNCHECK_WAIVER_REVIEW)"
           } >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -260,5 +269,7 @@ jobs:
         shell: bash
         env:
           GOPROXY: "off"
-          GOVULNCHECK_WAIVED_MODULES: ${{ steps.versions.outputs.waived }}
+          GOVULNCHECK_WAIVED: ${{ steps.versions.outputs.waived }}
+          GOVULNCHECK_WAIVER_OWNER: ${{ steps.versions.outputs.waiver_owner }}
+          GOVULNCHECK_WAIVER_REVIEW: ${{ steps.versions.outputs.waiver_review }}
         run: ./hack/govulncheck-gate.sh "${{ matrix.module.dir }}"
