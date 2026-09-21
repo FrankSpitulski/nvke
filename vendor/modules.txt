@@ -468,9 +468,9 @@ github.com/opencontainers/go-digest
 ## explicit; go 1.18
 github.com/opencontainers/image-spec/specs-go
 github.com/opencontainers/image-spec/specs-go/v1
-# github.com/osrg/gobgp/v3 v3.37.0
-## explicit; go 1.23.0
-github.com/osrg/gobgp/v3/pkg/packet/bgp
+# github.com/osrg/gobgp/v4 v4.9.0
+## explicit; go 1.25.0
+github.com/osrg/gobgp/v4/pkg/packet/bgp
 # github.com/pelletier/go-toml/v2 v2.2.4
 ## explicit; go 1.21.0
 github.com/pelletier/go-toml/v2

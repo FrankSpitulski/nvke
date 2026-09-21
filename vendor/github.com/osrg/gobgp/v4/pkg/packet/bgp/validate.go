@@ -1,15 +1,15 @@
 package bgp
 
 import (
-	"encoding/binary"
 	"fmt"
-	"math"
 	"net"
+	"net/netip"
+	"slices"
 	"strconv"
 )
 
 // Validator for BGPUpdate
-func ValidateUpdateMsg(m *BGPUpdate, rfs map[RouteFamily]BGPAddPathMode, isEBGP bool, isConfed bool, loopbackNextHopAllowed bool) (bool, error) {
+func ValidateUpdateMsg(m *BGPUpdate, rfs map[Family]BGPAddPathMode, isEBGP bool, isConfed bool, loopbackNextHopAllowed bool) (bool, error) {
 	var strongestError error
 
 	eCode := uint8(BGP_ERROR_UPDATE_MESSAGE_ERROR)
@@ -30,7 +30,7 @@ func ValidateUpdateMsg(m *BGPUpdate, rfs map[RouteFamily]BGPAddPathMode, isEBGP 
 		if _, ok := seen[a.GetType()]; !ok {
 			seen[a.GetType()] = a
 			newAttrs = append(newAttrs, a)
-			//check specific path attribute
+			// check specific path attribute
 			ok, err := ValidateAttribute(a, rfs, isEBGP, isConfed, loopbackNextHopAllowed)
 			if !ok {
 				msgErr := err.(*MessageError)
@@ -81,7 +81,7 @@ func ValidateUpdateMsg(m *BGPUpdate, rfs map[RouteFamily]BGPAddPathMode, isEBGP 
 	return strongestError == nil, strongestError
 }
 
-func ValidateAttribute(a PathAttributeInterface, rfs map[RouteFamily]BGPAddPathMode, isEBGP bool, isConfed bool, loopbackNextHopAllowed bool) (bool, error) {
+func ValidateAttribute(a PathAttributeInterface, rfs map[Family]BGPAddPathMode, isEBGP bool, isConfed bool, loopbackNextHopAllowed bool) (bool, error) {
 	var strongestError error
 
 	eCode := uint8(BGP_ERROR_UPDATE_MESSAGE_ERROR)
@@ -90,31 +90,18 @@ func ValidateAttribute(a PathAttributeInterface, rfs map[RouteFamily]BGPAddPathM
 	eSubCodeUnknown := uint8(BGP_ERROR_SUB_UNRECOGNIZED_WELL_KNOWN_ATTRIBUTE)
 	eSubCodeMalformedAspath := uint8(BGP_ERROR_SUB_MALFORMED_AS_PATH)
 
-	checkPrefix := func(l []AddrPrefixInterface) error {
+	checkPrefix := func(family Family, l []PathNLRI) error {
+		if _, ok := rfs[family]; !ok {
+			return NewMessageError(0, 0, nil, fmt.Sprintf("Address-family %s not available for this session", family))
+		}
+
 		for _, prefix := range l {
-			rf := AfiSafiToRouteFamily(prefix.AFI(), prefix.SAFI())
-			if _, ok := rfs[rf]; !ok {
-				return NewMessageError(0, 0, nil, fmt.Sprintf("Address-family %s not available for this session", rf))
-			}
-			switch rf {
+			switch family {
 			case RF_FS_IPv4_UC, RF_FS_IPv6_UC, RF_FS_IPv4_VPN, RF_FS_IPv6_VPN, RF_FS_L2_VPN:
 				t := BGPFlowSpecType(0)
-				value := make([]FlowSpecComponentInterface, 0)
-				switch rf {
-				case RF_FS_IPv4_UC:
-					value = prefix.(*FlowSpecIPv4Unicast).Value
-				case RF_FS_IPv6_UC:
-					value = prefix.(*FlowSpecIPv6Unicast).Value
-				case RF_FS_IPv4_VPN:
-					value = prefix.(*FlowSpecIPv4VPN).Value
-				case RF_FS_IPv6_VPN:
-					value = prefix.(*FlowSpecIPv6VPN).Value
-				case RF_FS_L2_VPN:
-					value = prefix.(*FlowSpecL2VPN).Value
-				}
-				for _, v := range value {
+				for _, v := range prefix.NLRI.(*FlowSpecNLRI).Value {
 					if v.Type() <= t {
-						return NewMessageError(0, 0, nil, fmt.Sprintf("%s nlri violate strict type ordering", rf))
+						return NewMessageError(0, 0, nil, fmt.Sprintf("%s nlri violate strict type ordering", family))
 					}
 					t = v.Type()
 				}
@@ -125,23 +112,15 @@ func ValidateAttribute(a PathAttributeInterface, rfs map[RouteFamily]BGPAddPathM
 
 	switch p := a.(type) {
 	case *PathAttributeMpUnreachNLRI:
-		rf := AfiSafiToRouteFamily(p.AFI, p.SAFI)
-		if _, ok := rfs[rf]; !ok {
-			return false, NewMessageError(0, 0, nil, fmt.Sprintf("Address-family rf %d not available for session", rf))
-		}
-		if err := checkPrefix(p.Value); err != nil {
+		if err := checkPrefix(NewFamily(p.AFI, p.SAFI), p.Value); err != nil {
 			return false, err
 		}
 	case *PathAttributeMpReachNLRI:
-		rf := AfiSafiToRouteFamily(p.AFI, p.SAFI)
-		if _, ok := rfs[rf]; !ok {
-			return false, NewMessageError(0, 0, nil, fmt.Sprintf("Address-family rf %d not available for session", rf))
-		}
-		if err := checkPrefix(p.Value); err != nil {
+		if err := checkPrefix(NewFamily(p.AFI, p.SAFI), p.Value); err != nil {
 			return false, err
 		}
 	case *PathAttributeOrigin:
-		v := uint8(p.Value)
+		v := p.Value
 		if v != BGP_ORIGIN_ATTR_TYPE_IGP &&
 			v != BGP_ORIGIN_ATTR_TYPE_EGP &&
 			v != BGP_ORIGIN_ATTR_TYPE_INCOMPLETE {
@@ -167,9 +146,9 @@ func ValidateAttribute(a PathAttributeInterface, rfs map[RouteFamily]BGPAddPathM
 			res := ip[0] & 0xe0
 			return res == 0xe0
 		}
-
-		//check IP address represents host address
-		if (!loopbackNextHopAllowed && p.Value.IsLoopback()) || isZero(p.Value) || isClassDorE(p.Value) {
+		addr := net.IP(p.Value.AsSlice())
+		// check IP address represents host address
+		if !loopbackNextHopAllowed && p.Value.IsLoopback() || isZero(addr) || isClassDorE(addr) {
 			eMsg := "invalid nexthop address"
 			data, _ := a.Serialize()
 			e := NewMessageErrorWithErrorHandling(eCode, eSubCodeBadNextHop, data, getErrorHandlingFromPathAttribute(p.GetType()), nil, eMsg)
@@ -180,6 +159,9 @@ func ValidateAttribute(a PathAttributeInterface, rfs map[RouteFamily]BGPAddPathM
 	case *PathAttributeAsPath:
 		if isEBGP {
 			if isConfed {
+				if len(p.Value) == 0 {
+					return false, NewMessageError(eCode, eSubCodeMalformedAspath, nil, "empty AS_PATH for confederation eBGP")
+				}
 				if segType := p.Value[0].GetType(); segType != BGP_ASPATH_ATTR_TYPE_CONFED_SEQ {
 					return false, NewMessageError(eCode, eSubCodeMalformedAspath, nil, fmt.Sprintf("segment type is not confederation seq (%d)", segType))
 				}
@@ -200,13 +182,7 @@ func ValidateAttribute(a PathAttributeInterface, rfs map[RouteFamily]BGPAddPathM
 	case *PathAttributeLargeCommunities:
 		uniq := make([]*LargeCommunity, 0, len(p.Values))
 		for _, x := range p.Values {
-			found := false
-			for _, y := range uniq {
-				if x.Eq(y) {
-					found = true
-					break
-				}
-			}
+			found := slices.ContainsFunc(uniq, x.Eq)
 			if !found {
 				uniq = append(uniq, x)
 			}
@@ -226,7 +202,6 @@ func ValidateAttribute(a PathAttributeInterface, rfs map[RouteFamily]BGPAddPathM
 
 // validator for PathAttribute
 func validatePathAttributeFlags(t BGPAttrType, flags BGPAttrFlag) string {
-
 	/*
 	 * RFC 4271 P.17 For well-known attributes, the Transitive bit MUST be set to 1.
 	 */
@@ -257,63 +232,55 @@ func validatePathAttributeFlags(t BGPAttrType, flags BGPAttrFlag) string {
 	return ""
 }
 
-func validateAsPathValueBytes(data []byte) (bool, error) {
+func validateAsPathValueBytes(data []byte, options ...*MarshallingOption) (bool, error) {
 	eCode := uint8(BGP_ERROR_UPDATE_MESSAGE_ERROR)
 	eSubCode := uint8(BGP_ERROR_SUB_MALFORMED_AS_PATH)
 	if len(data)%2 != 0 {
 		return false, NewMessageError(eCode, eSubCode, nil, "AS PATH length is not odd")
 	}
 
-	tryParse := func(data []byte, use4byte bool) (bool, error) {
-		for len(data) > 0 {
-			if len(data) < 2 {
-				return false, NewMessageError(eCode, eSubCode, nil, "AS PATH header is short")
-			}
-			segType := data[0]
-			if segType == 0 || segType > 4 {
-				return false, NewMessageError(eCode, eSubCode, nil, "unknown AS_PATH seg type")
-			}
-			asNum := data[1]
-			data = data[2:]
-			if asNum == 0 || int(asNum) > math.MaxUint8 {
-				return false, NewMessageError(eCode, eSubCode, nil, "AS PATH the number of AS is incorrect")
-			}
-			segLength := int(asNum)
-			if use4byte {
-				segLength *= 4
-			} else {
-				segLength *= 2
-			}
-			if int(segLength) > len(data) {
-				return false, NewMessageError(eCode, eSubCode, nil, "seg length is short")
-			}
-			data = data[segLength:]
+	// Determine AS encoding format
+	// Default: 4-byte AS (modern standard)
+	// Use2ByteAS=true: 2-byte AS (legacy peers without 4-byte AS capability)
+	use2ByteAS := false
+	for _, opt := range options {
+		if opt != nil && opt.Use2ByteAS {
+			use2ByteAS = true
+			break
 		}
-		return true, nil
 	}
-	_, err := tryParse(data, true)
-	if err == nil {
-		return true, nil
-	}
+	use4ByteAS := !use2ByteAS
 
-	_, err = tryParse(data, false)
-	if err == nil {
-		return false, nil
+	// Validate AS_PATH structure
+	d := data
+	for len(d) > 0 {
+		if len(d) < 2 {
+			return false, NewMessageError(eCode, eSubCode, nil, "AS PATH header is short")
+		}
+		segType := d[0]
+		if segType == 0 || segType > 4 {
+			return false, NewMessageError(eCode, eSubCode, nil, "unknown AS_PATH seg type")
+		}
+		asNum := d[1]
+		d = d[2:]
+		if asNum == 0 {
+			return false, NewMessageError(eCode, eSubCode, nil, "AS PATH segment has zero AS count")
+		}
+		segLength := int(asNum)
+		if use4ByteAS {
+			segLength *= 4
+		} else {
+			segLength *= 2
+		}
+		if segLength > len(d) {
+			return false, NewMessageError(eCode, eSubCode, nil, "seg length is short")
+		}
+		d = d[segLength:]
 	}
-	return false, NewMessageError(eCode, eSubCode, nil, "can't parse AS_PATH")
+	return use4ByteAS, nil
 }
 
-func ValidateBGPMessage(m *BGPMessage) error {
-	if m.Header.Len > BGP_MAX_MESSAGE_LENGTH {
-		buf := make([]byte, 2)
-		binary.BigEndian.PutUint16(buf, m.Header.Len)
-		return NewMessageError(BGP_ERROR_MESSAGE_HEADER_ERROR, BGP_ERROR_SUB_BAD_MESSAGE_LENGTH, buf, "too long length")
-	}
-
-	return nil
-}
-
-func ValidateOpenMsg(m *BGPOpen, expectedAS uint32, myAS uint32, myId net.IP) (uint32, error) {
+func ValidateOpenMsg(m *BGPOpen, expectedAS uint32, myAS uint32, myId netip.Addr) (uint32, error) {
 	if m.Version != 4 {
 		return 0, NewMessageError(BGP_ERROR_OPEN_MESSAGE_ERROR, BGP_ERROR_SUB_UNSUPPORTED_VERSION_NUMBER, nil, fmt.Sprintf("unsupported version %d", m.Version))
 	}
@@ -341,7 +308,7 @@ func ValidateOpenMsg(m *BGPOpen, expectedAS uint32, myAS uint32, myId net.IP) (u
 	if routerId.IsUnspecified() {
 		return 0, NewMessageError(BGP_ERROR_OPEN_MESSAGE_ERROR, BGP_ERROR_SUB_BAD_BGP_IDENTIFIER, nil, fmt.Sprintf("bad BGP identifier %s (0.0.0.0)", routerId.String()))
 	}
-	if as == myAS && routerId.Equal(myId) {
+	if as == myAS && routerId == myId {
 		return 0, NewMessageError(BGP_ERROR_OPEN_MESSAGE_ERROR, BGP_ERROR_SUB_BAD_BGP_IDENTIFIER, nil, fmt.Sprintf("bad BGP identifier %s", routerId.String()))
 	}
 
