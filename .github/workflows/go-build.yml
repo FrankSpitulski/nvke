@@ -93,6 +93,12 @@ jobs:
       #
       # The checkout above is shallow and has no tags, so `git describe --tags`
       # finds nothing and the version falls back to the commit. That passes.
+      # go.work owns the Go version; the Dockerfiles and the Flox manifest
+      # cannot derive it, so this is what notices when a hand-kept copy drifts.
+      # Reads files only, so it is safe for a fork pull request.
+      - name: Check the Go version copies agree with go.work
+        run: make go-version-check
+
       - name: Build
         run: make version-check
 

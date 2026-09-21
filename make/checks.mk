@@ -154,9 +154,14 @@ lint: ## Lint every module. (run by the merge gate)
 
 # One merge-gate job needs live services, and is listed below alongside the
 # advisory lanes that are not part of the gate at all.
+.PHONY: go-version-check
+go-version-check: ## Verify every hand-kept Go version matches go.work.
+	@./hack/go-version-check.sh
+
 gate: ## Run the merge-gate checks that work on a laptop.
 	@$(MAKE) --no-print-directory tools-check
 	@$(MAKE) --no-print-directory version-check
+	@$(MAKE) --no-print-directory go-version-check
 	@CGO_ENABLED=1 $(MAKE) --no-print-directory GO_TEST_FLAGS=-race test
 	@$(MAKE) --no-print-directory test-compile
 	@$(MAKE) --no-print-directory lint
