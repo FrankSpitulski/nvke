@@ -1,3 +1,3 @@
-module github.com/NVIDIA/nke/controller/deploy/charts
+module github.com/dsx-ai-factory/nke/controller/deploy/charts
 
 go 1.26.5
