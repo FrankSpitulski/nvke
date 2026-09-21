@@ -65,6 +65,12 @@ manifests: controller-gen ## Generate CRDs and controller RBAC.
 
 generate-check: generate manifests ## Verify generated code, CRDs, and RBAC are current.
 	@git diff --exit-code -- api/v1alpha1/zz_generated.deepcopy.go config/crd config/rbac/role.yaml
+	@# git diff says nothing about a path git is not tracking, so a newly
+	@# generated file would otherwise pass while never being committed. Same
+	@# guard as Makefile's licences-check.
+	@untracked=$$(git ls-files --others --exclude-standard -- api/v1alpha1/zz_generated.deepcopy.go config/crd config/rbac/role.yaml); \
+	 [ -z "$$untracked" ] \
+		|| { echo "ERROR: generated files are not tracked. Run 'make generate manifests' and commit them:"; printf '%s\n' "$$untracked" | sed 's/^/    /'; exit 1; }
 
 docker-build: ## Build AMD64 and ARM64 images into a local OCI archive.
 	@mkdir -p "$(dir $(OCI_ARCHIVE))"

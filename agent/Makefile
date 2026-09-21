@@ -179,6 +179,12 @@ check-protos: buf ## Check proto formatting, and that *.pb.go matches the .proto
 	@$(MAKE) --no-print-directory protos
 	@git diff --exit-code -- $(PROTO_DIR) \
 		|| { echo "❌ *.pb.go is stale. Run 'make protos' and commit the result."; exit 1; }
+	@# git diff says nothing about a path git is not tracking, so a newly
+	@# generated file would otherwise pass while never being committed. Same
+	@# guard as Makefile's licences-check.
+	@untracked=$$(git ls-files --others --exclude-standard -- $(PROTO_DIR)); \
+	 [ -z "$$untracked" ] \
+		|| { echo "❌ generated proto files are not tracked. Run 'make protos' and commit them:"; printf '%s\n' "$$untracked" | sed 's/^/    /'; exit 1; }
 
 .PHONY: clean-proto
 clean-proto: ## Remove generated proto files

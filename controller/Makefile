@@ -130,6 +130,12 @@ generate-check: generate-api ## Verify generated API code is up to date. (run by
 		git diff --name-only -- api/models.gen.go api/server.gen.go api/client.gen.go; \
 		exit 1; \
 	fi
+	@# git diff says nothing about a path git is not tracking, so a newly
+	@# generated file would otherwise pass while never being committed. Same
+	@# guard as Makefile's licences-check.
+	@untracked=$$(git ls-files --others --exclude-standard -- api/models.gen.go api/server.gen.go api/client.gen.go); \
+	 [ -z "$$untracked" ] \
+		|| { echo "ERROR: generated API files are not tracked. Run 'make generate' and commit them:"; printf '%s\n' "$$untracked" | sed 's/^/    /'; exit 1; }
 
 RELEASE_LDFLAGS ?= -s -w -buildid= -extldflags -static
 
