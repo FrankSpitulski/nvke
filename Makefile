@@ -65,6 +65,7 @@ WORK_MODULES := agent \
                 cluster-api-provider-provisioned \
                 controller \
                 controller/api \
+                controller/deploy/charts \
                 controller/nico-sim \
                 controller/hack/capd-reboot-controller \
                 cli \
@@ -337,7 +338,7 @@ work-check: ## Verify go.work and go.work.sum are complete and current. (run by 
 #
 # This target used to blame the vendor tree for that, and for any other `go list`
 # failure. It printed "vendor/ is inconsistent" and sent the reader to
-# `make work-sync`, which rewrites go.mod, go.sum and vendor/ across nine
+# `make work-sync`, which rewrites go.mod, go.sum and vendor/ across ten
 # modules. The case below reports what actually failed.
 work-check-offline: ## Verify vendor/ agrees with every go.mod. Needs no network.
 	@echo "- Checking vendor/ agrees with every go.mod (offline)..."
@@ -400,6 +401,7 @@ PREFLIGHT_MODULES := controller/hack/capd-reboot-controller \
                      controller/test/e2e \
                      controller/nico-sim \
                      controller/api \
+                     controller/deploy/charts \
                      agent \
                      cli \
                      controller \
@@ -409,6 +411,11 @@ PREFLIGHT_MODULES := controller/hack/capd-reboot-controller \
 # compiles nothing that uses it. These are the modules that import it, and a
 # change to the API has to build them to mean anything.
 API_DEPENDENTS := controller cli controller/test/e2e
+
+# The modules that import controller/deploy/charts, so a chart change builds
+# what ships it. nkectl is the consumer; until it imports the module, this only
+# costs the cli suite a run it cannot fail.
+CHARTS_DEPENDENTS := cli
 
 # The modules CI tests with -race. agent-test.yml races agent; the unit-test
 # matrix in controller-test.yml sets GO_TEST_FLAGS: -race for the whole job, so
@@ -491,6 +498,7 @@ preflight: ## Lint and test the modules you changed. MODULES=... to choose them 
 			echo "$$m"; \
 			case "$$m" in \
 				(controller/api) printf '%s\n' $(API_DEPENDENTS) ;; \
+				(controller/deploy/charts) printf '%s\n' $(CHARTS_DEPENDENTS) ;; \
 			esac; \
 		done | sort -u); \
 	fi; \
