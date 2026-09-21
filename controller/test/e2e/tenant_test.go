@@ -351,7 +351,10 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 			controlPlaneConfig: &nke.ControlPlaneConfigSpec{DesiredCount: 1},
 			workerPools:        []nke.NodePoolSpec{{DesiredNodeCount: 1}},
 		},
-		options: nke.Options{Provision: 10 * time.Minute, Delete: 5 * time.Minute, Poll: 5 * time.Second},
+		// 15m, matching the nico-containers entry below. The roll waits on a
+		// replacement node reaching KubernetesReady, and the local-entrypoint
+		// CNI-after-init leg straddles 10m.
+		options: nke.Options{Provision: 15 * time.Minute, Delete: 5 * time.Minute, Poll: 5 * time.Second},
 		validate: validations{
 			controlPlaneController:              true,
 			controlPlaneControllerUpdate:        true,
