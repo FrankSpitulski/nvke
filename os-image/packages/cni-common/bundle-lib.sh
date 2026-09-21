@@ -57,8 +57,34 @@ fetch() {
     die "fetch ${url} failed"
 }
 
+# retry <what> <cmd...>. The same three attempts fetch() gets from curl, for
+# the commands that do not have their own. A reset mid-transfer used to fail
+# the whole os-image build: crane saved a short tarball and reported
+# "unexpected EOF", with 40 minutes of package building already behind it.
+retry() {
+  local what="$1"; shift
+  local attempt
+  for attempt in 1 2 3; do
+    if "$@"; then
+      return 0
+    fi
+    if [[ "$attempt" -lt 3 ]]; then
+      echo "${CNI}: ${what} failed, attempt ${attempt} of 3; retrying in $((attempt * 5))s" >&2
+      sleep $((attempt * 5))
+    fi
+  done
+  die "${what} failed after 3 attempts"
+}
+
 sha_of() {
   sha256sum "$1" | cut -d' ' -f1
+}
+
+# pull_images <out> <ref...>. One attempt, starting from a clean output file.
+pull_images() {
+  local out="$1"; shift
+  rm -f "$out"
+  "$CRANE" pull --platform "linux/${ARCH}" "$@" "$out"
 }
 
 # lock_value <kind> <key> prints the pinned value, or nothing when absent.
@@ -108,8 +134,7 @@ stage_images() {
   [[ ${#refs[@]} -gt 0 ]] || die "${ref_src} lists no images; seed it with 'image <ref>' lines"
 
   for ref in "${refs[@]}"; do
-    digest="$("$CRANE" digest --platform "linux/${ARCH}" "$ref")" ||
-      die "crane digest ${ref} failed"
+    digest="$(retry "crane digest ${ref}" "$CRANE" digest --platform "linux/${ARCH}" "$ref")"
     [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] ||
       die "crane digest ${ref} returned ${digest}"
     if [[ "$WRITE_LOCK" == false ]]; then
@@ -123,8 +148,9 @@ stage_images() {
     pinned+=("${ref%:*}@${digest}")
   done
 
-  "$CRANE" pull --platform "linux/${ARCH}" "${pinned[@]}" "${WORK}/images.tar" ||
-    die "crane pull failed"
+  # A partial tarball from a failed attempt would otherwise be re-read as a
+  # complete one, so each attempt starts from nothing.
+  retry "crane pull" pull_images "${WORK}/images.tar" "${pinned[@]}"
   tar_paths_safe "${WORK}/images.tar"
   mkdir -p "${WORK}/unpacked"
   tar -xf "${WORK}/images.tar" --no-same-owner -C "${WORK}/unpacked"
