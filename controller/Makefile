@@ -181,6 +181,15 @@ test: ## Execute unit tests (excludes integration tests). (run by the merge gate
 	# by accident anyway: `.` is a regex wildcard, not a path prefix.
 	go test $(GO_TEST_FLAGS) ./... -coverprofile=coverage.txt -covermode $(GO_COVER_MODE)
 
+# The `integration` build tag covers two packages here, and neither needs a
+# service to be running. internal/agent binds a loopback socket and mints its
+# own certificates; internal/teleport skips every tagged test unless
+# TELEPORT_ENABLED is set. Kept out of `test` above so a developer with
+# TELEPORT_ENABLED exported does not reach a live Teleport from a unit run.
+.PHONY: test-integration-local
+test-integration-local: ## Execute the `integration`-tagged tests that need no external service. (run by the merge gate)
+	go test $(GO_TEST_FLAGS) -tags=integration -count=1 ./internal/agent/... ./internal/teleport/...
+
 .PHONY: test-integration
 test-integration: ## Execute tests against a running CWE deployment.
 	@echo "Running integration tests..."

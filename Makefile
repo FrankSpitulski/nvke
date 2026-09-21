@@ -372,6 +372,9 @@ test: ## Run each module's own test suite.
 		echo "- testing $$m"; \
 		if [ -f $$m/Makefile ] && $(MAKE) -C $$m -n test >/dev/null 2>&1; then \
 			$(MAKE) -C $$m test || exit 1; \
+			if $(MAKE) -C $$m -n test-integration-local >/dev/null 2>&1; then \
+				$(MAKE) -C $$m test-integration-local || exit 1; \
+			fi; \
 		else \
 			$(GO) -C $$m test $(GO_TEST_FLAGS) -skip '^TestE2E$$' ./... || exit 1; \
 		fi; \
@@ -382,8 +385,6 @@ test-compile: ## Type-check test variants that need external services to run.
 	@cd controller/test/e2e && CGO_ENABLED=1 $(GO) vet ./...
 	@echo "- compile controller/e2e with gofail"
 	@cd controller && CGO_ENABLED=1 $(GO) vet -tags gofail ./e2e/...
-	@echo "- compile controller Teleport integration tests"
-	@cd controller && CGO_ENABLED=1 $(GO) vet -tags integration ./internal/teleport/...
 	@echo "- compile nico-sim integration tests"
 	@cd controller/nico-sim && CGO_ENABLED=1 $(GO) vet -tags integration ./test/integration/...
 	@echo "- compile controller integration tests"
