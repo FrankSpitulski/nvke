@@ -125,9 +125,9 @@ $(BIN_DIR)/crane: ## Download the pinned crane (go-containerregistry) release in
 	base="https://github.com/google/go-containerregistry/releases/download/v$(CRANE_VERSION)"; \
 	tmp="$$(mktemp -d)"; \
 	trap 'rm -rf "$$tmp"' EXIT; \
-	curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+	curl -fsSL --retry 8 --retry-all-errors --retry-max-time 240 \
 		-o "$$tmp/$$archive" "$$base/$$archive"; \
-	curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+	curl -fsSL --retry 8 --retry-all-errors --retry-max-time 240 \
 		-o "$$tmp/checksums.txt" "$$base/checksums.txt"; \
 	(cd "$$tmp" && grep " $$archive\$$" checksums.txt | sha256sum -c); \
 	tar -xzf "$$tmp/$$archive" -C "$$tmp" crane; \

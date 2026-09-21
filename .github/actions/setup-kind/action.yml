@@ -30,7 +30,9 @@ runs:
         bin="${RUNNER_TEMP}/kind-bin"
         mkdir -p "${bin}"
         cd "${bin}"
-        fetch() { curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$1" "$2"; }
+        # No --retry-delay: it replaces curl's exponential backoff with a flat
+        # wait. See install-k8s-community.sh for what that cost.
+        fetch() { curl -fsSL --retry 8 --retry-all-errors --retry-max-time 240 -o "$1" "$2"; }
         # Committed digests, not the .sha256 files beside each artifact: those
         # are served by the same host, so they share its compromise boundary.
         # make/tool-versions.mk owns the version and the digest together.

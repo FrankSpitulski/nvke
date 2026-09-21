@@ -72,7 +72,10 @@ jobs:
           tmp="$(mktemp -d)"
           trap 'rm -rf "${tmp}"' EXIT
 
-          curl -fsSL -o "${tmp}/${archive}" "${url}"
+          # No retry at all until now: a 504 from the release CDN failed the job
+          # on the first response. Same form as setup-kind and setup-crane.
+          curl -fsSL --retry 8 --retry-all-errors --retry-max-time 240 \
+            -o "${tmp}/${archive}" "${url}"
           echo "${sha256}  ${tmp}/${archive}" | sha256sum --check
           tar -xJf "${tmp}/${archive}" -C "${tmp}"
           mkdir -p "${HOME}/.local/bin"

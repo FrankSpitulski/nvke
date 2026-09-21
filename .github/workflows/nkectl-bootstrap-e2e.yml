@@ -237,7 +237,7 @@ jobs:
           CAPI_VERSION: ${{ steps.versions.outputs.capi_version }}
         run: |
           set -Eeuo pipefail
-          curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused \
+          curl -fsSL --retry 8 --retry-all-errors --retry-max-time 240 --retry-connrefused \
             -o /tmp/clusterctl \
             "https://github.com/kubernetes-sigs/cluster-api/releases/download/${CAPI_VERSION}/clusterctl-linux-$(dpkg --print-architecture)"
           chmod +x /tmp/clusterctl

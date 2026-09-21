@@ -49,7 +49,9 @@ runs:
         bin="${RUNNER_TEMP}/crane-bin"
         mkdir -p "${bin}"
         cd "${bin}"
-        fetch() { curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$1" "$2"; }
+        # No --retry-delay: it replaces curl's exponential backoff with a flat
+        # wait. See install-k8s-community.sh for what that cost.
+        fetch() { curl -fsSL --retry 8 --retry-all-errors --retry-max-time 240 -o "$1" "$2"; }
         fetch "${archive}" "${base}/${archive}"
         # A committed digest, not the release's own checksums.txt: that file is
         # served by the host that serves the artifact, so it shares the same

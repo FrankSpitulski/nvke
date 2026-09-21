@@ -48,11 +48,12 @@ parse_bundle_args() {
 
 # fetch <url> <out>. CURL_CONFIG, when set, is fed to curl as a config file, so
 # a credential never appears on a command line.
+# No --retry-delay: it replaces curl's exponential backoff with a flat wait.
 fetch() {
   local url="$1" out="$2"
   curl --fail --silent --show-error --location \
     --connect-timeout 10 --max-time 300 \
-    --retry 3 --retry-all-errors --retry-delay 5 --retry-connrefused \
+    --retry 8 --retry-all-errors --retry-connrefused \
     --config - -o "$out" "$url" <<<"${CURL_CONFIG:-}" ||
     die "fetch ${url} failed"
 }
