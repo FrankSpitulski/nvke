@@ -85,11 +85,12 @@ updates:
       # there. Nothing here requires the root module. Bump it by hand.
       - dependency-name: "github.com/gravitational/teleport/api"
 
-      # Renamed its module path to github.com/NVIDIA/infra-controller-rest at
-      # v1.5.0, so any bump past v1.4.3 fails path validation. Taking it means
-      # rewriting the import in nico-sim, not editing go.mod.
+      # Nothing above the pinned v1.3.0 resolves. v1.4.x requires its own
+      # sdk/standard submodule at v0.0.0-00010101000000-000000000000, the
+      # placeholder a local replace leaves behind; v1.5.0 renamed the module
+      # path to github.com/NVIDIA/infra-controller-rest, which then needs the
+      # import in nico-sim rewritten rather than go.mod edited.
       - dependency-name: "github.com/NVIDIA/ncx-infra-controller-rest"
-        versions: [">=1.5.0"]
 
   # Dockerfiles anywhere in the tree (controller/, controller/hack/*, agent/, ...).
   - package-ecosystem: docker
