@@ -443,17 +443,27 @@ if [[ -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
   rm -rf "${image_dir}"
   mkdir -p "${image_dir}"
   log "pulling ${image_ref}"
-  oras pull "${image_ref}" --platform "linux/${host_arch}" -o "${image_dir}" \
-    >"${STATE_DIR}/os-image-pull.log" 2>&1 ||
-    {
-      tail -n 20 "${STATE_DIR}/os-image-pull.log" >&2
-      # One tag input covers every leg, and each appends its own architecture.
-      # Pinning a tag built for one architecture fails the others here.
-      if [[ "${os_image_tag_pinned}" == yes ]]; then
-        fail "pulling ${image_ref} failed. A pinned tag needs an image for every architecture the run covers; this leg wanted -${host_arch}. Build it, or leave the tag empty to resolve one per architecture."
-      fi
-      fail "pulling ${image_ref} failed"
-    }
+  # oras has no retry of its own, and the qcow2 layer is big enough that a
+  # mid-stream registry error ends the lane before the test starts.
+  for attempt in 1 2 3; do
+    oras pull "${image_ref}" --platform "linux/${host_arch}" -o "${image_dir}" \
+      >"${STATE_DIR}/os-image-pull.log" 2>&1 && break
+    if ((attempt < 3)); then
+      log "pulling ${image_ref} failed (attempt ${attempt}/3), retrying in $((attempt * 15))s"
+      # A partial pull leaves files the qcow2 count below rejects.
+      rm -rf "${image_dir}"
+      mkdir -p "${image_dir}"
+      sleep $((attempt * 15))
+      continue
+    fi
+    tail -n 20 "${STATE_DIR}/os-image-pull.log" >&2
+    # One tag input covers every leg, and each appends its own architecture.
+    # Pinning a tag built for one architecture fails the others here.
+    if [[ "${os_image_tag_pinned}" == yes ]]; then
+      fail "pulling ${image_ref} failed. A pinned tag needs an image for every architecture the run covers; this leg wanted -${host_arch}. Build it, or leave the tag empty to resolve one per architecture."
+    fi
+    fail "pulling ${image_ref} failed"
+  done
 
   shopt -s nullglob
   pulled=("${image_dir}"/*.qcow2)
