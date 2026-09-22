@@ -383,6 +383,38 @@ returns 500 rather than a validation error. The OS and config profiles it names
 must exist on your site controller; profile content is maintained outside this
 repository.
 
+### Decommissioning
+
+`nkectl delete cluster <name>` starts an asynchronous teardown. There is no
+confirmation prompt and no wait flag, so follow it with `nkectl get clusters`.
+
+Teardown removes the node pools, the nodes, the Cluster API and infrastructure
+objects, and NKE's own records, then asks the infrastructure provider to release
+each machine. What happens to the hardware after that release is the provider's
+decision, not NKE's.
+
+**Teardown does not clean the hosts.** The only action NKE takes on a node is a
+best-effort `kubeadm reset -f`, and a failure there does not stop the teardown.
+The node agent, the SPIRE agent, kubeadm, kubelet and containerd all stay
+installed, so reclaiming a host for something else is manual:
+
+```bash
+apt-get purge nke-agent spire-agent
+```
+
+A purge still leaves `/var/lib/nke/state.json` and the two agent logs on disk.
+
+**No command tears down a site cluster.** `nkectl delete` covers tenant clusters
+and node pools only. Reversing `nkectl bootstrap site` is manual.
+
+**Clusters built on pre-provisioned hosts are not released.** The provisioned
+provider refuses to delete a bound machine, because it cannot make the host safe
+for reuse. Destroy the bootstrap management cluster instead.
+
+Once a cluster is marked Deleting, a later node or node-pool delete returns 202
+and does nothing, and a failed teardown leaves that mark in place. A stuck
+teardown cannot be helped along through the API.
+
 ### Rough edges
 
 - The site controller does not manage itself: no upgrade, node cycling or
