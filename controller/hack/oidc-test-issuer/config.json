@@ -1,0 +1,21 @@
+{
+  "issuer_url": "https://oidc-test-issuer.oidc-test.svc:8443",
+  "audience": "nke-oidc-reference",
+  "username_claim": "preferred_username",
+  "username_prefix": "external:",
+  "groups_claim": "groups",
+  "groups_prefix": "external:",
+  "username": "alice@example.com",
+  "groups": ["oidc-readers"],
+  "required_claims": {
+    "tenant": "reference"
+  },
+  "tokens": [
+    {"name": "valid", "lifetime": "30m"},
+    {"name": "invalid-signature", "lifetime": "30m", "untrusted_signing_key": true},
+    {"name": "expired", "lifetime": "-30m"},
+    {"name": "wrong-audience", "audiences": ["wrong-audience"], "lifetime": "30m"},
+    {"name": "wrong-issuer", "issuer": "https://wrong-issuer.example.test", "lifetime": "30m"}
+  ],
+  "protected_prefixes": ["system:", "kubeadm:", "nke:", "nvidia:"]
+}

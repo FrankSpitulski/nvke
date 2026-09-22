@@ -87,6 +87,9 @@ Use the latest tagged version or a specific semver (e.g. `@v0.0.5`) as needed.
 For the controller-to-node-agent TLS/JWT transport configuration, see
 [Configuring node-agent TLS/JWT authentication](docs/configuring-node-agent-tls-jwt.md).
 
+For the local Kubernetes API server reference matrix and controlled Tilt
+issuer, see [Testing OIDC](docs/testing-oidc.md).
+
 ## CAPI + Tilt Development (Recommended)
 
 This is the recommended local workflow for developing against a Kind management cluster with CAPD.

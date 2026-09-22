@@ -1,0 +1,117 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# oidc-test-issuer is an opt-in controlled issuer for the local OIDC reference
+# suite. The issuer writes its CA, rendered reference config, and test tokens
+# to an emptyDir after its pod starts. Its TLS and signing keys stay in memory.
+
+OIDC_TEST_ISSUER_IMAGE = "docker.local/oidc-test-issuer:dev"
+OIDC_TEST_ISSUER_RESOURCE = "oidc-test-issuer"
+OIDC_REFERENCE_TEST_RESOURCE = "test-oidc-reference"
+
+def _kind_cluster_name():
+    kind_cluster_name = os.getenv("KIND_CLUSTER_NAME", "")
+    if kind_cluster_name != "":
+        return kind_cluster_name
+
+    current_context = k8s_context()
+    if current_context.startswith("kind-"):
+        return current_context[5:]
+
+    fail("oidc-test-issuer requires KIND_CLUSTER_NAME or a kind-* Kubernetes context")
+
+def _docker_architecture():
+    architecture = str(local("docker version --format '{{.Server.Arch}}'", quiet=True, echo_off=True)).strip()
+    if architecture == "x86_64":
+        return "amd64"
+    if architecture == "aarch64":
+        return "arm64"
+    return architecture
+
+def register(ctx):
+    issuer_dir = ctx.provider_dir
+    controller_dir = ctx.main_dir
+    repo_root = os.path.abspath(os.path.join(controller_dir, ".."))
+    kind_cluster_name = _kind_cluster_name()
+    configured_image = ctx.cfg.get("oidc_test_issuer_image", "")
+    image = configured_image or OIDC_TEST_ISSUER_IMAGE
+
+    if not configured_image:
+        custom_build(
+            ref=OIDC_TEST_ISSUER_IMAGE,
+            command=["bash", "-c", """
+              set -euo pipefail
+              if [ "$(uname -s)" = "Darwin" ] && [ -z "${DOCKER_HOST:-}" ]; then
+                export DOCKER_HOST="${COLIMA_DOCKER_HOST:-unix://${HOME}/.colima/default/docker.sock}"
+              fi
+              docker build --platform linux/%s --tag "$EXPECTED_REF" -f "%s" "%s"
+              kind load docker-image --name "%s" "$EXPECTED_REF"
+            """ % (
+                _docker_architecture(),
+                os.path.join(issuer_dir, "Dockerfile"),
+                repo_root,
+                kind_cluster_name,
+            )],
+            deps=[
+                os.path.join(issuer_dir, "Dockerfile"),
+                os.path.join(issuer_dir, "config.json"),
+                os.path.join(issuer_dir, "deploy.yaml"),
+                os.path.join(issuer_dir, "main.go"),
+                os.path.join(controller_dir, "test", "oidctest"),
+                os.path.join(controller_dir, "go.mod"),
+                os.path.join(controller_dir, "go.sum"),
+                os.path.join(repo_root, "go.work"),
+                os.path.join(repo_root, "vendor"),
+            ],
+        )
+
+    config_json = str(read_file(os.path.join(issuer_dir, "config.json"))).strip()
+    k8s_yaml(blob("""
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oidc-test-issuer
+  namespace: oidc-test
+data:
+  config.json: |
+    %s
+""" % config_json.replace("\n", "\n    ")))
+
+    deployment = str(read_file(os.path.join(issuer_dir, "deploy.yaml")))
+    deployment = deployment.replace("docker.local/oidc-test-issuer:dev", image)
+    k8s_yaml(blob(deployment))
+    k8s_resource(
+        workload=OIDC_TEST_ISSUER_RESOURCE,
+        new_name=OIDC_TEST_ISSUER_RESOURCE,
+        labels=["1-infra"],
+        port_forwards=["8443:8443"],
+    )
+    local_resource(
+        OIDC_REFERENCE_TEST_RESOURCE,
+        cmd=["make", "-C", controller_dir, "test-oidc-reference"],
+        resource_deps=[OIDC_TEST_ISSUER_RESOURCE],
+        labels=["4-test"],
+        auto_init=False,
+        trigger_mode=TRIGGER_MODE_MANUAL,
+    )
+
+    return struct(
+        cwe_resource_deps=[],
+        cwe_env_overrides={},
+    )
+
+# This file also runs on its own. It gives the controlled issuer a fast local
+# path without starting PostgreSQL, Temporal, SPIRE, or CWE.
+if config.main_dir.endswith("/hack/oidc-test-issuer"):
+    _standalone_controller_dir = os.path.abspath(os.path.join(config.main_dir, "..", ".."))
+    _standalone_expected_context = "kind-%s" % _kind_cluster_name()
+    if k8s_context() != _standalone_expected_context:
+        fail("oidc-test-issuer must run against Kubernetes context '%s', but the current context is '%s'" % (_standalone_expected_context, k8s_context()))
+    allow_k8s_contexts(_standalone_expected_context)
+    register(struct(
+        main_dir=_standalone_controller_dir,
+        cfg={},
+        tilt_env={},
+        kind_host_ip="",
+        provider_dir=config.main_dir,
+    ))

@@ -16,6 +16,7 @@ load("ext://uibutton", "cmd_button", "text_input")
 #   "capd-reboot-controller"  -- CAPD reboot dev controller provider
 #   "capi-syscmp"             -- CAPI system component addon provider
 #   "dsx-identity-exchange"   -- DSX-compatible JWT exchange test double
+#   "oidc-test-issuer"        -- controlled OIDC issuer for local reference tests
 #   {"my-provider": "/path/to/folder"} -- external, Tiltfile at <folder>/Tiltfile
 # Default: ["capi_core", "bgp-containers", "capd", "capd-reboot-controller"]
 
@@ -57,6 +58,7 @@ _builtin_provider_dirs = {
     "capd-reboot-controller": os.path.join(config.main_dir, "hack/capd-reboot-controller"),
     "capi-syscmp": os.path.join(config.main_dir, "hack/capi-syscmp-provider"),
     "dsx-identity-exchange": os.path.join(config.main_dir, "hack/dsx-identity-exchange-mock"),
+    "oidc-test-issuer": os.path.join(config.main_dir, "hack/oidc-test-issuer"),
 }
 
 _tilt_config = read_json("tilt_config.json", default={})
