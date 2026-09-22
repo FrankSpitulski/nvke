@@ -42,8 +42,6 @@ locals {
   serial_console        = local.architecture == "arm64" ? "ttyAMA0" : "ttyS0"
   qemu_binary           = local.architecture == "arm64" ? "qemu-system-aarch64" : "qemu-system-x86_64"
   machine_type          = local.architecture == "arm64" ? "virt" : "q35"
-  efi_firmware_code     = local.architecture == "arm64" ? "/usr/share/AAVMF/AAVMF_CODE.fd" : "/usr/share/OVMF/OVMF_CODE_4M.fd"
-  efi_firmware_vars     = local.architecture == "arm64" ? "/usr/share/AAVMF/AAVMF_VARS.fd" : "/usr/share/OVMF/OVMF_VARS_4M.fd"
 
   # ARM has no fixed cd0 alias, so GRUB locates the installer by content.
   # Under TCG, BIOS and GRUB timing varies widely. The source-owned ISO

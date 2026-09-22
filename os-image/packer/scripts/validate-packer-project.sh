@@ -14,6 +14,11 @@ export PACKER_PLUGIN_PATH="${work}/plugins"
 
 ssh-keygen -q -t ed25519 -N '' -f "${work}/id_ed25519"
 
+# Validation does not boot a VM; provide a complete fixture firmware pair.
+export PKR_VAR_efi_firmware_code="${work}/code.fd"
+export PKR_VAR_efi_firmware_vars="${work}/vars.fd"
+touch "$PKR_VAR_efi_firmware_code" "$PKR_VAR_efi_firmware_vars"
+
 for architecture in amd64 arm64; do
   fixture="${work}/${architecture}"
   mkdir -p "${fixture}/materials" "${fixture}/payload" "${fixture}/output" "${fixture}/logs"

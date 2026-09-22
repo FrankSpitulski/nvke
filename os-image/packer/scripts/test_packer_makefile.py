@@ -139,6 +139,7 @@ class PackerMakefileTest(unittest.TestCase):
 
         scripts = workspace / "scripts"
         scripts.mkdir()
+        shutil.copy2(PACKER_DIR / "scripts" / "qemu-arch.sh", scripts / "qemu-arch.sh")
         events = root / "events.log"
         artifacts = workspace / "artifacts"
         if unsafe_artifacts:
@@ -281,6 +282,19 @@ printf '%s\n' 'ssh-ed25519 generated-key generated' > "${key}.pub"
                 root, unsafe_artifacts=unsafe_artifacts
             )
         )
+        host_arch = "x86_64" if arch == "amd64" else "aarch64"
+        self.write_executable(
+            tools / "uname",
+            f'#!/bin/sh\ncase "$1" in -m) echo {host_arch};; -s) echo Linux;; esac\n',
+        )
+        self.write_executable(
+            tools / f"qemu-system-{host_arch}",
+            '#!/bin/sh\nif [ "$1" = -accel ]; then echo tcg; fi\n',
+        )
+        firmware_code = tools / "code.fd"
+        firmware_vars = tools / "vars.fd"
+        firmware_code.touch()
+        firmware_vars.touch()
         if generate_ssh_key or generated_key_state is not None:
             shutil.rmtree(workspace / ".ssh")
         if generated_key_state is not None:
@@ -324,6 +338,9 @@ printf '%s\n' 'ssh-ed25519 generated-key generated' > "${key}.pub"
             f"PYTHON={python_path or sys.executable}",
             f"SOURCE_ROOT={source}",
             f"ARCH={arch}",
+            "ACCELERATOR=tcg",
+            f"OVMF_CODE={firmware_code}",
+            f"OVMF_VARS_TEMPLATE={firmware_vars}",
             "UBUNTU_VERSION=not-the-iso-version",
         ]
         if not material_inputs_from_environment:
@@ -1337,7 +1354,7 @@ exec "${REAL_MV:?}" "$@"
             r"architecture\s*=\s*local\.material_bound_architectures\[var\.architecture\]",
         )
 
-        self.assertRegex(project, r'required_version\s*=\s*"= 1\.14\.2"')
+        self.assertRegex(project, r'required_version\s*=\s*"= 1\.15\.4"')
         self.assertRegex(project, r'version\s*=\s*"= 1\.1\.6"')
         self.assertIn(
             "abspath(var.output_directory) == var.output_directory", project

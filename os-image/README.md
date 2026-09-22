@@ -18,15 +18,15 @@ generic default. The contract is [SPEC.md](SPEC.md).
 
 ## Build the OS image
 
-Prereqs, on a Linux host:
+Prereqs, on a Linux host matching the image architecture:
 
 | Tool | Version | Install |
 |---|---|---|
-| [Packer](https://developer.hashicorp.com/packer) | 1.14.2 | https://developer.hashicorp.com/packer/install |
+| [Packer](https://developer.hashicorp.com/packer) | 1.15.4 | https://developer.hashicorp.com/packer/install |
 | [Go](https://go.dev/) | per `go.work` | https://go.dev/dl/ |
 | Python | >= 3.10, standard library only | via your package manager |
 | `curl` | any | via your package manager |
-| `qemu-system-x86_64`, `qemu-system-aarch64`, `qemu-img`, `cloud-localds`, `swtpm`, OVMF | any | via your package manager |
+| `qemu-system-x86_64` or `qemu-system-aarch64`, `qemu-img`, `cloud-localds`, `swtpm`, OVMF/AAVMF | any | via your package manager |
 | `xorriso`, `p7zip-full` (`7z`) | any | via your package manager |
 
 Both variants boot the Ubuntu Server installer (not a prebuilt cloud image),
@@ -35,13 +35,53 @@ so all of the above are needed even for a first build — see
 package list on Ubuntu. `xorriso`/`7z` are for `prepare-installer-iso.sh`'s
 ISO patching (see its header comment for why).
 
-`/dev/kvm` is preferred, not required. `packer/Makefile` probes for it and picks
-`accelerator = kvm` when it is usable, `tcg` (software emulation) otherwise —
-correct but roughly an order of magnitude slower. Force either mode with
-`make os-image-fde ACCELERATOR=tcg`. `boot-smoke.sh` does the same probe.
+From the repository root, bake and smoke-test with native KVM:
 
-`make os-image-fde`/`make os-image-non-fde` check for `go` on
-`PATH` before they boot the build VM and fail fast if it is missing. The agent package uses nfpm, pinned in `make/tool-versions.mk`.
+```bash
+make -C os-image image-native ARCH=amd64 VARIANT=non-fde
+make -C os-image boot-smoke REQUIRE_ACCELERATION=1
+```
+
+Use `ARCH=arm64` on an arm64 Linux host, or `VARIANT=fde` for the encrypted
+image. Image baking uses the existing package Make targets on the host;
+`kubeadm-distro` runs the downloaded Linux kubeadm to list its images, so the
+build requires Linux and a matching CPU architecture. There is no container
+builder or guest package-build fallback.
+
+`image-native` requires usable KVM. The generic `image` target and the existing
+`packer/` targets allow `ACCELERATOR=tcg` for development. Emulated builds are
+much slower. Image builds accept `kvm` or `tcg` and nothing else —
+`check-acceleration` rejects `ACCELERATOR=hvf`, which exists only for `run-vm`
+and `boot-smoke`. Make stages artifacts in its owned `packer/artifacts/`
+directory; Packer uploads them to `/var/tmp/nke-image`, which the provisioner removes before
+finishing the image. Installer ISOs remain in their separate cache.
+
+Boot tools share architecture, firmware, and acceleration selection. They
+infer the architecture from the `-amd64.qcow2` or `-arm64.qcow2` filename and
+choose KVM on Linux, HVF on matching macOS hosts, or TCG. Firmware discovery
+checks OVMF/AAVMF paths, then QEMU's own firmware directory; override with
+`OVMF_CODE` and `OVMF_VARS_TEMPLATE` together as a matching pair. Setting only
+one is an error. For example, from `os-image/`:
+
+```bash
+OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd \
+OVMF_VARS_TEMPLATE=/usr/share/OVMF/OVMF_VARS_4M.fd \
+make run-vm QCOW=packer/output-non-fde/nke-node-non-fde-ubuntu-26.04.1-amd64.qcow2
+```
+
+`REQUIRE_ACCELERATION=1` rejects software
+emulation, and an explicit unavailable `ACCELERATOR=kvm` or `hvf` fails early.
+
+On Apple Silicon, `run-vm` and `boot-smoke` can use HVF with an already-built
+compatible arm64 image. The production arm64 kernel is `linux-nvidia-64k`;
+compatibility with a particular Mac/QEMU combination still needs live
+validation. macOS image baking is not supported by the host package builder.
+The boot scripts also need `cloud-localds`, SSH and, for smoke tests, `timeout`.
+Run `make -C os-image test-qemu` for the selection and build-entrypoint tests
+without booting a VM.
+
+The build checks for Go before starting the VM. The agent package uses nfpm,
+pinned in `make/tool-versions.mk`.
 
 `nke-agent` is built as a Debian package from this checkout's `agent/` source
 using `make -C agent deb-<arch>` and installed with dpkg during provisioning.
@@ -77,7 +117,7 @@ but that does not supply the cgo cross-toolchain needed to build its agent
 package. `ARCH` picks the right ISO URL,
 QEMU binary (`qemu-system-aarch64`), machine type (`virt`), and UEFI firmware
 (AAVMF instead of OVMF) automatically; nothing else needs to change per-arch.
-`demo-fde.sh` and `boot-smoke.sh` take the same `ARCH`.
+`demo-fde.sh` takes the same `ARCH`; `boot-smoke.sh` reads the image filename.
 
 The build-time cloud-init seed is only for Packer's SSH. The provisioner runs
 `cloud-init clean` and drops the build key, so each qcow2 is a golden image.
@@ -116,6 +156,8 @@ packer build \
   -var output_directory=/run/nke-image/output \
   -var ssh_private_key_file=/run/nke-image/state/id_ed25519 \
   -var ssh_public_key_file=/run/nke-image/state/id_ed25519.pub \
+  -var efi_firmware_code=/usr/share/OVMF/OVMF_CODE_4M.fd \
+  -var efi_firmware_vars=/usr/share/OVMF/OVMF_VARS_4M.fd \
   .
 ```
 
@@ -132,10 +174,12 @@ The `-only` selector is required. Omitting it is unsupported because Packer
 runs both directory-project builds, including the FDE build, by default.
 
 Both builds require the `architecture`, `material_manifest`, `output_directory`,
-`ssh_private_key_file`, and `ssh_public_key_file` variables. The manifest must
-be an absolute file path. The requested architecture must be `amd64` or
-`arm64`, and both manifest records must match it before Packer selects QEMU,
-firmware, or guest packages. Its sibling `materials/` directory must contain:
+`ssh_private_key_file`, `ssh_public_key_file`, `efi_firmware_code`, and
+`efi_firmware_vars` variables. Supply a matching firmware pair for the
+architecture (OVMF for amd64, AAVMF for arm64). The manifest must be an
+absolute file path. The requested architecture must be `amd64` or `arm64`, and
+both manifest records must match it before Packer selects QEMU or guest
+packages. Its sibling `materials/` directory must contain:
 
 - `installer-iso`, the prepared installer ISO;
 - `image-inputs`, a tar archive whose root contains the same prepared files that Make
@@ -263,12 +307,11 @@ make os-image-non-fde
 
 Output: `packer/output-non-fde/nke-node-non-fde-ubuntu-<version>-<arch>.qcow2`
 (e.g. `nke-node-non-fde-ubuntu-26.04.1-amd64.qcow2`). Boot it with
-`boot-smoke.sh` (it needs `OVMF_CODE` set, since this variant boots UEFI —
-see the comment at the top of that script; `QCOW` defaults to the single
-qcow2 under `output-non-fde/`, so it usually doesn't need to be passed):
+`boot-smoke.sh` (`QCOW` defaults to the single qcow2 under `output-non-fde/`;
+firmware is discovered automatically):
 
 ```bash
-OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd ./scripts/boot-smoke.sh
+./scripts/boot-smoke.sh
 ```
 
 The smoke test copies the qcow2 to a larger virtual disk. It then boots that
@@ -291,14 +334,14 @@ ssh -i packer/.ssh/id_ed25519 -p 2222 -o StrictHostKeyChecking=no -o UserKnownHo
 `Ctrl-C` is sent to the guest as literal input (garbling a login prompt)
 instead of stopping QEMU. See the comment at the top of
 [`packer/scripts/run-vm.sh`](packer/scripts/run-vm.sh) for the full env var
-list (`OVMF_CODE` defaults automatically per `ARCH` since every qcow2 this
+list (`OVMF_CODE` defaults automatically from the image filename since every qcow2 this
 repo builds is UEFI-only; `TPM=1` attaches a TPM for the FDE image).
 Examples:
 
 ```bash
 make run-vm QCOW=packer/output-non-fde/nke-node-non-fde-ubuntu-26.04.1-amd64.qcow2
 make run-vm QCOW=packer/output-fde/nke-node-fde-ubuntu-26.04.1-amd64.qcow2 TPM=1
-make run-vm QCOW=packer/output-non-fde/nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2 ARCH=arm64
+make run-vm QCOW=packer/output-non-fde/nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
 ```
 
 ## Release

@@ -51,6 +51,7 @@ EXPECTED_SOURCE_COMMIT ?=
 export SOURCE_ROOT EXPECTED_SOURCE_COMMIT PYTHON
 
 LUKS_PASSPHRASE ?= changeit
+REQUIRE_ACCELERATION ?= 0
 # Label applied to the root filesystem. Cloud-image importers can use this
 # stable identifier instead of depending on a partition or device path.
 ROOT_FS_LABEL ?= cloudimg-rootfs
@@ -90,6 +91,8 @@ override UBUNTU_VERSION := $(patsubst ubuntu-%-live-server-$(ARCH).iso,%,$(notdi
 # vice versa) always falls back to tcg software emulation, which the CI
 # workflow's own comments clock at roughly 10x slower than KVM for a
 # same-arch build; cross-arch tcg is not expected to be faster.
+# macOS spells it arm64, never aarch64, so it never matches here -- which costs
+# nothing: this probe also requires /dev/kvm, which macOS does not have.
 ifeq ($(ARCH),amd64)
   ARCH_UNAME := x86_64
 else ifeq ($(ARCH),arm64)
@@ -145,7 +148,18 @@ CPUS ?= 4
 # nke-node-fde.pkr.hcl.
 BOOT_WAIT ?= $(if $(filter kvm,$(ACCELERATOR)),10s,30s)
 
-.PHONY: os-image-fde os-image-non-fde _os-image-fde _os-image-non-fde preflight init-packer init-fde init-non-fde validate-packer ssh-key prepare-ssh-key prepare-image-build prepare-installer-iso prepare-artifacts prepare-packer-inputs clean clean-packer-scratch clean-fde-output clean-non-fde-output check-deps check-source collect-qcow2-fde collect-qcow2-non-fde
+# Firmware and acceleration checks share the boot harness selection, including
+# QEMU's firmware directory on hosts without /usr/share/OVMF or AAVMF. The
+# wrapper receives the whole `packer build ... TEMPLATE` command and inserts the
+# firmware -var flags in front of the template, which Packer requires last.
+PACKER_BUILD = ARCH=$(ARCH) ACCELERATOR=$(ACCELERATOR) REQUIRE_ACCELERATION=$(REQUIRE_ACCELERATION) \
+	bash -ec '. ./scripts/qemu-arch.sh; nke_qemu_env "$$ARCH"; \
+	template=$${@: -1}; set -- "$${@:1:$$\#-1}"; \
+	exec "$$@" -var "efi_firmware_code=$${OVMF_CODE:-$$EFI_CODE_DEFAULT}" \
+	-var "efi_firmware_vars=$${OVMF_VARS_TEMPLATE:-$$EFI_VARS_DEFAULT}" "$$template"' \
+	bash $(PACKER) build
+
+.PHONY: os-image-fde os-image-non-fde _os-image-fde _os-image-non-fde preflight init-packer init-fde init-non-fde validate-packer ssh-key prepare-ssh-key prepare-image-build prepare-installer-iso prepare-artifacts prepare-packer-inputs clean clean-packer-scratch clean-fde-output clean-non-fde-output check-deps check-source collect-qcow2-fde collect-qcow2-non-fde check-acceleration
 
 prepare-ssh-key:
 	@command -v ssh-keygen >/dev/null 2>&1 || { \
@@ -231,7 +245,7 @@ check-source:
 		exit 1; \
 	fi
 
-preflight: check-source check-deps
+preflight: check-source check-deps check-acceleration
 
 init-packer: preflight
 	$(PACKER) init "$(PACKER_PROJECT)"
@@ -256,6 +270,29 @@ prepare-installer-iso: preflight
 	esac
 	mkdir -p $(ISO_CACHE)
 	ISO_URL=$(ISO_URL) ISO_CHECKSUM=$(ISO_CHECKSUM) OUT_DIR=$(ISO_CACHE) ./scripts/prepare-installer-iso.sh
+
+# Image builds run the Ubuntu installer, so they need kvm or tcg. The shared
+# boot harness also knows about hvf, but that is for run-vm/boot-smoke on
+# macOS: check-deps already requires a matching-architecture Linux host here.
+# Make writes ARCH into the material manifest, so require the acquired ISO
+# filename to agree with the architecture Packer will read from that manifest.
+check-acceleration:
+	@case "$(ACCELERATOR)" in \
+		kvm|tcg) ;; \
+		*) echo "ACCELERATOR=$(ACCELERATOR) is not supported for image builds: they run under kvm or tcg. hvf is for run-vm/boot-smoke only." >&2; exit 1 ;; \
+	esac
+	@ARCH=$(ARCH) ISO_URL=$(ISO_URL) bash -ec '\
+		if [[ "$$ISO_URL" =~ ubuntu-[0-9.]+-live-server-(amd64|arm64)\.iso$$ ]]; then \
+			iso_arch="$${BASH_REMATCH[1]}"; \
+		else \
+			iso_arch=unrecognised; \
+		fi; \
+		if [[ "$$iso_arch" != "$$ARCH" ]]; then \
+			echo "ISO_URL architecture ($$iso_arch) does not match ARCH=$$ARCH: $$ISO_URL" >&2; \
+			exit 1; \
+		fi'
+	@ARCH=$(ARCH) ACCELERATOR=$(ACCELERATOR) REQUIRE_ACCELERATION=$(REQUIRE_ACCELERATION) bash -ec '\
+		. ./scripts/qemu-arch.sh; nke_qemu_env "$$ARCH"'
 
 # Stage the source-built packages before Packer starts the VM. Keeping this in
 # Make preserves the current workflow and leaves Packer responsible only for
@@ -342,6 +379,10 @@ prepare-packer-inputs: prepare-installer-iso prepare-artifacts
 check-deps:
 	@command -v ssh-keygen >/dev/null 2>&1 || { \
 		echo "ssh-keygen is required to prepare the Packer SSH key pair" >&2; \
+		exit 1; \
+	}
+	@test "$$(uname -s)" = Linux && test "$$(uname -m)" = "$(ARCH_UNAME)" || { \
+		echo "Image packages require a matching-architecture Linux host ($(ARCH_UNAME))." >&2; \
 		exit 1; \
 	}
 	@command -v go >/dev/null 2>&1 || { \
@@ -464,7 +505,7 @@ _os-image-fde: prepare-image-build
 		echo "no usable /dev/kvm: building with software emulation, which is far slower"; \
 	fi
 	PKR_VAR_luks_passphrase=$(LUKS_PASSPHRASE) \
-	$(PACKER) build \
+	$(PACKER_BUILD) \
 		-only=$(PACKER_BUILD_FDE) \
 		-var "architecture=$(ARCH)" \
 		-var "material_manifest=$(MATERIAL_MANIFEST)" \
@@ -502,7 +543,7 @@ _os-image-non-fde: prepare-image-build
 	@if [ "$(ACCELERATOR)" = "tcg" ]; then \
 		echo "no usable /dev/kvm: building with software emulation, which is far slower"; \
 	fi
-	$(PACKER) build \
+	$(PACKER_BUILD) \
 		-only=$(PACKER_BUILD_NON_FDE) \
 		-var "architecture=$(ARCH)" \
 		-var "material_manifest=$(MATERIAL_MANIFEST)" \

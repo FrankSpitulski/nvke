@@ -163,3 +163,24 @@ variable "luks_passphrase" {
   sensitive   = true
   description = "FDE-only bootstrap passphrase used during encrypted image construction; ignored by the non-FDE build."
 }
+
+# Make supplies the discovered pair. Direct Packer callers provide both paths.
+variable "efi_firmware_code" {
+  type        = string
+  description = "UEFI firmware code blob."
+
+  validation {
+    condition     = length(var.efi_firmware_code) > 0
+    error_message = "The firmware code path must not be empty."
+  }
+}
+
+variable "efi_firmware_vars" {
+  type        = string
+  description = "Matching UEFI firmware variables template."
+
+  validation {
+    condition     = length(var.efi_firmware_vars) > 0
+    error_message = "The firmware variables path must not be empty."
+  }
+}
