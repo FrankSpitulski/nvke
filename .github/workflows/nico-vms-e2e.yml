@@ -102,8 +102,15 @@ jobs:
         include:
           - arch: amd64
             runner: linux-amd64-gpu-l4-latest-1
+            label_filter: 'nico-vms && happy-path'
           - arch: arm64
             runner: nke-arm64-16c64g
+            # arm64 also carries the two OVN-Kubernetes scenarios, because it
+            # is the faster leg -- see the timing note below. parallel-lifecycle
+            # is the two-tenant-cluster spec; ovn is the only entry that runs
+            # OVN as the cluster CNI, and so the only one that can assert the
+            # typed Open vSwitch node-agent RPC.
+            label_filter: 'nico-vms && (happy-path || parallel-lifecycle || ovn)'
     # Happy path in #804: arm64 41m, amd64 1h31m. Generous for the wider label
     # filters a dispatch can ask for.
     timeout-minutes: 330
@@ -127,7 +134,9 @@ jobs:
       CAPNICO_SOURCE_DIR: ${{ github.workspace }}/.capnico/cluster-api-provider-nico
       KIND_CLUSTER_NAME: cwe-nico-vms
       NKE_E2E_RUN_ID: github-nico-vms-${{ github.run_id }}-${{ github.run_attempt }}
-      NKE_E2E_LABEL_FILTER: ${{ github.event.inputs.label-filter || 'nico-vms && happy-path' }}
+      # Per leg, from the matrix above: both run happy-path, arm64 additionally
+      # runs parallel-lifecycle. A dispatch label-filter still overrides both.
+      NKE_E2E_LABEL_FILTER: ${{ github.event.inputs.label-filter || matrix.label_filter }}
       # Empty on a schedule or a push, which is what makes the lane resolve the
       # newest published image for each architecture. Only a dispatch pins one.
       NKE_E2E_OS_IMAGE_TAG: ${{ github.event.inputs.os-image-tag }}

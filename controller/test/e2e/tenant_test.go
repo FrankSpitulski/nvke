@@ -465,8 +465,9 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 		buildSpec: nicoVMSSpec,
 		shape: clusterShape{
 			kubernetesVersion: "1.34.2",
-			// The openVSwitch assertion needs OVN, which this image cannot install.
-			// Large instances kept: cpu2-mem2gb was sized against ovnkube-node.
+			// Calico, so no openVSwitch assertion here; the "nico-vms ovn" entry
+			// below carries it. Large instances kept: cpu2-mem2gb was sized
+			// against ovnkube-node.
 			controlPlanePools: []nke.NodePoolSpec{{DesiredNodeCount: 3, InstanceTypeID: nicoVMSLargeInstanceID}},
 			workerPools:       []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
 		},
@@ -482,6 +483,23 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 		},
 		options:  nke.Options{Provision: 30 * time.Minute, Upgrade: 90 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
 		validate: validations{upgrade: true},
+	}),
+	// The only entry that runs OVN-Kubernetes, and so the only one that can set
+	// openVSwitch. Every other nico-vms entry resolves to Calico through
+	// NKE_E2E_NICO_VMS_CNI, which the lane pins for image size. Kept to one
+	// control plane and one worker: the assertion is per node, and OVN images
+	// are the expensive part.
+	Entry("nico-vms ovn", Ordered, ContinueOnFailure, Label("nico-vms", "ovn"), testSpec{
+		buildSpec: nicoVMSSpec,
+		shape: clusterShape{
+			kubernetesVersion: "1.34.2",
+			cniPlugin:         CNIPluginOVN,
+			// Large instances: cpu2-mem2gb was sized against ovnkube-node.
+			controlPlanePools: []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
+			workerPools:       []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
+		},
+		options:  nke.Options{Provision: 45 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
+		validate: validations{openVSwitch: true},
 	}),
 	Entry("CAPD with etcd encryption", Ordered, ContinueOnFailure, Label("capd", "extended", "encryption"), testSpec{
 		buildSpec: capdSpec,
