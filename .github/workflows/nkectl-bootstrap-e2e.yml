@@ -303,7 +303,9 @@ jobs:
       - name: Run nkectl bootstrap e2e
         working-directory: cli
         env:
-          NKECTL_CWE_IMAGE: ${{ env.CWE_IMAGE }}
+          # Deliberately bogus tag: scratch run to capture what nkectl bootstrap
+          # logs on a mid-run failure. Not a real fix, do not merge.
+          NKECTL_CWE_IMAGE: cwe-controller:this-tag-does-not-exist-e2e-failure-test
         run: sudo -E env "PATH=$PATH" ./e2e/bootstrap/run.sh
 
       # Written by `nkectl bootstrap site` when a bootstrap fails: a
