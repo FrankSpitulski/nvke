@@ -3,11 +3,15 @@
 
 """Behavioral contract tests for the OS-image Packer Makefile."""
 
+import hashlib
+import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 
@@ -163,7 +167,11 @@ touch "${ARTIFACTS_DIR}/ready"
         )
         self.write_executable(
             scripts / "prepare-installer-iso.sh",
-            "#!/bin/sh\nset -eu\n",
+            """#!/bin/sh
+set -eu
+mkdir -p "${OUT_DIR:?}"
+printf 'patched installer iso\n' > "${OUT_DIR}/${ISO_URL##*/}.patched.iso"
+""",
         )
 
         tools = root / "tools"
@@ -174,9 +182,24 @@ touch "${ARTIFACTS_DIR}/ready"
             """#!/bin/sh
 set -eu
 printf 'packer:%s\\n' "$1" >> "${EVENT_LOG:?}"
+printf 'packer-args|%s\\n' "$*" >> "${EVENT_LOG:?}"
 if [ "$1" = "build" ]; then
   test -f "${EXPECTED_ARTIFACTS_DIR:?}/ready"
   test ! -e "${EXPECTED_ARTIFACTS_DIR}/stale"
+  output_directory=""
+  variant=""
+  for argument in "$@"; do
+    case "${argument}" in
+      output_directory=*) output_directory="${argument#output_directory=}" ;;
+      -only=nke-node-fde.qemu.nke-fde) variant=fde ;;
+      -only=nke-node-non-fde.qemu.nke-non-fde) variant=non-fde ;;
+    esac
+  done
+  test -n "${output_directory}"
+  test -n "${variant}"
+  mkdir -p "${output_directory}/${variant}"
+  printf 'qcow2 bytes\n' > "${output_directory}/${variant}/nke-node.qcow2"
+  printf 'efi vars\n' > "${output_directory}/${variant}/efivars.fd"
 fi
 """,
         )
@@ -186,7 +209,16 @@ fi
         ssh_dir = workspace / ".ssh"
         ssh_dir.mkdir()
         (ssh_dir / "id_ed25519").write_text("test key\n", encoding="utf-8")
-        for template in ("nke-node-fde.pkr.hcl", "nke-node-non-fde.pkr.hcl"):
+        (ssh_dir / "id_ed25519.pub").write_text(
+            "ssh-ed25519 test-key packer-test\n", encoding="utf-8"
+        )
+        for template in (
+            "versions.pkr.hcl",
+            "variables.pkr.hcl",
+            "locals.pkr.hcl",
+            "nke-node-fde.pkr.hcl",
+            "nke-node-non-fde.pkr.hcl",
+        ):
             (workspace / template).write_text("# test fixture\n", encoding="utf-8")
 
         return workspace, source, tools, packer, events, artifacts
@@ -205,12 +237,30 @@ fi
         python_path=None,
         promotion_fails=False,
         unsafe_artifacts=False,
+        preexisting_output=False,
+        preexisting_scratch=False,
+        preexisting_other_scratch=False,
     ):
         workspace, source, tools, packer, events, artifacts = (
             self.create_image_build_fixture(
                 root, unsafe_artifacts=unsafe_artifacts
             )
         )
+        if preexisting_output:
+            variant = "fde" if target == "os-image-fde" else "non-fde"
+            output = workspace / f"output-{variant}"
+            output.mkdir()
+            (output / "keep").write_text("existing output\n", encoding="utf-8")
+        if preexisting_scratch:
+            variant = "fde" if target == "os-image-fde" else "non-fde"
+            scratch = workspace / f".packer-output-{variant}"
+            scratch.mkdir()
+            (scratch / "keep").write_text("existing scratch\n", encoding="utf-8")
+        if preexisting_other_scratch:
+            other_variant = "non-fde" if target == "os-image-fde" else "fde"
+            scratch = workspace / f".packer-output-{other_variant}"
+            scratch.mkdir()
+            (scratch / "keep").write_text("other scratch\n", encoding="utf-8")
         if material_inputs is None:
             material_inputs = (
                 ("K8S_VERSIONS", "1.33.5 1.34.1"),
@@ -224,6 +274,7 @@ fi
             f"PYTHON={python_path or sys.executable}",
             f"SOURCE_ROOT={source}",
             f"ARCH={arch}",
+            "UBUNTU_VERSION=not-the-iso-version",
         ]
         if not material_inputs_from_environment:
             variables.extend(f"{name}={value}" for name, value in material_inputs)
@@ -424,6 +475,21 @@ exec "${REAL_MV:?}" "$@"
             f"default Packer cache is not ignored: {ignored.stderr}",
         )
 
+    def test_variant_packer_scratch_directories_are_ignored(self):
+        for name in (".packer-output-fde", ".packer-output-non-fde"):
+            with self.subTest(name=name):
+                ignored = subprocess.run(
+                    [
+                        "git",
+                        "check-ignore",
+                        "--quiet",
+                        str((PACKER_DIR / name / "scratch").relative_to(REPO_ROOT)),
+                    ],
+                    cwd=REPO_ROOT,
+                    check=False,
+                )
+                self.assertEqual(ignored.returncode, 0)
+
     def test_packer_cache_environment_override_is_preserved_and_exported(self):
         override = PACKER_DIR.parent / "caller-owned-packer-cache"
         self.assertEqual(self.exported_packer_cache_dir(override), str(override))
@@ -476,10 +542,10 @@ exec "${REAL_MV:?}" "$@"
 
     def test_source_preflight_runs_before_any_packer_command(self):
         cases = (
-            ("os-image-fde", "nke-node-fde.pkr.hcl"),
-            ("os-image-non-fde", "nke-node-non-fde.pkr.hcl"),
+            ("os-image-fde", "nke-node-fde.qemu.nke-fde"),
+            ("os-image-non-fde", "nke-node-non-fde.qemu.nke-non-fde"),
         )
-        for target, template in cases:
+        for target, selector in cases:
             with self.subTest(target=target):
                 output = self.dry_run(target)
                 source_check = output.index('git -C "$SOURCE_ROOT" rev-parse')
@@ -489,7 +555,10 @@ exec "${REAL_MV:?}" "$@"
                 artifact_fetch = output.index(fetch_command)
                 packer_build = output.index("/tmp/nkd-packer build")
 
-                self.assertIn(template, output[packer_init:].splitlines()[0])
+                self.assertIn(str(PACKER_DIR), output[packer_init:].splitlines()[0])
+                build_command = output[packer_build:]
+                self.assertIn(f"-only={selector}", build_command)
+                self.assertIn(str(PACKER_DIR), build_command)
                 self.assertEqual(output.count(fetch_command), 1)
                 self.assertLess(source_check, packer_init)
                 self.assertLess(dependency_check, packer_init)
@@ -499,12 +568,20 @@ exec "${REAL_MV:?}" "$@"
 
     def test_each_image_build_stages_clean_artifacts_once_before_packer_build(self):
         cases = (
-            ("os-image-fde", "amd64"),
-            ("os-image-fde", "arm64"),
-            ("os-image-non-fde", "amd64"),
-            ("os-image-non-fde", "arm64"),
+            ("os-image-fde", "amd64", "nke-node-fde.qemu.nke-fde"),
+            ("os-image-fde", "arm64", "nke-node-fde.qemu.nke-fde"),
+            (
+                "os-image-non-fde",
+                "amd64",
+                "nke-node-non-fde.qemu.nke-non-fde",
+            ),
+            (
+                "os-image-non-fde",
+                "arm64",
+                "nke-node-non-fde.qemu.nke-non-fde",
+            ),
         )
-        for target, arch in cases:
+        for target, arch, selector in cases:
             with self.subTest(target=target, arch=arch), tempfile.TemporaryDirectory() as tmp:
                 result, events, artifacts, expected_fields = self.run_image_build(
                     target, arch, Path(tmp)
@@ -519,6 +596,72 @@ exec "${REAL_MV:?}" "$@"
                 self.assertFalse((artifacts / "stale").exists())
                 self.assertFalse(stage.exists())
                 self.assertEqual(list(artifacts.parent.glob(".artifacts.tmp.*")), [])
+
+                build_events = [
+                    event
+                    for event in events
+                    if event.startswith("packer-args|build ")
+                ]
+                self.assertEqual(len(build_events), 1)
+                build = build_events[0]
+                variant = "fde" if target == "os-image-fde" else "non-fde"
+                self.assertIn(f"-only={selector}", build)
+                self.assertNotIn("-var architecture=", build)
+                self.assertIn(
+                    f"-var material_manifest={artifacts.parent}/.packer-inputs/material-manifest.json",
+                    build,
+                )
+                self.assertIn(
+                    f"-var output_directory={artifacts.parent}/.packer-output-{variant}",
+                    build,
+                )
+                self.assertIn(
+                    f"-var ssh_private_key_file={artifacts.parent}/.ssh/id_ed25519",
+                    build,
+                )
+                self.assertIn(
+                    f"-var ssh_public_key_file={artifacts.parent}/.ssh/id_ed25519.pub",
+                    build,
+                )
+                self.assertTrue(build.endswith(str(artifacts.parent)))
+
+                output_name = (
+                    f"nke-node-{variant}-ubuntu-26.04.1-{arch}.qcow2"
+                )
+                self.assertEqual(
+                    (artifacts.parent / f"output-{variant}" / output_name).read_bytes(),
+                    b"qcow2 bytes\n",
+                )
+                self.assertFalse(
+                    (artifacts.parent / f".packer-output-{variant}").exists()
+                )
+
+                archive = artifacts.parent / ".packer-inputs/materials/image-inputs"
+                self.assertTrue(archive.is_file())
+                with tarfile.open(archive) as image_inputs:
+                    self.assertIn("./ready", image_inputs.getnames())
+                manifest = json.loads(
+                    (
+                        artifacts.parent
+                        / ".packer-inputs/material-manifest.json"
+                    ).read_text(encoding="utf-8")
+                )
+                materials = {
+                    material["binding"]: material
+                    for material in manifest["materials"]
+                }
+                self.assertEqual(
+                    materials["installer-iso"]["digest"],
+                    "sha256:"
+                    + hashlib.sha256(b"patched installer iso\n").hexdigest(),
+                )
+                self.assertEqual(manifest["schemaVersion"], "nke.dev/os-image-materials/v1")
+                self.assertEqual(materials["installer-iso"]["architecture"], arch)
+                self.assertEqual(materials["image-inputs"]["architecture"], arch)
+                self.assertEqual(
+                    materials["image-inputs"]["digest"],
+                    "sha256:" + hashlib.sha256(archive.read_bytes()).hexdigest(),
+                )
 
     def test_failed_artifact_staging_prevents_packer_build(self):
         cases = (
@@ -651,7 +794,348 @@ exec "${REAL_MV:?}" "$@"
             with self.subTest(template=template):
                 contents = (PACKER_DIR / template).read_text(encoding="utf-8")
                 self.assertNotIn("fetch-artifacts.sh", contents)
-                self.assertNotIn('provisioner "shell-local"', contents)
+                self.assertEqual(contents.count('provisioner "shell-local"'), 3)
+                self.assertEqual(contents.count("scripts/prepare-image-inputs.sh"), 3)
+                self.assertEqual(
+                    contents.count('error-cleanup-provisioner "shell-local"'), 1
+                )
+                self.assertIn("generated   = true", contents)
+                self.assertNotIn("/tmp/nke-image-inputs.tar", contents)
+                self.assertEqual(contents.count('"MODE=clean"'), 2)
+                self.assertLess(
+                    contents.index('"MODE=stage"'),
+                    contents.index('provisioner "file"'),
+                )
+                self.assertLess(
+                    contents.index('provisioner "file"'),
+                    contents.rindex('"MODE=clean"'),
+                )
+
+    def test_existing_output_or_scratch_blocks_packer_without_destroying_state(self):
+        cases = (
+            ("os-image-fde", "output", "output-fde already exists"),
+            ("os-image-non-fde", "output", "output-non-fde already exists"),
+            ("os-image-fde", "scratch", "Packer output scratch already exists"),
+            ("os-image-non-fde", "scratch", "Packer output scratch already exists"),
+        )
+        for target, state, message in cases:
+            with self.subTest(target=target, state=state), tempfile.TemporaryDirectory() as tmp:
+                result, events, artifacts, _ = self.run_image_build(
+                    target,
+                    "amd64",
+                    Path(tmp),
+                    preexisting_output=state == "output",
+                    preexisting_scratch=state == "scratch",
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertFalse(any(event.startswith("packer:") for event in events))
+                self.assertFalse(any(event.startswith("fetch|") for event in events))
+                if state == "output":
+                    variant = "fde" if target == "os-image-fde" else "non-fde"
+                    self.assertEqual(
+                        (artifacts.parent / f"output-{variant}" / "keep").read_text(encoding="utf-8"),
+                        "existing output\n",
+                    )
+                else:
+                    variant = "fde" if target == "os-image-fde" else "non-fde"
+                    self.assertEqual(
+                        (
+                            artifacts.parent
+                            / f".packer-output-{variant}"
+                            / "keep"
+                        ).read_text(encoding="utf-8"),
+                        "existing scratch\n",
+                    )
+
+    def test_variant_cleanup_preserves_other_variant_scratch(self):
+        cases = (
+            ("os-image-fde", "non-fde"),
+            ("os-image-non-fde", "fde"),
+        )
+        for target, other_variant in cases:
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as tmp:
+                result, _, artifacts, _ = self.run_image_build(
+                    target,
+                    "amd64",
+                    Path(tmp),
+                    preexisting_other_scratch=True,
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    (
+                        artifacts.parent
+                        / f".packer-output-{other_variant}"
+                        / "keep"
+                    ).read_text(encoding="utf-8"),
+                    "other scratch\n",
+                )
+
+    def test_variant_clean_target_preserves_other_variant_scratch(self):
+        cases = (
+            ("clean-fde-output", "fde", "non-fde"),
+            ("clean-non-fde-output", "non-fde", "fde"),
+        )
+        for target, variant, other_variant in cases:
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                workspace, _, _, _, _, _ = self.create_image_build_fixture(root)
+                (workspace / f"output-{variant}").mkdir()
+                (workspace / f".packer-output-{variant}").mkdir()
+                other = workspace / f".packer-output-{other_variant}"
+                other.mkdir()
+                (other / "keep").write_text("other scratch\n", encoding="utf-8")
+
+                result = self.run_make(
+                    target,
+                    cwd=workspace,
+                    makefile=workspace / "Makefile",
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse((workspace / f"output-{variant}").exists())
+                self.assertFalse((workspace / f".packer-output-{variant}").exists())
+                self.assertEqual(
+                    (other / "keep").read_text(encoding="utf-8"),
+                    "other scratch\n",
+                )
+
+    def test_material_verifier_accepts_only_matching_regular_file(self):
+        verifier = PACKER_DIR / "scripts/verify-material.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            material = root / "image-inputs"
+            material.write_bytes(b"authenticated material\n")
+            digest = "sha256:" + hashlib.sha256(material.read_bytes()).hexdigest()
+
+            accepted = subprocess.run(
+                [verifier],
+                env={
+                    **os.environ,
+                    "MATERIAL_PATH": str(material),
+                    "EXPECTED_DIGEST": digest,
+                },
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+            for name, path, expected in (
+                ("mismatch", material, "sha256:" + "0" * 64),
+                ("malformed", material, "sha256:not-a-digest"),
+                ("symlink", root / "image-inputs-link", digest),
+                ("missing", root / "missing", digest),
+                ("directory", root / "directory", digest),
+                ("uppercase", material, "sha256:" + hashlib.sha256(material.read_bytes()).hexdigest().upper()),
+            ):
+                with self.subTest(name=name):
+                    if name == "symlink":
+                        path.symlink_to(material.name)
+                    elif name == "directory":
+                        path.mkdir()
+                    rejected = subprocess.run(
+                        [verifier],
+                        env={
+                            **os.environ,
+                            "MATERIAL_PATH": str(path),
+                            "EXPECTED_DIGEST": expected,
+                        },
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertNotEqual(rejected.returncode, 0)
+
+    def test_image_input_staging_verifies_extracts_and_cleans(self):
+        helper = PACKER_DIR / "scripts/prepare-image-inputs.sh"
+        helper_contents = helper.read_text(encoding="utf-8")
+        self.assertIn('tar -xf "${material_snapshot}"', helper_contents)
+        self.assertNotIn('tar -xf "${material_path}"', helper_contents)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payload = root / "payload"
+            (payload / "debs").mkdir(parents=True)
+            (payload / "debs/example.deb").write_bytes(b"package bytes\n")
+            (payload / "wait-spiffe-socket.sh").write_bytes(b"script bytes\n")
+            archive = root / "image-inputs"
+            with tarfile.open(archive, "w") as image_inputs:
+                image_inputs.add(payload, arcname=".")
+
+            digest = "sha256:" + hashlib.sha256(archive.read_bytes()).hexdigest()
+            rejected_staging = root / "output/non-fde/.image-inputs"
+            rejected = subprocess.run(
+                [helper],
+                env={
+                    **os.environ,
+                    "MODE": "stage",
+                    "MATERIAL_PATH": str(archive),
+                    "EXPECTED_DIGEST": "sha256:" + "0" * 64,
+                    "STAGING_DIRECTORY": str(rejected_staging),
+                },
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertFalse(rejected_staging.exists())
+
+            staging = root / "output/fde/.image-inputs"
+            staged = subprocess.run(
+                [helper],
+                env={
+                    **os.environ,
+                    "MODE": "stage",
+                    "MATERIAL_PATH": str(archive),
+                    "EXPECTED_DIGEST": digest,
+                    "STAGING_DIRECTORY": str(staging),
+                },
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(staged.returncode, 0, staged.stderr)
+            self.assertEqual(
+                (staging / "debs/example.deb").read_bytes(), b"package bytes\n"
+            )
+            self.assertEqual(
+                (staging / "wait-spiffe-socket.sh").read_bytes(), b"script bytes\n"
+            )
+            self.assertEqual(list(staging.glob(".material.*")), [])
+
+            cleaned = subprocess.run(
+                [helper],
+                env={
+                    **os.environ,
+                    "MODE": "clean",
+                    "STAGING_DIRECTORY": str(staging),
+                },
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(cleaned.returncode, 0, cleaned.stderr)
+            self.assertFalse(staging.exists())
+
+    def test_image_input_staging_rejects_unsafe_archive_members(self):
+        helper = PACKER_DIR / "scripts/prepare-image-inputs.sh"
+        cases = ("absolute", "traversal", "symlink", "hardlink", "fifo")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                archive = root / "image-inputs"
+                with tarfile.open(archive, "w") as image_inputs:
+                    member = tarfile.TarInfo("payload")
+                    if case == "absolute":
+                        member.name = "/host-path"
+                    elif case == "traversal":
+                        member.name = "../host-path"
+                    elif case == "symlink":
+                        member.type = tarfile.SYMTYPE
+                        member.linkname = "/etc/passwd"
+                    elif case == "hardlink":
+                        member.type = tarfile.LNKTYPE
+                        member.linkname = "payload"
+                    else:
+                        member.type = tarfile.FIFOTYPE
+                    image_inputs.addfile(member)
+
+                staging = root / "output/fde/.image-inputs"
+                digest = "sha256:" + hashlib.sha256(archive.read_bytes()).hexdigest()
+                result = subprocess.run(
+                    [helper],
+                    env={
+                        **os.environ,
+                        "PYTHON": sys.executable,
+                        "MODE": "stage",
+                        "MATERIAL_PATH": str(archive),
+                        "EXPECTED_DIGEST": digest,
+                        "STAGING_DIRECTORY": str(staging),
+                    },
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unsafe archive", result.stderr)
+                self.assertFalse(staging.exists())
+
+    def test_packer_directory_project_has_one_explicit_shared_contract(self):
+        project_files = tuple(sorted(PACKER_DIR.glob("*.pkr.hcl")))
+        project = "\n".join(
+            path.read_text(encoding="utf-8") for path in project_files
+        )
+
+        self.assertEqual(project.count("packer {"), 1)
+        for variable in (
+            "material_manifest",
+            "output_directory",
+            "ssh_private_key_file",
+            "ssh_public_key_file",
+        ):
+            self.assertEqual(
+                project.count(f'variable "{variable}"'),
+                1,
+                f"{variable} must be declared once in the directory project",
+            )
+        self.assertNotIn('variable "architecture"', project)
+        self.assertRegex(
+            project,
+            r"architecture\s*=\s*local\.installer_record\.architecture",
+        )
+
+        self.assertRegex(project, r'required_version\s*=\s*"= 1\.14\.2"')
+        self.assertRegex(project, r'version\s*=\s*"= 1\.1\.6"')
+        self.assertIn(
+            "abspath(var.output_directory) == var.output_directory", project
+        )
+        self.assertEqual(
+            project.count('can(regex("^sha256:[0-9a-f]{64}$", material.digest))'),
+            2,
+        )
+        self.assertIn('source "qemu" "nke-fde"', project)
+        self.assertIn('source "qemu" "nke-non-fde"', project)
+        self.assertRegex(project, r'name\s*=\s*"nke-node-fde"')
+        self.assertRegex(project, r'name\s*=\s*"nke-node-non-fde"')
+        self.assertEqual(
+            len(re.findall(r"ssh_private_key_file\s*=\s*var\.ssh_private_key_file", project)),
+            2,
+        )
+        self.assertEqual(
+            len(re.findall(r"ssh_public_key\s*=\s*local\.ssh_public_key", project)),
+            2,
+        )
+        self.assertNotIn("{{ .SSHPublicKey }}", project)
+        self.assertEqual(
+            project.count(
+                'script = "${local.project_root}/scripts/prepare-image-inputs.sh"'
+            ),
+            6,
+        )
+        self.assertEqual(len(re.findall(r"generated\s*=\s*true", project)), 2)
+        self.assertNotIn("/tmp/nke-image-inputs.tar", project)
+        self.assertEqual(len(re.findall(r"skip_compaction\s*=\s*true", project)), 2)
+        self.assertEqual(len(re.findall(r"disk_compression\s*=\s*false", project)), 2)
+        self.assertEqual(len(re.findall(r"efi_drop_efivars\s*=\s*true", project)), 2)
+        self.assertNotIn('${path.root}/artifacts', project)
+        self.assertNotIn('${path.root}/.ssh', project)
+
+    def test_workflow_validates_packer_before_scarce_runner_builds(self):
+        workflow = (REPO_ROOT / ".github/workflows/os-image-artifact.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("  validate-packer:\n", workflow)
+        self.assertIn("    runs-on: ubuntu-latest\n", workflow)
+        self.assertIn("    needs: [matrix, validate-packer]\n", workflow)
+        self.assertEqual(workflow.count("Validate the Packer directory project"), 1)
+        self.assertIn(
+            "          PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+            workflow,
+        )
 
     def test_failed_source_preflight_blocks_parallel_packer_init(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -875,6 +1359,197 @@ exec "${REAL_MV:?}" "$@"
             self.assertIn("differs from source", result.stderr)
             self.assertFalse((dist / name).exists())
             self.assertEqual((output / name).read_bytes(), b"source-bytes")
+
+    def test_cni_dockerhub_mirror_changes_transport_not_image_identity(self):
+        bundle_lib = REPO_ROOT / "os-image/packages/cni-common/bundle-lib.sh"
+        script = """
+set -euo pipefail
+source "$1"
+CNI_DOCKERHUB_MIRROR=dc.local.gha-runners.nvidia.com
+image_transport_ref docker.io/calico/node:v3.30.1
+image_transport_ref quay.io/tigera/operator:v1.38.1
+unset CNI_DOCKERHUB_MIRROR
+image_transport_ref docker.io/calico/node:v3.30.1
+"""
+
+        result = subprocess.run(
+            ["bash", "-c", script, "bundle-lib-test", str(bundle_lib)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(
+            result.stdout.splitlines(),
+            [
+                "dc.local.gha-runners.nvidia.com/calico/node:v3.30.1",
+                "quay.io/tigera/operator:v1.38.1",
+                "docker.io/calico/node:v3.30.1",
+            ],
+        )
+
+    def test_cni_dockerhub_mirror_falls_back_for_resolution_and_transfer(self):
+        bundle_lib = REPO_ROOT / "os-image/packages/cni-common/bundle-lib.sh"
+        digest = "sha256:" + "1" * 64
+        bash_candidates = (
+            "/opt/homebrew/bin/bash",
+            "/usr/local/bin/bash",
+            shutil.which("bash"),
+        )
+        modern_bash = next(
+            (
+                candidate
+                for candidate in bash_candidates
+                if candidate
+                and Path(candidate).is_file()
+                and subprocess.run(
+                    [candidate, "-c", "(( BASH_VERSINFO[0] >= 4 ))"],
+                    check=False,
+                ).returncode
+                == 0
+            ),
+            None,
+        )
+        if modern_bash is None:
+            self.skipTest("Bash 4 or newer is required for CNI bundle tests")
+        cases = (
+            ("digest miss", "1", "0", 3, 0),
+            ("transfer miss", "0", "1", 1, 3),
+        )
+        for (
+            name,
+            digest_fails,
+            pull_fails,
+            mirror_digests,
+            mirror_pulls,
+        ) in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                lock = root / "locks/amd64/v1.lock"
+                lock.parent.mkdir(parents=True)
+                lock.write_text(
+                    f"# test lock\ntest v1\nimage docker.io/calico/node:v1 {digest}\n",
+                    encoding="utf-8",
+                )
+                crane = root / "crane"
+                self.write_executable(
+                    crane,
+                    """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "${CRANE_LOG:?}"
+operation="$1"
+shift
+case "$operation" in
+  digest)
+    ref="${@: -1}"
+    if [[ "$ref" == mirror.gcr.io/* && "${MIRROR_DIGEST_FAIL:-0}" == 1 ]]; then
+      exit 1
+    fi
+    printf '%s\\n' "${LOCKED_DIGEST:?}"
+    ;;
+  pull)
+    output="${@: -1}"
+    if [[ "$*" == *mirror.gcr.io/* && "${MIRROR_PULL_FAIL:-0}" == 1 ]]; then
+      exit 1
+    fi
+    if [[ "$*" == *mirror.gcr.io/* ]]; then
+      repo=mirror.gcr.io/calico/node
+    else
+      repo=docker.io/calico/node
+    fi
+    temporary="$(mktemp -d)"
+    printf '[{"RepoTags":["%s:i-was-a-digest"]}]\\n' "$repo" >"${temporary}/manifest.json"
+    tar -C "$temporary" -cf "$output" manifest.json
+    rm -rf -- "$temporary"
+    ;;
+  *) exit 2 ;;
+esac
+""",
+                )
+                calls = root / "crane.log"
+                script = """
+set -euo pipefail
+source "$1"
+sleep() { :; }
+if [[ "$(uname -s)" == Darwin ]]; then
+  sed() {
+    if [[ "$1" == -i ]]; then
+      command sed -i '' "$2" "$3"
+    else
+      command sed "$@"
+    fi
+  }
+  tar() {
+    if [[ "$1" == --format=gnu ]]; then
+      command tar -C "$8" -cf "${10}" -T "${12}"
+    else
+      command tar "$@"
+    fi
+  }
+fi
+CNI=cni-test
+CNI_DOCKERHUB_MIRROR=mirror.gcr.io
+parse_bundle_args --version v1 --dist "$2/dist" --lock-dir "$2/locks" --crane "$3" --arch amd64
+stage_images
+"""
+
+                result = subprocess.run(
+                    [
+                        modern_bash,
+                        "-c",
+                        script,
+                        "bundle-lib-test",
+                        str(bundle_lib),
+                        str(root),
+                        str(crane),
+                    ],
+                    env={
+                        **os.environ,
+                        "CRANE_LOG": str(calls),
+                        "LOCKED_DIGEST": digest,
+                        "MIRROR_DIGEST_FAIL": digest_fails,
+                        "MIRROR_PULL_FAIL": pull_fails,
+                    },
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                call_lines = calls.read_text(encoding="utf-8").splitlines()
+                self.assertEqual(
+                    sum(
+                        "digest --platform linux/amd64 mirror.gcr.io/" in line
+                        for line in call_lines
+                    ),
+                    mirror_digests,
+                )
+                self.assertEqual(
+                    sum(
+                        line.startswith("pull ") and "mirror.gcr.io/" in line
+                        for line in call_lines
+                    ),
+                    mirror_pulls,
+                )
+                self.assertTrue(
+                    any(
+                        line.startswith("pull ") and "docker.io/" in line
+                        for line in call_lines
+                    )
+                )
+                with tarfile.open(root / "dist/v1/images.tgz", "r:gz") as archive:
+                    manifest_member = next(
+                        member
+                        for member in archive.getmembers()
+                        if member.name in ("manifest.json", "./manifest.json")
+                    )
+                    manifest_file = archive.extractfile(manifest_member)
+                    self.assertIsNotNone(manifest_file)
+                    manifest = json.load(manifest_file)
+                self.assertEqual(
+                    manifest[0]["RepoTags"],
+                    ["docker.io/calico/node:v1"],
+                )
 
 
 if __name__ == "__main__":
