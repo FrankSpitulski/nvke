@@ -122,6 +122,10 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 			if spec.validate.openVSwitch {
 				validateOpenVSwitchPostCreate(&test)
 			}
+			if spec.validate.ovnNetworking {
+				validateOVNNetworkPolicyPostCreate(&test)
+				validateOVNEgressAndMTU(&test)
+			}
 			if spec.validate.postReadyChecks {
 				validatePostReadyClusterState(&test)
 				validatePostReadyNodeOperations(&test)
@@ -484,12 +488,12 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 		options:  nke.Options{Provision: 30 * time.Minute, Upgrade: 90 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
 		validate: validations{upgrade: true},
 	}),
-	// The only entry that runs OVN-Kubernetes, and so the only one that can set
-	// openVSwitch. Every other nico-vms entry resolves to Calico through
-	// NKE_E2E_NICO_VMS_CNI, which the lane pins for image size. Kept to one
-	// control plane and one worker: the assertion is per node, and OVN images
-	// are the expensive part.
-	Entry("nico-vms ovn", Ordered, ContinueOnFailure, Label("nico-vms", "ovn"), testSpec{
+	// The small OVN smoke checks the typed Open vSwitch node-agent RPC. It stays
+	// at one control plane and one worker because the assertion is per node and
+	// OVN images are the expensive part. The multi-CIDR and lifecycle rows below
+	// are separate explicit OVN scenarios; ordinary nico-vms rows still resolve
+	// their CNI through NKE_E2E_NICO_VMS_CNI.
+	Entry("nico-vms ovn", Ordered, ContinueOnFailure, Label("nico-vms", "ovn", "ovn-qualification"), testSpec{
 		buildSpec: nicoVMSSpec,
 		shape: clusterShape{
 			kubernetesVersion: "1.34.2",
@@ -499,7 +503,18 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 			workerPools:       []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
 		},
 		options:  nke.Options{Provision: 45 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
-		validate: validations{openVSwitch: true},
+		validate: validations{openVSwitch: true, ovnNetworking: true},
+	}),
+	Entry("nico-vms ovn lifecycle", Ordered, ContinueOnFailure, Label("nico-vms", "ovn-qualification", "ovn-lifecycle"), testSpec{
+		buildSpec: nicoVMSSpec,
+		shape: clusterShape{
+			kubernetesVersion: upgradeStartingKubernetesVersion,
+			cniPlugin:         CNIPluginOVN,
+			controlPlanePools: []nke.NodePoolSpec{{DesiredNodeCount: 3, InstanceTypeID: nicoVMSLargeInstanceID}},
+			workerPools:       []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
+		},
+		options:  nke.Options{Provision: 45 * time.Minute, Upgrade: 90 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
+		validate: validations{scale: true, reboot: true, upgrade: true},
 	}),
 	Entry("CAPD with etcd encryption", Ordered, ContinueOnFailure, Label("capd", "extended", "encryption"), testSpec{
 		buildSpec: capdSpec,
@@ -543,7 +558,7 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 		},
 		options: nke.Options{Provision: 30 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second},
 	}),
-	Entry("nico-vms multi pod CIDRs", Ordered, ContinueOnFailure, Label("nico-vms", "multi-pod-cidrs"), testSpec{
+	Entry("nico-vms multi pod CIDRs", Ordered, ContinueOnFailure, Label("nico-vms", "multi-pod-cidrs", "ovn-qualification"), testSpec{
 		buildSpec: nicoVMSMultiPodCIDRSpec,
 		shape: clusterShape{
 			kubernetesVersion: "1.34.2",
@@ -637,6 +652,9 @@ type validations struct {
 	// openVSwitch proves OVN node provisioning used the typed node-agent RPC
 	// on every node and did not enter the legacy runbook fallback.
 	openVSwitch bool
+	// ovnNetworking validates NetworkPolicy enforcement, runner egress, and MTU
+	// boundaries on the explicit OVN smoke topology.
+	ovnNetworking bool
 	// csrApproval rotates a Ready worker's kubelet serving certificate and
 	// verifies that the tenant CSR controller approves and obtains a new one.
 	csrApproval bool
@@ -970,6 +988,15 @@ func TestUnit_CAPDSpec(t *testing.T) {
 	}
 }
 
+func TestUnit_NicoVMSMultiPodCIDRSpecAlwaysUsesOVN(t *testing.T) {
+	t.Setenv("NKE_E2E_NICO_VMS_CNI", CNIPluginCalico)
+
+	spec := nicoVMSMultiPodCIDRSpec(config.Config{}, "nico-vms-multi-pod-cidrs", clusterShape{})
+	if spec.CNIPlugin != CNIPluginOVN {
+		t.Fatalf("CNIPlugin = %q, want %q", spec.CNIPlugin, CNIPluginOVN)
+	}
+}
+
 func capdNodePoolSpecs(pools []nke.NodePoolSpec, defaultName, defaultNodeNamePrefix string) []nke.NodePoolSpec {
 	out := make([]nke.NodePoolSpec, 0, len(pools))
 	for _, pool := range pools {
@@ -1123,6 +1150,7 @@ func defaultStrings(s []string, defaultValue string) []string {
 func nicoVMSMultiPodCIDRSpec(cfg config.Config, name string, shape clusterShape) nke.ClusterSpec {
 	spec := nicoVMSSpec(cfg, name, shape)
 	spec.Name = name + "-multi-pod-cidr"
+	spec.CNIPlugin = CNIPluginOVN
 	spec.Network = &nke.ClusterNetworkSpec{
 		PodCIDR:          nicoVMSMultiPodCIDR,
 		ServiceCIDR:      nicoVMSMultiPodServiceCIDR,

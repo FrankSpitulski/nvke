@@ -1,0 +1,32 @@
+[
+  {
+    "SuiteDescription": "NKE E2E Suite",
+    "SuitePath": "/workspace/controller/test/e2e",
+    "SpecReports": [
+      {
+        "ContainerHierarchyTexts": ["NKE tenant clusters", "nico-vms multi pod CIDRs", "after cluster creation"],
+        "ContainerHierarchyLabels": [[], ["nico-vms", "multi-pod-cidrs", "ovn-qualification"], []],
+        "LeafNodeLabels": ["pod-cidr"],
+        "LeafNodeText": "assigns routable pod IPs from the configured pod CIDR ranges",
+        "LeafNodeType": "It",
+        "State": "passed"
+      },
+      {
+        "ContainerHierarchyTexts": ["NKE tenant clusters", "nico-vms OVN smoke", "after cluster creation"],
+        "ContainerHierarchyLabels": [[], ["nico-vms", "ovn", "ovn-qualification"], []],
+        "LeafNodeLabels": ["pod-cidr"],
+        "LeafNodeText": "assigns routable pod IPs from the configured pod CIDR ranges",
+        "LeafNodeType": "It",
+        "State": "passed"
+      },
+      {
+        "ContainerHierarchyTexts": ["NKE tenant clusters", "CAPD", "after cluster creation"],
+        "ContainerHierarchyLabels": [[], ["capd"], []],
+        "LeafNodeLabels": [],
+        "LeafNodeText": "assigns routable pod IPs from the configured pod CIDR ranges",
+        "LeafNodeType": "It",
+        "State": "skipped"
+      }
+    ]
+  }
+]

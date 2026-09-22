@@ -27,6 +27,8 @@ on:
       - "controller/nico-sim/**"
       - "controller/hack/nico-provider/**"
       - "controller/hack/ci/nico-vms-e2e.sh"
+      - "controller/hack/ci/nico-vms-e2e-test.sh"
+      - "controller/hack/ci/e2e-results/**"
       # This lane runs the nkectl smoke, and is the only one that exercises its
       # host-mode branch.
       - "controller/hack/ci/nkectl-smoke.sh"
@@ -39,7 +41,7 @@ on:
       - "agent/pkg/agent/proto/node_agent.proto"
       - "controller/internal/temporal/activities/configure_open_vswitch.go"
       - "controller/internal/temporal/workflows/provision_node.go"
-      - "controller/test/e2e/open_vswitch_test.go"
+      - "controller/test/e2e/**"
       # Without these, a change to the lane's own definition or its gate does
       # not run it.
       - .github/workflows/nico-vms-e2e.yml
@@ -53,10 +55,18 @@ on:
   workflow_dispatch:
     inputs:
       label-filter:
-        description: Ginkgo label filter. The default is the 15 happy-path specs.
+        description: Ginkgo label filter. Empty uses the per-architecture default, including explicit OVN and multi-CIDR coverage.
         required: false
-        default: nico-vms && happy-path
+        default: ""
         type: string
+      runtime-profile:
+        description: qualification runs `nico-vms && ovn-qualification` with 480m/540m suite/job budgets and ignores label-filter. default preserves the normal per-architecture budget and honors an optional label-filter for debugging.
+        required: false
+        default: default
+        type: choice
+        options:
+          - default
+          - qualification
       os-image-tag:
         description: "Pin every leg to one node image, e.g. v0.1.0-rc.1. The tag needs an image for each architecture the run covers, because each leg appends its own. Empty is usually what you want: it resolves the newest per architecture."
         required: false
@@ -84,7 +94,7 @@ jobs:
       pull-requests: read
     with:
       # Keep in step with the push paths above.
-      relevant_paths: '^agent/(internal/agent/open_vswitch.*\.go$|pkg/agent/proto/node_agent\.proto$)|^controller/(Tiltfile$|internal/temporal/activities/configure_open_vswitch\.go$|internal/temporal/workflows/provision_node\.go$|nico-sim/|hack/nico-provider/|hack/ci/nico-vms-e2e\.sh$|hack/ci/nkectl-smoke\.sh$|test/e2e/open_vswitch_test\.go$|test/kubeadm/scripts/)|^\.github/workflows/(nico-vms-e2e|e2e-pr-path-filter)\.yml$'
+      relevant_paths: '^agent/(internal/agent/open_vswitch.*\.go$|pkg/agent/proto/node_agent\.proto$)|^controller/(Tiltfile$|internal/temporal/activities/configure_open_vswitch\.go$|internal/temporal/workflows/provision_node\.go$|nico-sim/|hack/nico-provider/|hack/ci/nico-vms-e2e(-test)?\.sh$|hack/ci/e2e-results/|hack/ci/nkectl-smoke\.sh$|test/e2e/|test/kubeadm/scripts/)|^\.github/workflows/(nico-vms-e2e|e2e-pr-path-filter)\.yml$'
 
   nico-vms-e2e:
     name: nico-vms-e2e (${{ matrix.arch }}, KVM)
@@ -101,20 +111,20 @@ jobs:
         include:
           - arch: amd64
             runner: linux-amd64-gpu-l4-latest-1
-            label_filter: 'nico-vms && happy-path'
+            label_filter: 'nico-vms && (happy-path || ovn || multi-pod-cidrs)'
           - arch: arm64
             # Back on the ARC fleet, same root cause and fix as
             # kubeadm-bringup-e2e; see setup-ci-host.sh.
             runner: arc-arm64-kvm
-            # arm64 also carries the two OVN-Kubernetes scenarios, because it
-            # is the faster leg -- see the timing note below. parallel-lifecycle
-            # is the two-tenant-cluster spec; ovn is the only entry that runs
-            # OVN as the cluster CNI, and so the only one that can assert the
-            # typed Open vSwitch node-agent RPC.
-            label_filter: 'nico-vms && (happy-path || parallel-lifecycle || ovn)'
+            # arm64 also carries the two-tenant parallel lifecycle scenario,
+            # because it is the faster leg -- see the timing note below. Both
+            # architectures run the explicit OVN and multi-CIDR scenarios.
+            label_filter: 'nico-vms && (happy-path || parallel-lifecycle || ovn || multi-pod-cidrs)'
     # Happy path in #804: arm64 41m, amd64 1h31m. Generous for the wider label
     # filters a dispatch can ask for.
-    timeout-minutes: 330
+    # Qualification permits 480m for Ginkgo and 495m for Go's enclosing test
+    # timeout. Its 540m job cap leaves 45m for the normal setup and teardown.
+    timeout-minutes: ${{ github.event.inputs.runtime-profile == 'qualification' && 540 || 330 }}
     permissions:
       contents: read
       # os-image-tag pulls the node image from GHCR, and those packages are
@@ -135,13 +145,13 @@ jobs:
       CAPNICO_SOURCE_DIR: ${{ github.workspace }}/.capnico/cluster-api-provider-nico
       KIND_CLUSTER_NAME: cwe-nico-vms
       NKE_E2E_RUN_ID: github-nico-vms-${{ github.run_id }}-${{ github.run_attempt }}
-      # Per leg, from the matrix above: both run happy-path, arm64 additionally
-      # runs parallel-lifecycle. A dispatch label-filter still overrides both.
-      NKE_E2E_LABEL_FILTER: ${{ github.event.inputs.label-filter || matrix.label_filter }}
+      # Qualification is a fixed, complete evidence set. Default keeps the
+      # per-architecture filter and permits narrow manual selections.
+      NKE_E2E_LABEL_FILTER: ${{ github.event.inputs.runtime-profile == 'qualification' && 'nico-vms && ovn-qualification' || github.event.inputs.label-filter || matrix.label_filter }}
       # Empty on a schedule or a push, which is what makes the lane resolve the
       # newest published image for each architecture. Only a dispatch pins one.
       NKE_E2E_OS_IMAGE_TAG: ${{ github.event.inputs.os-image-tag }}
-      NKE_E2E_GINKGO_TIMEOUT: 270m
+      NKE_E2E_GINKGO_TIMEOUT: ${{ github.event.inputs.runtime-profile == 'qualification' && '480m' || '270m' }}
       # One upgrade hop (1.34 -> 1.35); the second recycles all three control-plane nodes again, ~45 min.
       NKE_E2E_UPGRADE_HOPS: "1"
       # Calico for the entries that do not pin a CNI: a third of OVN's image size and import time per node.
@@ -277,6 +287,9 @@ jobs:
       - name: Prepare the runner host
         run: ./controller/test/kubeadm/scripts/setup-ci-host.sh
 
+      - name: Test nico-vms E2E image selection
+        run: ./controller/hack/ci/nico-vms-e2e-test.sh
+
       - name: Run the nico-vms E2E suite
         env:
           # clusterctl reads provider manifests through the GitHub API; this
@@ -317,5 +330,9 @@ jobs:
             !${{ env.NKE_E2E_STATE_DIR }}/nkectl-no-auth
             !${{ env.NKE_E2E_STATE_DIR }}/nkectl
             !${{ env.NKE_E2E_STATE_DIR }}/kubeconfig
+            # Raw Ginkgo JSON includes captured output, which has not passed
+            # the report format's own redaction review.
+            !${{ env.NKE_E2E_STATE_DIR }}/e2e-selected.json
+            !${{ env.NKE_E2E_STATE_DIR }}/e2e-report.json
           if-no-files-found: warn
           retention-days: 7

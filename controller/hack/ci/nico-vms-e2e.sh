@@ -19,6 +19,7 @@
 #   NKE_E2E_STATE_DIR        diagnostics directory      (default: controller/.local/nico-vms-e2e/<run>)
 #   NKE_E2E_RUN_ID           names the state directory  (default: GITHUB_RUN_ID or local-<pid>)
 #   NKE_E2E_NKECTL_SMOKE     run hack/ci/nkectl-smoke.sh after the suite (default: true)
+#   NKE_E2E_OS_IMAGE_PATH    absolute path to a local non-FDE qcow2 (optional; conflicts with NKE_E2E_OS_IMAGE_TAG)
 #   KIND_CLUSTER_NAME        management cluster name    (default: cwe-nico-vms)
 #   NKE_E2E_KEEP             non-empty keeps kind, Tilt and the VMs running on exit
 
@@ -53,6 +54,8 @@ NICO_SIM_DIR="${CONTROLLER_ROOT}/nico-sim"
 E2E_BIN="${STATE_DIR}/cwe-e2e.test"
 E2E_CONFIG="${STATE_DIR}/e2e-config.json"
 E2E_KUBECONFIG="${STATE_DIR}/kubeconfig"
+E2E_SELECTED_REPORT="${STATE_DIR}/e2e-selected.json"
+E2E_REPORT="${STATE_DIR}/e2e-report.json"
 # What the nkectl smoke needs. BACKEND gates its write round trip to CAPD, so
 # this lane runs the read paths, negatives and provider checks only.
 # NKECTL_SMOKE_RUNNER stays unset, which is how the smoke knows to run the CLI
@@ -72,6 +75,11 @@ STATE_MONITOR_PID=""
 PROGRESS_MONITOR_PID=""
 NICO_VMS_ORG_ID=novxwn552ssc
 NICO_VMS_TOKEN=nico-vmsctl-token
+OVN_EGRESS_TCP_PORT=18082
+OVN_EGRESS_UDP_PORT=18081
+OVN_EGRESS_RULE_COMMENT="nke-ovn-egress-${RUN_ID:0:180}-$$"
+OVN_EGRESS_TCP_RULE_ADDED=false
+OVN_EGRESS_UDP_RULE_ADDED=false
 
 log() { printf '[nico-vms-e2e] %s\n' "$*"; }
 fail() {
@@ -83,7 +91,122 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 is required"
 }
 
+repoint_os_profiles() {
+  local qcow="$1" repointed=0 script
+
+  # Repoint every profile that names a real image. Counted, because a profile
+  # that stopped carrying an image-url would otherwise leave the CloudFront pin
+  # in place and the lane would quietly test the wrong thing.
+  for script in "${CWE_PROFILES_DIR}"/osProfiles/*/ipxeScript; do
+    grep -q '^set image-url ' "${script}" || continue
+    # Not sed -i: it takes an argument on BSD and none on GNU, and this script
+    # is run by hand on both.
+    awk -v img="${qcow}" '/^set image-url / { print "set image-url " img; next } { print }' \
+      "${script}" >"${script}.new" && mv "${script}.new" "${script}"
+    repointed=$(( repointed + 1 ))
+  done
+  (( repointed > 0 )) ||
+    fail "no osProfile ipxeScript carries a 'set image-url' line to repoint"
+  # Every profile file, not just the ipxeScript. The bundle server sat in
+  # userData.tmpl and this check used to walk straight past it, so the lane
+  # reported "no CloudFront left" while still shipping a CloudFront URL to
+  # every node it created.
+  if grep -rl cloudfront.net "${CWE_PROFILES_DIR}" 2>/dev/null; then
+    fail "the profile file(s) listed above still name CloudFront after repointing"
+  fi
+  log "tenant nodes boot ${qcow} (${repointed} profile(s) repointed, no CloudFront left)"
+}
+
+select_local_os_image() {
+  local format local_path sha256
+
+  local_path="${NKE_E2E_OS_IMAGE_PATH:-}"
+  if [[ -n "${local_path}" && -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
+    fail "NKE_E2E_OS_IMAGE_PATH and NKE_E2E_OS_IMAGE_TAG cannot both be set"
+  fi
+  [[ "${local_path}" == /* ]] || fail "NKE_E2E_OS_IMAGE_PATH must be an absolute path"
+  [[ "${local_path}" != *[[:space:]]* ]] ||
+    fail "NKE_E2E_OS_IMAGE_PATH cannot contain whitespace because the iPXE image_url parser tokenizes on whitespace"
+  [[ -f "${local_path}" ]] || fail "NKE_E2E_OS_IMAGE_PATH is not a regular file: ${local_path}"
+  [[ -r "${local_path}" ]] || fail "NKE_E2E_OS_IMAGE_PATH is not readable: ${local_path}"
+  require_command qemu-img
+  require_command sha256sum
+  format="$(qemu-img info --output=json -- "${local_path}" 2>/dev/null | jq -r '.format // empty')" ||
+    fail "qemu-img could not inspect NKE_E2E_OS_IMAGE_PATH: ${local_path}"
+  [[ "${format}" == qcow2 ]] || fail "NKE_E2E_OS_IMAGE_PATH must be qcow2 (qemu-img reported ${format:-unknown})"
+  qcow="${local_path}"
+  sha256="$(sha256sum -- "${qcow}" | awk '{print $1}')"
+  printf '%s  %s\n' "${sha256}" "${qcow}" >"${STATE_DIR}/os-image.sha256"
+  log "using local os-image ${qcow} (sha256 ${sha256})"
+}
+
+if [[ "${NKE_E2E_LIBRARY_ONLY:-}" == true ]]; then
+  return 0
+fi
+
 tilt_cmd() { tilt --port "${TILT_PORT}" "$@"; }
+
+bridge_gateway_from_cidr() {
+  local cidr="$1" address prefix first second third fourth
+  local numeric_address mask network gateway
+
+  if [[ ! "${cidr}" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/([0-9]{1,2})$ ]]; then
+    return 1
+  fi
+  address="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}.${BASH_REMATCH[4]}"
+  prefix="${BASH_REMATCH[5]}"
+  IFS=. read -r first second third fourth <<<"${address}"
+  first=$((10#${first}))
+  second=$((10#${second}))
+  third=$((10#${third}))
+  fourth=$((10#${fourth}))
+  prefix=$((10#${prefix}))
+  if ((first > 255 || second > 255 || third > 255 || fourth > 255 || prefix > 31)); then
+    return 1
+  fi
+
+  numeric_address=$(((first << 24) | (second << 16) | (third << 8) | fourth))
+  mask=$(((0xffffffff << (32 - prefix)) & 0xffffffff))
+  network=$((numeric_address & mask))
+  gateway=$((network + 1))
+  printf '%d.%d.%d.%d/%d\n' \
+    "$(((gateway >> 24) & 255))" "$(((gateway >> 16) & 255))" \
+    "$(((gateway >> 8) & 255))" "$((gateway & 255))" "${prefix}"
+}
+
+add_ovn_egress_input_rules() {
+  sudo iptables -I INPUT -i "${BRIDGE_NAME}" -d "${BRIDGE_GW}" -p tcp --dport "${OVN_EGRESS_TCP_PORT}" \
+    -m comment --comment "${OVN_EGRESS_RULE_COMMENT}" -j ACCEPT
+  OVN_EGRESS_TCP_RULE_ADDED=true
+  sudo iptables -I INPUT -i "${BRIDGE_NAME}" -d "${BRIDGE_GW}" -p udp --dport "${OVN_EGRESS_UDP_PORT}" \
+    -m comment --comment "${OVN_EGRESS_RULE_COMMENT}" -j ACCEPT
+  OVN_EGRESS_UDP_RULE_ADDED=true
+  log "added temporary OVN egress bridge INPUT rules for ${BRIDGE_GW}: tcp/${OVN_EGRESS_TCP_PORT}, udp/${OVN_EGRESS_UDP_PORT}"
+}
+
+remove_ovn_egress_input_rules() {
+  local rc=0
+
+  if [[ "${OVN_EGRESS_UDP_RULE_ADDED}" == true ]]; then
+    if sudo iptables -D INPUT -i "${BRIDGE_NAME}" -d "${BRIDGE_GW}" -p udp --dport "${OVN_EGRESS_UDP_PORT}" \
+      -m comment --comment "${OVN_EGRESS_RULE_COMMENT}" -j ACCEPT; then
+      OVN_EGRESS_UDP_RULE_ADDED=false
+    else
+      log "ERROR: removing temporary OVN egress UDP INPUT rule failed" >&2
+      rc=1
+    fi
+  fi
+  if [[ "${OVN_EGRESS_TCP_RULE_ADDED}" == true ]]; then
+    if sudo iptables -D INPUT -i "${BRIDGE_NAME}" -d "${BRIDGE_GW}" -p tcp --dport "${OVN_EGRESS_TCP_PORT}" \
+      -m comment --comment "${OVN_EGRESS_RULE_COMMENT}" -j ACCEPT; then
+      OVN_EGRESS_TCP_RULE_ADDED=false
+    else
+      log "ERROR: removing temporary OVN egress TCP INPUT rule failed" >&2
+      rc=1
+    fi
+  fi
+  return "${rc}"
+}
 
 # ── Diagnostics and cleanup ─────────────────────────────────────────────────
 
@@ -273,6 +396,10 @@ collect_diagnostics() {
     ((rc == 0)) && rc=1
   fi
 
+  if ! remove_ovn_egress_input_rules; then
+    rc=1
+  fi
+
   if [[ -n "${KEEP}" ]]; then
     log "NKE_E2E_KEEP set: leaving Tilt (port ${TILT_PORT}), kind cluster ${KIND_CLUSTER_NAME} and the VMs running"
     exit "${rc}"
@@ -393,9 +520,11 @@ install -D -m 0755 "${WORKSPACE_ROOT}/agent/bin/linux_${host_arch}/nke-agent" "$
 log "staged nke-agent for the tenant nodes: $(git -C "${WORKSPACE_ROOT}" describe --match 'agent/v*' --tags --always 2>/dev/null || echo unknown)"
 
 # ── The node image the tenant VMs boot ──────────────────────────────────────
-# Set NKE_E2E_OS_IMAGE_TAG to pin one image. Unset, the newest published one
-# for this architecture is resolved below, because the profile's own image-url
-# is CloudFront and the self-hosted fleet gets 403 from it.
+# Set NKE_E2E_OS_IMAGE_PATH to use an absolute local non-FDE qcow2, or set
+# NKE_E2E_OS_IMAGE_TAG to pin one registry image. When both are unset, the
+# newest published image for this architecture is resolved below, because the
+# profile's own image-url is CloudFront and the self-hosted fleet gets 403 from
+# it.
 #
 # No server: nico-sim resolves image-url on the host, never in a guest, and
 # copies a local path straight into its image cache. See localImagePath and
@@ -421,80 +550,63 @@ newest_os_image_tag() {
     sed "s/-${arch}\$//"
 }
 
-os_image_tag_pinned=no
-[[ -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]] && os_image_tag_pinned=yes
+if [[ -n "${NKE_E2E_OS_IMAGE_PATH:-}" ]]; then
+  select_local_os_image
+else
+  os_image_tag_pinned=no
+  [[ -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]] && os_image_tag_pinned=yes
 
-if [[ -z "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
-  NKE_E2E_OS_IMAGE_TAG="$(newest_os_image_tag "${host_arch}" || true)"
-  # No fallback. The profile's image-url is CloudFront, and this lane does not
-  # depend on it. Stopping here costs a minute; falling back spends the whole
-  # run to arrive somewhere we have decided not to go.
-  [[ -n "${NKE_E2E_OS_IMAGE_TAG}" ]] ||
-    fail "no os-image published for ${host_arch}. Build one with os-image-artifact.yml, or set NKE_E2E_OS_IMAGE_TAG."
-  log "newest published os-image for ${host_arch}: ${NKE_E2E_OS_IMAGE_TAG}"
-fi
-
-if [[ -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
-  command -v oras >/dev/null 2>&1 ||
-    fail "NKE_E2E_OS_IMAGE_TAG is set but oras is not on PATH"
-  image_repo="${NKE_E2E_OS_IMAGE_REPO:-ghcr.io/dsx-ai-factory/nke/os-image-non-fde}"
-  image_ref="${image_repo}:${NKE_E2E_OS_IMAGE_TAG}-${host_arch}"
-  image_dir="${STATE_DIR}/os-image"
-  rm -rf "${image_dir}"
-  mkdir -p "${image_dir}"
-  log "pulling ${image_ref}"
-  # oras has no retry of its own, and the qcow2 layer is big enough that a
-  # mid-stream registry error ends the lane before the test starts.
-  for attempt in 1 2 3; do
-    oras pull "${image_ref}" --platform "linux/${host_arch}" -o "${image_dir}" \
-      >"${STATE_DIR}/os-image-pull.log" 2>&1 && break
-    if ((attempt < 3)); then
-      log "pulling ${image_ref} failed (attempt ${attempt}/3), retrying in $((attempt * 15))s"
-      # A partial pull leaves files the qcow2 count below rejects.
-      rm -rf "${image_dir}"
-      mkdir -p "${image_dir}"
-      sleep $((attempt * 15))
-      continue
-    fi
-    tail -n 20 "${STATE_DIR}/os-image-pull.log" >&2
-    # One tag input covers every leg, and each appends its own architecture.
-    # Pinning a tag built for one architecture fails the others here.
-    if [[ "${os_image_tag_pinned}" == yes ]]; then
-      fail "pulling ${image_ref} failed. A pinned tag needs an image for every architecture the run covers; this leg wanted -${host_arch}. Build it, or leave the tag empty to resolve one per architecture."
-    fi
-    fail "pulling ${image_ref} failed"
-  done
-
-  shopt -s nullglob
-  pulled=("${image_dir}"/*.qcow2)
-  shopt -u nullglob
-  (( ${#pulled[@]} == 1 )) ||
-    fail "${image_ref} carried ${#pulled[@]} qcow2 files, expected exactly 1"
-  qcow="${pulled[0]}"
-
-  # Repoint every profile that names a real image. Counted, because a profile
-  # that stopped carrying an image-url would otherwise leave the CloudFront pin
-  # in place and the lane would quietly test the wrong thing.
-  repointed=0
-  for script in "${CWE_PROFILES_DIR}"/osProfiles/*/ipxeScript; do
-    grep -q '^set image-url ' "${script}" || continue
-    # Not sed -i: it takes an argument on BSD and none on GNU, and this script
-    # is run by hand on both.
-    awk -v img="${qcow}" '/^set image-url / { print "set image-url " img; next } { print }' \
-      "${script}" >"${script}.new" && mv "${script}.new" "${script}"
-    repointed=$(( repointed + 1 ))
-  done
-  (( repointed > 0 )) ||
-    fail "no osProfile ipxeScript carries a 'set image-url' line to repoint"
-  # Every profile file, not just the ipxeScript. The bundle server sat in
-  # userData.tmpl and this check used to walk straight past it, so the lane
-  # reported "no CloudFront left" while still shipping a CloudFront URL to
-  # every node it created.
-  if grep -rl cloudfront.net "${CWE_PROFILES_DIR}" 2>/dev/null; then
-    fail "the profile file(s) listed above still name CloudFront after repointing"
+  if [[ -z "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
+    NKE_E2E_OS_IMAGE_TAG="$(newest_os_image_tag "${host_arch}" || true)"
+    # No fallback. The profile's image-url is CloudFront, and this lane does not
+    # depend on it. Stopping here costs a minute; falling back spends the whole
+    # run to arrive somewhere we have decided not to go.
+    [[ -n "${NKE_E2E_OS_IMAGE_TAG}" ]] ||
+      fail "no os-image published for ${host_arch}. Build one with os-image-artifact.yml, or set NKE_E2E_OS_IMAGE_TAG."
+    log "newest published os-image for ${host_arch}: ${NKE_E2E_OS_IMAGE_TAG}"
   fi
-  log "tenant nodes boot ${qcow} (${repointed} profile(s) repointed, no CloudFront left)"
+
+  if [[ -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
+    command -v oras >/dev/null 2>&1 ||
+      fail "NKE_E2E_OS_IMAGE_TAG is set but oras is not on PATH"
+    image_repo="${NKE_E2E_OS_IMAGE_REPO:-ghcr.io/dsx-ai-factory/nke/os-image-non-fde}"
+    image_ref="${image_repo}:${NKE_E2E_OS_IMAGE_TAG}-${host_arch}"
+    image_dir="${STATE_DIR}/os-image"
+    rm -rf "${image_dir}"
+    mkdir -p "${image_dir}"
+    log "pulling ${image_ref}"
+    # oras has no retry of its own, and the qcow2 layer is big enough that a
+    # mid-stream registry error ends the lane before the test starts.
+    for attempt in 1 2 3; do
+      oras pull "${image_ref}" --platform "linux/${host_arch}" -o "${image_dir}" \
+        >"${STATE_DIR}/os-image-pull.log" 2>&1 && break
+      if ((attempt < 3)); then
+        log "pulling ${image_ref} failed (attempt ${attempt}/3), retrying in $((attempt * 15))s"
+        # A partial pull leaves files the qcow2 count below rejects.
+        rm -rf "${image_dir}"
+        mkdir -p "${image_dir}"
+        sleep $((attempt * 15))
+        continue
+      fi
+      tail -n 20 "${STATE_DIR}/os-image-pull.log" >&2
+      # One tag input covers every leg, and each appends its own architecture.
+      # Pinning a tag built for one architecture fails the others here.
+      if [[ "${os_image_tag_pinned}" == yes ]]; then
+        fail "pulling ${image_ref} failed. A pinned tag needs an image for every architecture the run covers; this leg wanted -${host_arch}. Build it, or leave the tag empty to resolve one per architecture."
+      fi
+      fail "pulling ${image_ref} failed"
+    done
+
+    shopt -s nullglob
+    pulled=("${image_dir}"/*.qcow2)
+    shopt -u nullglob
+    (( ${#pulled[@]} == 1 )) ||
+      fail "${image_ref} carried ${#pulled[@]} qcow2 files, expected exactly 1"
+    qcow="${pulled[0]}"
+  fi
 fi
+
+repoint_os_profiles "${qcow}"
 
 # A previous run's database, instances and logs would confuse this one.
 rm -rf "${NICO_SIM_DIR}/.dev"
@@ -649,6 +761,51 @@ test_timeout="$((ginkgo_minutes + 15))m"
 
 # fail-fast: a failed entry keeps its 4-6 VMs; a second entry would not fit and
 # would ask for the same control-plane VIP.
+log "recording E2E specs selected by ${LABEL_FILTER}"
+env CWE_PROFILES_DIR="${CONTROLLER_ROOT}/test/fixtures/fleet-profiles" \
+  CWE_EXPECTED_VERSION="${CWE_BUILD_VERSION}" \
+  "${E2E_BIN}" \
+  -test.v \
+  -e2e.config="${E2E_CONFIG}" \
+  -ginkgo.dry-run \
+  -ginkgo.no-color \
+  -ginkgo.fail-on-empty \
+  -ginkgo.fail-on-pending \
+  "-ginkgo.label-filter=${LABEL_FILTER}" \
+  "-ginkgo.json-report=${E2E_SELECTED_REPORT}"
+
+# Open only the runner endpoints selected by this run. Calico-only and other
+# narrow debug selections need neither these rules nor OVN bridge validation.
+ovn_egress_selected="$(jq -r 'any(.[] | .SpecReports[]; .State == "passed" and (.LeafNodeLabels | index("ovn-egress") != null))' "${E2E_SELECTED_REPORT}")" ||
+  fail "cannot determine OVN egress selection from the dry-run report"
+case "${ovn_egress_selected}" in
+  true)
+    for command in ip iptables ss; do
+      require_command "${command}"
+    done
+    NICO_VMS_BRIDGE_CIDR="${NICO_VMS_BRIDGE_CIDR:-}"
+    [[ -n "${NICO_VMS_BRIDGE_CIDR}" ]] || fail "NICO_VMS_BRIDGE_CIDR is required for the OVN egress smoke"
+    EXPECTED_BRIDGE_GW_CIDR="$(bridge_gateway_from_cidr "${NICO_VMS_BRIDGE_CIDR}")" ||
+      fail "NICO_VMS_BRIDGE_CIDR must be a valid IPv4 CIDR with a gateway address (got ${NICO_VMS_BRIDGE_CIDR})"
+    mapfile -t bridge_global_ipv4s < <(ip -4 -o addr show dev "${BRIDGE_NAME}" scope global | awk '{print $4}')
+    if ((${#bridge_global_ipv4s[@]} != 1)); then
+      fail "bridge ${BRIDGE_NAME} must have exactly one global IPv4 address, found ${#bridge_global_ipv4s[@]}"
+    fi
+    BRIDGE_GW_CIDR="${bridge_global_ipv4s[0]}"
+    BRIDGE_GW="${BRIDGE_GW_CIDR%/*}"
+    if [[ "${BRIDGE_GW_CIDR}" != "${EXPECTED_BRIDGE_GW_CIDR}" ]]; then
+      fail "bridge ${BRIDGE_NAME} global IPv4 ${BRIDGE_GW_CIDR} does not match NICO_VMS_BRIDGE_CIDR gateway ${EXPECTED_BRIDGE_GW_CIDR}"
+    fi
+    tcp_listeners="$(ss -H -ltn "sport = :${OVN_EGRESS_TCP_PORT}")" || fail "cannot inspect TCP listener ports"
+    udp_listeners="$(ss -H -lun "sport = :${OVN_EGRESS_UDP_PORT}")" || fail "cannot inspect UDP listener ports"
+    [[ -z "${tcp_listeners}" ]] || fail "TCP port ${OVN_EGRESS_TCP_PORT} is already in use"
+    [[ -z "${udp_listeners}" ]] || fail "UDP port ${OVN_EGRESS_UDP_PORT} is already in use"
+    add_ovn_egress_input_rules
+    ;;
+  false) ;;
+  *) fail "unexpected OVN egress selection result: ${ovn_egress_selected}" ;;
+esac
+
 log "running E2E specs matching ${LABEL_FILTER} (ginkgo timeout ${GINKGO_TIMEOUT})"
 start_state_monitor
 set +e
@@ -661,18 +818,26 @@ env CWE_PROFILES_DIR="${CONTROLLER_ROOT}/test/fixtures/fleet-profiles" \
   -ginkgo.v \
   -ginkgo.no-color \
   -ginkgo.fail-on-empty \
+  -ginkgo.fail-on-pending \
   -ginkgo.fail-fast \
   -ginkgo.timeout="${GINKGO_TIMEOUT}" \
   "-ginkgo.label-filter=${LABEL_FILTER}" \
   "-ginkgo.junit-report=${STATE_DIR}/junit.xml" \
+  "-ginkgo.json-report=${E2E_REPORT}" \
   2>&1 | tee "${STATE_DIR}/e2e.log"
 e2e_rc=${PIPESTATUS[0]}
 set -e
 stop_state_monitor
 
 if ((e2e_rc == 0)); then
+  go run ./hack/ci/e2e-results \
+    --selected-report="${E2E_SELECTED_REPORT}" \
+    --report="${E2E_REPORT}" || e2e_rc=1
+
   # Only the multi-pod-cidrs entry sets two pod CIDRs. OIDC is on here, so an
-  # oidc_test.go skip is a regression, unlike in the CAPD lanes.
+  # oidc_test.go skip is a regression, unlike in the CAPD lanes. The JSON
+  # result check above rejects a skipped selected multi-CIDR assertion before
+  # this file-level allowance handles the ordinary smoke's intentional skip.
   # shellcheck disable=SC2034  # read by e2e_assert_no_new_skips
   E2E_EXPECTED_RUNTIME_SKIPS=(pod_cidr_test.go)
   e2e_assert_no_new_skips log "${STATE_DIR}/e2e.log" || e2e_rc=1
