@@ -324,30 +324,32 @@ created it, so a bare `kind delete cluster` looks for the seed cluster in
 Docker, does not find it, and exits 0 without deleting anything — leaving the
 name clash this step exists to prevent.
 
-### 5. Install the site controller
+### 5. Install an infrastructure provider
+
+Install Cluster API and CAPNICo onto the site cluster **before** the site
+controller. CWE reads the `Machine` and `NicoMachine` CRDs once, at process
+start, and silently skips three of its controllers when they are absent — so
+installing it first means restarting it afterward, or losing them until you do.
+
+Untaint the control-plane nodes first or every `--wait` hangs:
+`kubectl taint nodes --all node-role.kubernetes.io/control-plane-`. Full steps,
+both a Helm and a `clusterctl` route, and how to verify the result with
+`kubectl`: [Infrastructure Providers](site-bootstrap/infrastructure-providers.md).
+
+### 6. Install the site controller
 
 The bootstrap leaves you a plain Kubernetes cluster. Installing CWE onto it is a
 separate job, and the largest step here — `nkectl` has no command for it.
 
-A plain kubeadm cluster is barer than a kind one, in two ways that stop the
-install before it starts:
-
-- **The nodes are all control plane**, so nothing schedules until you untaint
-  them or give every workload a toleration:
-  `kubectl taint nodes --all node-role.kubernetes.io/control-plane-`
-- **There is no storage class.** The database and SPIRE both want a volume and
-  sit `Pending` on `no persistent volumes available for this claim and no
-  storage class is set`. Install a provisioner, or run them without persistence.
-
-`nkectl get providers` is the quickest check that what you installed is wired
-up — it names the missing piece rather than making you infer it.
+**There is no storage class.** CWE's database and SPIRE both want a volume and
+sit `Pending` on `no persistent volumes available for this claim and no storage
+class is set`. Install a provisioner, or run them without persistence.
 
 Use the chart in
 [`controller/deploy/charts/controller`](../controller/deploy/charts/controller).
 It installs **CWE alone**, against a database and a Temporal you provide, and
 defaults to a ClusterIP service with ingress off, so nothing reaches the API
-until you change that. Install and configure the infrastructure provider
-separately; the bootstrap does not carry its credentials over.
+until you change that.
 
 ```bash
 nkectl config set-site --name my-site --url https://<cwe-url> \
@@ -361,14 +363,8 @@ account, admit it, and grant the kubeconfig identity the permissions in
 [Configuring NKE API Authentication](../controller/docs/configuring-api-authentication.md).
 Without them, `get clusters` fails at minting or CWE returns 403.
 
-### 6. Install CAPNICo
-
-Tenant clusters need it. Install the provider onto the site cluster with a
-`nico-credentials` Secret in `capnico-system` holding the endpoint, org and
-**one** authentication mode. Prefer client credentials: a password-grant token
-stops provisioning when it expires.
-[CAPNICo's guide](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/docs/getting-started.md)
-is the reference.
+With the site registered, `nkectl` can report on the provider you installed in
+step 5:
 
 ```bash
 nkectl get providers      # nico must read CONFIGURED before you create anything
@@ -399,5 +395,5 @@ repository.
 - [architecture.md](architecture.md) — how CWE, the agent and CAPI fit together
 - [../cli/docs/sitespec.md](../cli/docs/sitespec.md) — every site spec field
 - [../cli/docs/user-flow.md](../cli/docs/user-flow.md) — the command reference
-- [CAPNICo getting started](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/docs/getting-started.md)
-  — the infrastructure provider every real site runs
+- [site-bootstrap/infrastructure-providers.md](site-bootstrap/infrastructure-providers.md)
+  — the full CAPNICo install: order, both routes, and what stalls it

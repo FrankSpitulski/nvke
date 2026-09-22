@@ -105,6 +105,6 @@ All validation errors are reported together in one pass so you can fix them with
 
 ## What's Next After Bootstrap
 
-After the site controller cluster is up, you deploy the NKE services (CWE, Temporal, CNPG) onto it. That step uses a GitOps-based deploy repository and ArgoCD. See [Deploy Repository](deploy-repository.md) for the structure and application manifests.
+After the site controller cluster is up, install Cluster API and an infrastructure provider on it before deploying the NKE services (CWE, Temporal, CNPG) — see [Infrastructure Providers](infrastructure-providers.md). The NKE services deployment uses a GitOps-based deploy repository and ArgoCD; see [Deploy Repository](deploy-repository.md) for the structure and application manifests.
 
 > **TODO:** Confirm `j7sbcjl3qgta` is the final public NGC org for NKE Helm charts and container images. Update all `helm.ngc.nvidia.com/j7sbcjl3qgta` and `nvcr.io/j7sbcjl3qgta` references if the org changes.
