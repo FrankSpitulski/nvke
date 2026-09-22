@@ -15,11 +15,19 @@ name: CLI Artifact NVCR
 #
 #   NKE_NGC_ORG             variable  NGC org that owns the artifact
 #   NGC_REGISTRY_TOKEN_NKE  secret    NGC API key with write access on that org
+#   DSX_NGC_ORG_TEAM        variable  DSX NGC org/team path
+#   NGC_REGISTRY_TOKEN_DSX  secret    NGC API key with write access on DSX
 #
-# The repository is nvcr.io/<NKE_NGC_ORG>/nkectl -- named after the actual
-# binary (nkectl), not a generic "nke-cli", matching how nke-agent and
-# nke-controller are both named after their real binaries. An NKE-org path
-# has no team segment.
+# The repository is nvcr.io/<org>/nkectl -- named after the actual binary
+# (nkectl), not a generic "nke-cli", matching how nke-agent and nke-controller
+# are both named after their real binaries. An NKE-org path has no team
+# segment; the DSX path carries one, which is why DSX_NGC_ORG_TEAM holds the
+# whole org/team prefix rather than an org alone.
+#
+# Published to both orgs, one matrix leg each. A DSX cluster holds an NGC
+# credential for its own org and none for the NKE org, so publishing only to
+# NKE leaves the binary unreachable to exactly the consumers this workflow was
+# added for.
 #
 # No GHCR pair beyond the separate cli-artifact.yml is missing here on
 # purpose -- this file only concerns the NVCR destination.
@@ -40,7 +48,10 @@ on:
         default: ""
     secrets:
       NGC_REGISTRY_TOKEN_NKE:
-        description: NGC API key with write access on the org, for the nvcr push.
+        description: NGC API key with write access on the NKE org, for the nvcr push.
+        required: true
+      NGC_REGISTRY_TOKEN_DSX:
+        description: NGC API key with write access on the DSX org/team, for the nvcr push.
         required: true
   workflow_dispatch: {}
 
@@ -53,13 +64,30 @@ concurrency:
 jobs:
   publish:
     if: github.repository == 'dsx-ai-factory/nke'
-    name: Publish binaries
+    name: Publish binaries (${{ matrix.destination }})
     runs-on: ubuntu-latest
     environment: nvcr
     timeout-minutes: 20
     permissions:
       contents: read
       security-events: write  # the malware scan uploads SARIF
+    # Both orgs get the same bytes. DSX clusters hold an NGC credential for
+    # their own org and none for the NKE org, so an artifact published only to
+    # NKE is unreachable to them -- the reason this workflow exists in the
+    # first place. Publishing twice rather than promoting matches
+    # chart-publish-nvcr.yml: `oras push` is idempotent for identical content,
+    # so a second destination costs one more push, not an OCI-layout
+    # round-trip through crane the way the image workflows need.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - destination: nke
+            org_var: NKE_NGC_ORG
+            token_secret_var_name: NGC_REGISTRY_TOKEN_NKE
+          - destination: dsx
+            org_var: DSX_NGC_ORG_TEAM
+            token_secret_var_name: NGC_REGISTRY_TOKEN_DSX
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -90,14 +118,15 @@ jobs:
         id: meta
         shell: bash
         env:
-          NKE_NGC_ORG: ${{ vars.NKE_NGC_ORG }}
+          NGC_ORG: ${{ vars[matrix.org_var] }}
+          ORG_VAR: ${{ matrix.org_var }}
         run: |
           set -euo pipefail
-          if [[ -z "${NKE_NGC_ORG}" ]]; then
-            echo "::error::NKE_NGC_ORG is not set in the nvcr environment"
+          if [[ -z "${NGC_ORG}" ]]; then
+            echo "::error::${ORG_VAR} is not set in the nvcr environment"
             exit 1
           fi
-          repo="nvcr.io/${NKE_NGC_ORG}/nkectl"
+          repo="nvcr.io/${NGC_ORG}/nkectl"
 
           version="$(git describe --match 'cli/v*' --tags --always 2>/dev/null || git rev-parse --short HEAD)"
           version="${version#cli/}"
@@ -140,9 +169,14 @@ jobs:
       - name: Log in to NVCR
         shell: bash
         env:
-          NGC_TOKEN: ${{ secrets.NGC_REGISTRY_TOKEN_NKE }}
+          NGC_TOKEN: ${{ secrets[matrix.token_secret_var_name] }}
+          TOKEN_SECRET_VAR_NAME: ${{ matrix.token_secret_var_name }}
         run: |
           set -euo pipefail
+          if [[ -z "${NGC_TOKEN}" ]]; then
+            echo "::error::${TOKEN_SECRET_VAR_NAME} is not set in the nvcr environment"
+            exit 1
+          fi
           # shellcheck disable=SC2016
           echo "${NGC_TOKEN}" | oras login nvcr.io \
             --username '$oauthtoken' --password-stdin
