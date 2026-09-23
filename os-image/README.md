@@ -402,7 +402,7 @@ full FDE bake took 1h39m under `tcg` vs a few minutes locally under real
 KVM). The job's "Enable KVM access" step fails immediately if that
 assumption turns out wrong, rather than silently falling back to the
 ~10x-slower emulated path. The arm64 leg runs natively on
-`nke-arm64-16c64g`, also with `/dev/kvm`; the workflow fails immediately if
+`arc-arm64-kvm`, also with `/dev/kvm`; the workflow fails immediately if
 that device is absent or unusable. The Makefile still retains its portable
 same-architecture KVM probe and TCG fallback for local builds.
 
