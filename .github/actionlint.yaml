@@ -20,3 +20,9 @@ self-hosted-runner:
     - arc-arm64-cpu16
     - arc-arm64-kvm
     - arc-arm64-kvm-8c16g
+
+paths:
+  .github/workflows/agent-deb-publish.yml:
+    ignore:
+      # actionlint 1.7.12 lacks cache-mode support; lint-workflows validates read-only values.
+      - '^unexpected key "cache-mode" for "job" section\.'
