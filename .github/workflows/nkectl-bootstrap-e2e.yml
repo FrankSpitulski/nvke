@@ -102,11 +102,11 @@ jobs:
       # Same mirror backend-e2e and local-entrypoint-e2e use. The node image
       # tries it first and falls through, so an unreachable mirror costs a
       # dial rather than the run.
-      NKE_E2E_DOCKERHUB_MIRROR: dc.local.gha-runners.nvidia.com
+      NKE_E2E_DOCKERHUB_MIRROR: mirror.gcr.io
       # The same mirror for the ephemeral bootstrap Kind cluster, which pulls
       # the temporal, postgres, SPIRE and Cluster API images itself. Concurrent
       # runs hit Docker Hub's anonymous rate limit without it.
-      NKECTL_BOOTSTRAP_DOCKERHUB_MIRROR: dc.local.gha-runners.nvidia.com
+      NKECTL_BOOTSTRAP_DOCKERHUB_MIRROR: mirror.gcr.io
       # Deliberately differs from nkectl's derived bootstrap-cluster default.
       # run.sh writes it into the site inventory and uses it for every fixture
       # host's pre-provisioned SPIRE agent configuration.

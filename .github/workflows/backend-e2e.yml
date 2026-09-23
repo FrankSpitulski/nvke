@@ -149,7 +149,13 @@ jobs:
     env:
       NKE_E2E_BACKEND: ${{ inputs.backend }}
       NKE_E2E_RUN_ID: github-${{ inputs.backend }}-${{ inputs.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
-      NKE_E2E_DOCKERHUB_MIRROR: dc.local.gha-runners.nvidia.com
+      # A public pull-through mirror, not dc.local.gha-runners.nvidia.com:
+      # that name only resolves on the self-hosted fleet, so the arm64 leg
+      # died on the PostgreSQL chart the moment it moved to ARC. Same
+      # reasoning and same host as os-image-artifact.yml, which had to make
+      # this change when it moved. Reachable from both fleets, and it serves
+      # bitnamicharts anonymously.
+      NKE_E2E_DOCKERHUB_MIRROR: mirror.gcr.io
       NKE_E2E_LABEL_FILTER: ${{ inputs.label-filter }}
       NKE_E2E_PROVIDERS: ${{ inputs.providers }}
       NKE_E2E_REQUIRE_AUTHN: ${{ inputs.require-authn }}
