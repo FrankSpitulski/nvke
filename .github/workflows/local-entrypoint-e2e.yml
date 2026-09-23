@@ -90,7 +90,7 @@ jobs:
             runner: linux-amd64-cpu16
             install_cni_after_init: true
           - arch: arm64
-            runner: linux-arm64-cpu16
+            runner: arc-arm64-cpu16
             install_cni_after_init: false
     env:
       INSTALL_CNI_AFTER_INIT: ${{ matrix.install_cni_after_init }}
