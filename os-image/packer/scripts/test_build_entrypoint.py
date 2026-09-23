@@ -18,8 +18,8 @@ class BuildEntrypointTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name).resolve()
-        self.packer_dir = self.root / "packer-project"
-        self.packer_dir.mkdir()
+        self.packer_dir = self.root / "os-image/packer"
+        self.packer_dir.mkdir(parents=True)
         shutil.copy(PACKER_DIR / "Makefile", self.packer_dir)
         shutil.copytree(PACKER_DIR / "scripts", self.packer_dir / "scripts")
         self.env = os.environ.copy()
@@ -93,13 +93,125 @@ output.mkdir(parents=True, exist_ok=True)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(expected, result.stderr)
 
-    def test_package_preflight_rejects_macos_and_mismatched_linux(self):
+    def test_package_preflight_selects_vm_for_macos_and_mismatched_linux(self):
+        self.script("nix", "#!/bin/sh\nexit 0\n")
         for system, arch in (("Darwin", "arm64"), ("Linux", "x86_64")):
             with self.subTest(system=system, arch=arch):
                 self.script("uname", f'#!/bin/sh\ncase "$1" in -m) echo {arch};; -s) echo {system};; esac\n')
                 result = self.make("check-deps")
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("matching-architecture Linux host", result.stderr)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("package builder: nix", result.stdout)
+
+    def test_explicit_host_builder_rejects_mismatched_linux(self):
+        self.script("uname", '#!/bin/sh\ncase "$1" in -m) echo x86_64;; -s) echo Linux;; esac\n')
+        result = self.make("check-deps", "NKE_PACKAGE_BUILDER=host")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("matching Linux host", result.stderr)
+
+    def test_missing_nix_explains_setup_but_native_build_does_not_require_it(self):
+        bash = shutil.which("bash")
+        self.script("go", "#!/bin/sh\nexit 0\n")
+        for mode, expected_status in (("nix", 1), ("auto", 0)):
+            with self.subTest(mode=mode):
+                result = subprocess.run(
+                    [bash, str(PACKER_DIR / "scripts/package-builder.sh"), "--check"],
+                    # /usr/bin and /bin supply dirname; the stubs still come first.
+                    env=self.env | {"PATH": f"{self.root}:/usr/bin:/bin", "ARCH": "arm64",
+                                    "NKE_PACKAGE_BUILDER": mode},
+                    text=True, capture_output=True,
+                )
+                self.assertEqual(result.returncode, expected_status, result.stderr)
+                if mode == "nix":
+                    self.assertIn("nix is required", result.stderr)
+                    self.assertIn("Install Nix", result.stderr)
+                    self.assertIn("os-image/nix/README.md", result.stderr)
+                else:
+                    self.assertIn("package builder: host", result.stdout)
+
+    def test_check_deps_fails_when_the_guest_runner_cannot_be_realized(self):
+        self.script("nix", '''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+Path(os.environ['PACKER_ARGS']).write_text(json.dumps(sys.argv[1:]))
+sys.exit(1 if sys.argv[1] == "build" else 0)
+''')
+        result = self.make("check-deps", "NKE_PACKAGE_BUILDER=nix")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(json.loads(Path(self.env["PACKER_ARGS"]).read_text()),
+                         ["build", "--no-link", f"{self.packer_dir.parent}#builder-arm64"])
+
+    def test_unknown_package_builder_fails_before_packer(self):
+        result = self.make("check-deps", "NKE_PACKAGE_BUILDER=invalid")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("NKE_PACKAGE_BUILDER", result.stderr)
+
+    def test_vm_adapter_invokes_nix_app_with_checkout_and_output(self):
+        self.script("nix", '''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+Path(os.environ['PACKER_ARGS']).write_text(json.dumps(sys.argv[1:]))
+''')
+        artifacts = self.root / "artifacts with spaces"
+        result = subprocess.run(
+            ["bash", str(PACKER_DIR / "scripts/package-builder.sh")],
+            env=self.env | {"ARCH": "arm64", "NKE_PACKAGE_BUILDER": "nix",
+                            "ARTIFACTS_DIR": str(artifacts)},
+            text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(Path(self.env["PACKER_ARGS"]).read_text()), [
+            "run", f"{PACKER_DIR.parent}#build-packages-arm64", "--",
+            "--source", str(PACKER_DIR.parent.parent), "--output", str(artifacts),
+        ])
+
+
+class GuestUpdaterTest(unittest.TestCase):
+    """The guest must reject absent or unreadable updater build outputs."""
+
+    def test_guest_fetch_uses_guest_checkout(self):
+        for source_root in (None, "/host/checkout"):
+            with self.subTest(source_root=source_root), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp).resolve()
+                repo = root / "guest checkout"
+                scripts = repo / "os-image/packer/scripts"
+                scripts.mkdir(parents=True)
+                shutil.copy(PACKER_DIR / "scripts/fetch-artifacts.sh", scripts)
+                files = repo / "os-image/files"
+                files.mkdir()
+                for name in ("nke-agent-spire.conf", "wait-spiffe-socket.sh"):
+                    shutil.copy(PACKER_DIR.parent / "files" / name, files)
+                updater = repo / "agent/bin/linux_arm64/nke-agent-updater"
+                updater.parent.mkdir(parents=True)
+                updater.touch()
+                artifacts = root / "artifacts"
+                artifacts.mkdir()
+                tools = root / "tools"
+                tools.mkdir()
+                # Keep the real fetch script and shell; replace compilation and
+                # guest-only cache setup, which cannot run on the test host.
+                for name in ("mkdir", "ln", "go", "check-ubuntu-elf", "readelf"):
+                    tool = tools / name
+                    tool.write_text("#!/bin/sh\nexit 0\n")
+                    tool.chmod(0o755)
+                make = tools / "make"
+                make.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$TEST_MAKE_LOG"\n')
+                make.chmod(0o755)
+                log = root / "make.log"
+                env = os.environ | {"PATH": f"{tools}:{os.environ['PATH']}",
+                                    "REPO_ROOT": str(repo), "ARCH": "arm64",
+                                    "ARTIFACTS_DIR": str(artifacts), "TEST_MAKE_LOG": str(log)}
+                env.pop("SOURCE_ROOT", None)
+                if source_root is not None:
+                    env["SOURCE_ROOT"] = source_root
+                result = subprocess.run(
+                    [shutil.which("bash"), str(PACKER_DIR.parent / "nix/build-guest.sh")],
+                    env=env, text=True, capture_output=True, timeout=15,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = log.read_text().splitlines()
+                self.assertEqual(len(calls), 5, calls)
+                self.assertIn(f"-C {repo}/agent deb-arm64", calls[0])
+                self.assertTrue((artifacts / "nke-agent-spire.conf").is_file())
 
 
 if __name__ == "__main__":

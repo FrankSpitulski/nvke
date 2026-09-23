@@ -138,7 +138,7 @@ notices-check: ## Verify THIRD_PARTY_NOTICES.md is up to date. (advisory; not in
 ARCH ?= amd64
 VARIANT ?= non-fde
 
-image: ## Bake on a matching Linux host (ARCH=amd64|arm64, VARIANT=fde|non-fde).
+image: ## Bake with native or NixOS VM package builds (ARCH=amd64|arm64, VARIANT=fde|non-fde).
 	@case "$(VARIANT)" in fde|non-fde) ;; *) echo "VARIANT must be fde or non-fde" >&2; exit 1 ;; esac
 	$(MAKE) -C packer os-image-$(VARIANT) ARCH=$(ARCH)
 

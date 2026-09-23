@@ -52,6 +52,7 @@ export SOURCE_ROOT EXPECTED_SOURCE_COMMIT PYTHON
 
 LUKS_PASSPHRASE ?= changeit
 REQUIRE_ACCELERATION ?= 0
+export NKE_PACKAGE_BUILDER ?= auto
 # Label applied to the root filesystem. Cloud-image importers can use this
 # stable identifier instead of depending on a partition or device path.
 ROOT_FS_LABEL ?= cloudimg-rootfs
@@ -273,7 +274,7 @@ prepare-installer-iso: preflight
 
 # Image builds run the Ubuntu installer, so they need kvm or tcg. The shared
 # boot harness also knows about hvf, but that is for run-vm/boot-smoke on
-# macOS: check-deps already requires a matching-architecture Linux host here.
+# macOS; check-deps picks the host or VM package builder separately.
 # Make writes ARCH into the material manifest, so require the acquired ISO
 # filename to agree with the architecture Packer will read from that manifest.
 check-acceleration:
@@ -381,14 +382,7 @@ check-deps:
 		echo "ssh-keygen is required to prepare the Packer SSH key pair" >&2; \
 		exit 1; \
 	}
-	@test "$$(uname -s)" = Linux && test "$$(uname -m)" = "$(ARCH_UNAME)" || { \
-		echo "Image packages require a matching-architecture Linux host ($(ARCH_UNAME))." >&2; \
-		exit 1; \
-	}
-	@command -v go >/dev/null 2>&1 || { \
-		echo "go is required to build nke-agent and the pinned nfpm" >&2; \
-		exit 1; \
-	}
+	@ARCH=$(ARCH) bash ./scripts/package-builder.sh --check
 	@command -v $(PYTHON) >/dev/null 2>&1 || { \
 		echo "Python 3.10 or newer is required to validate the compressed QCOW2" >&2; \
 		exit 1; \
