@@ -24,3 +24,6 @@ self-hosted-runner:
     - arc-arm64-cpu16
     - arc-arm64-kvm
     - arc-arm64-kvm-8c16g
+    # arm64-cpu16 plus /dev/vtpmx, on the same node pool. Privileged, so
+    # only the lane that needs a software TPM runs here.
+    - arc-arm64-vtpm

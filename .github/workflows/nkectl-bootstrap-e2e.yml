@@ -90,7 +90,12 @@ jobs:
           - arch: amd64
             runner: linux-amd64-cpu16
           - arch: arm64
-            runner: arc-arm64-cpu16
+            # Not arc-arm64-cpu16 like the other six: this lane is the only
+            # one that needs /dev/vtpmx, for the software TPM swtpm gives
+            # each fixture host. Exposing a host device means a privileged
+            # pod, so it gets its own class rather than privileging the
+            # fleet everything else runs on. Same node pool either way.
+            runner: arc-arm64-vtpm
     # A full run takes 12-17 minutes on this pool, most of it the node image
     # build and CWE's three sequential control-plane joins. The margin covers
     # a cold image cache and a slow mirror; queue time does not count.
