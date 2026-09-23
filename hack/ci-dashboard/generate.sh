@@ -116,11 +116,18 @@ annotate_failures() {
     map=$(jq --arg id "$id" --argjson jobs "$jobs" '. + {($id): $jobs}' <<<"$map")
   done <<<"$ids"
 
-  jq --argjson map "$map" '
-    map(.runs |= map(
-      . + (($map[(.id|tostring)] // []) | if length > 0 then {failed: .} else {} end)
-    ))
+  # Through a file for the same reason as the final assembly below: a large
+  # argv entry fails with "Argument list too long".
+  local mapfile
+  mapfile=$(mktemp)
+  printf '%s' "$map" > "$mapfile"
+  jq --slurpfile m "$mapfile" '
+    ($m[0]) as $map
+    | map(.runs |= map(
+        . + (($map[(.id|tostring)] // []) | if length > 0 then {failed: .} else {} end)
+      ))
   ' <<<"$rows"
+  rm -f "$mapfile"
 }
 
 # build_view <query> [jq-select] -> rows, annotated
@@ -159,20 +166,31 @@ if ! pr_mirror_rows=$(build_view "event=push" '(.head_branch // "") | startswith
 fi
 
 mkdir -p "$(dirname "$OUT")"
+
+# Through files, not --argjson. Linux caps one argv entry at 128 KiB
+# (MAX_ARG_STRLEN), and the main view alone passes that at the default window,
+# so passing these on the command line fails with "Argument list too long".
+# --slurpfile reads a file of JSON values into an array, hence the [0].
+tmp=$(mktemp -d)
+trap 'rm -rf "${tmp}"' EXIT
+printf '%s' "$main_rows" > "${tmp}/main.json"
+printf '%s' "$pr_rows" > "${tmp}/pr.json"
+printf '%s' "$pr_mirror_rows" > "${tmp}/prt.json"
+
 jq -n \
   --arg repo "$REPO" \
   --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --argjson keep "$RUNS_PER_WORKFLOW" \
-  --argjson main "$main_rows" \
-  --argjson pr "$pr_rows" \
-  --argjson prt "$pr_mirror_rows" \
+  --slurpfile mainf "${tmp}/main.json" \
+  --slurpfile prf "${tmp}/pr.json" \
+  --slurpfile prtf "${tmp}/prt.json" \
   '{
      repo: $repo,
      generated: $generated,
      runs_per_workflow: $keep,
      views: {
-       main: $main,
-       pr: (($pr + $prt)
+       main: $mainf[0],
+       pr: (($prf[0] + $prtf[0])
             | group_by(.workflow)
             | map({
                 workflow: .[0].workflow,
