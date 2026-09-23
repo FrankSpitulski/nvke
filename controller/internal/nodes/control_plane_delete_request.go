@@ -113,9 +113,16 @@ func recordControlPlaneDeleteRequest(ctx context.Context, tx db.Tx, node db.Node
 		}
 	}
 
+	// The floor waives a node that stopped reporting healthy, so the teardown has
+	// to judge it the same way. Without this the accepted delete takes the healthy
+	// path against a node whose kubelet is gone: the drain times out, the workflow
+	// fails with no retry, and the row stays Deleting forever, which blocks every
+	// later control-plane join, delete and remediation on the cluster.
+	forceUnreachable := options.ForceUnreachable || !isHealthyControlPlaneNode(node)
+
 	recorded, err := json.Marshal(deleteRequestRecord{
 		Reason:             options.Reason,
-		ForceUnreachable:   options.ForceUnreachable,
+		ForceUnreachable:   forceUnreachable,
 		MachineHealthIssue: options.MachineHealthIssue,
 	})
 	if err != nil {

@@ -383,8 +383,8 @@ func validateControllerManagedControlPlaneUnreachableDelete(test *tenantTest) {
 			"a healthy node must still be held by the floor")
 
 		By(fmt.Sprintf("Stopping kubelet on %s so the node is genuinely unreachable", victim.Name))
-		// On CAPD a node maps to a Docker container of the same name.
-		Expect(runDockerCommand(ctx, "exec", victim.Name, "systemctl", "stop", "kubelet")).To(Succeed(),
+		container := expectSucceed(nodeContainerName(ctx, victim.Name))
+		Expect(runDockerCommand(ctx, "exec", container, "systemctl", "stop", "kubelet")).To(Succeed(),
 			"stopping kubelet is how this spec makes the node unreachable")
 
 		By("Waiting for CWE to observe the node as no longer ready")
