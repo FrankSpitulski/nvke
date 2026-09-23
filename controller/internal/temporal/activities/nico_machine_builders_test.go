@@ -804,6 +804,7 @@ func TestNicoMachineBuilders_BuildTeleportLabels(t *testing.T) {
 				params.controlPlane,
 				"test-site",
 				"staging",
+				"nke-cloud-workflow-engine",
 			)
 
 			assert.Contains(t, got, "node-role: "+params.wantRole+"\n")
@@ -829,6 +830,7 @@ func TestNicoMachineBuilders_BuildTeleportLabels(t *testing.T) {
 			false,
 			"test-site",
 			"staging",
+			"nke-cloud-workflow-engine",
 		)
 
 		assert.NotContains(t, got, "node-pool:")
