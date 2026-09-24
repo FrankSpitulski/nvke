@@ -20,6 +20,19 @@ The chart version is `version:` in [Chart.yaml](Chart.yaml). A release tag
 lints and renders the chart, and validates the rendered manifests with
 kubeconform. The merge gate runs it on every pull request.
 
+## Install
+
+```bash
+kubectl create namespace nktp
+kubectl label namespace nktp pod-security.kubernetes.io/enforce=privileged
+helm install nktp oci://ghcr.io/dsx-ai-factory/nke/charts/nktp \
+  --version <version> --namespace nktp
+```
+
+The label is the Pod Security level in [Prerequisites](#prerequisites);
+`--create-namespace` would create the namespace without it. Released versions
+are listed on the repository's GitHub Releases, as `nktp/vX.Y.Z` tags.
+
 ## What it deploys
 
 Every Collector below is an `OpenTelemetryCollector` resource that the bundled
