@@ -53,9 +53,12 @@ on:
   workflow_dispatch:
     inputs:
       label-filter:
-        description: Ginkgo label filter. The default is the 15 happy-path specs.
+        description: >-
+          Ginkgo label filter. Empty runs what the schedule runs, which is the
+          per-leg filter in the matrix below. Set a value to narrow it, e.g.
+          'nico-vms && happy-path' for the 15 happy-path specs.
         required: false
-        default: nico-vms && happy-path
+        default: ''
         type: string
       os-image-tag:
         description: "Pin every leg to one node image, e.g. v0.1.0-rc.1. The tag needs an image for each architecture the run covers, because each leg appends its own. Empty is usually what you want: it resolves the newest per architecture."
@@ -137,7 +140,9 @@ jobs:
       NKE_E2E_RUN_ID: github-nico-vms-${{ github.run_id }}-${{ github.run_attempt }}
       # Per leg, from the matrix above: both run happy-path and multi-pod-cidrs,
       # arm64 additionally runs parallel-lifecycle and ovn. A dispatch
-      # label-filter still overrides both.
+      # label-filter still overrides both. Its default has to stay empty:
+      # Actions substitutes a non-empty default whenever the input is omitted,
+      # so a dispatch would silently narrow the run and never reach the matrix.
       NKE_E2E_LABEL_FILTER: ${{ github.event.inputs.label-filter || matrix.label_filter }}
       # Empty on a schedule or a push, which is what makes the lane resolve the
       # newest published image for each architecture. Only a dispatch pins one.
