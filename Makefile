@@ -56,11 +56,10 @@ LICENSE_FILES = git ls-files -- '*.go' '*.sh' '*.py' '*.js' '*.css' '*.html' '*.
 	| grep -vE '^controller/deploy/charts/' \
 	| grep -vE '^controller/test/fixtures/'
 
-# Modules in go.work — every module in the repository. Building needs no
-# NVIDIA credentials: the one still-INTERNAL dependency
-# (github.com/dsx-ai-factory/cluster-api-provider-nico) is carried in the committed
+# Modules in go.work — every module in the repository. Building needs no NVIDIA
+# credentials and no network: every dependency is carried in the committed
 # vendor/ tree, so `build` gives an outside contributor the same result as CI.
-# Re-vendoring (inside `work-sync`) is the only step that needs access to it.
+# Re-vendoring (inside `work-sync`) is the only step that reaches the network.
 WORK_MODULES := agent \
                 cluster-api-provider-provisioned \
                 controller \
@@ -264,14 +263,13 @@ work-check: ## Verify go.work and go.work.sum are complete and current. (run by 
 	   echo "ERROR: these modules are listed in the Makefile but no longer exist:"; \
 	   printf '%s\n' "$$gone" | sed 's/^/    /'; exit 1; \
 	 fi
-	@# Re-deriving workspace freshness needs the module graph over the network,
-	@# which includes github.com/dsx-ai-factory/cluster-api-provider-nico — INTERNAL
-	@# visibility until it is open-sourced, so unreachable from public runners
-	@# and outside contributors. Builds are unaffected (the dependency is in the
-	@# committed vendor/ tree); only this freshness re-derivation needs access,
-	@# so it is skipped — as one shell block, because every recipe line runs in
-	@# its own shell and an exit in one does not stop the next. Drop the guard
-	@# when the repo goes public.
+	@# Re-deriving workspace freshness needs the whole module graph over the
+	@# network. Every dependency is public now, so the only thing that stops it
+	@# is having no network at all. Builds are unaffected either way, because
+	@# they read the committed vendor/ tree; only this freshness re-derivation
+	@# reaches out. When it cannot, it is skipped — as one shell block, because
+	@# every recipe line runs in its own shell and an exit in one does not stop
+	@# the next.
 	@#
 	@# Offline first: this needs no network, so it runs everywhere -- including on
 	@# a public runner and for an outside contributor's fork, where the guarded
@@ -305,17 +303,16 @@ work-check: ## Verify go.work and go.work.sum are complete and current. (run by 
 		echo "go.work, go.work.sum and vendor/ are up to date."; \
 	else \
 		echo "NOTE: skipped the workspace freshness re-derivation:"; \
-		echo "  github.com/dsx-ai-factory/cluster-api-provider-nico is not fetchable from here"; \
-		echo "  (INTERNAL until open-sourced). The static checks above all passed."; \
+		echo "  the module graph is not fetchable from here, so this needs network."; \
+		echo "  The static checks above all passed."; \
 	fi
 
 # The assertions that need no network.
 #
-# Without this, a public runner reaches the guard below, finds
-# cluster-api-provider-nico unfetchable, prints the skip notice and reports
-# success -- having verified nothing about the vendor tree. That is the whole
-# check for every outside contributor and every fork pull request, and it stays
-# that way until the module is public.
+# Without this, a runner with no network reaches the guard below, finds the
+# module graph unfetchable, prints the skip notice and reports success -- having
+# verified nothing about the vendor tree. These assertions are what that runner
+# checks instead.
 #
 # Go performs this comparison itself whenever it builds against a vendor tree:
 # it reads vendor/modules.txt, compares it with every module's go.mod, and

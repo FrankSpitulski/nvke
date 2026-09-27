@@ -33,10 +33,10 @@ export GOLANGCI_LINT_CACHE
 # controller (:92) and controller/api (:198), which lint against the root
 # vendor/ tree. Every other module lints against its own go.mod.
 #
-# With the workspace on, golangci-lint resolves the whole workspace, reaches the
-# INTERNAL cluster-api-provider-nico, and fails with typecheck errors naming an
+# With the workspace on, golangci-lint resolves the whole workspace, has to
+# fetch cluster-api-provider-nico, and fails with typecheck errors naming an
 # unrelated package. It passes wherever that module is already cached, so it
-# only showed up on a fresh box. controller/Makefile sets this empty.
+# only shows up on a fresh box. controller/Makefile sets this empty.
 GOLANGCI_LINT_GOWORK ?= off
 
 # golangci-lint prints its version without the leading v.

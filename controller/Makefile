@@ -92,10 +92,10 @@ generate: ## Run every generator in this module and in api/.
 # Split out from `generate` so it can run without the rest of the module.
 # Every //go:generate directive in the controller currently lives in
 # api/generate.go, but `go generate ./...` above still has to load this
-# module's package graph -- which reaches the internal
-# cluster-api-provider-nico and therefore needs either credentials or the
-# workspace vendor/ tree. The api module has neither problem: it is public and
-# self-contained, so this target is the half that CI can run.
+# module's package graph -- which reaches cluster-api-provider-nico and
+# therefore needs either the network or the workspace vendor/ tree. The api
+# module has neither problem: it is self-contained, so this target is the half
+# that CI can run.
 .PHONY: generate-api
 generate-api: ## Regenerate the OpenAPI client, server and models.
 	cd api && go generate ./...

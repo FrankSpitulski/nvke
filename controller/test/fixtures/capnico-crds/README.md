@@ -10,10 +10,12 @@ The four `NicoCluster`, `NicoClusterTemplate`, `NicoMachine` and
 The gofail E2E suite installs these CRDs into its envtest control plane
 (`CWE_GOFAIL_E2E_CAPNICO_CRDS`). They are not in the vendored module — `go mod
 vendor` keeps only `.go` files — so the workflow used to `git checkout` the
-private provider repository, which needs `NKE_INTERNAL_RO_TOKEN`. GitHub does
-not pass secrets to `pull_request` runs from forks, so `gofail` failed for every
-fork contributor. These committed copies remove that dependency: the suite reads
-them straight from the tree, with no token and no checkout.
+provider repository, which was private then and needed `NKE_INTERNAL_RO_TOKEN`.
+GitHub does not pass secrets to `pull_request` runs from forks, so `gofail`
+failed for every fork contributor. These committed copies remove that
+dependency: the suite reads them straight from the tree, with no token and no
+checkout. That still holds now the provider is public, because it keeps the
+suite off the network entirely.
 
 CRDs are declarative API schemas, not code or secrets, and ship in every
 provider release. Committing them as a fixture follows the same call as the

@@ -18,27 +18,29 @@ when the first two go stale.
 | `controller/deploy/charts` | yes | no dependencies; embeds the repository's Helm charts for nkectl |
 | `controller/hack/capd-reboot-controller` | yes | builds from public dependencies |
 | `controller/test/e2e` | yes | builds from public dependencies |
-| `controller` | yes | public dependencies + one vendored INTERNAL module |
+| `controller` | yes | builds from public dependencies |
 | `controller/nico-sim` | yes | builds from public dependencies |
 | `management-engine` | yes | builds from public dependencies |
 | `os-image` | yes | builds from public dependencies |
 
 ### The vendored dependency
 
-`controller` depends on `github.com/dsx-ai-factory/cluster-api-provider-nico`, which is
-INTERNAL visibility until it is open-sourced, so public CI runners and outside
-contributors cannot fetch it. The committed `vendor/` tree (from
-`go work vendor`) carries it — and every other dependency — so **building,
-testing and linting need no credentials at all**.
+`controller` depends on `github.com/dsx-ai-factory/cluster-api-provider-nico`. That
+repository was INTERNAL for a long time, and much of this page used to be about
+working around it. **It is public now**, and `proxy.golang.org` serves it, so
+nothing here needs credentials any more. The committed `vendor/` tree (from
+`go work vendor`) still carries it — and every other dependency — which is what
+lets **building, testing and linting run with no network at all**.
 
-Two things still need access to that repository, until it goes public:
+Two things still reach the network, and now the only thing that stops them is
+not having any:
 
 - `make work-sync` — re-vendoring after a dependency change. It runs
   `go work vendor` internally.
 - The freshness re-derivation inside `make work-sync` / `make work-check` —
-  rebuilding the module graph fetches every `go.mod`, including that one.
-  `work-check` detects when the module is unreachable, runs its static checks,
-  and skips only the freshness re-derivation with a note.
+  rebuilding the module graph fetches every `go.mod`. `work-check` detects when
+  the graph is unreachable, runs its static checks, and skips only the freshness
+  re-derivation with a note.
 
 Workspace members are never vendored: `vendor/modules.txt` maps `agent`,
 `controller` and the rest to their live directories, so editing member source
@@ -109,7 +111,7 @@ things. Each maps to a failure this repository can produce:
 | `go.work` lists exactly the expected modules | A module dropped from or added to the workspace by hand | `make work` and commit `go.work` |
 | `go.work` carries no `replace` | A workspace-level `replace` repoints a dependency for every module while the module list still looks correct. Module replaces belong in the individual `go.mod`, where `gomoddirectives` audits them. | `make work`, or `git checkout -- go.work` |
 | Every `go.mod` in the tree is classified in the `Makefile` | A **new module** added without being listed in `WORK_MODULES`. It would never be built or synced, and nothing else in CI would mention it. | add it to the list in the `Makefile`, then `make work-sync` |
-| A full refresh changes nothing | The ordinary stale case: a bump landed in one module, so the others build against a version none of their `go.mod` files admits to. Skipped (with a note) where `cluster-api-provider-nico` is unreachable — see "The vendored dependency". | `make work-sync` and commit everything it changes |
+| A full refresh changes nothing | The ordinary stale case: a bump landed in one module, so the others build against a version none of their `go.mod` files admits to. Skipped (with a note) where the module graph is unreachable — see "The vendored dependency". | `make work-sync` and commit everything it changes |
 
 The **Go Build** workflow runs `make build`. Both run on `ubuntu-latest` and
 need no NVIDIA credentials, so they also run on fork and Dependabot pull

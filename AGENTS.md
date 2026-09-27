@@ -61,18 +61,16 @@ This changed in #76, which replaced the internal carbide SDK
 `github.com/NVIDIA/ncx-infra-controller-rest`. Before that, `controller/` needed
 only `agent/` built from public dependencies.
 
-**One internal dependency remains**, and it does not block you:
-`github.com/dsx-ai-factory/cluster-api-provider-nico` is an internal GitHub repository,
-and it is carried in the committed `vendor/` tree. Building, testing and linting
-all read the vendor tree, so they work without access to it. **Only `go work
-vendor` resolves it for real** — so re-vendoring after a dependency bump needs
-that access, and `make work-check` probes for it and says so when it is
-skipping.
+**No internal dependency remains.**
+`github.com/dsx-ai-factory/cluster-api-provider-nico` was the last one. It is now a
+public repository, `proxy.golang.org` serves it, and `go work vendor` resolves
+it from anywhere — so `make work-check` re-vendors for real rather than
+skipping. It is still carried in the committed `vendor/` tree, which is what
+lets build, test and lint run with no network at all.
 
 If a task asks you to build or test `controller/` and the modules do not
-resolve, **say so and stop**. Do not vendor the private modules, do not add a
-`replace` pointing at a local checkout, and do not stub the SDK to make the
-build pass. Removing those dependencies is tracked work with its own design.
+resolve, **say so and stop**. Do not add a `replace` pointing at a local
+checkout, and do not stub a dependency to make the build pass.
 
 ## Directory layout
 

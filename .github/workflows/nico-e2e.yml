@@ -7,9 +7,11 @@
 # this file is the NICo trigger and configuration.
 #
 # The nico-containers spec was one of 60 Ginkgo specs no workflow selected. It
-# needs CAPNICo, which lives in dsx-ai-factory/cluster-api-provider-nico, an internal
-# repository. NKE_INTERNAL_RO_TOKEN reads it, the same secret go-work-check.yml
-# already uses for the internal module in controller/go.mod.
+# needs CAPNICo, which lives in dsx-ai-factory/cluster-api-provider-nico.
+# NKE_INTERNAL_RO_TOKEN reads it, the same secret go-work-check.yml uses. That
+# repository is public now, so the token is no longer required here -- dropping
+# it is what would let this lane run on a fork pull request, where secrets are
+# not available. Not done yet: it needs a run to prove.
 #
 # nico-sim's nico-containers backend provisions kind-style node containers, so
 # this needs no real infrastructure and reuses the CAPD kindest node image the
