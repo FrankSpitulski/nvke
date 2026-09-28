@@ -575,8 +575,8 @@ apiAuthz:
   # Watch nke_authz_requests_total{outcome="would_reject"} before enforcing.
   permissive: false
   # -- A ConfigMap in the release namespace holding the policy bundle, keyed
-  # `policies.cedar`, `actions.json` and `roles.json`. Required when
-  # apiAuthz.enabled=true; an empty name fails the render.
+  # `policies.cedar`, `actions.json`, `roles.json` and `roleMappings.json`.
+  # Required when apiAuthz.enabled=true; an empty name fails the render.
   existingConfigMap: ""
 
 scheduledMaintenance:

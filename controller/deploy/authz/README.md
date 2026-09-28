@@ -6,9 +6,15 @@ at `/etc/nke/authz`, read at startup by `cedar-go` inside the NKE container.
 | File | Written by | Purpose |
 |---|---|---|
 | `policies.cedar` | hand | The rules. Native Cedar, one `@id` per policy. |
-| `roles.json` | hand | The roles, and which subject holds which. |
+| `roles.json` | hand | The roles and how they nest. Holds no `NKE::Principal`; the load refuses one. |
+| `roleMappings.json` | hand | Who holds which role, by what a verified token from a named issuer says: a claim value, a bound service account, or a SPIFFE path. Ships as `[]`, because issuer names are chosen per deployment; the load needs at least one entry. |
 | `actions.json` | `hack/gen-authz-actions` | One entity per API operation, each in its `read` or `write` group. |
 | `schema.json` | `hack/gen-authz-actions` | The entity and action types. **Not read at runtime** — see below. |
+
+A `claim` entry in `roleMappings.json` should name only a claim the issuer asserts
+about the caller, never one the client chooses (such as `nonce` or `scope`); `aud`
+is refused at load for that reason. To grant one caller, match a claim that
+identifies it: `sub`, or `oid` for Entra.
 
 ## Regenerating
 
@@ -16,9 +22,9 @@ at `/etc/nke/authz`, read at startup by `cedar-go` inside the NKE container.
 go generate ./internal/authz/     # actions.gen.go, actions.json, schema.json
 ```
 
-`policies.cedar` and `roles.json` are yours. The other two are derived from
-`api/openapi.yaml` and regenerating is not optional: `actions_test.go` fails if
-the table and the spec disagree.
+`policies.cedar`, `roles.json` and `roleMappings.json` are yours. The other two
+are derived from `api/openapi.yaml` and regenerating is not optional:
+`actions_test.go` fails if the table and the spec disagree.
 
 ## What the schema is for
 
@@ -60,6 +66,9 @@ it was written to override wins. That is the one policy mistake here that fails
 
 `context` is the exception: `context.issuer` and `context.method` are populated
 per request and declared in the schema.
+
+Token claims are never in `context`. To grant on a claim, service account or
+SPIFFE path, add a `roleMappings.json` entry.
 
 ## Action groups, and what they cannot express
 

@@ -5,6 +5,7 @@ package authn
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,7 +17,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	yamlv3 "gopkg.in/yaml.v3"
-	k8svalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kjson "sigs.k8s.io/json"
 	"sigs.k8s.io/yaml"
@@ -187,6 +187,9 @@ func Load(path string) (*Config, error) {
 	if len(strictErrs) > 0 {
 		return nil, fmt.Errorf("parse authentication config %q: %w", path, errors.Join(strictErrs...))
 	}
+	if err := refuseNullServiceAccountNames(jsonBytes); err != nil {
+		return nil, fmt.Errorf("parse authentication config %q: %w", path, err)
+	}
 
 	// Properties of the file rather than of the configuration, so checked here
 	// and not in Validate.
@@ -208,6 +211,34 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	return &cfg, nil
+}
+
+// refuseNullServiceAccountNames finds every admit.serviceAccounts rule in the
+// decoded file and refuses one whose name is present but null. The strict
+// decode has already run, so every key here is spelled exactly and appears
+// once.
+func refuseNullServiceAccountNames(jsonBytes []byte) error {
+	var keys struct {
+		Issuers []struct {
+			Admit *struct {
+				ServiceAccounts []map[string]json.RawMessage `json:"serviceAccounts"`
+			} `json:"admit"`
+		} `json:"issuers"`
+	}
+	if err := kjson.UnmarshalCaseSensitivePreserveInts(jsonBytes, &keys); err != nil {
+		return err
+	}
+	for i, iss := range keys.Issuers {
+		if iss.Admit == nil {
+			continue
+		}
+		for j, selector := range iss.Admit.ServiceAccounts {
+			if err := RefuseNullServiceAccountName(selector); err != nil {
+				return fmt.Errorf("issuers[%d]: admit: serviceAccounts[%d]: %w", i, j, err)
+			}
+		}
+	}
+	return nil
 }
 
 // requireSingleDocument refuses a file that is empty or holds more than one YAML
@@ -310,15 +341,14 @@ func (c *Config) Validate() error {
 // serviceAccounts or SPIFFE issuers can admit one subject. A groups issuer is
 // left out, because no rule bounds its subject (see admitOverlap).
 //
-// Nothing downstream carries the issuer: authorization keys its grants on the
-// bare "sub", so two issuers whose admission rules meet on a subject are not two
-// identities that happen to look alike, they are one identity with two key
-// sources, and a token from either arrives holding the other's grants. Two sites
-// sharing a SPIRE trust domain, or two clusters with the same
-// namespace/service-account pair, are the shapes this actually takes.
+// Authorization keys role grants by issuer, but a Cedar policy that names a
+// caller matches the bare "sub", so it matches a token from either of two
+// issuers whose admission rules meet on a subject. Two sites sharing a SPIRE
+// trust domain, or two clusters with the same namespace/service-account pair,
+// are the shapes this actually takes.
 //
 // Refusing the overlap makes a service-account or SPIFFE subject identify one
-// caller, so it is checked here rather than left to the operator to notice.
+// caller, so a policy that names one cannot be satisfied from a second issuer.
 func validateSubjectsAreUnambiguous(issuers []Issuer) error {
 	for j, later := range issuers {
 		for i := range j {
@@ -331,8 +361,8 @@ func validateSubjectsAreUnambiguous(issuers []Issuer) error {
 			// one, the way the duplicate name and issuer checks above do.
 			return fmt.Errorf(
 				"issuers[%d] (%s): admit %s can admit the same subject as issuers[%d] (%s) admit %s; "+
-					"authorization keys grants on the subject alone and never consults the issuer, so one caller "+
-					"would hold both issuers' grants. Narrow one of the two rules so no subject matches both",
+					"a policy that names a caller matches its subject from both issuers. "+
+					"Narrow one of the two rules so no subject matches both",
 				j, strings.TrimSpace(later.Name), laterRule,
 				i, strings.TrimSpace(earlier.Name), earlierRule,
 			)
@@ -452,11 +482,10 @@ func (i Issuer) validate(issuerURLs map[string]struct{}) error {
 		return err
 	}
 
-	if i.Admit == nil {
-		return nil
-	}
-	if err := i.Admit.validate(); err != nil {
-		return fmt.Errorf("admit: %w", err)
+	if i.Admit != nil {
+		if err := i.Admit.validate(); err != nil {
+			return fmt.Errorf("admit: %w", err)
+		}
 	}
 	return nil
 }
@@ -541,35 +570,8 @@ func (a *Admit) validate() error {
 	}
 
 	for i, r := range a.ServiceAccounts {
-		// Ordered so the most specific message wins: empty, then padded, then
-		// whether Kubernetes would accept the name at all.
-		if strings.TrimSpace(r.Namespace) == "" {
-			return fmt.Errorf("serviceAccounts[%d]: namespace is required and must not be empty", i)
-		}
-		if err := requireUnpadded(fmt.Sprintf("serviceAccounts[%d].namespace", i), r.Namespace); err != nil {
-			return err
-		}
-		// NameIsDNSLabel and NameIsDNSSubdomain are what upstream's
-		// ValidateNamespaceName and ValidateServiceAccountName resolve to, so a
-		// name that could never exist fails at startup rather than becoming a
-		// rule that matches nothing for ever.
-		if msgs := k8svalidation.NameIsDNSLabel(r.Namespace, false); len(msgs) > 0 {
-			return fmt.Errorf("serviceAccounts[%d]: namespace %q is not a valid namespace name: %s",
-				i, r.Namespace, strings.Join(msgs, "; "))
-		}
-
-		if r.Name == nil {
-			continue
-		}
-		if strings.TrimSpace(*r.Name) == "" {
-			return fmt.Errorf("serviceAccounts[%d]: name is present but empty; remove the key to admit any service account in namespace %q", i, r.Namespace)
-		}
-		if err := requireUnpadded(fmt.Sprintf("serviceAccounts[%d].name", i), *r.Name); err != nil {
-			return err
-		}
-		if msgs := k8svalidation.NameIsDNSSubdomain(*r.Name, false); len(msgs) > 0 {
-			return fmt.Errorf("serviceAccounts[%d]: name %q is not a valid service account name: %s",
-				i, *r.Name, strings.Join(msgs, "; "))
+		if err := ValidateServiceAccountSelector(r.Namespace, r.Name); err != nil {
+			return fmt.Errorf("serviceAccounts[%d]: %w", i, err)
 		}
 	}
 
@@ -582,27 +584,8 @@ func (a *Admit) validate() error {
 }
 
 func (s *SPIFFERule) validate() error {
-	td := strings.TrimSpace(s.TrustDomain)
-	if td == "" {
-		return errors.New("trustDomain is required and must not be empty")
-	}
-	if err := requireUnpadded("trustDomain", s.TrustDomain); err != nil {
+	if err := ValidateTrustDomain(s.TrustDomain); err != nil {
 		return err
-	}
-	// Checked before parsing, because spiffeid.TrustDomainFromString ACCEPTS a
-	// full SPIFFE ID and silently discards the path:
-	// "spiffe://example.org/nke-service" parses to "example.org". An operator who
-	// wrote that would get a rule covering the whole trust domain instead of one
-	// path, with no error. Refuse it rather than widen it.
-	if strings.Contains(td, "/") {
-		return fmt.Errorf("trustDomain %q must be a bare trust domain such as \"example.org\", with no spiffe:// scheme and no path", td)
-	}
-	// Parsed, not merely inspected: admission's only way to report a parse failure
-	// is to admit nobody, so a bad value here would be a silent deny-all.
-	if _, err := spiffeid.TrustDomainFromString(td); err != nil {
-		return fmt.Errorf(
-			"trustDomain %q is not a valid SPIFFE trust domain, so it would admit nobody: %w", td, err,
-		)
 	}
 
 	if len(s.PathPrefixes) == 0 {
@@ -624,7 +607,7 @@ func (s *SPIFFERule) validate() error {
 		if p != "/" && strings.TrimRight(p, "/") == "" {
 			return fmt.Errorf(
 				"pathPrefixes[%d] %q is nothing but slashes, which would admit every workload in trust domain %q; "+
-					"write exactly \"/\" if admitting the whole trust domain is what you mean", i, p, td,
+					"write exactly \"/\" if admitting the whole trust domain is what you mean", i, p, s.TrustDomain,
 			)
 		}
 	}
@@ -738,4 +721,32 @@ func isKubernetesDefaultSvcAudience(aud string) bool {
 // detection compares them exactly for that reason.
 func foldForClashCheck(s string) string {
 	return strings.ToLower(strings.TrimRight(strings.TrimSpace(s), "/"))
+}
+
+// ValidateTrustDomain checks a SPIFFE trust domain written in configuration:
+// non-empty, unpadded, a bare name with no scheme or path, and parseable.
+// Admission's SPIFFERule and the authorization bundle's SPIFFE role mappings
+// both call it, so the two accept exactly the same strings, and two accepted
+// values name the same domain exactly when they are the same string.
+func ValidateTrustDomain(td string) error {
+	if strings.TrimSpace(td) == "" {
+		return errors.New("trustDomain is required and must not be empty")
+	}
+	if err := requireUnpadded("trustDomain", td); err != nil {
+		return err
+	}
+	// Checked before parsing, because spiffeid.TrustDomainFromString ACCEPTS a
+	// full SPIFFE ID and silently discards the path:
+	// "spiffe://example.org/nke-service" parses to "example.org". An operator who
+	// wrote that would get a rule covering the whole trust domain instead of one
+	// path, with no error. Refuse it rather than widen it.
+	if strings.Contains(td, "/") {
+		return fmt.Errorf("trustDomain %q must be a bare trust domain such as \"example.org\", with no spiffe:// scheme and no path", td)
+	}
+	// Parsed, not merely inspected: a matcher's only way to report a parse
+	// failure is to match nobody, so a bad value here would be a silent deny-all.
+	if _, err := spiffeid.TrustDomainFromString(td); err != nil {
+		return fmt.Errorf("trustDomain %q is not a valid SPIFFE trust domain: %w", td, err)
+	}
+	return nil
 }

@@ -20,13 +20,38 @@ import (
 	"github.com/dsx-ai-factory/nvke/controller/api"
 )
 
-// Subjects declared in deploy/authz/roles.json.
+// testIssuer is the issuer every test identity comes from. testIssuers is
+// what NewLocal needs to accept a mapping that names it.
+const testIssuer = "kube-apiserver"
+
+var testIssuers = []string{testIssuer}
+
+// Test identities. testRoleMappings grants each of the first four one shipped
+// role; the stranger holds none.
 const (
 	subjectReader       = "system:serviceaccount:nke-system:nke-cli"
 	subjectOperator     = "spiffe://nvidia.com/ns/nke-system/sa/nke-controller"
 	subjectNodeOperator = "spiffe://nvidia.com/ns/nke-system/sa/node-lifecycle"
+	subjectAdmin        = "system:serviceaccount:nke-clients:nke-client"
 	subjectStranger     = "spiffe://nvidia.com/ns/default/sa/nobody"
 )
+
+// testRoleMappings grants each shipped role to one test identity from
+// testIssuer, matching its sub claim.
+const testRoleMappings = `[
+ {"issuer":"` + testIssuer + `","claim":{"name":"sub","value":"` + subjectReader + `"},
+  "grants":[{"type":"NKE::Role","id":"reader"}]},
+ {"issuer":"` + testIssuer + `","claim":{"name":"sub","value":"` + subjectOperator + `"},
+  "grants":[{"type":"NKE::Role","id":"operator"}]},
+ {"issuer":"` + testIssuer + `","claim":{"name":"sub","value":"` + subjectNodeOperator + `"},
+  "grants":[{"type":"NKE::Role","id":"nodeOperator"}]},
+ {"issuer":"` + testIssuer + `","claim":{"name":"sub","value":"` + subjectAdmin + `"},
+  "grants":[{"type":"NKE::Role","id":"admin"}]}
+]`
+
+// subClaim is the verified claim set of a token whose sub is subject, which is
+// what testRoleMappings matches.
+func subClaim(subject string) map[string]any { return map[string]any{"sub": subject} }
 
 const (
 	someClusterID  = "11111111-1111-1111-1111-111111111111"
@@ -34,9 +59,10 @@ const (
 	someNodePoolID = "33333333-3333-3333-3333-333333333333"
 )
 
-// bundleCase is one row of the matrix. It is what deploy/authz grants, stated
-// once and asserted against whichever engine is under test — which is what makes
-// it the conformance test between them (AZ-4).
+// bundleCase is one row of the matrix. It is what deploy/authz's policies and
+// roles allow each test identity under testRoleMappings, stated once and
+// asserted against whichever engine is under test — which is what makes it the
+// conformance test between them (AZ-4).
 type bundleCase struct {
 	name    string
 	subject string
@@ -86,6 +112,13 @@ func bundleMatrix() []bundleCase {
 		{"operator deletes a cluster", subjectOperator, http.MethodDelete, "/api/clusters/" + someClusterID, http.StatusOK},
 		{"node operator cannot delete a cluster", subjectNodeOperator, http.MethodDelete, "/api/clusters/" + someClusterID, http.StatusForbidden},
 
+		// admin is parented to both operator and nodeOperator, so it must be
+		// able to do an operator-only write AND a nodeOperator-only write in
+		// the same run — the one thing neither role alone can do, and the
+		// only behavior that actually distinguishes admin from "holds operator".
+		{"admin updates a cluster (operator's write)", subjectAdmin, http.MethodPatch, "/api/clusters/" + someClusterID, http.StatusOK},
+		{"admin deletes a node (nodeOperator's write)", subjectAdmin, http.MethodDelete, "/api/nodes/" + someNodeID, http.StatusOK},
+
 		// A subject the bundle does not mention holds no role.
 		{"a stranger reads nothing", subjectStranger, http.MethodGet, "/api/clusters", http.StatusForbidden},
 
@@ -121,9 +154,10 @@ func runBundleMatrix(t *testing.T, authorizer Authorizer) {
 
 			r := httptest.NewRequestWithContext(t.Context(), tt.method, tt.path, http.NoBody)
 			r = r.WithContext(authn.ContextWithPrincipal(r.Context(), &authn.Principal{
-				IssuerName: "kube-apiserver",
+				IssuerName: testIssuer,
 				Issuer:     "https://kubernetes.default.svc.cluster.local",
 				Subject:    tt.subject,
+				Claims:     subClaim(tt.subject),
 			}))
 
 			rec := httptest.NewRecorder()
@@ -157,10 +191,21 @@ func bundleDir(tb testing.TB) string {
 	return dir
 }
 
+// shippedBundleWithMappings writes deploy/authz's policies, actions and roles
+// with mappings as roleMappings.json, and returns the directory. It is how
+// every test loads the shipped bundle: the shipped roleMappings.json is empty,
+// and a bundle with no mapping does not load. Pass testRoleMappings for the
+// test identities, and testIssuers to NewLocal.
+func shippedBundleWithMappings(tb testing.TB, mappings string) string {
+	tb.Helper()
+	return writeBundleWithMappings(tb,
+		shippedFile(tb, policiesFile), shippedFile(tb, actionsFile), shippedFile(tb, rolesFile), mappings)
+}
+
 // The engine against the bundle sources: no assembly step and no network, so
 // what this asserts is what a deployment does with the files in deploy/authz.
 func TestLocalMatchesTheBundle(t *testing.T) {
-	local, err := NewLocal(bundleDir(t))
+	local, err := NewLocal(shippedBundleWithMappings(t, testRoleMappings), testIssuers)
 	require.NoError(t, err)
 	require.NoError(t, local.Ready(context.Background()))
 
@@ -171,38 +216,47 @@ func TestLocalMatchesTheBundle(t *testing.T) {
 // bundle that did not load is an ordinary error on CWE's own startup path,
 // rather than a state to be interrogated out of another process afterwards.
 func TestLocalRefusesABundleThatDidNotLoad(t *testing.T) {
+	// Each case starts from the shipped bundle with valid mappings and breaks
+	// one file, so the load fails at the part the case names.
 	tests := []struct {
-		name  string
-		files map[string]string
+		name    string
+		edit    func(files map[string]string)
+		wantErr string
 	}{
-		{"no policy file", map[string]string{
-			actionsFile: `[]`, rolesFile: `[]`,
-		}},
-		{"a policy that does not parse", map[string]string{
-			policiesFile: `permit(principal, action`,
-			actionsFile:  `[]`, rolesFile: `[]`,
-		}},
-		{"no policies in the file", map[string]string{
-			policiesFile: `// only a comment`,
-			actionsFile:  `[]`, rolesFile: `[]`,
-		}},
-		{"no entities", map[string]string{
-			policiesFile: `permit(principal, action, resource);`,
-			actionsFile:  `[]`, rolesFile: `[]`,
-		}},
-		{"an entity file that does not parse", map[string]string{
-			policiesFile: `permit(principal, action, resource);`,
-			actionsFile:  `{`, rolesFile: `[]`,
-		}},
+		{"no policy file", func(f map[string]string) {
+			delete(f, policiesFile)
+		}, "reading " + policiesFile},
+		{"a policy that does not parse", func(f map[string]string) {
+			f[policiesFile] = `permit(principal, action`
+		}, "parsing " + policiesFile},
+		{"no policies in the file", func(f map[string]string) {
+			f[policiesFile] = `// only a comment`
+		}, policiesFile + " declares no policies"},
+		// No mapping can grant a role nobody declares, so this case carries an
+		// empty mappings file and reaches the entity check.
+		{"no entities", func(f map[string]string) {
+			f[actionsFile], f[rolesFile], f[roleMappingsFile] = `[]`, `[]`, `[]`
+		}, rolesFile + " declares no " + RoleType},
+		{"an entity file that does not parse", func(f map[string]string) {
+			f[actionsFile] = `{`
+		}, "parsing " + actionsFile},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			files := map[string]string{
+				policiesFile:     shippedFile(t, policiesFile),
+				actionsFile:      shippedFile(t, actionsFile),
+				rolesFile:        shippedFile(t, rolesFile),
+				roleMappingsFile: testRoleMappings,
+			}
+			tt.edit(files)
 			dir := t.TempDir()
-			for name, content := range tt.files {
+			for name, content := range files {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
 			}
-			_, err := NewLocal(dir)
+			_, err := NewLocal(dir, testIssuers)
 			require.Error(t, err, "a bundle that did not load must not produce a working authorizer")
+			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
 }
@@ -216,12 +270,12 @@ func TestLocalRefusesABundleThatDidNotLoad(t *testing.T) {
 // denial to another. Query.Validate decides above the interface now, so what is
 // refused does not depend on who would have evaluated it.
 func TestAHostileIdentifierIsRefusedNotEvaluated(t *testing.T) {
-	local, err := NewLocal(bundleDir(t))
+	local, err := NewLocal(shippedBundleWithMappings(t, testRoleMappings), testIssuers)
 	require.NoError(t, err)
 
 	q := Query{
 		Principal:    `evil" || true || "`,
-		Issuer:       "kube-apiserver",
+		Issuer:       testIssuer,
 		Action:       "getCluster",
 		ResourceType: "NKE::Cluster",
 		ResourceID:   someClusterID,
@@ -238,7 +292,7 @@ func TestAHostileIdentifierIsRefusedNotEvaluated(t *testing.T) {
 }
 
 func TestLocalRefusesAnIncompleteQuery(t *testing.T) {
-	local, err := NewLocal(bundleDir(t))
+	local, err := NewLocal(shippedBundleWithMappings(t, testRoleMappings), testIssuers)
 	require.NoError(t, err)
 
 	for _, q := range []Query{
@@ -255,7 +309,7 @@ func TestLocalRefusesAnIncompleteQuery(t *testing.T) {
 // Concurrency: the stored entities are shared, and the per-request resource is
 // an overlay rather than a write into them. Run with -race.
 func TestLocalIsSafeUnderConcurrency(t *testing.T) {
-	local, err := NewLocal(bundleDir(t))
+	local, err := NewLocal(shippedBundleWithMappings(t, testRoleMappings), testIssuers)
 	require.NoError(t, err)
 
 	done := make(chan struct{})
@@ -265,7 +319,8 @@ func TestLocalIsSafeUnderConcurrency(t *testing.T) {
 			for j := range 50 {
 				_, err := local.Authorize(context.Background(), Query{
 					Principal:    subjectReader,
-					Issuer:       "kube-apiserver",
+					Issuer:       testIssuer,
+					Claims:       subClaim(subjectReader),
 					Action:       "getCluster",
 					ResourceType: "NKE::Cluster",
 					ResourceID:   string(rune('a'+i)) + string(rune('a'+j%26)),

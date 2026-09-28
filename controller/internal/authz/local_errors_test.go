@@ -6,8 +6,6 @@ package authz
 import (
 	"context"
 	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/cedar-policy/cedar-go/types"
@@ -20,35 +18,17 @@ import (
 // errored is still a Deny. Both were once asserted against another engine only,
 // so deleting either of these guards left the suite green.
 
-// bundleWith writes a throwaway bundle holding one reader and loads it. Used for
-// policies the shipped bundle deliberately does not contain.
+// bundleWith writes a throwaway bundle in which aMapping grants subjectReader
+// reader, and loads it. Used for policies the shipped bundle deliberately does
+// not contain. The generated action entities are real: an action with no group
+// would not resolve, and the point here is the evaluation, not the vocabulary.
 func bundleWith(t *testing.T, policies string) *Local {
 	t.Helper()
 
-	dir := t.TempDir()
-	// The generated action entities are real: an action with no group would not
-	// resolve, and the point here is the evaluation, not the vocabulary.
-	actions, err := os.ReadFile(filepath.Join(bundleDir(t), actionsFile))
-	require.NoError(t, err)
-
-	for name, content := range map[string]string{
-		policiesFile: policies,
-		actionsFile:  string(actions),
-		rolesFile:    oneReader,
-	} {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
-	}
-
-	local, err := NewLocal(dir)
+	local, err := NewLocal(writeBundle(t, policies, shippedActions(t), oneReader), testIssuers)
 	require.NoError(t, err)
 	return local
 }
-
-const oneReader = `[
- {"uid":{"type":"NKE::Role","id":"reader"},"attrs":{},"parents":[]},
- {"uid":{"type":"NKE::Principal","id":"system:serviceaccount:nke-system:nke-cli"},
-  "attrs":{},"parents":[{"type":"NKE::Role","id":"reader"}]}
-]`
 
 // A forbid whose guard errors is skipped, and the permit it existed to override
 // wins — so Cedar answers Allow with the error alongside. Serving that is
@@ -69,8 +49,9 @@ forbid(principal, action, resource) when { context.issuer < 1 };
 `)
 
 	decision, err := local.Authorize(context.Background(), Query{
-		Principal: subjectReader, Issuer: "kube-apiserver", Action: "getCluster",
+		Principal: subjectReader, Issuer: testIssuer, Action: "getCluster",
 		ResourceType: "NKE::Cluster", ResourceID: someClusterID, Method: http.MethodGet,
+		Claims: subClaim(subjectReader),
 	})
 
 	require.Error(t, err, "an Allow reached while the forbid errored must not be served")
@@ -89,8 +70,9 @@ permit(principal in NKE::Role::"nobody", action, resource) when { context.issuer
 `)
 
 	decision, err := local.Authorize(context.Background(), Query{
-		Principal: subjectReader, Issuer: "kube-apiserver", Action: "getCluster",
+		Principal: subjectReader, Issuer: testIssuer, Action: "getCluster",
 		ResourceType: "NKE::Cluster", ResourceID: someClusterID, Method: http.MethodGet,
+		Claims: subClaim(subjectReader),
 	})
 
 	require.NoError(t, err, "a denial that errored is still a denial")
@@ -108,8 +90,9 @@ when { context.issuer == "kube-apiserver" && context.method == "GET" };
 `)
 
 	allowed, err := local.Authorize(context.Background(), Query{
-		Principal: subjectReader, Issuer: "kube-apiserver", Action: "getCluster",
+		Principal: subjectReader, Issuer: testIssuer, Action: "getCluster",
 		ResourceType: "NKE::Cluster", ResourceID: someClusterID, Method: http.MethodGet,
+		Claims: subClaim(subjectReader),
 	})
 	require.NoError(t, err)
 	assert.True(t, allowed.Allow, "the context record must carry issuer and method")
@@ -119,6 +102,7 @@ when { context.issuer == "kube-apiserver" && context.method == "GET" };
 	other, err := local.Authorize(context.Background(), Query{
 		Principal: subjectReader, Issuer: "some-other-idp", Action: "getCluster",
 		ResourceType: "NKE::Cluster", ResourceID: someClusterID, Method: http.MethodGet,
+		Claims: subClaim(subjectReader),
 	})
 	require.NoError(t, err)
 	assert.False(t, other.Allow, "a policy pinning context.issuer must distinguish issuers")
@@ -129,7 +113,7 @@ when { context.issuer == "kube-apiserver" && context.method == "GET" };
 // resource type could ever collide with a Role or Principal uid, a request would
 // redefine its own authority.
 func TestResourceOverlayCannotShadowABundleEntity(t *testing.T) {
-	local, err := NewLocal(bundleDir(t))
+	local, err := NewLocal(shippedBundleWithMappings(t, testRoleMappings), testIssuers)
 	require.NoError(t, err)
 
 	// Every resource type the generated table can produce.
@@ -182,12 +166,13 @@ func TestResourceOverlayDefersToTheBundle(t *testing.T) {
 // changes meaning the moment a policy is inserted above it — so the name a
 // reader can find in the source is the one that must be reported.
 func TestLocalReportsAnnotatedPolicyNames(t *testing.T) {
-	local, err := NewLocal(bundleDir(t))
+	local, err := NewLocal(shippedBundleWithMappings(t, testRoleMappings), testIssuers)
 	require.NoError(t, err)
 
 	decision, err := local.Authorize(context.Background(), Query{
-		Principal: subjectReader, Issuer: "kube-apiserver", Action: "getCluster",
+		Principal: subjectReader, Issuer: testIssuer, Action: "getCluster",
 		ResourceType: "NKE::Cluster", ResourceID: someClusterID, Method: http.MethodGet,
+		Claims: subClaim(subjectReader),
 	})
 	require.NoError(t, err)
 	require.True(t, decision.Allow)

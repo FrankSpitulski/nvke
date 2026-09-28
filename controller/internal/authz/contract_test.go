@@ -26,7 +26,7 @@ import (
 func contractEngines(t *testing.T) map[string]Authorizer {
 	t.Helper()
 
-	local, err := NewLocal(bundleDir(t))
+	local, err := NewLocal(shippedBundleWithMappings(t, testRoleMappings), testIssuers)
 	require.NoError(t, err)
 
 	return map[string]Authorizer{"cedar-go": local}
@@ -71,7 +71,7 @@ func TestEveryEngineAcceptsRealSubjectShapes(t *testing.T) {
 		for _, subject := range subjects {
 			t.Run(name+"/"+subject, func(t *testing.T) {
 				_, err := engine.Authorize(context.Background(), Query{
-					Principal: subject, Issuer: "kube-apiserver", Action: "getCluster",
+					Principal: subject, Issuer: testIssuer, Action: "getCluster",
 					ResourceType: "NKE::Cluster", ResourceID: "11111111-1111-1111-1111-111111111111",
 					Method: http.MethodGet,
 				})
@@ -94,7 +94,7 @@ func TestMiddlewareRefusesANilEngine(t *testing.T) {
 // Engine selection, which is the whole of the configuration surface: a bundle
 // directory or nothing.
 func TestSetupSelectsTheInProcessEngine(t *testing.T) {
-	engine, err := Options{BundleDir: bundleDir(t)}.engine()
+	engine, err := Options{BundleDir: shippedBundleWithMappings(t, testRoleMappings)}.engine(newIssuerSet(testIssuers), nil)
 	require.NoError(t, err)
 	require.NotNil(t, engine)
 	assert.Equal(t, "cedar-go", engine.Name())
@@ -103,7 +103,7 @@ func TestSetupSelectsTheInProcessEngine(t *testing.T) {
 // No bundle is "disabled", which is a nil engine and no error — never an engine
 // that allows everyone.
 func TestSetupWithNoBundleIsDisabled(t *testing.T) {
-	engine, err := Options{}.engine()
+	engine, err := Options{}.engine(nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, engine, "disabled must be a nil engine, never a permissive one")
 }
@@ -111,6 +111,6 @@ func TestSetupWithNoBundleIsDisabled(t *testing.T) {
 // A bundle that does not load is a startup failure, not a disabled deployment
 // and not a deployment that refuses everything quietly.
 func TestSetupRefusesABundleThatDoesNotLoad(t *testing.T) {
-	_, err := Options{BundleDir: t.TempDir()}.engine()
+	_, err := Options{BundleDir: t.TempDir()}.engine(nil, nil)
 	require.Error(t, err, "set-but-unloadable must be an error, never \"disabled\"")
 }

@@ -31,6 +31,29 @@ type Principal struct {
 	Claims map[string]any
 }
 
+// ServiceAccount returns the (namespace, name) p's nested "kubernetes.io"
+// claim names, only when that claim is well-formed and p.Subject is exactly
+// system:serviceaccount:<namespace>:<name>. False for anything else,
+// including a SPIFFE subject carrying a kubernetes.io claim.
+//
+// The nested claim is read rather than "sub" parsed, because a colon in a
+// namespace name would break the parse in the permissive direction. The two
+// must then agree, or a token admitted on one identity could carry a claim
+// naming another and be treated as that one.
+func (p *Principal) ServiceAccount() (ServiceAccount, bool) {
+	if p == nil {
+		return ServiceAccount{}, false
+	}
+	sa, ok := serviceAccountFromClaims(p.Claims)
+	if !ok {
+		return ServiceAccount{}, false
+	}
+	if p.Subject != serviceAccountSubjectPrefix+sa.Namespace+":"+sa.Name {
+		return ServiceAccount{}, false
+	}
+	return sa, true
+}
+
 // principalContextKey is unexported so no other package can collide with it.
 type principalContextKey struct{}
 

@@ -3,6 +3,7 @@ module github.com/dsx-ai-factory/nvke/controller
 go 1.27.3
 
 require (
+	cel.dev/cel-go v0.32.0
 	github.com/GehirnInc/crypt v0.0.0-20230320061759-8cc1b52080c5
 	github.com/blang/semver/v4 v4.0.0
 	github.com/caarlos0/env/v11 v11.4.1

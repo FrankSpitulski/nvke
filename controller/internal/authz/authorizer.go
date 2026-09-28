@@ -26,6 +26,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/dsx-ai-factory/nvke/auth/authn"
 )
 
 // The action vocabulary is generated from the same OpenAPI document the router
@@ -75,8 +77,9 @@ const (
 	// ActionType carries the operationId.
 	ActionType = "NKE::Action"
 
-	// RoleType carries a named grant. Principals are members of roles and roles
-	// nest, which is how one grant covers a set of operations.
+	// RoleType carries a role. A principal is a member of the roles
+	// roleMappings.json grants it, and roles nest, which is how one role covers
+	// a set of operations.
 	RoleType = "NKE::Role"
 
 	// VariableContext is the Cedar request variable carrying the context record,
@@ -102,13 +105,11 @@ const (
 // route the mux matched. Nothing here comes from an unverified claim or from an
 // unrouted path.
 type Query struct {
-	// Principal is Principal.Subject, verbatim.
-	//
-	// The subject alone, with no issuer in it. That is only sound because a
-	// subject cannot come from two issuers: auth.Config.Validate refuses a
-	// configuration whose issuers' admission rules can admit one subject, so the
-	// string identifies a caller rather than a caller-and-a-key-source. A policy
-	// can still pin context.issuer when it wants to say more.
+	// Principal is Principal.Subject, verbatim, and becomes the Cedar principal
+	// UID. It carries no issuer, so it grants nothing by itself: every role comes
+	// from a roleMappings.json entry, which names an issuer. A policy that names
+	// a principal matches this string from every issuer; authn.Config.Validate
+	// refuses a service-account or SPIFFE subject two issuers can both admit.
 	Principal string
 
 	// Issuer is Principal.IssuerName — the operator's label for the issuer entry,
@@ -131,6 +132,19 @@ type Query struct {
 	// schema all describe the GET, so a context saying "HEAD" would be the one
 	// field of the query disagreeing with the rest of it.
 	Method string
+
+	// Claims is authn.Principal.Claims, verbatim. Read only by the bundle's role
+	// mappings, in Go, before Cedar runs (roleMappings.parentsFor,
+	// role_mappings.go). Never placed in the Cedar context or on any entity.
+	Claims map[string]any
+
+	// ServiceAccount is the verified bound service account, or nil when the
+	// token is not one. Set from authn.Principal.ServiceAccount, which has
+	// already checked the nested kubernetes.io claim against the subject.
+	//
+	// An engine that ignores Claims and ServiceAccount grants no role except
+	// through a spiffe mapping, which reads Principal.
+	ServiceAccount *authn.ServiceAccount
 }
 
 // Decision is one answer. Allow is the only value that lets a request through;

@@ -3,7 +3,8 @@
 //
 // The NKE API policy bundle: the hand-written half. schema.json and actions.json
 // beside this file are generated from api/openapi.yaml by
-// hack/gen-authz-actions, and roles.json names who holds which role.
+// hack/gen-authz-actions, roles.json declares the roles, and roleMappings.json
+// grants them.
 //
 // Default deny. Nothing here is a fallback: a request matching no permit is
 // refused, and that includes an operation added to the API after this file was

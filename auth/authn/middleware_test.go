@@ -675,3 +675,23 @@ func TestMiddlewareRejectionLogIsBounded(t *testing.T) {
 		}
 	}
 }
+
+// IssuerNames is what internal/authz checks roleMappings.json's issuer keys
+// against. Setup returns a nil Authenticator when authentication is off, so a
+// nil receiver must answer rather than panic.
+func TestIssuerNames(t *testing.T) {
+	t.Parallel()
+
+	var disabled *auth.Authenticator
+	assert.Nil(t, disabled.IssuerNames())
+
+	f := newFixture(t)
+	authn, err := auth.NewAuthenticator(f.verifier, auth.ModeEnforcing, slog.New(slog.DiscardHandler), nil)
+	require.NoError(t, err)
+
+	names := authn.IssuerNames()
+	assert.Equal(t, []string{k8sName, spireName}, names, "sorted, one per configured issuer")
+
+	names[0] = "mutated"
+	assert.Equal(t, []string{k8sName, spireName}, authn.IssuerNames(), "the caller owns the returned slice")
+}

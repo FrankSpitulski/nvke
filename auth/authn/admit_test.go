@@ -425,3 +425,19 @@ func TestSlashPrefixesAcrossValidationAndAdmission(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateServiceAccountSelector(t *testing.T) {
+	t.Parallel()
+
+	name := "deploy-bot"
+	empty := ""
+	padded := " deploy-bot"
+
+	require.NoError(t, authn.ValidateServiceAccountSelector("ci", nil))
+	require.NoError(t, authn.ValidateServiceAccountSelector("ci", &name))
+	require.Error(t, authn.ValidateServiceAccountSelector("", nil), "namespace required")
+	require.Error(t, authn.ValidateServiceAccountSelector(" ci", nil), "padded namespace refused")
+	require.Error(t, authn.ValidateServiceAccountSelector("ci", &empty), "present-but-empty name refused")
+	require.Error(t, authn.ValidateServiceAccountSelector("ci", &padded), "padded name refused")
+	require.Error(t, authn.ValidateServiceAccountSelector("Not_A_Namespace", nil), "not a valid DNS label")
+}

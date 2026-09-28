@@ -44,7 +44,7 @@ import (
 // hand-edited the ConfigMap in a cluster rather than going through CI.
 //
 // If an attribute ever gets populated — a resource looked up before the decision,
-// or a principal attribute in roles.json that the generated schema declares —
+// or a principal attribute that the generated schema declares —
 // this is what has to be revisited, deliberately, rather than a policy quietly
 // starting to work.
 func checkPolicyShape(set *cedar.PolicySet) error {

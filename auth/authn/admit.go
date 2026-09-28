@@ -4,10 +4,14 @@
 package authn
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
+	k8svalidation "k8s.io/apimachinery/pkg/api/validation"
 )
 
 // Claim keys of the nested object in a bound service account token.
@@ -94,57 +98,113 @@ func (r *admitRules) admitsGroups(p *Principal) bool {
 	return false
 }
 
-// admitsServiceAccount matches the nested "kubernetes.io" claim rather than
-// parsing "sub", whose shape a colon in a namespace name would break in the
-// permissive direction. The two must then agree, or a token could be admitted on
-// one identity while every consumer of the Principal reads the other.
+// admitsServiceAccount matches Principal.ServiceAccount's verified identity;
+// see there for why the nested claim is read and checked against the subject.
 func (r *admitRules) admitsServiceAccount(p *Principal) bool {
 	if len(r.serviceAccounts) == 0 {
 		return false
 	}
-	sa, ok := serviceAccountFromClaims(p.Claims)
+	sa, ok := p.ServiceAccount()
 	if !ok {
 		return false
 	}
-	if p.Subject != serviceAccountSubjectPrefix+sa.namespace+":"+sa.name {
-		return false
-	}
 	for _, rule := range r.serviceAccounts {
-		if rule.Namespace != sa.namespace {
-			continue
-		}
-		if rule.AllowsAnyName() || *rule.Name == sa.name {
+		if sa.Matches(rule.Namespace, rule.Name) {
 			return true
 		}
 	}
 	return false
 }
 
-type serviceAccountIdentity struct {
-	namespace string
-	name      string
+// ServiceAccount is a bound service account token's verified identity.
+type ServiceAccount struct {
+	Namespace string
+	Name      string
+}
+
+// Matches reports whether sa is the one a (namespace, optional name) selector
+// names. A nil name matches every name in the namespace, as
+// ServiceAccountRule.AllowsAnyName does. Admission and the authorization
+// bundle's role mappings both match through it, so the two cannot disagree
+// about what "the same service account" means.
+func (sa ServiceAccount) Matches(namespace string, name *string) bool {
+	if namespace != sa.Namespace {
+		return false
+	}
+	return name == nil || *name == sa.Name
+}
+
+// ValidateServiceAccountSelector checks a (namespace, optional name) selector
+// against the Kubernetes naming rules. Admission rules and the authorization
+// bundle's service account role mappings both call it, so a selector one
+// accepts the other accepts too.
+func ValidateServiceAccountSelector(namespace string, name *string) error {
+	// Ordered so the most specific message wins: empty, then padded, then
+	// whether Kubernetes would accept the name at all.
+	if strings.TrimSpace(namespace) == "" {
+		return errors.New("namespace is required and must not be empty")
+	}
+	if err := requireUnpadded("namespace", namespace); err != nil {
+		return err
+	}
+	// NameIsDNSLabel and NameIsDNSSubdomain are what upstream's
+	// ValidateNamespaceName and ValidateServiceAccountName resolve to, so a
+	// name that could never exist fails at startup rather than becoming a rule
+	// that matches nothing forever.
+	if msgs := k8svalidation.NameIsDNSLabel(namespace, false); len(msgs) > 0 {
+		return fmt.Errorf("namespace %q is not a valid namespace name: %s", namespace, strings.Join(msgs, "; "))
+	}
+
+	if name == nil {
+		return nil
+	}
+	if strings.TrimSpace(*name) == "" {
+		return fmt.Errorf("name is present but empty; remove the key to match any service account in namespace %q", namespace)
+	}
+	if err := requireUnpadded("name", *name); err != nil {
+		return err
+	}
+	if msgs := k8svalidation.NameIsDNSSubdomain(*name, false); len(msgs) > 0 {
+		return fmt.Errorf("name %q is not a valid service account name: %s", *name, strings.Join(msgs, "; "))
+	}
+	return nil
+}
+
+// RefuseNullServiceAccountName refuses a (namespace, optional name) selector,
+// given as its raw JSON keys, whose name is present but null. A decoder maps
+// null to the same nil *string as an absent key, and nil means every service
+// account in the namespace, so `name:` left blank in YAML would widen a rule
+// meant for one account to the whole namespace. Admission rules and the
+// authorization bundle's service account role mappings both call it.
+func RefuseNullServiceAccountName(selector map[string]json.RawMessage) error {
+	raw, present := selector["name"]
+	if present && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return errors.New("name is present but null; remove the key to match any service account in the namespace, " +
+			"or set it to one service account's name")
+	}
+	return nil
 }
 
 // serviceAccountFromClaims reports false for anything but a bound service account
 // token.
-func serviceAccountFromClaims(claims map[string]any) (serviceAccountIdentity, bool) {
+func serviceAccountFromClaims(claims map[string]any) (ServiceAccount, bool) {
 	k8s, ok := claims[kubernetesClaim].(map[string]any)
 	if !ok {
-		return serviceAccountIdentity{}, false
+		return ServiceAccount{}, false
 	}
 	namespace, ok := k8s[namespaceClaim].(string)
 	if !ok || namespace == "" {
-		return serviceAccountIdentity{}, false
+		return ServiceAccount{}, false
 	}
 	sa, ok := k8s[serviceAccountClaim].(map[string]any)
 	if !ok {
-		return serviceAccountIdentity{}, false
+		return ServiceAccount{}, false
 	}
 	name, ok := sa[serviceAccountName].(string)
 	if !ok || name == "" {
-		return serviceAccountIdentity{}, false
+		return ServiceAccount{}, false
 	}
-	return serviceAccountIdentity{namespace: namespace, name: name}, true
+	return ServiceAccount{Namespace: namespace, Name: name}, true
 }
 
 // admits reports whether subject is a SPIFFE ID in the rule's trust domain under

@@ -25,8 +25,15 @@ type Options struct {
 	// Recorder counts decisions. Optional: nil records nothing.
 	Recorder Recorder
 
-	// newEngine builds the Authorizer for BundleDir. Nil means NewLocal, which
-	// is every deployment.
+	// IssuerNames is the configured authentication issuers
+	// (auth.Authenticator.IssuerNames). Every roleMappings.json entry must name
+	// one of them. Nil or empty means no issuer, so any mapping entry fails
+	// the load.
+	IssuerNames []string
+
+	// newEngine builds the Authorizer for BundleDir. Nil means a Local loaded
+	// from BundleDir and checked against IssuerNames, which is every
+	// deployment.
 	//
 	// It is unexported, so only this package can set it, and only a test does.
 	// Setup's readiness gate is the reason it exists: no engine here can
@@ -38,15 +45,20 @@ type Options struct {
 }
 
 // engine builds the Authorizer this deployment asked for, or reports that
-// authorization is disabled by returning a nil Authorizer.
-func (o Options) engine() (Authorizer, error) {
+// authorization is disabled by returning a nil Authorizer. issuers is
+// IssuerNames as a set, built once by Setup.
+func (o Options) engine(issuers issuerSet, logger *slog.Logger) (Authorizer, error) {
 	if o.BundleDir == "" {
 		return nil, nil //nolint:nilnil // a nil Authorizer and a nil error is exactly "disabled"
 	}
 	if o.newEngine != nil {
 		return o.newEngine(o.BundleDir)
 	}
-	return NewLocal(o.BundleDir)
+	local, err := newLocal(o.BundleDir, issuers, logger)
+	if err != nil {
+		return nil, err
+	}
+	return local, nil
 }
 
 // Provider is a validated authorization configuration waiting for the mux.
@@ -74,8 +86,15 @@ type Provider struct {
 // "disabled" — and it is fatal in both modes, because NewLocal fails before the
 // mode is consulted. A bundle that did not load refuses every request, which
 // from inside a running pod looks exactly like a policy nobody wrote.
+//
+// A nil logger means slog.Default().
 func Setup(ctx context.Context, opts Options, logger *slog.Logger) (*Provider, error) {
-	engine, err := opts.engine()
+	if logger == nil {
+		logger = slog.Default()
+	}
+	issuers := newIssuerSet(opts.IssuerNames)
+	authzLogger := logger.With("logger", "authz")
+	engine, err := opts.engine(issuers, authzLogger)
 	if err != nil {
 		return nil, fmt.Errorf("building the policy engine: %w", err)
 	}
@@ -108,7 +127,7 @@ func Setup(ctx context.Context, opts Options, logger *slog.Logger) (*Provider, e
 	return &Provider{
 		authorizer: engine,
 		mode:       mode,
-		logger:     logger.With("logger", "authz"),
+		logger:     authzLogger,
 		record:     opts.Recorder,
 	}, nil
 }

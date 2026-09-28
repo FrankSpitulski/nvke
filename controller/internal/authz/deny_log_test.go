@@ -36,7 +36,7 @@ import (
 func denyLine(t *testing.T, subject, method, path string) map[string]any {
 	t.Helper()
 
-	local, err := NewLocal(bundleDir(t))
+	local, err := NewLocal(shippedBundleWithMappings(t, testRoleMappings), testIssuers)
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()
@@ -55,9 +55,10 @@ func denyLine(t *testing.T, subject, method, path string) map[string]any {
 
 	r := httptest.NewRequestWithContext(t.Context(), method, path, http.NoBody)
 	r = r.WithContext(authn.ContextWithPrincipal(r.Context(), &authn.Principal{
-		IssuerName: "site-apiserver",
+		IssuerName: testIssuer,
 		Issuer:     "https://kubernetes.default.svc.cluster.local",
 		Subject:    subject,
+		Claims:     subClaim(subject),
 	}))
 
 	rec := httptest.NewRecorder()
@@ -73,7 +74,7 @@ func TestARefusalNamesWhoWasRefused(t *testing.T) {
 	line := denyLine(t, subjectOperator, http.MethodDelete, api.BasePath+"/nodes/"+someNodeID)
 
 	assert.Equal(t, subjectOperator, line["subject"], "a refusal with no subject is not attributable to anyone")
-	assert.Equal(t, "site-apiserver", line["issuer"],
+	assert.Equal(t, testIssuer, line["issuer"],
 		"the subject is only unique within its issuer, so the issuer belongs beside it")
 	assert.Equal(t, "deleteNode", line["action"])
 	assert.Equal(t, "NKE::Node/"+someNodeID, line["resource"])
@@ -100,7 +101,7 @@ func TestARefusalBeforeAnOperationStillNamesTheCaller(t *testing.T) {
 
 	assert.Equal(t, string(ReasonNoRoute), line["reason"])
 	assert.Equal(t, subjectOperator, line["subject"])
-	assert.Equal(t, "site-apiserver", line["issuer"])
+	assert.Equal(t, testIssuer, line["issuer"])
 	assert.Empty(t, line["action"], "no route matched, so there is no operation to name")
 	assert.Empty(t, line["resource"])
 }

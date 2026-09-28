@@ -148,7 +148,7 @@ func main() {
 	// Alongside authentication, and before the migrations for the same reason: a
 	// policy engine holding no bundle refuses every request, and that is much
 	// better to learn at start time than at request time.
-	authzProvider, err := setUpAuthorization(ctx, cfg, logger)
+	authzProvider, err := setUpAuthorization(ctx, cfg, authenticator, logger)
 	if err != nil {
 		logger.Error("Failed to set up API authorization", "error", err)
 		os.Exit(1)
@@ -460,7 +460,8 @@ func main() {
 		csr.NewRegistrar(dbInstance, logger.With("logger", "tenant-csr-controller")),
 	}
 	if !cfg.NodeHealthCheckDisabled {
-		tenantRegistrars = append(tenantRegistrars,
+		tenantRegistrars = append(
+			tenantRegistrars,
 			tenantnodestatus.NewRegistrar(dbInstance, logger.With("logger", "tenant-node-health-controller")),
 			tenantnoderemediation.NewRegistrar(
 				cfg,
@@ -734,11 +735,17 @@ func registerTemporalNamespaceWithRetry(ctx context.Context, cfg config.Config, 
 
 // setUpAuthorization loads the API authorization policy bundle and records the
 // authorization mode. A nil Provider with a nil error means authorization is off.
-func setUpAuthorization(ctx context.Context, cfg config.Config, logger *slog.Logger) (*authz.Provider, error) {
+func setUpAuthorization(
+	ctx context.Context,
+	cfg config.Config,
+	authenticator *authn.Authenticator,
+	logger *slog.Logger,
+) (*authz.Provider, error) {
 	authzProvider, err := authz.Setup(ctx, authz.Options{
-		BundleDir:  cfg.AuthzBundlePath,
-		Permissive: cfg.AuthzPermissive,
-		Recorder:   metrics.RecordAuthzRequest,
+		BundleDir:   cfg.AuthzBundlePath,
+		Permissive:  cfg.AuthzPermissive,
+		Recorder:    metrics.RecordAuthzRequest,
+		IssuerNames: authenticator.IssuerNames(),
 	}, logger)
 	if err != nil {
 		return nil, err

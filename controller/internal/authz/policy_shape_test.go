@@ -101,13 +101,9 @@ func TestABundleWhosePolicyReadsAResourceAttributeIsRefused(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := writeBundle(t, `@id("readers-may-read")
 permit(principal in NKE::Role::"reader", action in NKE::Action::"read", resource);
-`+tt.policy, shippedActions(t), `[
- {"uid":{"type":"NKE::Role","id":"reader"},"attrs":{},"parents":[]},
- {"uid":{"type":"NKE::Principal","id":"system:serviceaccount:nke-system:nke-cli"},
-  "attrs":{},"parents":[{"type":"NKE::Role","id":"reader"}]}
-]`)
+`+tt.policy, shippedActions(t), oneReader)
 
-			_, err := NewLocal(dir)
+			_, err := NewLocal(dir, testIssuers)
 			require.Error(t, err, "a rule that can never apply must not load as though it were enforced")
 			if tt.shaped {
 				assert.Contains(t, err.Error(), "context is the only thing whose attributes are populated")
@@ -125,8 +121,9 @@ when { context.issuer == "kube-apiserver" && context.method == "GET" };
 `)
 
 	decision, err := local.Authorize(t.Context(), Query{
-		Principal: subjectReader, Issuer: "kube-apiserver", Action: "getCluster",
+		Principal: subjectReader, Issuer: testIssuer, Action: "getCluster",
 		ResourceType: "NKE::Cluster", ResourceID: someClusterID, Method: http.MethodGet,
+		Claims: subClaim(subjectReader),
 	})
 	require.NoError(t, err)
 	assert.True(t, decision.Allow)
@@ -135,7 +132,7 @@ when { context.issuer == "kube-apiserver" && context.method == "GET" };
 // And the bundle that ships must not trip the check, or every deployment is
 // refused on startup.
 func TestTheShippedBundleReadsNoEntityAttribute(t *testing.T) {
-	_, err := NewLocal(bundleDir(t))
+	_, err := NewLocal(shippedBundleWithMappings(t, testRoleMappings), testIssuers)
 	require.NoError(t, err)
 }
 
@@ -159,12 +156,8 @@ func TestTheRefusalNamesTheReceiver(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := writeBundle(t, `@id("readers-may-read")
 permit(principal in NKE::Role::"reader", action in NKE::Action::"read", resource);
-`+tt.policy, shippedActions(t), `[
- {"uid":{"type":"NKE::Role","id":"reader"},"attrs":{},"parents":[]},
- {"uid":{"type":"NKE::Principal","id":"system:serviceaccount:nke-system:nke-cli"},
-  "attrs":{},"parents":[{"type":"NKE::Role","id":"reader"}]}
-]`)
-			_, err := NewLocal(dir)
+`+tt.policy, shippedActions(t), oneReader)
+			_, err := NewLocal(dir, testIssuers)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.want)
 		})
@@ -183,13 +176,9 @@ func TestABundleWhosePolicyReadsAnUnpopulatedContextKeyIsRefused(t *testing.T) {
 permit(principal in NKE::Role::"reader", action in NKE::Action::"read", resource);
 forbid(principal, action in NKE::Action::"write", resource)
  when { context has neverSet && context.neverSet == "prod" };`,
-		shippedActions(t), `[
- {"uid":{"type":"NKE::Role","id":"reader"},"attrs":{},"parents":[]},
- {"uid":{"type":"NKE::Principal","id":"system:serviceaccount:nke-system:nke-cli"},
-  "attrs":{},"parents":[{"type":"NKE::Role","id":"reader"}]}
-]`)
+		shippedActions(t), oneReader)
 
-	_, err := NewLocal(dir)
+	_, err := NewLocal(dir, testIssuers)
 	require.Error(t, err, "a forbid keyed off a context attribute nothing sets must not load as though it were enforced")
 	assert.Contains(t, err.Error(), "context.neverSet")
 	assert.Contains(t, err.Error(), "context only has issuer and method populated")
@@ -203,12 +192,8 @@ func TestAPolicyMayReadThePopulatedContextKeys(t *testing.T) {
 			dir := writeBundle(t, `@id("readers-may-read")
 permit(principal in NKE::Role::"reader", action in NKE::Action::"read", resource)
  when { context has `+key+` };`,
-				shippedActions(t), `[
- {"uid":{"type":"NKE::Role","id":"reader"},"attrs":{},"parents":[]},
- {"uid":{"type":"NKE::Principal","id":"system:serviceaccount:nke-system:nke-cli"},
-  "attrs":{},"parents":[{"type":"NKE::Role","id":"reader"}]}
-]`)
-			_, err := NewLocal(dir)
+				shippedActions(t), oneReader)
+			_, err := NewLocal(dir, testIssuers)
 			require.NoError(t, err)
 		})
 	}
@@ -282,8 +267,9 @@ when { context has issuer && context.issuer == "kube-apiserver" };
 `)
 
 	decision, err := local.Authorize(t.Context(), Query{
-		Principal: subjectReader, Issuer: "kube-apiserver", Action: "getCluster",
+		Principal: subjectReader, Issuer: testIssuer, Action: "getCluster",
 		ResourceType: "NKE::Cluster", ResourceID: someClusterID, Method: http.MethodGet,
+		Claims: subClaim(subjectReader),
 	})
 	require.NoError(t, err)
 	assert.True(t, decision.Allow)

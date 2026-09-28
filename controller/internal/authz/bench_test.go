@@ -11,16 +11,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// What one decision costs, against the real bundle under deploy/authz. It runs
-// in the request path, so the number belongs beside the code rather than in the
-// design's cost table alone.
+// What one decision costs, against the real bundle under deploy/authz with the
+// test role mappings. It runs in the request path, so the number belongs beside
+// the code rather than in the design's cost table alone.
 func BenchmarkLocalAuthorize(b *testing.B) {
-	local, err := NewLocal(bundleDir(b))
+	local, err := NewLocal(shippedBundleWithMappings(b, testRoleMappings), testIssuers)
 	require.NoError(b, err)
 
 	query := Query{
 		Principal:    subjectReader,
-		Issuer:       "kube-apiserver",
+		Issuer:       testIssuer,
+		Claims:       subClaim(subjectReader),
 		Action:       "getCluster",
 		ResourceType: "NKE::Cluster",
 		ResourceID:   someClusterID,
@@ -41,12 +42,13 @@ func BenchmarkLocalAuthorize(b *testing.B) {
 // does not stop at the first match, since a later forbid can override — so the
 // two are the same order, and neither depends on which answer comes back.
 func BenchmarkLocalAuthorizeDenied(b *testing.B) {
-	local, err := NewLocal(bundleDir(b))
+	local, err := NewLocal(shippedBundleWithMappings(b, testRoleMappings), testIssuers)
 	require.NoError(b, err)
 
 	query := Query{
 		Principal:    subjectStranger,
-		Issuer:       "kube-apiserver",
+		Issuer:       testIssuer,
+		Claims:       subClaim(subjectStranger),
 		Action:       "deleteCluster",
 		ResourceType: "NKE::Cluster",
 		ResourceID:   someClusterID,

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/dsx-ai-factory/nvke/controller/api"
@@ -84,6 +85,23 @@ func NewAuthenticator(verifier *Verifier, mode Mode, logger *slog.Logger, record
 		logger:   logger,
 		record:   record,
 	}, nil
+}
+
+// IssuerNames returns the configured issuer names, sorted, in a slice the
+// caller owns. The authorization bundle's role mappings key on these names, so
+// internal/authz takes them from here rather than reading the authentication
+// config itself. A nil receiver returns nil: Setup returns a nil Authenticator
+// when authentication is disabled.
+func (a *Authenticator) IssuerNames() []string {
+	if a == nil || a.verifier == nil {
+		return nil
+	}
+	names := make([]string, 0, len(a.verifier.entries))
+	for _, e := range a.verifier.entries {
+		names = append(names, e.name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 // Wrap returns next with authentication in front of it, carrying the *Principal

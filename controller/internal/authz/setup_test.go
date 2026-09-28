@@ -58,7 +58,11 @@ func TestSetupCarriesTheModeThroughToTheMiddleware(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			provider, err := Setup(t.Context(),
-				Options{BundleDir: bundleDir(t), Permissive: tt.permissive}, testLogger())
+				Options{
+					BundleDir:   shippedBundleWithMappings(t, testRoleMappings),
+					IssuerNames: testIssuers,
+					Permissive:  tt.permissive,
+				}, testLogger())
 			require.NoError(t, err)
 			require.NotNil(t, provider)
 			assert.Equal(t, tt.want, provider.mode)
@@ -95,10 +99,34 @@ func TestSetupRefusesAnEngineThatIsNotReady(t *testing.T) {
 	assert.Contains(t, err.Error(), "not ready")
 }
 
+// A nil logger is slog.Default(), on every path through Setup.
+func TestSetupAcceptsANilLogger(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		opts    Options
+		wantErr bool
+	}{
+		{"disabled", Options{}, false},
+		{"enabled", Options{BundleDir: shippedBundleWithMappings(t, testRoleMappings), IssuerNames: testIssuers}, false},
+		{"a bundle that does not load", Options{BundleDir: t.TempDir()}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var err error
+			require.NotPanics(t, func() { _, err = Setup(t.Context(), tt.opts, nil) })
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 // A Provider without a mux is a wiring bug, and must not produce a middleware
 // that cannot resolve a route.
 func TestMiddlewareRequiresTheMux(t *testing.T) {
-	provider, err := Setup(t.Context(), Options{BundleDir: bundleDir(t)}, testLogger())
+	provider, err := Setup(t.Context(),
+		Options{BundleDir: shippedBundleWithMappings(t, testRoleMappings), IssuerNames: testIssuers}, testLogger())
 	require.NoError(t, err)
 
 	_, err = provider.Middleware(nil)

@@ -949,6 +949,29 @@ func TestLoadValidationAdmit(t *testing.T) {
 			wantErr: "name is present but empty",
 		},
 		{
+			// `name:` left blank is YAML null, which decodes to the same nil
+			// as an absent key and would admit the whole namespace.
+			name: "serviceAccounts rule with a null name",
+			yaml: issuerConfig(`name: k8s
+    issuer: "https://k8s.example.com"
+    jwks: {uri: "https://kubernetes.default.svc/openid/v1/jwks"}
+    algorithms: [RS256]
+    admit:
+      serviceAccounts:
+        - namespace: nke-clients
+          name:`),
+			wantErr: "issuers[0]: admit: serviceAccounts[0]: name is present but null",
+		},
+		{
+			name: "serviceAccounts rule with an explicit null name",
+			yaml: issuerConfig(`name: k8s
+    issuer: "https://k8s.example.com"
+    jwks: {uri: "https://kubernetes.default.svc/openid/v1/jwks"}
+    algorithms: [RS256]
+    admit: {serviceAccounts: [{namespace: nke-clients}, {namespace: ci, name: null}]}`),
+			wantErr: "serviceAccounts[1]: name is present but null",
+		},
+		{
 			name: "serviceAccounts rule naming a specific account",
 			yaml: issuerConfig(`name: k8s
     issuer: "https://k8s.example.com"
@@ -1074,10 +1097,8 @@ func TestLoadValidationAdmit(t *testing.T) {
 	})
 }
 
-// Two issuers must not be able to admit one subject. Authorization keys its
-// grants on the bare "sub" and never consults the issuer, so an overlap is not
-// two lookalike identities, it is one identity with two key sources: a token
-// from either issuer arrives holding the other's grants.
+// Two issuers must not be able to admit one subject. A policy that names a
+// caller matches the bare "sub", so a token from either issuer would satisfy it.
 func TestLoadValidationSubjectsAreUnambiguous(t *testing.T) {
 	t.Parallel()
 
@@ -1341,4 +1362,39 @@ func TestValidateOnNilConfig(t *testing.T) {
 
 	var cfg *authn.Config
 	require.Error(t, cfg.Validate())
+}
+
+// Admission and the authorization bundle's SPIFFE mappings accept exactly the
+// same trust-domain strings, which is what lets the chart compare the two as
+// strings.
+func TestValidateTrustDomain(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		td      string
+		wantErr string
+	}{
+		{td: "example.org"},
+		{td: "nvidia.com"},
+		{td: "", wantErr: "required"},
+		{td: "   ", wantErr: "required"},
+		{td: " example.org", wantErr: "whitespace"},
+		{td: "spiffe://example.org", wantErr: "bare trust domain"},
+		{td: "spiffe://example.org/ns/nke-system", wantErr: "bare trust domain"},
+		{td: "example.org/ns", wantErr: "bare trust domain"},
+		{td: "Example.org", wantErr: "not a valid SPIFFE trust domain"},
+		{td: "exa mple.org", wantErr: "not a valid SPIFFE trust domain"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.td, func(t *testing.T) {
+			t.Parallel()
+			err := authn.ValidateTrustDomain(tt.td)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
 }
