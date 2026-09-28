@@ -1,0 +1,86 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Runner probe
+
+# Not for merge. Reports what each runner class actually offers for the
+# os-image bake: shape, /dev/kvm, disk, and ISO mirror throughput.
+
+on:
+  push:
+    branches:
+      - ci/runner-probe
+
+permissions: {}
+
+jobs:
+  probe:
+    name: probe (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - arc-amd64-cpu8
+          - arc-amd64-cpu16
+          - arc-arm64-cpu16
+          - arc-arm64-kvm
+          - arc-arm64-kvm-8c16g
+          - linux-amd64-cpu16
+          - linux-arm64-cpu16
+          - linux-amd64-gpu-l4-latest-1
+    steps:
+      - name: Host shape
+        run: |
+          set -x
+          uname -a
+          cat /etc/os-release | head -3
+          nproc
+          free -g
+          df -h "$GITHUB_WORKSPACE" /tmp /var/lib/docker 2>/dev/null || true
+          lscpu | grep -E 'Model name|Vendor|Virtualization|Hypervisor|^CPU\(s\)|Flags' | cut -c1-200 || true
+          grep -o -w -E 'vmx|svm' /proc/cpuinfo | sort | uniq -c || true
+          cat /sys/devices/virtual/dmi/id/sys_vendor /sys/devices/virtual/dmi/id/product_name 2>/dev/null || true
+          systemd-detect-virt 2>/dev/null || true
+          systemd-detect-virt --container 2>/dev/null || true
+          [ -n "${KUBERNETES_SERVICE_HOST:-}" ] && echo "in a kubernetes pod" || true
+          id
+          sudo -n true && echo "passwordless sudo: yes" || echo "passwordless sudo: no"
+          cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || true
+          ls -l /dev/kvm /dev/vhost-net /dev/net/tun /dev/tpmrm0 /dev/vtpmx 2>&1 || true
+          lsmod 2>/dev/null | grep -E '^kvm' || true
+          cat /sys/module/kvm_intel/parameters/nested /sys/module/kvm_amd/parameters/nested 2>/dev/null || true
+
+      - name: Instance type (IMDSv2)
+        run: |
+          t=$(curl -sf -m 3 -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60') || { echo "IMDS unreachable"; exit 0; }
+          for k in instance-type placement/availability-zone; do
+            printf '%s: ' "$k"; curl -sf -m 3 -H "X-aws-ec2-metadata-token: $t" "http://169.254.169.254/latest/meta-data/$k"; echo
+          done
+
+      - name: KVM usable
+        run: |
+          if [ ! -e /dev/kvm ]; then echo "::notice::${{ matrix.runner }}: no /dev/kvm"; exit 0; fi
+          [ -w /dev/kvm ] || sudo -n chmod 666 /dev/kvm || true
+          python3 - <<'EOF'
+          import fcntl, os
+          fd = os.open("/dev/kvm", os.O_RDWR)
+          print("KVM_GET_API_VERSION", fcntl.ioctl(fd, 0xAE00, 0))
+          print("KVM_CREATE_VM fd", fcntl.ioctl(fd, 0xAE01, 0))
+          EOF
+          echo "::notice::${{ matrix.runner }}: /dev/kvm usable"
+
+      - name: Disk throughput
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          dd if=/dev/zero of=probe.bin bs=1M count=2048 conv=fdatasync 2>&1 | tail -1
+          rm -f probe.bin
+
+      - name: ISO mirror throughput (first 512 MiB)
+        run: |
+          for url in \
+            https://releases.ubuntu.com/26.04/ubuntu-26.04.1-live-server-amd64.iso \
+            https://cdimage.ubuntu.com/releases/26.04/release/ubuntu-26.04.1-live-server-arm64.iso; do
+            curl -s -o /dev/null -r 0-536870911 -m 300 -w "%{http_code} %{size_download}B in %{time_total}s = %{speed_download}B/s  $url\n" "$url" || echo "failed: $url"
+          done
