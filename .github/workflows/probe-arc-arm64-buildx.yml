@@ -1,0 +1,79 @@
+# PROBE ONLY -- delete with the branch. Do not merge.
+#
+# image-nvcr and image-provisioned-nvcr cannot be validated on ARC by any
+# dispatch: every job in them carries `environment: nvcr`, and that
+# environment's deployment branch policy allows only main and five release
+# tag patterns, so a branch dispatch is rejected at scheduling with no runner
+# and no logs.
+#
+# Their arm64 legs only do one thing the runner could plausibly break:
+# buildx-build controller/Dockerfile for linux/arm64. Everything after that --
+# NVCR login, tag resolution, push, digest -- is registry work that does not
+# care which runner it happens on.
+#
+# So build the same Dockerfile, the same way, on the same class, and throw the
+# result away. `--output=type=cacheonly` keeps it honest: the build runs in
+# full and nothing is published, so this needs no environment and no token.
+name: probe-arc-arm64-buildx
+
+# push, not workflow_dispatch: a dispatch resolves the workflow from the
+# default branch, and this file only exists here.
+on:
+  push:
+    branches:
+      - "ci/**"
+    paths:
+      - .github/workflows/probe-arc-arm64-buildx.yml
+
+permissions: {}
+
+jobs:
+  probe:
+    name: buildx controller/Dockerfile on arc-arm64-cpu16
+    runs-on: arc-arm64-cpu16
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # image-nvcr.yml uses this config when present, and the comment there
+      # says NVIDIA runners ship it pointing at a local mirror. Report either
+      # way: if ARC has no such file, base-image pulls go straight to Docker
+      # Hub and are subject to its anonymous rate limit.
+      - name: Detect runner BuildKit config
+        id: buildkit
+        shell: bash
+        run: |
+          if [[ -r /etc/buildkit/buildkitd.toml ]]; then
+            echo "config=/etc/buildkit/buildkitd.toml" >> "$GITHUB_OUTPUT"
+            echo "::notice::runner ships /etc/buildkit/buildkitd.toml"
+            cat /etc/buildkit/buildkitd.toml
+          else
+            echo "::warning::no /etc/buildkit/buildkitd.toml on this runner; base pulls are unmirrored"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          buildkitd-config: ${{ steps.buildkit.outputs.config }}
+
+      # The same flags controller/Makefile's docker-push-arch uses, with
+      # --push swapped for --output=type=cacheonly.
+      - name: Build controller image for arm64, discard the result
+        working-directory: controller
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx build -f Dockerfile \
+            --platform linux/arm64 \
+            --output=type=cacheonly \
+            --provenance=false \
+            --progress=plain \
+            --build-arg BUILD_VERSION=probe \
+            --build-arg GIT_VERSION="${GITHUB_SHA}" \
+            ..
