@@ -90,12 +90,11 @@ jobs:
           - arch: amd64
             runner: linux-amd64-cpu16
           - arch: arm64
-            # Not arc-arm64-cpu16 like the other six: this lane is the only
-            # one that needs /dev/vtpmx, for the software TPM swtpm gives
-            # each fixture host. Exposing a host device means a privileged
-            # pod, so it gets its own class rather than privileging the
-            # fleet everything else runs on. Same node pool either way.
-            runner: arc-arm64-vtpm
+            # Stays on the self-hosted fleet. An arc-arm64-vtpm class exists
+            # and this lane gets as far as `kubeadm init` on it, but the
+            # nested control plane never becomes healthy -- see the writeup
+            # on the PR that moved the other lanes.
+            runner: linux-arm64-cpu16
     # A full run takes 12-17 minutes on this pool, most of it the node image
     # build and CWE's three sequential control-plane joins. The margin covers
     # a cold image cache and a slow mirror; queue time does not count.
@@ -107,11 +106,11 @@ jobs:
       # Same mirror backend-e2e and local-entrypoint-e2e use. The node image
       # tries it first and falls through, so an unreachable mirror costs a
       # dial rather than the run.
-      NKE_E2E_DOCKERHUB_MIRROR: mirror.gcr.io
+      NKE_E2E_DOCKERHUB_MIRROR: dc.local.gha-runners.nvidia.com
       # The same mirror for the ephemeral bootstrap Kind cluster, which pulls
       # the temporal, postgres, SPIRE and Cluster API images itself. Concurrent
       # runs hit Docker Hub's anonymous rate limit without it.
-      NKECTL_BOOTSTRAP_DOCKERHUB_MIRROR: mirror.gcr.io
+      NKECTL_BOOTSTRAP_DOCKERHUB_MIRROR: dc.local.gha-runners.nvidia.com
       # Deliberately differs from nkectl's derived bootstrap-cluster default.
       # run.sh writes it into the site inventory and uses it for every fixture
       # host's pre-provisioned SPIRE agent configuration.
