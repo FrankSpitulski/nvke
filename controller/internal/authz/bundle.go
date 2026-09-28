@@ -10,7 +10,8 @@ package authz
 //
 // The sources under deploy/authz, read as they are written: cedar-go parses a
 // multi-policy .cedar document and JSON entity lists directly, so there is no
-// separate assembled form to keep in sync.
+// assembled artifact and no step between the file a person edits and the file
+// the engine loads.
 const (
 	// policiesFile holds the rules, in native Cedar, one @id each.
 	policiesFile = "policies.cedar"

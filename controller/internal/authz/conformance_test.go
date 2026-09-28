@@ -29,8 +29,9 @@ const (
 )
 
 const (
-	someClusterID = "11111111-1111-1111-1111-111111111111"
-	someNodeID    = "22222222-2222-2222-2222-222222222222"
+	someClusterID  = "11111111-1111-1111-1111-111111111111"
+	someNodeID     = "22222222-2222-2222-2222-222222222222"
+	someNodePoolID = "33333333-3333-3333-3333-333333333333"
 )
 
 // bundleCase is one row of the matrix. It is what deploy/authz grants, stated
@@ -62,14 +63,27 @@ func bundleMatrix() []bundleCase {
 		{"operator creates a node pool", subjectOperator, http.MethodPost, "/api/nodePools", http.StatusOK},
 		{"operator reads, via the nested reader role", subjectOperator, http.MethodGet, "/api/clusters", http.StatusOK},
 
-		// deleteNode is a DELETE and therefore in the write group; a forbid is
-		// what holds it to one role.
+		// Node lifecycle is a DELETE or a PATCH and therefore in the write
+		// group; a forbid is what holds it to one role.
 		{"operator cannot delete a node", subjectOperator, http.MethodDelete, "/api/nodes/" + someNodeID, http.StatusForbidden},
 		{"node operator deletes a node", subjectNodeOperator, http.MethodDelete, "/api/nodes/" + someNodeID, http.StatusOK},
 		{"node operator cannot write otherwise", subjectNodeOperator, http.MethodPatch, "/api/clusters/" + someClusterID, http.StatusForbidden},
 
-		// A forbid beats every permit, so nobody deletes a cluster.
-		{"operator cannot delete a cluster", subjectOperator, http.MethodDelete, "/api/clusters/" + someClusterID, http.StatusForbidden},
+		// Deleting a pool tears down every node in it, and changing one rolls
+		// them. Both used to be an ordinary operator write.
+		{"operator cannot delete a node pool", subjectOperator, http.MethodDelete, "/api/nodePools/" + someNodePoolID, http.StatusForbidden},
+		{"node operator deletes a node pool", subjectNodeOperator, http.MethodDelete, "/api/nodePools/" + someNodePoolID, http.StatusOK},
+		{"operator cannot update a node pool", subjectOperator, http.MethodPatch, "/api/nodePools/" + someNodePoolID, http.StatusForbidden},
+		{"node operator updates a node pool", subjectNodeOperator, http.MethodPatch, "/api/nodePools/" + someNodePoolID, http.StatusOK},
+
+		// ...and creating one is still an ordinary write, because it is
+		// additive; see writesLeftToTheGroup.
+		{"operator creates a node pool, still", subjectOperator, http.MethodPost, "/api/nodePools", http.StatusOK},
+
+		// Destructive, and named explicitly rather than left to the coarse
+		// write grant — see operators-may-delete-clusters. nodeOperator does
+		// not nest operator, so it still can't.
+		{"operator deletes a cluster", subjectOperator, http.MethodDelete, "/api/clusters/" + someClusterID, http.StatusOK},
 		{"node operator cannot delete a cluster", subjectNodeOperator, http.MethodDelete, "/api/clusters/" + someClusterID, http.StatusForbidden},
 
 		// A subject the bundle does not mention holds no role.
@@ -143,8 +157,8 @@ func bundleDir(tb testing.TB) string {
 	return dir
 }
 
-// The in-process engine, against the bundle sources. No sidecar, no assembly
-// step, no network: cedar-go reads the multi-policy .cedar document directly.
+// The engine against the bundle sources: no assembly step and no network, so
+// what this asserts is what a deployment does with the files in deploy/authz.
 func TestLocalMatchesTheBundle(t *testing.T) {
 	local, err := NewLocal(bundleDir(t))
 	require.NoError(t, err)
@@ -196,10 +210,11 @@ func TestLocalRefusesABundleThatDidNotLoad(t *testing.T) {
 // A hostile identifier is refused, not evaluated — and refused identically
 // whichever engine is deployed.
 //
-// The in-process engine could treat a quote as data and deny it on the merits,
-// and used to. That was a divergence: the sidecar refuses it as a bad query, so
-// the same request produced invalid_query on one deployment and no_policy_match
-// on the other. Query.Validate now decides for both, above the interface.
+// cedar-go could treat a quote as data and deny it on the merits, and used to.
+// That made the refusal an engine's opinion rather than a property of the
+// request: the same identifier was a bad question to one engine and an ordinary
+// denial to another. Query.Validate decides above the interface now, so what is
+// refused does not depend on who would have evaluated it.
 func TestAHostileIdentifierIsRefusedNotEvaluated(t *testing.T) {
 	local, err := NewLocal(bundleDir(t))
 	require.NoError(t, err)

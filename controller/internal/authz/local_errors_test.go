@@ -15,10 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The in-process engine's half of the guarantees the sidecar's tests already
-// cover. It is the chart default, and both of these were previously asserted
-// only against CedarAgent — deleting Local's errored-Allow refusal left the
-// suite green.
+// The two guarantees that hold the engine to answering only what it can stand
+// behind: an Allow reached while a policy errored is not served, and a Deny that
+// errored is still a Deny. Both were once asserted against another engine only,
+// so deleting either of these guards left the suite green.
 
 // bundleWith writes a throwaway bundle holding one reader and loads it. Used for
 // policies the shipped bundle deliberately does not contain.
@@ -54,16 +54,18 @@ const oneReader = `[
 // wins — so Cedar answers Allow with the error alongside. Serving that is
 // serving a request the policy meant to block.
 //
-// The guard here reads a context key nothing sets, so the attribute is always
-// absent and the guard always errors. Not the ownership idiom that used to stand
-// here — NewLocal refuses a policy reading an entity attribute now, see
-// checkPolicyShape — but the same evaluation failure, which is what this is
-// about: an engine that answers Allow beside an error must not be believed,
-// whatever produced the error.
+// The guard here compares context.issuer, a populated String, with `<` against
+// a Long, which is a type error at evaluation rather than at load. It used to
+// read a context key nothing sets instead — context.nothingSetsThis — but
+// checkPolicyShape now refuses that at NewLocal, before Authorize ever runs
+// (see TestABundleWhosePolicyReadsAnUnpopulatedContextKeyIsRefused in
+// policy_shape_test.go), so it no longer reaches this guard. This is the same
+// evaluation failure by another route: an engine that answers Allow beside an
+// error must not be believed, whatever produced the error.
 func TestLocalRefusesAnAllowReachedWhileAPolicyErrored(t *testing.T) {
 	local := bundleWith(t, `
 permit(principal in NKE::Role::"reader", action in NKE::Action::"read", resource);
-forbid(principal, action, resource) when { context.nothingSetsThis == "forbidden" };
+forbid(principal, action, resource) when { context.issuer < 1 };
 `)
 
 	decision, err := local.Authorize(context.Background(), Query{
@@ -83,7 +85,7 @@ forbid(principal, action, resource) when { context.nothingSetsThis == "forbidden
 // watching a permissive rollout would see a fault that is not there.
 func TestLocalKeepsADenyThatErrored(t *testing.T) {
 	local := bundleWith(t, `
-permit(principal in NKE::Role::"nobody", action, resource) when { context.nothingSetsThis == "x" };
+permit(principal in NKE::Role::"nobody", action, resource) when { context.issuer < 1 };
 `)
 
 	decision, err := local.Authorize(context.Background(), Query{
@@ -95,10 +97,10 @@ permit(principal in NKE::Role::"nobody", action, resource) when { context.nothin
 	assert.False(t, decision.Allow)
 }
 
-// The Cedar context the in-process engine builds, pinned the way cedar_test.go
-// pins the sidecar's. No shipped policy has a `when` clause reading context, so
-// the conformance matrix cannot see this: replacing the record with an empty one
-// left every test green.
+// The Cedar context the engine builds, pinned here because nothing else pins
+// it. No shipped policy has a `when` clause reading context, so the conformance
+// matrix cannot see it: replacing the record with an empty one left every test
+// green.
 func TestLocalSendsTheContextRecord(t *testing.T) {
 	local := bundleWith(t, `
 permit(principal, action, resource)
