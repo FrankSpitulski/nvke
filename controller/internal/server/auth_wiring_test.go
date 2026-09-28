@@ -80,7 +80,7 @@ func newEnforcingTestServer(t *testing.T) http.Handler {
 	require.NoError(t, err)
 
 	mockDB := &testutil.MockDB{}
-	srv, err := server.NewServer(cfg, logger, mockDB, nil, authn, nil)
+	srv, err := server.NewServer(cfg, logger, mockDB, nil, authn, nil, nil)
 	require.NoError(t, err)
 
 	return srv.Handler
@@ -132,7 +132,7 @@ func newPermissiveTestServer(t *testing.T) (http.Handler, *decisions) {
 	mockDB := &testutil.MockDB{}
 	mockDB.On("ListClusters", mock.Anything, mock.Anything).Return([]db.Cluster{}, nil)
 
-	srv, err := server.NewServer(cfg, logger, mockDB, nil, authn, nil)
+	srv, err := server.NewServer(cfg, logger, mockDB, nil, authn, nil, nil)
 	require.NoError(t, err)
 
 	return srv.Handler, recorded
@@ -219,7 +219,7 @@ func TestEnforcingServerRequiresTokenOnEveryOperation(t *testing.T) {
 		for method := range item.Operations() {
 			// Path parameters are left as literal "{id}" segments, so this only
 			// works if the 401 happens before routing.
-			target := "/api" + path
+			target := api.BasePath + path
 			t.Run(method+" "+target, func(t *testing.T) {
 				rr := httptest.NewRecorder()
 				handler.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), method, target, http.NoBody))
@@ -266,7 +266,7 @@ func TestDisabledServerLogsTheManagedByRejection(t *testing.T) {
 	}
 	mockDB := &testutil.MockDB{}
 	// nil authenticator: authentication is absent from the chain entirely.
-	srv, err := server.NewServer(cfg, logger, mockDB, nil, nil, nil)
+	srv, err := server.NewServer(cfg, logger, mockDB, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	rr := httptest.NewRecorder()

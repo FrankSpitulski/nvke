@@ -56,6 +56,7 @@ type Config struct {
 	Spire                                    SpireConfig          `json:"spire"`
 	Teleport                                 TeleportConfig       `json:"teleport"`
 	PermissiveMode                           bool                 `json:"permissiveMode"`
+	AuthzPermissive                          bool                 `json:"authzPermissive"`
 	MachineMetadataAllowlistedLabelKeys      []string             `json:"machineMetadataAllowlistedLabelKeys"`
 	MachineMetadataAllowlistedAnnotationKeys []string             `json:"machineMetadataAllowlistedAnnotationKeys"`
 	AllowControlPlaneWithoutVIP              bool                 `json:"allowControlPlaneWithoutVIP"`

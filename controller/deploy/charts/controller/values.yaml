@@ -567,6 +567,18 @@ apiAuth:
   # needs nothing. Keep it for clusters that removed that default.
   clusterIssuerDiscovery: true
 
+apiAuthz:
+  # -- Enable NKE API authorization. Requires apiAuth.enabled: authorizing a
+  # caller nobody authenticated is not a meaningful state.
+  enabled: false
+  # -- Count what enforcement would have refused but serve the request anyway.
+  # Watch nke_authz_requests_total{outcome="would_reject"} before enforcing.
+  permissive: false
+  # -- A ConfigMap in the release namespace holding the policy bundle, keyed
+  # `policies.cedar`, `actions.json` and `roles.json`. Required when
+  # apiAuthz.enabled=true; an empty name fails the render.
+  existingConfigMap: ""
+
 scheduledMaintenance:
   certRenewal:
     # -- Enable controller-owned periodic Kubernetes control-plane certificate renewal.

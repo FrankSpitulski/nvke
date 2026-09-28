@@ -66,8 +66,8 @@ func (a *Admit) resolve() (*admitRules, error) {
 	return rules, nil
 }
 
-// admits matches either rule kind, which is why Admit.validate refuses a set
-// carrying both.
+// admits matches any rule kind the set carries, which is why Admit.validate
+// refuses a set carrying more than one.
 func (r *admitRules) admits(p *Principal) bool {
 	if r.admitsServiceAccount(p) {
 		return true
