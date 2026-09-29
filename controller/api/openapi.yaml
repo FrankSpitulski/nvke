@@ -1003,24 +1003,29 @@ components:
           default: false
           description: Enable or disable control plane node recycling during version upgrades. When enabled, the cluster can upgrade control plane nodes by creating new nodes with the target version and removing old nodes. When disabled, old nodes are not recycled.
           x-order: 11
+        allowInPlaceUpdate:
+          type: boolean
+          default: false
+          description: When true and enableCPNodeRecycling is false, allow the in-place kubeadm control plane addon upgrade (kube-apiserver, controller-manager, scheduler, etcd, kube-proxy, CoreDNS) to proceed without waiting for node rollout. The node's kubelet version is unaffected; only node recycling changes it.
+          x-order: 12
         teleportEnabled:
           type: boolean
           default: false
           description: Whether Teleport SSH enrollment is enabled for nodes in this cluster.
-          x-order: 12
+          x-order: 13
         controlPlaneConfig:
           $ref: "#/components/schemas/ControlPlaneConfig"
           description: Cluster-level control plane configuration.
-          x-order: 13
+          x-order: 14
         network:
           $ref: "#/components/schemas/ClusterNetwork"
           description: Immutable pod and service network configuration applied to the cluster.
-          x-order: 14
+          x-order: 15
         createdAt:
           type: string
           format: date-time
           description: When the cluster was created
-          x-order: 15
+          x-order: 16
         conditions:
           $ref: "#/components/schemas/ClusterConditions"
           description: Conditions representing various aspects of the Cluster's state
@@ -1039,6 +1044,9 @@ components:
         enableCPNodeRecycling:
           type: boolean
           description: Enable or disable control plane node recycling during version upgrades.
+        allowInPlaceUpdate:
+          type: boolean
+          description: When true and enableCPNodeRecycling is false, allow the in-place kubeadm control plane addon upgrade to proceed without waiting for node rollout.
         # Same pattern and rationale as CreateClusterRequest.controlPlaneKubernetesVersion (semver.org version core; no leading "v").
         controlPlaneKubernetesVersion:
           type: string

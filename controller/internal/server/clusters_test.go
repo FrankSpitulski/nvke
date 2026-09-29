@@ -118,6 +118,7 @@ func TestClusterService_ListClusters(t *testing.T) {
 					ControlPlaneKubernetesVersion: "1.29.0",
 					ControlPlaneVIP:               func() *string { s := "10.0.0.1"; return &s }(),
 					EnableCPNodeRecycling:         func() *bool { b := false; return &b }(),
+					AllowInPlaceUpdate:            func() *bool { b := false; return &b }(),
 					TeleportEnabled:               func() *bool { b := false; return &b }(),
 					ControlPlaneConfig:            defaultAPIControlPlaneConfig(),
 					Network: api.ClusterNetwork{
@@ -161,6 +162,7 @@ func TestClusterService_ListClusters(t *testing.T) {
 					ControlPlaneKubernetesVersion: "1.29.0",
 					ControlPlaneVIP:               func() *string { s := "10.0.0.1"; return &s }(),
 					EnableCPNodeRecycling:         func() *bool { b := false; return &b }(),
+					AllowInPlaceUpdate:            func() *bool { b := false; return &b }(),
 					TeleportEnabled:               func() *bool { b := false; return &b }(),
 					ControlPlaneConfig:            defaultAPIControlPlaneConfig(),
 					Network: api.ClusterNetwork{
@@ -767,6 +769,7 @@ func TestClusterService_GetCluster(t *testing.T) {
 				ControlPlaneKubernetesVersion: "1.29.0",
 				ControlPlaneVIP:               func() *string { s := "10.0.0.1"; return &s }(),
 				EnableCPNodeRecycling:         func() *bool { b := false; return &b }(),
+				AllowInPlaceUpdate:            func() *bool { b := false; return &b }(),
 				TeleportEnabled:               func() *bool { b := false; return &b }(),
 				ControlPlaneConfig:            defaultAPIControlPlaneConfig(),
 				Network: api.ClusterNetwork{
@@ -1348,6 +1351,85 @@ func TestClusterService_UpdateCluster_RejectsNetworkChange(t *testing.T) {
 	require.True(t, ok, "expected UpdateCluster400JSONResponse, got %T", resp)
 	assert.Contains(t, badRequest.Message, "network is immutable")
 	mockDB.AssertNotCalled(t, "RunInTx", mock.Anything, mock.Anything)
+}
+
+func TestClusterService_UpdateCluster_RejectsAllowInPlaceUpdateWithRecycling(t *testing.T) {
+	clusterID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
+
+	testCases := []struct {
+		name                  string
+		existingRecycling     bool
+		existingAllowInPlace  bool
+		reqAllowInPlaceUpdate *bool
+		reqEnableCPRecycling  *bool
+		wantRejected          bool
+	}{
+		{name: "both false is ok", reqAllowInPlaceUpdate: boolPtr(false), reqEnableCPRecycling: boolPtr(false), wantRejected: false},
+		{name: "allowInPlaceUpdate true, recycling false is ok", reqAllowInPlaceUpdate: boolPtr(true), reqEnableCPRecycling: boolPtr(false), wantRejected: false},
+		{name: "allowInPlaceUpdate false, recycling true is ok", reqAllowInPlaceUpdate: boolPtr(false), reqEnableCPRecycling: boolPtr(true), wantRejected: false},
+		{name: "both true is rejected", reqAllowInPlaceUpdate: boolPtr(true), reqEnableCPRecycling: boolPtr(true), wantRejected: true},
+		{
+			name:                 "unset allowInPlaceUpdate keeps existing true, enabling recycling is rejected",
+			existingAllowInPlace: true,
+			reqEnableCPRecycling: boolPtr(true),
+			wantRejected:         true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockDB := &mockDB{}
+			mockDB.MockTx = &mockTx{}
+			mockDB.MockTx.On("GetClusterForUpdate", mock.Anything, clusterID).Return(db.Cluster{
+				ID:                    clusterID,
+				Name:                  "test-cluster",
+				EnableCPNodeRecycling: tc.existingRecycling,
+				AllowInPlaceUpdate:    tc.existingAllowInPlace,
+				Nico: &db.NicoClusterProvider{
+					OrgID:  testOrgID,
+					SiteID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440001"),
+					VpcID:  uuid.MustParse("550e8400-e29b-41d4-a716-446655440002"),
+				},
+			}, nil).Once()
+			if !tc.wantRejected {
+				mockDB.MockTx.On("UpdateCluster", mock.Anything, mock.AnythingOfType("*db.Cluster")).Return(db.Cluster{
+					ID:                    clusterID,
+					EnableCPNodeRecycling: derefOrDefault(tc.reqEnableCPRecycling, tc.existingRecycling),
+					AllowInPlaceUpdate:    derefOrDefault(tc.reqAllowInPlaceUpdate, tc.existingAllowInPlace),
+				}, nil).Once()
+			}
+			mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
+			mockDB.GetTx = func() db.Tx { return mockDB.MockTx }
+
+			svc := newTestClusterService(discardLogger(), mockDB)
+			resp, err := svc.UpdateCluster(context.Background(), api.UpdateClusterRequestObject{
+				ClusterID: clusterID,
+				Body: &api.UpdateClusterRequest{
+					AllowInPlaceUpdate:    tc.reqAllowInPlaceUpdate,
+					EnableCPNodeRecycling: tc.reqEnableCPRecycling,
+				},
+			})
+			require.NoError(t, err)
+
+			if tc.wantRejected {
+				badRequest, ok := resp.(api.UpdateCluster400JSONResponse)
+				require.True(t, ok, "expected UpdateCluster400JSONResponse, got %T", resp)
+				assert.Contains(t, badRequest.Message, "allowInPlaceUpdate and enableCPNodeRecycling cannot both be true")
+				return
+			}
+			_, ok := resp.(api.UpdateCluster200JSONResponse)
+			require.True(t, ok, "expected UpdateCluster200JSONResponse, got %T", resp)
+		})
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+func derefOrDefault(b *bool, def bool) bool {
+	if b == nil {
+		return def
+	}
+	return *b
 }
 
 func TestClusterService_UpdateCluster_EnableEtcdEncryption_AlreadyEncryptedNoop(t *testing.T) {

@@ -84,6 +84,9 @@ type Cluster struct {
 	// EnableCPNodeRecycling Enable or disable control plane node recycling during version upgrades. When enabled, the cluster can upgrade control plane nodes by creating new nodes with the target version and removing old nodes. When disabled, old nodes are not recycled.
 	EnableCPNodeRecycling *bool `json:"enableCPNodeRecycling,omitempty"`
 
+	// AllowInPlaceUpdate When true and enableCPNodeRecycling is false, allow the in-place kubeadm control plane addon upgrade (kube-apiserver, controller-manager, scheduler, etcd, kube-proxy, CoreDNS) to proceed without waiting for node rollout. The node's kubelet version is unaffected; only node recycling changes it.
+	AllowInPlaceUpdate *bool `json:"allowInPlaceUpdate,omitempty"`
+
 	// TeleportEnabled Whether Teleport SSH enrollment is enabled for nodes in this cluster.
 	TeleportEnabled *bool `json:"teleportEnabled,omitempty"`
 
@@ -1103,6 +1106,9 @@ type UpdateClusterControlPlaneConfig struct {
 
 // UpdateClusterRequest defines model for UpdateClusterRequest.
 type UpdateClusterRequest struct {
+	// AllowInPlaceUpdate When true and enableCPNodeRecycling is false, allow the in-place kubeadm control plane addon upgrade to proceed without waiting for node rollout.
+	AllowInPlaceUpdate *bool `json:"allowInPlaceUpdate,omitempty"`
+
 	// ControlPlaneConfig `nico` and `infra` are mutually exclusive: supply at most one of them (both
 	// may be omitted). A request carrying both is rejected with 400, as is a
 	// provider payload that does not match the cluster.

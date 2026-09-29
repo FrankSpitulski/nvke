@@ -48,6 +48,7 @@ var (
 	errOIDCDuringDeletion                       = errors.New("cannot enable OIDC authentication while cluster deletion is in progress")
 	errOIDCWithKubernetesUpgrade                = errors.New("cannot enable OIDC authentication and update the Kubernetes version in the same request")
 	errOIDCWithEtcdEncryption                   = errors.New("cannot enable OIDC authentication and etcd encryption in the same request")
+	errAllowInPlaceUpdateWithRecycling          = errors.New("allowInPlaceUpdate and enableCPNodeRecycling cannot both be true")
 	errClusterMaxSurgeTooHigh                   = errors.New("maxSurge should be max 1 for cluster-level control plane config")
 	errControlPlaneConfigNotEnabled             = errors.New("cluster-level controlPlaneConfig requires control-plane controller provisioning to be enabled; configure the control plane via a control-plane node pool")
 	cniVersionPattern                           = regexp.MustCompile(`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$`)
@@ -519,6 +520,12 @@ func (s *clusterService) UpdateCluster(ctx context.Context, req api.UpdateCluste
 		if req.Body.EnableCPNodeRecycling != nil {
 			dbCluster.EnableCPNodeRecycling = *req.Body.EnableCPNodeRecycling
 		}
+		if req.Body.AllowInPlaceUpdate != nil {
+			dbCluster.AllowInPlaceUpdate = *req.Body.AllowInPlaceUpdate
+		}
+		if dbCluster.AllowInPlaceUpdate && dbCluster.EnableCPNodeRecycling {
+			return errAllowInPlaceUpdateWithRecycling
+		}
 		if req.Body.TeleportEnabled != nil {
 			dbCluster.TeleportEnabled = *req.Body.TeleportEnabled
 		}
@@ -647,12 +654,14 @@ func isUpdateClusterClientError(err error) bool {
 		errors.Is(err, errOIDCDuringDeletion) ||
 		errors.Is(err, errOIDCWithKubernetesUpgrade) ||
 		errors.Is(err, errOIDCWithEtcdEncryption) ||
+		errors.Is(err, errAllowInPlaceUpdateWithRecycling) ||
 		errors.Is(err, errClusterMaxSurgeTooHigh) ||
 		errors.Is(err, errControlPlaneConfigNotEnabled)
 }
 
 func hasNonEtcdEncryptionMutation(req *api.UpdateClusterRequest) bool {
 	return req.EnableCPNodeRecycling != nil ||
+		req.AllowInPlaceUpdate != nil ||
 		req.TeleportEnabled != nil ||
 		(req.ControlPlaneKubernetesVersion != nil && *req.ControlPlaneKubernetesVersion != "") ||
 		req.ControlPlaneConfig != nil
@@ -1128,6 +1137,7 @@ func APIClusterFromDB(dbCluster *db.Cluster) api.Cluster {
 		ControlPlaneKubernetesVersion: dbCluster.KubernetesVersion,
 		ControlPlaneVIP:               controlPlaneVIP,
 		EnableCPNodeRecycling:         &dbCluster.EnableCPNodeRecycling,
+		AllowInPlaceUpdate:            &dbCluster.AllowInPlaceUpdate,
 		TeleportEnabled:               &dbCluster.TeleportEnabled,
 		ControlPlaneConfig:            apiControlPlaneConfigFromDB(dbCluster.ControlPlaneConfig),
 		Network: api.ClusterNetwork{

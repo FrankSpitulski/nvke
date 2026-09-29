@@ -246,29 +246,44 @@ func (r *reconciler) isControlPlaneUpgradeComplete(
 		return false
 	}
 
-	rolloutCount := cp.countNodesNeedingRollout()
+	// AllowInPlaceUpdate with recycling disabled is an explicit opt-in to run
+	// kubeadm upgrade apply (addons only) without ever replacing the node, so
+	// the rollout/off-version gates below would otherwise block forever: with
+	// no recycling, the node never leaves "needing rollout" and never reports
+	// the target Kubernetes version. Skipping them here means kube-apiserver /
+	// controller-manager / scheduler / etcd / kube-proxy / CoreDNS can move to
+	// the target version while kubelet stays on whatever version the node was
+	// last provisioned with; only node recycling changes kubelet.
+	skipRolloutGate := cluster.AllowInPlaceUpdate && !cluster.EnableCPNodeRecycling
 
-	if rolloutCount > 0 {
-		logger.Info("Cluster has nodes needing rollout, upgrade not complete",
-			"nodesNeedingRolloutCount", rolloutCount)
-		return false
-	}
+	if !skipRolloutGate {
+		rolloutCount := cp.countNodesNeedingRollout()
 
-	// Right after the pool version changes nothing is deprecated yet, so the
-	// rollout count alone reads as done while every node still runs the old
-	// kubeadm. Pool-managed only: the controller path never writes the pool
-	// version, so a legacy pool would hold this above zero forever.
-	if !cp.useController {
-		if offVersion, pools, stuck := cp.nodesOffVersion(cluster.KubernetesVersion); offVersion > 0 {
-			if stuck {
-				logger.Warn("Nodes on the previous Kubernetes version in an auto-provision-disabled pool; the upgrade cannot finish",
-					"nodesOffVersion", offVersion, "nodePoolIDs", pools)
-			} else {
-				logger.Info("Control plane nodes still on the previous Kubernetes version, upgrade not complete",
-					"nodesOffVersion", offVersion, "nodePoolIDs", pools)
-			}
+		if rolloutCount > 0 {
+			logger.Info("Cluster has nodes needing rollout, upgrade not complete",
+				"nodesNeedingRolloutCount", rolloutCount)
 			return false
 		}
+
+		// Right after the pool version changes nothing is deprecated yet, so the
+		// rollout count alone reads as done while every node still runs the old
+		// kubeadm. Pool-managed only: the controller path never writes the pool
+		// version, so a legacy pool would hold this above zero forever.
+		if !cp.useController {
+			if offVersion, pools, stuck := cp.nodesOffVersion(cluster.KubernetesVersion); offVersion > 0 {
+				if stuck {
+					logger.Warn("Nodes on the previous Kubernetes version in an auto-provision-disabled pool; the upgrade cannot finish",
+						"nodesOffVersion", offVersion, "nodePoolIDs", pools)
+				} else {
+					logger.Info("Control plane nodes still on the previous Kubernetes version, upgrade not complete",
+						"nodesOffVersion", offVersion, "nodePoolIDs", pools)
+				}
+				return false
+			}
+		}
+	} else {
+		logger.Info("allowInPlaceUpdate is set with recycling disabled; skipping node rollout gate for in-place control-plane addon upgrade",
+			"clusterID", cluster.ID)
 	}
 
 	healthyCount := cp.countHealthyNodes()

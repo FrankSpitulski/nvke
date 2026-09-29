@@ -56,6 +56,7 @@ type Cluster struct {
 	KubernetesVersion     string     `bun:"type:text,notnull"`
 	ControlPlaneVIP       string     `bun:"type:text"`
 	EnableCPNodeRecycling bool       `bun:"type:boolean,notnull,default:false"`
+	AllowInPlaceUpdate    bool       `bun:"type:boolean,notnull,default:false"`
 	TeleportEnabled       bool       `bun:"type:boolean,notnull,default:false"`
 	PodCIDR               string     `bun:"pod_cidr,type:text,notnull,default:'192.168.0.0/16'"`
 	ServiceCIDR           string     `bun:"service_cidr,type:text,notnull,default:'10.96.0.0/12'"`

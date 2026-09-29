@@ -57,6 +57,14 @@ func (s *NodeAgentServer) KubeadmUpgradeApply(
 	}
 
 	applyArgs := []string{kubeadmUpgradeCommand, kubeadmApplyCommand, targetVersion, "--patches=" + kubeadmPatchesDir, kubeadmAssumeYesFlag}
+	if isLocalDev() {
+		// SystemVerification checks kernel config via `modprobe configs` + /proc/config.gz.
+		// On production bare-metal Ubuntu this succeeds (kernel ships with the configs module).
+		// In Docker containers it fails because the container namespace cannot load kernel modules.
+		// Safe to ignore: the actual kernel features kubeadm verifies (namespaces, cgroups, etc.)
+		// are confirmed by the other preflight checks (CGROUPS_*, etc.) that do pass.
+		applyArgs = append(applyArgs, "--ignore-preflight-errors=SystemVerification")
+	}
 	applyOutput, err := s.Runner.Run("kubeadm", applyArgs, &utils.CommandOptions{})
 	response.ApplyOutput = string(applyOutput)
 	if err != nil {

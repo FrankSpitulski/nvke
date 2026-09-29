@@ -42,3 +42,37 @@ func TestIsControlPlaneUpgradeComplete_NodesStillOnOldVersion(t *testing.T) {
 	assert.True(t, r.isControlPlaneUpgradeComplete(cluster, pool("1.35.3"), slog.Default()), "nodes on the target version")
 	assert.True(t, r.isControlPlaneUpgradeComplete(cluster, pool(""), slog.Default()), "unknown NodeSet version does not block")
 }
+
+// AllowInPlaceUpdate with recycling disabled is an explicit opt-in to skip the
+// rollout/off-version gate, so the in-place kubeadm addons upgrade can run even
+// though the node is (and will remain) on the old NodeSet version.
+func TestIsControlPlaneUpgradeComplete_AllowInPlaceUpdate(t *testing.T) {
+	healthy := db.Node{Conditions: db.NodeConditions{
+		KubernetesReady: db.Condition{Status: db.ConditionStatusTrue},
+		Provisioned:     db.Condition{Status: db.ConditionStatusTrue},
+	}}
+	nodeSetID := uuid.New()
+	cp := &controlPlane{
+		nodes: []db.Node{healthy},
+		nodePools: []nodePool{{
+			NodePool: db.NodePool{DesiredCount: 1, CurrentNodeSetID: &nodeSetID},
+			nodeSets: []nodeSet{{
+				NodeSet: db.NodeSet{ID: nodeSetID, KubernetesVersion: "1.34.2"},
+				nodes:   []db.Node{healthy},
+			}},
+		}},
+	}
+	r := &reconciler{}
+
+	notAllowed := db.Cluster{KubernetesVersion: "1.35.3", AllowInPlaceUpdate: false, EnableCPNodeRecycling: false}
+	assert.False(t, r.isControlPlaneUpgradeComplete(notAllowed, cp, slog.Default()),
+		"flag unset: still gated on rollout/off-version, unchanged behavior")
+
+	allowed := db.Cluster{KubernetesVersion: "1.35.3", AllowInPlaceUpdate: true, EnableCPNodeRecycling: false}
+	assert.True(t, r.isControlPlaneUpgradeComplete(allowed, cp, slog.Default()),
+		"flag set with recycling disabled: rollout/off-version gate bypassed")
+
+	allowedButRecycling := db.Cluster{KubernetesVersion: "1.35.3", AllowInPlaceUpdate: true, EnableCPNodeRecycling: true}
+	assert.False(t, r.isControlPlaneUpgradeComplete(allowedButRecycling, cp, slog.Default()),
+		"flag set but recycling enabled: bypass does not apply, still gated")
+}
