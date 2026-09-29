@@ -115,7 +115,7 @@ A Helm chart to deploy the NKE controller service
 | serviceAccount.name | string | `"cloud-workflow-engine"` | The name of the service account to use. If not set and create is true, a name is generated using the fullname template |
 | serviceMonitor.enabled | bool | `true` | Enable/disable ServiceMonitor creation. ANDed with the umbrella kill-switch `global.monitoring.enabled`, which is treated as true when unset so standalone installs are unaffected. |
 | serviceMonitor.labels | object | `{}` | Additional labels for the ServiceMonitor |
-| serviceMonitor.matchLabels | object | `{"app.kubernetes.io/name":"cloud-workflow-engine"}` | Selector labels to match the service |
+| serviceMonitor.matchLabels | object | `{}` | Selector labels to match the service. Values here win over the chart-derived selector labels, so leave unset to let the derived labels through |
 | serviceMonitor.name | string | `"cloud-workflow-engine-metrics"` | Name of the ServiceMonitor |
 | spiffe.capdManagerSubject | string | `""` | Subject the nke:capi-cluster-admin RBAC binding names for the CAPD manager. Defaults to its local SPIFFE ID; set it to the rewritten subject when CAPD uses an exchanged tenant kubeconfig. |
 | spiffe.capiKubeadmControlPlaneManagerSubject | string | `""` | Subject the nke:capi-cluster-admin RBAC binding names for the kubeadm control-plane manager. Defaults to its local SPIFFE ID; set it to the rewritten subject when that controller uses an exchanged tenant kubeconfig. |
