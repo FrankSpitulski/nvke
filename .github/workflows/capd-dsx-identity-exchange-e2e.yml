@@ -58,7 +58,12 @@ jobs:
           - arch: amd64
             runner: linux-amd64-cpu16
           - arch: arm64
-            runner: arc-arm64-cpu16
+            # BISECT ONLY -- do not merge. arc-arm64-kvm nodes still run
+            # launch template v3, which predates the vtpm-proxy userdata,
+            # so they have no /dev/vtpmx. Same runner image as cpu16.
+            # Passing here means the vTPM module is what broke SPIRE
+            # attestation; failing means it is the runner image.
+            runner: arc-arm64-kvm
     uses: ./.github/workflows/backend-e2e.yml
     permissions:
       contents: read
