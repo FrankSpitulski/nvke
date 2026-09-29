@@ -47,6 +47,19 @@ wait_for_socket() {
   return 1
 }
 
+# have_systemd reports whether PID 1 is systemd. False on a container runner,
+# where /run/systemd/system is absent and systemctl exits with
+#   System has not been booted with systemd as init system (PID 1).
+have_systemd() { [ -d /run/systemd/system ]; }
+
+# start_unmanaged runs a daemon directly, for hosts with no init system to
+# hand it to. $1 names it for the log file; the rest is the command.
+start_unmanaged() {
+  local name="$1"; shift
+  log "no systemd: starting ${name} directly"
+  sudo sh -c "nohup $* >/tmp/${name}.log 2>&1 &"
+}
+
 # install_runtime installs nerdctl-full and starts the standalone containerd
 # and buildkitd, pinned by the environment guarded below.
 install_runtime() {
@@ -124,17 +137,30 @@ KillMode=process
 WantedBy=multi-user.target
 UNIT
 
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now containerd-nerdctl
+  # The units above are still written either way: they document the exact
+  # flags, and a VM runner uses them. Only the starting differs.
+  if have_systemd; then
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now containerd-nerdctl
+  else
+    start_unmanaged containerd-nerdctl \
+      /usr/local/bin/containerd --config /etc/containerd-nerdctl/config.toml
+  fi
 
   if ! wait_for_socket "${CONTAINERD_ADDRESS}" 30; then
     echo "::error::containerd-nerdctl never opened ${CONTAINERD_ADDRESS}"
-    echo "::group::containerd-nerdctl.service status"
-    sudo systemctl status containerd-nerdctl --no-pager -l || true
-    echo "::endgroup::"
-    echo "::group::containerd-nerdctl journal"
-    sudo journalctl -u containerd-nerdctl --no-pager || true
-    echo "::endgroup::"
+    if have_systemd; then
+      echo "::group::containerd-nerdctl.service status"
+      sudo systemctl status containerd-nerdctl --no-pager -l || true
+      echo "::endgroup::"
+      echo "::group::containerd-nerdctl journal"
+      sudo journalctl -u containerd-nerdctl --no-pager || true
+      echo "::endgroup::"
+    else
+      echo "::group::containerd-nerdctl output"
+      sudo cat /tmp/containerd-nerdctl.log || true
+      echo "::endgroup::"
+    fi
     echo "::group::/etc/containerd-nerdctl/config.toml"
     sudo cat /etc/containerd-nerdctl/config.toml || true
     echo "::endgroup::"
@@ -143,12 +169,28 @@ UNIT
 
   sudo -E env "PATH=$PATH" nerdctl info
 
-  sudo systemctl enable --now buildkit-nerdctl
+  if have_systemd; then
+    sudo systemctl enable --now buildkit-nerdctl
+  else
+    start_unmanaged buildkit-nerdctl \
+      /usr/local/bin/buildkitd \
+      --addr "unix://${BUILDKIT_HOST#unix://}" \
+      --oci-worker=false \
+      --containerd-worker=true \
+      --containerd-worker-addr "${CONTAINERD_ADDRESS}" \
+      --containerd-worker-namespace "${CONTAINERD_NAMESPACE}"
+  fi
   if ! wait_for_socket "${BUILDKIT_HOST#unix://}" 30; then
     echo "::error::buildkitd never opened ${BUILDKIT_HOST}"
-    echo "::group::buildkit-nerdctl journal"
-    sudo journalctl -u buildkit-nerdctl --no-pager || true
-    echo "::endgroup::"
+    if have_systemd; then
+      echo "::group::buildkit-nerdctl journal"
+      sudo journalctl -u buildkit-nerdctl --no-pager || true
+      echo "::endgroup::"
+    else
+      echo "::group::buildkit-nerdctl output"
+      sudo cat /tmp/buildkit-nerdctl.log || true
+      echo "::endgroup::"
+    fi
     exit 1
   fi
 }
@@ -159,8 +201,17 @@ remove_docker() {
   # the socket nerdctl falls back to without CONTAINERD_ADDRESS. `disable`
   # may fail for a unit that is not loaded; `mask` must not, because the
   # assertions below rely on it.
-  sudo systemctl disable --now docker.socket docker.service containerd.service 2>/dev/null || true
-  sudo systemctl mask docker.socket docker.service containerd.service
+  # On a container runner there are no units to disable or mask: Docker is a
+  # dind sidecar reached over the mounted socket, so removing the socket is
+  # what makes it unreachable. The guarantee is genuinely weaker there --
+  # the daemon still exists in the pod, it just has no path to it -- and the
+  # masking assertions below are skipped to match.
+  if have_systemd; then
+    sudo systemctl disable --now docker.socket docker.service containerd.service 2>/dev/null || true
+    sudo systemctl mask docker.socket docker.service containerd.service
+  else
+    log "no systemd: Docker is a sidecar; removing its socket rather than masking units"
+  fi
   sudo rm -f /var/run/docker.sock /run/docker.sock
 
   shim_dir="${STATE_DIR}/no-docker"
@@ -201,20 +252,22 @@ SHIM
       echo "::error::${real} still reaches a daemon after removal"; exit 1
     fi
   done < <(type -aP docker || true)
-  if systemctl is-active --quiet docker.service; then
+  if have_systemd && systemctl is-active --quiet docker.service; then
     echo "::error::docker.service is still active after removal"; exit 1
   fi
   if [ -S /var/run/docker.sock ]; then
     echo "::error::/var/run/docker.sock still exists after removal"; exit 1
   fi
   # Masked, not merely stopped: docker.socket could otherwise socket-activate
-  # the daemon back after the check above.
-  for unit in docker.socket docker.service containerd.service; do
-    state="$(systemctl is-enabled "${unit}" 2>/dev/null || true)"
-    if [ "${state}" != "masked" ]; then
-      echo "::error::${unit} is '${state:-absent}' after removal, want masked"; exit 1
-    fi
-  done
+  # the daemon back after the check above. Nothing to assert without systemd.
+  if have_systemd; then
+    for unit in docker.socket docker.service containerd.service; do
+      state="$(systemctl is-enabled "${unit}" 2>/dev/null || true)"
+      if [ "${state}" != "masked" ]; then
+        echo "::error::${unit} is '${state:-absent}' after removal, want masked"; exit 1
+      fi
+    done
+  fi
   echo "docker removed; invoking it now fails with:"
   docker version 2>&1 | sed 's/^/  /' || true
 }
