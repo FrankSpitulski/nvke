@@ -183,7 +183,8 @@ Steps 1–4 are **authentication**: is this token real. Step 5 is **admission**:
 is this caller allowed in. They fail differently, which is why the status codes
 differ. See the table below.
 
-NVKE does no authorization beyond that. Every admitted caller can do everything.
+With authorization on, NVKE then checks what the caller may do; see
+[Configuring NVKE API Authorization](configuring-api-authorization.md).
 
 ## When it doesn't work
 

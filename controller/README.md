@@ -547,8 +547,8 @@ pod spec can have the kubelet project a token for their own service account,
 naming any audience they choose. No RBAC check applies to that audience. Admission
 rules keep every service account on the cluster from being an NVKE administrator.
 
-NVKE does no authorization: every admitted caller can do everything. That is a
-platform responsibility.
+Authorization, off by default, decides what each admitted caller may do. See
+[Configuring NVKE API Authorization](docs/configuring-api-authorization.md).
 
 ### Local Development
 
