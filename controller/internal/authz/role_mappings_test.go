@@ -543,7 +543,15 @@ func TestAMissingRoleMappingsFileFailsTheLoad(t *testing.T) {
 
 	_, err := NewLocal(dir, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), roleMappingsFile)
+	assert.Contains(t, err.Error(), "reading "+roleMappingsFile)
+	assert.Contains(t, err.Error(), "apiAuthz.roleMappingsConfigMap",
+		"the error must name the chart value that supplies the file")
+	assert.Contains(t, err.Error(), "nke-authz-role-mappings")
+
+	errs := ValidateBundle(dir)
+	require.Len(t, errs, 1, "%v", errs)
+	assert.NotContains(t, errs[0].Error(), "has no entries",
+		"a file that did not read has no known entry count")
 }
 
 // Setup is where cmd/worker hands over the authentication issuers; a mapping

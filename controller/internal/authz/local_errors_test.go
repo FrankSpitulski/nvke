@@ -65,8 +65,14 @@ forbid(principal, action, resource) when { context.issuer < 1 };
 // bundle with one erroring policy would report engine_error and an operator
 // watching a permissive rollout would see a fault that is not there.
 func TestLocalKeepsADenyThatErrored(t *testing.T) {
+	// NKE::Role::"reader", not an undeclared role: loadBundle enforces
+	// checkRoleVocabulary (validate.go) inside NewLocal itself, so a policy
+	// naming a role that oneReader does not declare would refuse to load at
+	// all, before Authorize is ever reached -- and that is not what this test
+	// is checking. Which role is named here is otherwise incidental: the guard
+	// always errors regardless of who it would have matched.
 	local := bundleWith(t, `
-permit(principal in NKE::Role::"nobody", action, resource) when { context.issuer < 1 };
+permit(principal in NKE::Role::"reader", action, resource) when { context.issuer < 1 };
 `)
 
 	decision, err := local.Authorize(context.Background(), Query{
@@ -84,10 +90,21 @@ permit(principal in NKE::Role::"nobody", action, resource) when { context.issuer
 // matrix cannot see it: replacing the record with an empty one left every test
 // green.
 func TestLocalSendsTheContextRecord(t *testing.T) {
-	local := bundleWith(t, `
-permit(principal, action, resource)
+	// Scoped to NKE::Role::"reader", so checkRoleReachability (validate.go)
+	// does not refuse oneReader's "reader" role as unnamed by any policy. The
+	// mappings grant subjectReader reader from both issuers, so only the
+	// context record can tell the two requests apart.
+	const otherIssuer = "some-other-idp"
+	grant := func(issuer string) string {
+		return `{"issuer":"` + issuer + `","claim":{"name":"sub","value":"` + subjectReader + `"},` +
+			`"grants":[{"type":"NKE::Role","id":"reader"}]}`
+	}
+	local, err := NewLocal(writeBundleWithMappings(t, `
+permit(principal in NKE::Role::"reader", action, resource)
 when { context.issuer == "kube-apiserver" && context.method == "GET" };
-`)
+`, shippedActions(t), oneReader, "["+grant(testIssuer)+","+grant(otherIssuer)+"]"),
+		[]string{testIssuer, otherIssuer})
+	require.NoError(t, err)
 
 	allowed, err := local.Authorize(context.Background(), Query{
 		Principal: subjectReader, Issuer: testIssuer, Action: "getCluster",
@@ -100,7 +117,7 @@ when { context.issuer == "kube-apiserver" && context.method == "GET" };
 	// The same request from another issuer must not match, or the issuer is not
 	// really in the context.
 	other, err := local.Authorize(context.Background(), Query{
-		Principal: subjectReader, Issuer: "some-other-idp", Action: "getCluster",
+		Principal: subjectReader, Issuer: otherIssuer, Action: "getCluster",
 		ResourceType: "NKE::Cluster", ResourceID: someClusterID, Method: http.MethodGet,
 		Claims: subClaim(subjectReader),
 	})

@@ -193,7 +193,7 @@ func bundleDir(tb testing.TB) string {
 
 // shippedBundleWithMappings writes deploy/authz's policies, actions and roles
 // with mappings as roleMappings.json, and returns the directory. It is how
-// every test loads the shipped bundle: the shipped roleMappings.json is empty,
+// every test loads the shipped bundle: deploy/authz holds no roleMappings.json,
 // and a bundle with no mapping does not load. Pass testRoleMappings for the
 // test identities, and testIssuers to NewLocal.
 func shippedBundleWithMappings(tb testing.TB, mappings string) string {

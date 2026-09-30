@@ -742,10 +742,11 @@ func setUpAuthorization(
 	logger *slog.Logger,
 ) (*authz.Provider, error) {
 	authzProvider, err := authz.Setup(ctx, authz.Options{
-		BundleDir:   cfg.AuthzBundlePath,
-		Permissive:  cfg.AuthzPermissive,
-		Recorder:    metrics.RecordAuthzRequest,
-		IssuerNames: authenticator.IssuerNames(),
+		BundleDir:              cfg.AuthzBundlePath,
+		Permissive:             cfg.AuthzPermissive,
+		Recorder:               metrics.RecordAuthzRequest,
+		GroupOnlyWriteRecorder: metrics.SetAuthzGroupOnlyWriteActions,
+		IssuerNames:            authenticator.IssuerNames(),
 	}, logger)
 	if err != nil {
 		return nil, err

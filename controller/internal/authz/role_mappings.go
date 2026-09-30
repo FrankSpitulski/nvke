@@ -42,13 +42,6 @@ type roleMappingEntry struct {
 	Grants []entityID `json:"grants"`
 }
 
-// entityID is an entity reference the way roles.json writes one:
-// {"type": ..., "id": ...}.
-type entityID struct {
-	Type string `json:"type"`
-	ID   string `json:"id"`
-}
-
 // claimMatch matches a top-level verified claim equal to Value, or an array of
 // strings containing it.
 type claimMatch struct {

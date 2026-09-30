@@ -40,6 +40,20 @@ const (
 	schemaFile = "schema.json"
 )
 
+// Where the chart mounts roleMappings.json from, for the errors that tell an
+// operator where a grant belongs. The chart never renders that ConfigMap; the
+// operator creates it.
+const (
+	// defaultRoleMappingsConfigMap is the chart's default for
+	// apiAuthz.roleMappingsConfigMap (_helpers.tpl); chart_bundle_sync_test.go
+	// keeps the two equal.
+	defaultRoleMappingsConfigMap = "nke-authz-role-mappings"
+
+	// roleMappingsSource names that ConfigMap in an error.
+	roleMappingsSource = "the ConfigMap named by the chart value apiAuthz.roleMappingsConfigMap " +
+		"(" + defaultRoleMappingsConfigMap + " when empty)"
+)
+
 // entityFiles are the entity sources, in load order. Both are required: the
 // generated actions and the hand-written roles are halves of one entity store,
 // and either one missing leaves the mappings no roles to grant, or actions

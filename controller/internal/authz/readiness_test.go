@@ -84,7 +84,8 @@ func TestABundleWithNoRolesIsRefused(t *testing.T) {
 func TestABundleWithNoMappingsIsRefused(t *testing.T) {
 	_, err := NewLocal(writeBundleWithMappings(t, aPolicy, shippedActions(t), oneReader, `[]`), testIssuers)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), roleMappingsFile+" has no entries, so no caller would hold a role")
+	require.Contains(t, err.Error(), roleMappingsFile+" has no entries: no caller would hold a role")
+	require.Contains(t, err.Error(), "apiAuthz.roleMappingsConfigMap", "the error must name where grants come from")
 }
 
 // A principal entity grants its roles to a bare subject from every issuer, so

@@ -279,18 +279,17 @@ absent "no policy volume"                    'name: nke-authz-policy'           
 absent "nothing mounted at the bundle path"  'mountPath: "/etc/nke/authz"'          "${out}"
 
 echo "apiAuthz enabled, enforcing:"
-out="$(render --set apiAuth.enabled=true --set apiAuthz.enabled=true --set apiAuthz.existingConfigMap=site-authz)"
+out="$(render --set apiAuth.enabled=true --set apiAuthz.enabled=true)"
 want   "AUTHZ_BUNDLE_PATH points at the mount" 'value: "/etc/nke/authz"'            "${out}"
 setting "authzPermissive is false"          authzPermissive false                  "${out}"
-want   "ConfigMap volume"                    'name: nke-authz-policy'               "${out}"
+want   "policy volume"                       'name: nke-authz-policy'               "${out}"
 want   "mounted where the bundle path says"  'mountPath: "/etc/nke/authz"'          "${out}"
 # The engine resolves the bundle's file names under AUTHZ_BUNDLE_PATH, so the
 # mount and the variable have to name the same directory or it loads nothing.
 want   "and the two agree"                   'value: "/etc/nke/authz"'              "${out}"
 
 echo "apiAuthz enabled, permissive:"
-out="$(render --set apiAuth.enabled=true --set apiAuthz.enabled=true --set apiAuthz.permissive=true \
-  --set apiAuthz.existingConfigMap=site-authz)"
+out="$(render --set apiAuth.enabled=true --set apiAuthz.enabled=true --set apiAuthz.permissive=true)"
 setting "authzPermissive is true"           authzPermissive true                   "${out}"
 
 echo "the named ConfigMap is what holds the bundle:"
@@ -299,27 +298,9 @@ echo "the named ConfigMap is what holds the bundle:"
 out="$(render --set apiAuth.enabled=true --set apiAuthz.enabled=true --set apiAuthz.existingConfigMap=site-authz)"
 want   "existingConfigMap is honoured"       'name: "site-authz"'                   "${out}"
 
-echo "existingConfigMap is rendered as a string, whatever YAML would make of it:"
-# Unquoted, "yes" is a boolean to a YAML 1.1 reader and 123 an integer, and the
-# API server refuses either as a ConfigMap name.
-want   "a name YAML reads as a boolean is quoted" 'name: "yes"$' \
-  "$(render --set apiAuth.enabled=true --set apiAuthz.enabled=true --set apiAuthz.existingConfigMap=yes)"
-want   "a name YAML reads as a number is quoted" 'name: "123"$' \
-  "$(render --set apiAuth.enabled=true --set apiAuthz.enabled=true --set-string apiAuthz.existingConfigMap=123)"
-
 echo "the guards that refuse to render:"
 wantfail     "apiAuthz without apiAuth is refused" 'requires apiAuth.enabled' \
   --set apiAuthz.enabled=true
-wantfail     "existingConfigMap is required when enabled" 'apiAuthz\.existingConfigMap is required' \
-  --set apiAuth.enabled=true --set apiAuthz.enabled=true
-wantfail     "a boolean existingConfigMap is refused" 'apiAuthz\.existingConfigMap must be a ConfigMap name' \
-  --set apiAuth.enabled=true --set apiAuthz.enabled=true --set apiAuthz.existingConfigMap=false
-wantfail     "a number existingConfigMap is refused" 'apiAuthz\.existingConfigMap must be a ConfigMap name' \
-  --set apiAuth.enabled=true --set apiAuthz.enabled=true --set apiAuthz.existingConfigMap=0
-wantfail     "an object existingConfigMap is refused" 'apiAuthz\.existingConfigMap must be a ConfigMap name' \
-  --set apiAuth.enabled=true --set apiAuthz.enabled=true --set-json 'apiAuthz.existingConfigMap={"name":"site-authz"}'
-wantfail     "a list existingConfigMap is refused" 'apiAuthz\.existingConfigMap must be a ConfigMap name' \
-  --set apiAuth.enabled=true --set apiAuthz.enabled=true --set-json 'apiAuthz.existingConfigMap=["site-authz"]'
 # A values file that sets apiAuthz.configMap or apiAuthz.bundle fails, naming
 # apiAuthz.existingConfigMap. Rendering as if those keys meant nothing would
 # mount a bundle other than the one the operator wrote down.

@@ -44,6 +44,10 @@ type Local struct {
 	// policies, entities and mappings together, as one generation.
 	mappings *roleMappings
 
+	// groupOnlyWrites is loadedBundle.groupOnlyWrites from the same load,
+	// carried so the load that publishes this Local can report it.
+	groupOnlyWrites []string
+
 	// logger receives the debug line for a role mapping expression that fails
 	// to evaluate. Nil logs nothing.
 	logger *slog.Logger
@@ -70,64 +74,27 @@ func NewLocal(dir string, issuerNames []string) (*Local, error) {
 // the logger the Local logs to; nil logs nothing. Setup builds its engine
 // through here so the Local logs where the rest of authorization does.
 //
-// The check that every roleMappings.json entry names an issuer in issuers is
-// made here, after the bundle's own checks, because it needs the
-// authentication config.
+// It delegates the loading and checking to loadBundle, the implementation it
+// shares with ValidateBundle (validate.go), so the two cannot disagree about
+// whether a bundle is fine. loadBundle runs the entity-instance checks too, so
+// a bundle applied outside CI (a hand-edited ConfigMap, a kustomize apply) goes
+// through them.
+//
+// The one check loadBundle cannot make is here: every roleMappings.json
+// entry names an issuer in issuers. It needs the authentication config, which
+// ValidateBundle does not have.
 func newLocal(dir string, issuers issuerSet, logger *slog.Logger) (*Local, error) {
-	if dir == "" {
-		return nil, errors.New("local authorizer requires a bundle directory")
+	b, errs := loadBundle(dir)
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
-
-	source, err := os.ReadFile(filepath.Join(dir, policiesFile))
-	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", policiesFile, err)
-	}
-	policies, err := cedar.NewPolicySetFromBytes(policiesFile, source)
-	if err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", policiesFile, err)
-	}
-	if !hasAny(policies) {
-		// An empty policy set refuses every request, which is indistinguishable
-		// at request time from a policy nobody wrote.
-		return nil, fmt.Errorf("%s declares no policies", policiesFile)
-	}
-	if err := checkPolicyShape(policies); err != nil {
-		return nil, fmt.Errorf("%s: %w", policiesFile, err)
-	}
-
-	entities := types.EntityMap{}
-	declaredIn := map[types.EntityUID]string{}
-	for _, name := range entityFiles {
-		if err := loadEntities(filepath.Join(dir, name), entities, declaredIn); err != nil {
-			return nil, err
-		}
-	}
-
-	// The mappings are checked against the declared roles, so they are
-	// compiled after the entity files load.
-	mappingsRaw, err := os.ReadFile(filepath.Join(dir, roleMappingsFile))
-	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", roleMappingsFile, err)
-	}
-	mappings, mappingErrs := compileRoleMappings(mappingsRaw, entities)
-	if len(mappingErrs) > 0 {
-		return nil, errors.Join(mappingErrs...)
-	}
-	if err := checkEntityStore(entities, declaredIn, mappings.len()); err != nil {
+	if err := b.mappings.checkIssuers(issuers); err != nil {
 		return nil, err
 	}
-	if err := mappings.checkIssuers(issuers); err != nil {
-		return nil, err
-	}
-
-	names := map[cedar.PolicyID]string{}
-	for id, policy := range policies.All() {
-		if annotated, ok := policy.Annotations()["id"]; ok && annotated != "" {
-			names[id] = string(annotated)
-		}
-	}
-
-	return &Local{policies: policies, entities: entities, names: names, mappings: mappings, logger: logger}, nil
+	return &Local{
+		policies: b.policies, entities: b.entities, names: b.names, mappings: b.mappings,
+		groupOnlyWrites: b.groupOnlyWrites, logger: logger,
+	}, nil
 }
 
 // loadEntities merges one entity file into dst, refusing a duplicate: the later
@@ -255,6 +222,13 @@ func (l *Local) Ready(context.Context) error {
 	return checkEntityStore(l.entities, nil, l.mappings.len())
 }
 
+const (
+	// mappingCountUnknown tells checkEntityStore that roleMappings.json failed
+	// to read or decode, so it does not add a misleading "has no entries" on
+	// top of the error already reported.
+	mappingCountUnknown = -1
+)
+
 // checkEntityStore refuses an entity store that loaded and cannot do its job.
 //
 // "Not empty" was the whole of the gate, and it cannot detect either state it
@@ -305,7 +279,8 @@ func (l *Local) Ready(context.Context) error {
 // for its subject string from every issuer. declaredIn maps each entity to the
 // file that declared it, for the error; nil names no file. mappingEntries is
 // how many roleMappings.json entries the same bundle holds, and it must be at
-// least one.
+// least one. mappingCountUnknown skips that rule, for a file whose failure to
+// load is already reported.
 func checkEntityStore(entities types.EntityMap, declaredIn map[types.EntityUID]string, mappingEntries int) error {
 	var roles int
 	principals := map[string][]string{}
@@ -334,8 +309,8 @@ func checkEntityStore(entities types.EntityMap, declaredIn map[types.EntityUID]s
 		return errors.Join(errs...)
 	}
 	if mappingEntries == 0 {
-		return fmt.Errorf("%s has no entries, so no caller would hold a role; add an entry granting a role to a "+
-			"caller from an issuer in AuthenticationConfiguration", roleMappingsFile)
+		return fmt.Errorf("%s has no entries: no caller would hold a role. Add an entry granting a role to a "+
+			"caller from an issuer in AuthenticationConfiguration, in %s", roleMappingsFile, roleMappingsSource)
 	}
 
 	for uid, entity := range entities {
@@ -351,6 +326,10 @@ func checkEntityStore(entities types.EntityMap, declaredIn map[types.EntityUID]s
 		}
 	}
 
+	// This loop is also the action/operations-table skew check: it asserts the
+	// generated actions.json agrees with the generated operations table. It
+	// overlaps checkActionVocabulary deliberately and runs unconditionally, not
+	// gated behind the vocabulary checks.
 	for pattern, op := range operations {
 		if _, ok := entities.Get(types.NewEntityUID(ActionType, types.String(op.Action))); !ok {
 			return fmt.Errorf(

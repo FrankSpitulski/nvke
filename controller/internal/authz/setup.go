@@ -31,6 +31,11 @@ type Options struct {
 	// the load.
 	IssuerNames []string
 
+	// GroupOnlyWriteRecorder records how many write operations the loaded
+	// bundle covers only through NKE::Action::"write". Optional: nil records
+	// nothing.
+	GroupOnlyWriteRecorder GroupOnlyWriteRecorder
+
 	// newEngine builds the Authorizer for BundleDir. Nil means a Local loaded
 	// from BundleDir and checked against IssuerNames, which is every
 	// deployment.
@@ -123,6 +128,13 @@ func Setup(ctx context.Context, opts Options, logger *slog.Logger) (*Provider, e
 		"source", opts.BundleDir,
 		"operations", len(operations),
 	)
+	// A bundle that grants the write group grants every write, including one
+	// an upgrade adds without any change to the bundle. Nothing refuses that,
+	// so each such operation is logged and counted; a change in the count is
+	// what shows the widening.
+	if local, ok := engine.(*Local); ok {
+		reportGroupOnlyWrites(authzLogger, opts.GroupOnlyWriteRecorder, local)
+	}
 
 	return &Provider{
 		authorizer: engine,

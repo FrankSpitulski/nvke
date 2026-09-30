@@ -259,15 +259,133 @@ value would only create a way for the mount and AUTHZ_BUNDLE_PATH to disagree.
 {{- end }}
 
 {{/*
-Refuse apiAuthz.configMap and apiAuthz.bundle, with any subkey. A values file
-written for them gets an error naming existingConfigMap rather than a render
-that silently mounts a bundle other than the one the operator wrote down.
+The name of the ConfigMap the chart renders from its packaged default bundle
+(configmap-authz.yaml). Derived from the release, so two releases in one
+namespace, or a ConfigMap an operator already applied under a fixed name, do
+not collide with it. controller.fullname is cut to 49 characters so the name
+stays within 63 with the suffix.
+
+Called by the ConfigMap itself, the projected volume that mounts it
+(deployment.yaml) and controller.apiAuthz.validate, so all three name the
+same object.
+*/}}
+{{- define "controller.apiAuthz.defaultConfigMapName" -}}
+{{- printf "%s-authz-default" (include "controller.fullname" . | trunc 49 | trimSuffix "-") }}
+{{- end }}
+
+{{/*
+A ConfigMap-name value, trimmed; empty when unset. Takes the value itself.
+controller.apiAuthz.validate refuses a value that is not a string, so any
+other kind reaching this renders as empty only after the render has failed.
+*/}}
+{{- define "controller.apiAuthz.configMapName" -}}
+{{- if kindIs "string" . -}}
+{{- trim . -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+apiAuthz.existingConfigMap, trimmed; empty when unset. The self-reference check
+in controller.apiAuthz.validate and the projected volume in deployment.yaml
+both read the name from here, so the name checked is the name mounted.
+*/}}
+{{- define "controller.apiAuthz.existingConfigMap" -}}
+{{- include "controller.apiAuthz.configMapName" .Values.apiAuthz.existingConfigMap -}}
+{{- end }}
+
+{{/*
+The name of the ConfigMap roleMappings.json is mounted from:
+apiAuthz.roleMappingsConfigMap, trimmed, or nke-authz-role-mappings when that
+is empty. The operator creates this ConfigMap; the chart never renders it, so
+tooling can edit the mappings without a helm upgrade undoing the edit.
+internal/authz/bundle.go names the same default, and chart_bundle_sync_test.go
+keeps the two equal.
+*/}}
+{{- define "controller.apiAuthz.roleMappingsConfigMap" -}}
+{{- default "nke-authz-role-mappings" (include "controller.apiAuthz.configMapName" .Values.apiAuthz.roleMappingsConfigMap) -}}
+{{- end }}
+
+{{/*
+The files the chart packages for the default bundle, keyed by the name each
+has in the mounted directory. files/authz/default/ holds copies of
+deploy/authz/'s hand-written files, kept identical by
+chart_bundle_sync_test.go; actions.json is generated into files/authz/ by the
+same go generate pass that writes deploy/authz/actions.json.
+
+roleMappings.json is not packaged. It comes from the operator's ConfigMap
+(controller.apiAuthz.roleMappingsConfigMap).
+
+schema.json is packaged too, but not listed: nothing reads it at runtime
+(internal/authz/bundle.go), so the ConfigMap does not carry it.
+
+configmap-authz.yaml ranges over it for the ConfigMap's data and
+deployment.yaml for the projected volume's items, so a file added here reaches
+both.
+
+Emits one JSON object; callers do `include ... | fromJson`.
+*/}}
+{{- define "controller.apiAuthz.packagedFiles" -}}
+{{- dict
+  "policies.cedar" "files/authz/default/policies.cedar"
+  "roles.json" "files/authz/default/roles.json"
+  "actions.json" "files/authz/actions.json"
+  | toJson -}}
+{{- end }}
+
+{{/*
+Refuse the apiAuthz values the chart cannot honour, each of which would
+otherwise render clean and mount something other than what the operator
+asked for.
+
+  - apiAuthz.configMap and apiAuthz.bundle, with any subkey. A values file
+    written for them gets an error naming existingConfigMap rather than a
+    render that silently runs a different bundle.
+  - existingConfigMap or roleMappingsConfigMap set to anything but a
+    string. `--set ...=false` or `=0` parses as a bool or number, and a list
+    or map is never a name; rendering it would mount a ConfigMap called
+    "false" or "0".
+  - existingConfigMap naming the chart's own ConfigMap. The override path
+    mounts actions.json from that ConfigMap and the other two files from
+    the named one; naming the chart's own would look like an override while
+    running the shipped bundle, and editing that object is undone by the
+    next helm upgrade.
+  - roleMappingsConfigMap naming the chart's own ConfigMap, for the same
+    reason: the chart renders no roleMappings.json there, and a key added
+    by hand is undone by the next helm upgrade.
+  - An empty packaged file. .Files.Get returns "" for a file that is not in
+    the chart, so this catches a chart packaged without its bundle. No
+    values reach it.
+
+Bundle content is not checked here. The shipped default is checked in CI
+(the conformance tests, policy_fences_test.go, chart_bundle_sync_test.go),
+and an operator's ConfigMap is not visible at render. loadBundle checks
+either at startup and on every reload.
 
 Called from deployment.yaml. Emits nothing.
 */}}
 {{- define "controller.apiAuthz.validate" -}}
 {{- $az := .Values.apiAuthz -}}
 {{- if or (hasKey $az "configMap") (hasKey $az "bundle") -}}
-{{- fail "apiAuthz.configMap and apiAuthz.bundle are not values of this chart. Put your bundle in a ConfigMap you manage and set apiAuthz.existingConfigMap to its name." -}}
+{{- fail "apiAuthz.configMap and apiAuthz.bundle are not values of this chart. Put policies.cedar and roles.json in a ConfigMap you manage and set apiAuthz.existingConfigMap to its name, and roleMappings.json in the one apiAuthz.roleMappingsConfigMap names; or remove these keys to run the policies this chart ships." -}}
+{{- end -}}
+{{- if $az.enabled -}}
+{{- range $key := list "existingConfigMap" "roleMappingsConfigMap" -}}
+{{- $v := index $az $key -}}
+{{- if not (or (kindIs "invalid" $v) (kindIs "string" $v)) -}}
+{{- fail (printf "apiAuthz.%s must be a ConfigMap name, a string; got %s %v. Quote it in your values file, or pass it with --set-string." $key (kindOf $v) $v) -}}
+{{- end -}}
+{{- end -}}
+{{- $default := include "controller.apiAuthz.defaultConfigMapName" . -}}
+{{- if eq (include "controller.apiAuthz.existingConfigMap" .) $default -}}
+{{- fail (printf "apiAuthz.existingConfigMap names %s, the ConfigMap this chart renders from its packaged bundle. Leave existingConfigMap empty to run that bundle, or copy it under a name of your own and set that." $default) -}}
+{{- end -}}
+{{- if eq (include "controller.apiAuthz.roleMappingsConfigMap" .) $default -}}
+{{- fail (printf "apiAuthz.roleMappingsConfigMap names %s, the ConfigMap this chart renders from its packaged bundle, which holds no roleMappings.json. Put roleMappings.json in a ConfigMap you manage and set roleMappingsConfigMap to its name, or leave it empty to use nke-authz-role-mappings." $default) -}}
+{{- end -}}
+{{- range $key, $path := include "controller.apiAuthz.packagedFiles" . | fromJson -}}
+{{- if not ($.Files.Get $path) -}}
+{{- fail (printf "the chart's packaged %s (%s) is missing or empty, so the ConfigMap would carry an empty %s. The chart was packaged without its authorization bundle; rebuild it." $key $path $key) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end }}

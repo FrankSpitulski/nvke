@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cedar-policy/cedar-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -95,30 +96,41 @@ var writesLeftToTheGroup = map[string]exception{
 	},
 }
 
-func TestEveryWriteIsNamedOrAcknowledged(t *testing.T) {
+// shippedGroupOnlyWrites is groupOnlyWrites (write_group.go) over the shipped
+// policies.cedar: the same function the load-time report uses, so the fence
+// and the report cannot disagree about what the write group covers.
+func shippedGroupOnlyWrites(t *testing.T) map[string]bool {
+	t.Helper()
 	source, err := os.ReadFile(filepath.Join(bundleDir(t), policiesFile))
 	require.NoError(t, err)
+	policies, err := cedar.NewPolicySetFromBytes(policiesFile, source)
+	require.NoError(t, err)
 
-	named := map[string]bool{}
-	for _, m := range actionRef.FindAllStringSubmatch(string(source), -1) {
-		named[m[1]] = true
+	// Without a permit on the write group nothing is left to it, and every
+	// check below would pass vacuously.
+	require.True(t, grantsWriteGroup(policies), "no permit grants NKE::Action::%q; the check would pass vacuously", writeActionGroup)
+	left := map[string]bool{}
+	for _, action := range groupOnlyWrites(policies) {
+		left[action] = true
 	}
-	require.NotEmpty(t, named, "no policy names an action; the check would pass vacuously")
+	return left
+}
 
+func TestEveryWriteIsNamedOrAcknowledged(t *testing.T) {
 	writes := 0
-	for pattern, op := range operations {
-		if safeMethod(pattern) {
-			continue
+	for pattern := range operations {
+		if !safeMethod(pattern) {
+			writes++
 		}
-		writes++
-		if named[op.Action] {
-			continue
-		}
-		_, acknowledged := writesLeftToTheGroup[op.Action]
+	}
+	require.NotZero(t, writes, "no write operations were checked")
+
+	for action := range shippedGroupOnlyWrites(t) {
+		_, acknowledged := writesLeftToTheGroup[action]
 		assert.Truef(t, acknowledged,
 			"%s is a write that no policy names, so operators-may-write grants it: name it in %s, "+
 				"or add it to writesLeftToTheGroup with all four exception fields filled in",
-			op.Action, policiesFile)
+			action, policiesFile)
 		// Field completeness for an acknowledged entry is checked directly
 		// against the map, not from inside this loop — see
 		// TestAcknowledgedWritesAreCompleteAndStillExist. This loop only
@@ -126,7 +138,6 @@ func TestEveryWriteIsNamedOrAcknowledged(t *testing.T) {
 		// checking completeness here would silently stop covering an entry
 		// the moment a policy also names it.
 	}
-	require.NotZero(t, writes, "no write operations were checked")
 }
 
 // The list must not outlive what it describes, and every entry must argue all
@@ -139,6 +150,15 @@ func TestEveryWriteIsNamedOrAcknowledged(t *testing.T) {
 // true: a confidently wrong BlastRadius passes the same as a correct one.
 // What it closes is the gap that let deleteNodePool sit in the write group
 // unnoticed — an entry can no longer go in with a missing field.
+//
+// It also closes the companion gap: an exception surviving after its action
+// becomes policy-named. TestEveryWriteIsNamedOrAcknowledged's loop only ever
+// reaches an entry when nothing currently names the action (it ranges over
+// the group-only writes, which exclude named ones), so a stale double-listed entry would pass
+// there silently forever -- exactly the "no policy diff for a destructive
+// grant" failure mode this whole fence exists to catch, just one step later.
+// Checked here instead, against the registry directly, for the same reason
+// field-completeness is.
 func TestAcknowledgedWritesAreCompleteAndStillExist(t *testing.T) {
 	writes := map[string]bool{}
 	for pattern, op := range operations {
@@ -146,9 +166,12 @@ func TestAcknowledgedWritesAreCompleteAndStillExist(t *testing.T) {
 			writes[op.Action] = true
 		}
 	}
+	left := shippedGroupOnlyWrites(t)
 	for action, exc := range writesLeftToTheGroup {
 		assert.Truef(t, writes[action],
 			"writesLeftToTheGroup names %q, which is not a write operation of this API", action)
+		assert.Truef(t, !writes[action] || left[action],
+			"writesLeftToTheGroup names %q, but a policy now names it too -- remove the stale exception entry", action)
 		assert.NotEmpty(t, strings.TrimSpace(exc.Reason), action+": Reason is empty")
 		assert.NotEmpty(t, strings.TrimSpace(exc.BlastRadius), action+": BlastRadius is empty")
 		assert.NotEmpty(t, strings.TrimSpace(exc.Owner), action+": Owner is empty")
@@ -159,16 +182,3 @@ func TestAcknowledgedWritesAreCompleteAndStillExist(t *testing.T) {
 // What the fences do to a request is asserted where every other grant is, in
 // bundleMatrix — driven through the real middleware, so it says what a
 // deployment does rather than what the file appears to say.
-
-func safeMethod(pattern string) bool {
-	method, _, ok := splitPattern(pattern)
-	if !ok {
-		return false
-	}
-	switch method {
-	case "GET", "HEAD", "OPTIONS", "TRACE":
-		return true
-	default:
-		return false
-	}
-}

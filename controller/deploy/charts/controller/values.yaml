@@ -574,9 +574,15 @@ apiAuthz:
   # -- Count what enforcement would have refused but serve the request anyway.
   # Watch nke_authz_requests_total{outcome="would_reject"} before enforcing.
   permissive: false
-  # -- A ConfigMap in the release namespace holding the policy bundle, keyed
-  # `policies.cedar`, `actions.json`, `roles.json` and `roleMappings.json`.
-  # Required when apiAuthz.enabled=true; an empty name fails the render.
+  # -- The ConfigMap in the release namespace holding your role mappings, keyed
+  # `roleMappings.json`. Empty uses `nke-authz-role-mappings`. You create it;
+  # the chart never renders or overwrites it. Without it, NKE refuses to start
+  # and the error names this value.
+  roleMappingsConfigMap: ""
+  # -- A ConfigMap in the release namespace holding your own policies and
+  # roles, keyed `policies.cedar` and `roles.json`. Empty runs the ones this
+  # chart ships. `actions.json` always comes from the chart, which generates it
+  # for this image, and `roleMappings.json` from roleMappingsConfigMap.
   existingConfigMap: ""
 
 scheduledMaintenance:

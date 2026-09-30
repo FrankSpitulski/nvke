@@ -1,13 +1,33 @@
 # The NKE API policy bundle
 
-What NKE evaluates when `apiAuthz.enabled=true`. One ConfigMap, mounted read-only
-at `/etc/nke/authz`, read at startup by `cedar-go` inside the NKE container.
+What NKE evaluates when `apiAuthz.enabled=true`, mounted read-only at
+`/etc/nke/authz` and read by NKE at startup.
+
+The chart ships these files and renders them into its own ConfigMap,
+`<fullname>-authz-default`, which it mounts unless `apiAuthz.existingConfigMap`
+names one of yours. Yours carries `policies.cedar` and `roles.json`;
+`actions.json` always comes from the chart, which generates it for the image it
+deploys. Start from these files at the release you deploy, and replace both
+together: the chart does not fill in a missing one.
+
+`roleMappings.json` is in neither. The chart mounts it from a ConfigMap you
+create, `nke-authz-role-mappings`, or the one `apiAuthz.roleMappingsConfigMap`
+names. Without it, the load fails. Create it in the release namespace with
+`kubectl create configmap nke-authz-role-mappings --from-file=roleMappings.json`.
+
+Give yours a name Helm never owned. A ConfigMap an earlier release rendered is
+deleted by `helm upgrade` once the chart stops rendering it, even when
+`existingConfigMap` now names it.
+
+The chart's own name truncates the release fullname to 49 characters, so two
+releases whose fullnames share those 49 characters collide in one namespace,
+and Helm refuses to install the second.
 
 | File | Written by | Purpose |
 |---|---|---|
 | `policies.cedar` | hand | The rules. Native Cedar, one `@id` per policy. |
 | `roles.json` | hand | The roles and how they nest. Holds no `NKE::Principal`; the load refuses one. |
-| `roleMappings.json` | hand | Who holds which role, by what a verified token from a named issuer says: a claim value, a bound service account, or a SPIFFE path. Ships as `[]`, because issuer names are chosen per deployment; the load needs at least one entry. |
+| `roleMappings.json` | hand | Who holds which role, by what a verified token from a named issuer says: a claim value, a bound service account, or a SPIFFE path. Not shipped, because issuer names are chosen per deployment; the load needs at least one entry. |
 | `actions.json` | `hack/gen-authz-actions` | One entity per API operation, each in its `read` or `write` group. |
 | `schema.json` | `hack/gen-authz-actions` | The entity and action types. **Not read at runtime** — see below. |
 
@@ -98,6 +118,12 @@ split by any rule here. Separating those is an API change.
 See `writesLeftToTheGroup` and the `exception` type in `policy_fences_test.go`
 for the full argument, blast radius, owner, and re-evaluation trigger behind
 each operation left to the coarse grant.
+
+A bundle of your own has no such fence. A policy that grants `write` grants
+every write operation, including one a later release adds. NKE logs each write
+operation your policy covers only through `write` when it loads the bundle, and
+reports the count as `nke_authz_group_only_write_actions`. On this bundle the
+count is the length of `writesLeftToTheGroup`.
 
 ## Testing a change
 

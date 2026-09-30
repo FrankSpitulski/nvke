@@ -49,11 +49,35 @@ var (
 		[]string{"mode"},
 	)
 
-	_ authz.Recorder = RecordAuthzRequest
+	// authzGroupOnlyWriteActions is the number of write operations the loaded
+	// bundle's policy covers only through NKE::Action::"write". Set from the
+	// bundle in force, so it moves when an upgrade adds a write operation that
+	// a custom policy then grants without naming it. The shipped bundle's value
+	// is its acknowledged exceptions (policy_fences_test.go), so alert on
+	// change, not on non-zero.
+	authzGroupOnlyWriteActions = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "nke_authz_group_only_write_actions",
+			Help: "Write operations the loaded authorization policy covers only through the write action group " +
+				"or an unconstrained action scope. " +
+				"An action named in any permit or forbid scope counts as named, and when/unless conditions are ignored. " +
+				"The same definition the CI write fence applies to the shipped bundle.",
+		},
+	)
+
+	_ authz.Recorder               = RecordAuthzRequest
+	_ authz.GroupOnlyWriteRecorder = SetAuthzGroupOnlyWriteActions
 )
 
 func init() {
-	prometheus.MustRegister(authzRequestsTotal, authzEnabled)
+	prometheus.MustRegister(authzRequestsTotal, authzEnabled, authzGroupOnlyWriteActions)
+}
+
+// SetAuthzGroupOnlyWriteActions sets the group-only write gauge to count. Its
+// signature is internal/authz.GroupOnlyWriteRecorder, so authz.Setup/Options
+// can pass it directly.
+func SetAuthzGroupOnlyWriteActions(count int) {
+	authzGroupOnlyWriteActions.Set(float64(count))
 }
 
 // RecordAuthzRequest counts one authorization decision. Its signature is

@@ -144,8 +144,8 @@ func TestClaimsNeverReachTheCedarContext(t *testing.T) {
 
 	local, err := NewLocal(writeBundleWithMappings(t,
 		`@id("attacker-issuer-may-read")
-permit(principal, action, resource) when { context.issuer == "attacker" };`,
-		shippedActions(t), oneReader, aMapping), testIssuers)
+permit(principal, action, resource) when { context.issuer == "attacker" };
+`+aPolicy, shippedActions(t), oneReader, aMapping), testIssuers)
 	require.NoError(t, err)
 
 	q := Query{
