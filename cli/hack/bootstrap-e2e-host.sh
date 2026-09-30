@@ -195,22 +195,36 @@ UNIT
   fi
 }
 
-# remove_docker masks Docker, shims it on PATH, and asserts it is gone.
+# remove_docker makes Docker unusable, shims it on PATH, and asserts it is
+# gone. How it does the first part depends on the runner: masked units where
+# there is systemd, a deleted client where Docker is a dind sidecar.
 remove_docker() {
   # containerd.service here is Docker's, on /run/containerd/containerd.sock:
   # the socket nerdctl falls back to without CONTAINERD_ADDRESS. `disable`
   # may fail for a unit that is not loaded; `mask` must not, because the
   # assertions below rely on it.
-  # On a container runner there are no units to disable or mask: Docker is a
-  # dind sidecar reached over the mounted socket, so removing the socket is
-  # what makes it unreachable. The guarantee is genuinely weaker there --
-  # the daemon still exists in the pod, it just has no path to it -- and the
-  # masking assertions below are skipped to match.
+  # On a container runner there are no units to mask: Docker is a dind
+  # sidecar reached over the mounted socket. Deleting the socket alone would
+  # be weaker than masking -- the kubelet can restart that sidecar, and it
+  # recreates the socket on startup. So take the client away instead, and
+  # point DOCKER_HOST at nothing in case a daemon reappears anyway. Removing
+  # the binary is safe precisely here: this runner is an ephemeral pod
+  # discarded after one job, where on a reusable VM it would outlive the run
+  # and break the next one.
   if have_systemd; then
     sudo systemctl disable --now docker.socket docker.service containerd.service 2>/dev/null || true
     sudo systemctl mask docker.socket docker.service containerd.service
   else
-    log "no systemd: Docker is a sidecar; removing its socket rather than masking units"
+    log "no systemd: removing the Docker client rather than masking units"
+    while read -r real; do
+      sudo rm -f "${real}"
+    done < <(type -aP docker || true)
+    # GITHUB_ENV so every later step of the job inherits it, the same way
+    # the shim below uses GITHUB_PATH.
+    if [ -n "${GITHUB_ENV:-}" ]; then
+      echo "DOCKER_HOST=unix:///nonexistent/docker.sock" >> "${GITHUB_ENV}"
+    fi
+    export DOCKER_HOST="unix:///nonexistent/docker.sock"
   fi
   sudo rm -f /var/run/docker.sock /run/docker.sock
 
@@ -259,7 +273,7 @@ SHIM
     echo "::error::/var/run/docker.sock still exists after removal"; exit 1
   fi
   # Masked, not merely stopped: docker.socket could otherwise socket-activate
-  # the daemon back after the check above. Nothing to assert without systemd.
+  # the daemon back after the check above.
   if have_systemd; then
     for unit in docker.socket docker.service containerd.service; do
       state="$(systemctl is-enabled "${unit}" 2>/dev/null || true)"
@@ -267,6 +281,19 @@ SHIM
         echo "::error::${unit} is '${state:-absent}' after removal, want masked"; exit 1
       fi
     done
+  else
+    # The equivalent without units: no real client left to reach a restarted
+    # sidecar with. Asserted rather than assumed, for the same reason the
+    # masking is -- a removal that did not take reads as a guarantee while
+    # providing nothing.
+    while read -r real; do
+      if [ "${real}" != "${shim_dir}/docker" ]; then
+        echo "::error::${real} still exists after removal, want it gone"; exit 1
+      fi
+    done < <(type -aP docker || true)
+    if [ "${DOCKER_HOST:-}" = "" ]; then
+      echo "::error::DOCKER_HOST is unset after removal, want it pointing nowhere"; exit 1
+    fi
   fi
   echo "docker removed; invoking it now fails with:"
   docker version 2>&1 | sed 's/^/  /' || true
