@@ -1555,7 +1555,7 @@ func forgeRolePayloads(controlPlaneArch, workerArch, kubernetesVersion string) (
 			ImageURL:          imageURL,
 			Arch:              arch,
 			KubernetesVersion: kubernetesVersion,
-			CNIVersion:        cmp.Or(optionalVersion("nke-cni-ovn"), forgeDefaultCNIVersion),
+			CNIVersion:        cmp.Or(optionalVersion("cni-ovn"), forgeDefaultCNIVersion),
 		})
 	}
 
