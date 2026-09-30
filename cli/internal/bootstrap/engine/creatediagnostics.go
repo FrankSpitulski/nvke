@@ -89,7 +89,8 @@ func createFailureProbes(node string) []probe {
 		return nodeShell(name+" logs", fmt.Sprintf(
 			`id=$(crictl ps -a --name %s -o json 2>/dev/null | grep -o '"id": "[^"]*"' | head -1 | cut -d'"' -f4); `+
 				`if [ -n "$id" ]; then crictl logs --tail 500 "$id"; else echo "no %s container"; fi`,
-			name, name))
+			name, name,
+		))
 	}
 
 	return []probe{
