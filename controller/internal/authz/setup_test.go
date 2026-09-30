@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -108,6 +109,7 @@ func TestSetupAcceptsANilLogger(t *testing.T) {
 	}{
 		{"disabled", Options{}, false},
 		{"enabled", Options{BundleDir: shippedBundleWithMappings(t, testRoleMappings), IssuerNames: testIssuers}, false},
+		{"enabled with reload", Options{BundleDir: shippedBundleWithMappings(t, testRoleMappings), IssuerNames: testIssuers, ReloadInterval: time.Hour}, false},
 		{"a bundle that does not load", Options{BundleDir: t.TempDir()}, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

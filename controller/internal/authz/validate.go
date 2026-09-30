@@ -4,6 +4,7 @@
 package authz
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,7 +32,7 @@ import (
 //
 // That "every problem" guarantee is real for the vocabulary/reachability
 // checks (checkActionVocabulary, checkRoleVocabulary, checkRoleReachability)
-// but narrower for the entity-store checks (checkEntityStore, local.go):
+// but narrower for the entity-store checks (checkEntityStore, entitystore.go):
 // checkEntityStore returns on the first missing-role/missing-principal/
 // dangling-parent/missing-compiled-action problem it finds, so if several
 // hold at once, only the first is reported. That early return is deliberate
@@ -50,52 +51,117 @@ import (
 // bundle.go's own doc comment on schemaFile.
 //
 // The one roleMappings.json check this cannot make is that every entry's
-// issuer is configured: it has no authentication config. newLocal makes it
-// at startup.
+// issuer is configured: it has no authentication config. newLocalFromSource
+// makes it at startup and on every reload.
 func ValidateBundle(dir string) []error {
 	_, errs := loadBundle(dir)
 	return errs
 }
 
-// loadedBundle is what loadBundle hands back to a caller that needs the
-// parsed, usable form: NewLocal. ValidateBundle discards it and keeps only the
-// errors.
-type loadedBundle struct {
+// Bundle is what loadBundle hands back to a caller that needs the parsed,
+// usable form: NewLocal, via DirBundleSource.Load (bundle.go). ValidateBundle
+// discards it and keeps only the errors. It is also BundleSource's result
+// type: a source other than DirBundleSource would hand back the same shape,
+// however it got its bytes.
+type Bundle struct {
 	policies *cedar.PolicySet
 	entities types.EntityMap
 	names    map[cedar.PolicyID]string
 
 	// mappings is roleMappings.json, compiled against this load's own
-	// roles.json. Its issuer names are not checked here; see newLocal.
+	// roles.json. Its issuer names are not checked here; see
+	// newLocalFromSource.
 	mappings *roleMappings
 
 	// groupOnlyWrites is every write operation the policy leaves to
 	// NKE::Action::"write" (groupOnlyWrites, write_group.go). Not an error: a
-	// policy may grant every write on purpose. Reported at startup, because an
-	// upgrade that adds a write operation widens such a grant without any
-	// change to the bundle.
+	// policy may grant every write on purpose. Reported at startup and on each
+	// published reload, because an upgrade that adds a write operation widens
+	// such a grant without any change to the bundle.
 	groupOnlyWrites []string
+
+	// hash is sha256(policies.cedar || actions.json || roles.json ||
+	// roleMappings.json), in that fixed order, over the raw bytes read for
+	// this one load -- change detection for the hot-reload path's
+	// nke_authz_bundle_loaded_timestamp_seconds gauge
+	// (design-authz-hot-reload.md §5), not tamper-proofing. Set only when
+	// every file that contributes to it was read successfully; left
+	// zero-valued on any load that returned an error, where nothing
+	// downstream reads it.
+	hash [sha256.Size]byte
 }
 
-// loadBundle is the single implementation behind both NewLocal and
-// ValidateBundle: parse policies.cedar, check its shape, load and merge the
-// entity files (refusing a duplicate uid), and check the resulting entity
-// store (roles present, no principal entity, at least one mapping, the
+// resolvedBundleDir pins the directory one load attempt reads all four
+// bundle files through, so a ConfigMap volume's atomic "..data" rename cannot
+// land between two of the four reads and produce a bundle that mixes two
+// generations (design-authz-hot-reload.md §3). kubelet's atomic writer
+// publishes an update by writing a full new generation into a fresh,
+// timestamped directory and then atomically re-pointing "..data" at it;
+// resolving "..data" once, up front, and reading through that resolved
+// directory for the rest of this load pins every read to one generation
+// regardless of a rename landing mid-load.
+//
+// Falls back to dir itself only when dir is positively not a ConfigMap mount
+// -- os.Readlink on "<dir>/..data" reporting fs.ErrNotExist, the case for a
+// plain directory (tests, or a deployment that mounts one directly). Any
+// other Readlink error (permission, I/O, ...) is returned as-is and treated
+// as a load failure by the caller: silently downgrading to the unpinned path
+// on any error would reopen exactly the torn-read race this function exists
+// to close, on every reload attempt that happened to hit it.
+//
+// That fallback path carries none of this function's own torn-read
+// protection -- it exists to serve a plain directory at all, not to pin one.
+// A real Kubernetes ConfigMap or projected volume, chart-rendered or
+// bring-your-own, is always a "..data"-symlinked volume and never reaches
+// this branch; nothing in this codebase's supported deployment shapes edits
+// a plain directory's files non-atomically out from under a running pod. If
+// that ever became a real deployment path, this function would need its own
+// protection for it -- do not assume the fallback inherits the ConfigMap
+// case's guarantee.
+func resolvedBundleDir(dir string) (string, error) {
+	target, err := os.Readlink(filepath.Join(dir, "..data"))
+	switch {
+	case err == nil:
+		if filepath.IsAbs(target) {
+			return target, nil
+		}
+		return filepath.Join(dir, target), nil
+	case errors.Is(err, fs.ErrNotExist):
+		return dir, nil
+	default:
+		return "", fmt.Errorf("resolving the ConfigMap generation for %s: %w", dir, err)
+	}
+}
+
+// loadBundle is the single implementation behind both NewLocal (via
+// DirBundleSource.Load, bundle.go) and ValidateBundle: parse policies.cedar,
+// check its shape, load and merge the entity files (refusing a duplicate
+// uid, loadEntities, entitystore.go), and check the resulting entity store
+// (roles present, no principal entity, at least one mapping, the
 // static-parent referential-integrity check, the action-vs-operations-table
-// check -- all checkEntityStore, local.go), plus the entity-instance checks
-// ValidateBundle exists to consolidate: an action or role a policy names that
-// no entity file declares, and a declared role that no policy ever names
-// (directly or through nesting).
+// check -- all checkEntityStore, entitystore.go), plus the entity-instance
+// checks ValidateBundle exists to consolidate: an action or role a policy
+// names that no entity file declares, and a declared role that no policy ever
+// names (directly or through nesting).
 //
 // Every finding is collected rather than returned on the first one, so a
 // caller building one Go error (NewLocal) or a slice (ValidateBundle) can
 // choose how to present them without loadBundle knowing which.
-func loadBundle(dir string) (*loadedBundle, []error) {
+func loadBundle(dir string) (*Bundle, []error) {
 	if dir == "" {
 		return nil, []error{errors.New("local authorizer requires a bundle directory")}
 	}
 
-	source, err := os.ReadFile(filepath.Join(dir, policiesFile))
+	// Pinned once, up front, for this one load attempt -- see
+	// resolvedBundleDir's doc comment. Every read below goes through readDir,
+	// never dir directly, so all four files come from the same generation
+	// even on a mount whose ConfigMap is being updated concurrently.
+	readDir, err := resolvedBundleDir(dir)
+	if err != nil {
+		return nil, []error{err}
+	}
+
+	source, err := os.ReadFile(filepath.Join(readDir, policiesFile))
 	if err != nil {
 		return nil, []error{fmt.Errorf("reading %s: %w", policiesFile, err)}
 	}
@@ -117,16 +183,25 @@ func loadBundle(dir string) (*loadedBundle, []error) {
 	entities := types.EntityMap{}
 	declaredIn := map[types.EntityUID]string{}
 	entitiesLoaded := true
+	hasher := sha256.New()
+	hasher.Write(source)
 	for _, name := range entityFiles {
-		if err := loadEntities(filepath.Join(dir, name), entities, declaredIn); err != nil {
+		raw, err := loadEntities(filepath.Join(readDir, name), entities, declaredIn)
+		if err != nil {
 			errs = append(errs, err)
 			entitiesLoaded = false
+			continue
 		}
+		hasher.Write(raw)
 	}
 
-	mappingsRaw, err := os.ReadFile(filepath.Join(dir, roleMappingsFile))
+	// Hashed after the entity files, in fixed order, so a mapping-only edit
+	// counts as a changed bundle for the reload gauge.
+	mappingsRaw, err := os.ReadFile(filepath.Join(readDir, roleMappingsFile))
 	mappingsRead := err == nil
-	if !mappingsRead {
+	if mappingsRead {
+		hasher.Write(mappingsRaw)
+	} else {
 		if errors.Is(err, fs.ErrNotExist) {
 			err = fmt.Errorf("%w; the chart mounts it from %s, which must exist and hold a %s key",
 				err, roleMappingsSource, roleMappingsFile)
@@ -165,9 +240,9 @@ func loadBundle(dir string) (*loadedBundle, []error) {
 		if err := checkEntityStore(entities, declaredIn, mappingEntries); err != nil {
 			errs = append(errs, err)
 		}
-		errs = append(errs, checkActionVocabulary(dir, uncommented)...)
-		errs = append(errs, checkRoleVocabulary(dir, uncommented)...)
-		errs = append(errs, checkRoleReachability(dir, uncommented)...)
+		errs = append(errs, checkActionVocabulary(readDir, uncommented)...)
+		errs = append(errs, checkRoleVocabulary(readDir, uncommented)...)
+		errs = append(errs, checkRoleReachability(readDir, uncommented)...)
 	}
 
 	names := map[cedar.PolicyID]string{}
@@ -177,10 +252,18 @@ func loadBundle(dir string) (*loadedBundle, []error) {
 		}
 	}
 
-	return &loadedBundle{
+	b := &Bundle{
 		policies: policies, entities: entities, names: names, mappings: mappings,
 		groupOnlyWrites: groupOnlyWrites(policies),
-	}, errs
+	}
+	// Only meaningful, and only computed, once every contributing file was
+	// actually read -- a hash over a partial set of files would compare
+	// unequal to itself across two failed loads of the identical bundle for
+	// no reason a caller could act on.
+	if entitiesLoaded && mappingsRead {
+		copy(b.hash[:], hasher.Sum(nil))
+	}
+	return b, errs
 }
 
 // Entity-instance checks. Cedar validation is type-based
@@ -194,78 +277,9 @@ var (
 	roleRef   = regexp.MustCompile(`NKE::Role::"([^"]+)"`)
 )
 
-// stripCedarComments removes Cedar's two comment forms -- `//` to end of
-// line, and `/* ... */`, both real Cedar syntax (internal/parser's
-// cedar_tokenize.go scanComment, in the cedar-go dependency this package
-// already imports) -- from policy source before any regexRef check scans it
-// for role/action references. Without this, a line like
-// `// removed NKE::Role::"admin"` reads as a real reference to a role that
-// may no longer exist, and checkActionVocabulary/checkRoleVocabulary would
-// reject an otherwise-valid bundle over dead comment text.
-//
-// String-literal-aware, not just a blind "//"/"/*" scan: Cedar string
-// literals cannot contain a literal newline (scanString errors on one) but
-// can contain a literal "//" or "/*" -- an action or role id like
-// NKE::Action::"http://example" is valid Cedar. A blind scan would treat
-// that "//" as starting a comment and silently swallow the rest of the
-// line, hiding a real reference instead of finding a fake one -- trading a
-// false positive for a worse false negative. This walks the source
-// tracking whether it is inside a double-quoted string (respecting Cedar's
-// backslash escaping, the same rule scanEscape implements) and only treats
-// "//"/"/*" as a comment opener outside of one.
-func stripCedarComments(source []byte) []byte {
-	var out []byte
-	inString := false
-	for i := 0; i < len(source); i++ {
-		c := source[i]
-
-		if inString {
-			out = append(out, c)
-			if c == '\\' && i+1 < len(source) {
-				// Escaped character: copy it verbatim and skip past it so an
-				// escaped quote (\") does not end the string early.
-				out = append(out, source[i+1])
-				i++
-				continue
-			}
-			if c == '"' {
-				inString = false
-			}
-			continue
-		}
-
-		if c == '"' {
-			inString = true
-			out = append(out, c)
-			continue
-		}
-
-		if c == '/' && i+1 < len(source) && source[i+1] == '/' {
-			for i < len(source) && source[i] != '\n' {
-				i++
-			}
-			if i < len(source) {
-				out = append(out, '\n')
-			}
-			continue
-		}
-
-		if c == '/' && i+1 < len(source) && source[i+1] == '*' {
-			i += 2
-			for i+1 < len(source) && (source[i] != '*' || source[i+1] != '/') {
-				if source[i] == '\n' {
-					out = append(out, '\n')
-				}
-				i++
-			}
-			i++ // land on the closing '/'; the loop's i++ advances past it
-			continue
-		}
-
-		out = append(out, c)
-	}
-	return out
-}
+// stripCedarComments lives in cedar_lex.go: a ~70-line lexer with no
+// dependency on load context, independently testable (cedar_lex_test.go),
+// pulled out of this file about bundle loading.
 
 // entityIDs is the shape every bundle entity file (actions.json, roles.json)
 // is read into for these checks: just enough to group by type and follow

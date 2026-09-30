@@ -1,7 +1,7 @@
 # The NKE API policy bundle
 
 What NKE evaluates when `apiAuthz.enabled=true`, mounted read-only at
-`/etc/nke/authz` and read by NKE at startup.
+`/etc/nke/authz` and read by NKE at startup and on every reload.
 
 The chart ships these files and renders them into its own ConfigMap,
 `<fullname>-authz-default`, which it mounts unless `apiAuthz.existingConfigMap`

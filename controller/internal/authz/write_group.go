@@ -118,8 +118,8 @@ func groupOnlyWrites(policies *cedar.PolicySet) []string {
 }
 
 // reportGroupOnlyWrites logs each of local's group-only writes and records
-// their count. Called for the bundle loaded at startup. A nil logger or
-// recorder skips that half.
+// their count. Called for the bundle loaded at startup and for each bundle a
+// reload publishes. A nil logger or recorder skips that half.
 func reportGroupOnlyWrites(logger *slog.Logger, record GroupOnlyWriteRecorder, local *Local) {
 	if logger != nil {
 		for _, action := range local.groupOnlyWrites {

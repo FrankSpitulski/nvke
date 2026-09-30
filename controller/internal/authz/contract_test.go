@@ -94,7 +94,7 @@ func TestMiddlewareRefusesANilEngine(t *testing.T) {
 // Engine selection, which is the whole of the configuration surface: a bundle
 // directory or nothing.
 func TestSetupSelectsTheInProcessEngine(t *testing.T) {
-	engine, err := Options{BundleDir: shippedBundleWithMappings(t, testRoleMappings)}.engine(newIssuerSet(testIssuers), nil)
+	engine, err := Options{BundleDir: shippedBundleWithMappings(t, testRoleMappings)}.engine(t.Context(), newIssuerSet(testIssuers), nil)
 	require.NoError(t, err)
 	require.NotNil(t, engine)
 	assert.Equal(t, "cedar-go", engine.Name())
@@ -103,7 +103,7 @@ func TestSetupSelectsTheInProcessEngine(t *testing.T) {
 // No bundle is "disabled", which is a nil engine and no error — never an engine
 // that allows everyone.
 func TestSetupWithNoBundleIsDisabled(t *testing.T) {
-	engine, err := Options{}.engine(nil, nil)
+	engine, err := Options{}.engine(t.Context(), nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, engine, "disabled must be a nil engine, never a permissive one")
 }
@@ -111,6 +111,6 @@ func TestSetupWithNoBundleIsDisabled(t *testing.T) {
 // A bundle that does not load is a startup failure, not a disabled deployment
 // and not a deployment that refuses everything quietly.
 func TestSetupRefusesABundleThatDoesNotLoad(t *testing.T) {
-	_, err := Options{BundleDir: t.TempDir()}.engine(nil, nil)
+	_, err := Options{BundleDir: t.TempDir()}.engine(t.Context(), nil, nil)
 	require.Error(t, err, "set-but-unloadable must be an error, never \"disabled\"")
 }

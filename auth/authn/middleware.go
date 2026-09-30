@@ -87,6 +87,15 @@ func NewAuthenticator(verifier *Verifier, mode Mode, logger *slog.Logger, record
 	}, nil
 }
 
+// Mode reports which mode this Authenticator was built with. mode is a
+// startup-time Options field, never changed after construction — nothing
+// hot-reloads it — so a caller may read it as many times as it likes without
+// synchronization. Exists for internal/authz's on-demand reload route, which
+// hard-gates on authentication actually being enforcing rather than relying on
+// ModePermissive's ordinary "log and let through" behavior
+// (design-authz-hot-reload.md §2).
+func (a *Authenticator) Mode() Mode { return a.mode }
+
 // IssuerNames returns the configured issuer names, sorted, in a slice the
 // caller owns. The authorization bundle's role mappings key on these names, so
 // internal/authz takes them from here rather than reading the authentication

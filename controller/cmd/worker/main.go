@@ -747,6 +747,9 @@ func setUpAuthorization(
 		Recorder:               metrics.RecordAuthzRequest,
 		GroupOnlyWriteRecorder: metrics.SetAuthzGroupOnlyWriteActions,
 		IssuerNames:            authenticator.IssuerNames(),
+		ReloadInterval:         cfg.AuthzReloadInterval,
+		ReloadRecorder:         metrics.RecordAuthzReload,
+		BundleChangeRecorder:   metrics.RecordAuthzBundleChanged,
 	}, logger)
 	if err != nil {
 		return nil, err

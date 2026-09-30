@@ -3,6 +3,11 @@
 
 package authz
 
+import (
+	"context"
+	"errors"
+)
+
 // The policy bundle's file names, relative to the mounted directory. Named
 // here rather than left to whoever reads them: the bundle is the deployment's
 // artifact, and Local and the tests that check it all have to agree on what
@@ -54,8 +59,62 @@ const (
 		"(" + defaultRoleMappingsConfigMap + " when empty)"
 )
 
-// entityFiles are the entity sources, in load order. Both are required: the
-// generated actions and the hand-written roles are halves of one entity store,
-// and either one missing leaves the mappings no roles to grant, or actions
-// without groups.
-var entityFiles = []string{actionsFile, rolesFile} //nolint:gochecknoglobals // a fixed table
+var (
+	// entityFiles are the entity sources, in load order. Both are required:
+	// the generated actions and the hand-written roles are halves of one
+	// entity store, and either one missing leaves the mappings no roles to
+	// grant, or actions without groups.
+	entityFiles = []string{actionsFile, rolesFile} //nolint:gochecknoglobals // a fixed table
+
+	_ BundleSource = DirBundleSource{}
+)
+
+// BundleSource loads a Bundle (validate.go) from wherever it lives.
+// newLocalFromSource (local.go) and reloadable's loader (reload.go) both take
+// one of these rather than a raw directory string and a direct os.ReadFile --
+// NewLocal itself stays a directory-string entry point, wrapping its argument
+// into a DirBundleSource, since every caller in this codebase already has a
+// directory in hand and nothing yet needs the seam below that boundary. The
+// dependency-inversion seam this codebase's own convention calls for
+// (AGENTS.md's CommandRunner/FileWriter precedent, agent/pkg/utils).
+//
+// DirBundleSource is the only production implementation today, and nothing
+// here requires a second one to exist yet. The interface is still shaped
+// around ctx and a Bundle result, rather than around anything
+// directory-specific, so that a future non-directory source -- an S3
+// object, a CRD -- can be added later without a second signature change to
+// NewLocal or reload.go's loader: both already read through this interface,
+// not through a dir string.
+type BundleSource interface {
+	Load(ctx context.Context) (*Bundle, error)
+}
+
+// DirBundleSource loads the bundle from a directory of files (policiesFile,
+// actionsFile, rolesFile, roleMappingsFile): the shape every real deployment
+// mounts today, a ConfigMap or projected volume onto the pod's filesystem.
+//
+// Load delegates to loadBundle (validate.go), which resolves the mounted
+// directory's "..data" symlink once per call before reading anything --
+// resolvedBundleDir's doc comment explains why: so a ConfigMap update's
+// atomic rename cannot land between two of the four file reads one Load
+// call makes and produce a bundle that mixes two generations. That pinning
+// is Load's job here, in the one production BundleSource that reads a
+// filesystem at all; it would not exist in, say, an S3-backed BundleSource,
+// which would have its own analogous concern (a version id) instead.
+type DirBundleSource struct {
+	// Dir is the directory to load from -- typically the ConfigMap mount
+	// point, resolved through its "..data" symlink by loadBundle itself.
+	Dir string
+}
+
+func (s DirBundleSource) Load(context.Context) (*Bundle, error) {
+	b, errs := loadBundle(s.Dir)
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	return b, nil
+}
+
+// String reports the directory this source reads, so a log line naming the
+// BundleSource (reload.go) reads as a path rather than a Go struct dump.
+func (s DirBundleSource) String() string { return s.Dir }

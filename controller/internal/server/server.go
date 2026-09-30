@@ -92,7 +92,7 @@ func NewServer(
 	if err != nil {
 		return nil, fmt.Errorf("building Swagger UI OpenAPI document: %w", err)
 	}
-	serverImpl := NewServerImpl(cfg, logger, database, temporalClient, k8sReader, opts...)
+	serverImpl := NewServerImpl(cfg, logger, database, temporalClient, authn, authzProvider, k8sReader, opts...)
 	strictHandler := api.NewStrictHandlerWithOptions(serverImpl, nil, api.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.Error("OpenAPI StrictServer request error", "error", err)
@@ -264,6 +264,8 @@ func NewServerImpl(
 	logger *slog.Logger,
 	database db.DB,
 	temporalClient client.Client,
+	authn *auth.Authenticator,
+	authzProvider *authz.Provider,
 	k8sReader ctrlclient.Reader,
 	opts ...Option,
 ) *serverImpl {
@@ -271,7 +273,6 @@ func NewServerImpl(
 	for _, opt := range opts {
 		opt(&o)
 	}
-
 	nodePoolService := NewNodePoolService(
 		logger,
 		database,
@@ -311,6 +312,7 @@ func NewServerImpl(
 		nodeService:          *nodeService,
 		releaseService:       *NewReleaseService(logger, k8sReader),
 		configProfileService: *NewConfigProfileService(cfg, logger),
+		authzReloadService:   *NewAuthzReloadService(authn, authzProvider),
 	}
 }
 
@@ -321,4 +323,5 @@ type serverImpl struct {
 	nodeService
 	releaseService
 	configProfileService
+	authzReloadService
 }

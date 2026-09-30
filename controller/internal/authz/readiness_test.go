@@ -166,7 +166,7 @@ func TestABundleOlderThanTheBinaryIsRefused(t *testing.T) {
 // A role's parent naming a role nothing declares: the role and mapping counts
 // above stay green, and cedar-go's ancestry walk would still treat every
 // holder of the role as a member of the undeclared one at request time
-// (local.go's checkEntityStore doc comment, and overlayPrincipal's -- this is
+// (entitystore.go's checkEntityStore doc comment, and overlayPrincipal's -- this is
 // the roles.json half of the gap the mapped-role filter closes for
 // roleMappings.json).
 func TestABundleWhereARoleParentIsUndeclaredIsRefused(t *testing.T) {

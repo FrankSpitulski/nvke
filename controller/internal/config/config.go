@@ -426,6 +426,13 @@ type Config struct {
 	// while it is still learning what its policy should say.
 	AuthzPermissive bool `controllerconfig:"authzPermissive"`
 
+	// AuthzReloadInterval is how often a running pod re-reads and re-validates
+	// the mounted bundle, so a role revocation takes effect without a restart
+	// (design-authz-hot-reload.md §2). Zero or negative disables the reload
+	// path entirely, degrading to today's load-once-at-startup behavior. No
+	// effect when AuthzBundlePath is unset.
+	AuthzReloadInterval time.Duration `env:"AUTHZ_RELOAD_INTERVAL" default:"30s"`
+
 	// Tracing configures the export of OpenTelemetry spans to an OTLP collector.
 	Tracing TracingConfig
 

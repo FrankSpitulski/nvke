@@ -96,6 +96,7 @@ var stayEnv = map[string]string{
 	"TELEPORT_DEFAULT_CP_POOL_ENABLED":         chartUnset,
 	"TELEPORT_DEFAULT_WORKER_POOL_ENABLED":     chartUnset,
 	"NKE_OIDC_AUTH_AUTO_MIGRATION_ENABLED":     chartUnset,
+	"AUTHZ_RELOAD_INTERVAL":                    chartUnset,
 }
 
 // configMapOnly lists config.yaml keys that never had an environment variable,

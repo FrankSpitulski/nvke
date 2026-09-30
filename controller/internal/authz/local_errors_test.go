@@ -158,17 +158,28 @@ func TestResourceOverlayCannotShadowABundleEntity(t *testing.T) {
 }
 
 // Guards the assumption the overlay rests on: it must return the request's
-// resource and defer to the bundle for everything else.
+// resource and principal and defer to the bundle for everything else, matching
+// how Authorize actually builds a principalAndResourceOverlay for a real
+// request.
 func TestResourceOverlayDefersToTheBundle(t *testing.T) {
 	role := types.NewEntityUID("NKE::Role", "reader")
 	base := types.EntityMap{role: types.Entity{UID: role}}
 	resource := types.NewEntityUID("NKE::Cluster", "c1")
+	principal := types.NewEntityUID(PrincipalType, "requester")
 
-	view := resourceOverlay{base: base, resource: types.Entity{UID: resource}}
+	view := principalAndResourceOverlay{
+		base:      base,
+		resource:  types.Entity{UID: resource},
+		principal: types.Entity{UID: principal},
+	}
 
 	got, ok := view.Get(resource)
 	require.True(t, ok)
 	assert.Equal(t, resource, got.UID)
+
+	got, ok = view.Get(principal)
+	require.True(t, ok)
+	assert.Equal(t, principal, got.UID)
 
 	got, ok = view.Get(role)
 	require.True(t, ok, "the overlay must not hide the bundle")

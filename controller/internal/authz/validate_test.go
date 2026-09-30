@@ -117,7 +117,7 @@ permit(principal in NKE::Role::"reader", action in NKE::Action::"read", resource
 	assert.Contains(t, errs[0].Error(), `NKE::Role::"noSuchRole"`)
 }
 
-// checkEntityStore (local.go) returns on the first entity-store-class
+// checkEntityStore (entitystore.go) returns on the first entity-store-class
 // problem it finds, unlike the vocabulary/reachability checks above, which
 // collect every finding. ValidateBundle's "reports every problem" guarantee
 // is real for vocabulary/reachability class findings but narrower for
