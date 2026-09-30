@@ -912,12 +912,19 @@ func (t *tenantTest) availableControlPlaneVIP(ctx context.Context, preferred str
 const controlPlaneControllerEnv = "PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER"
 
 // controlPlaneControllerEnabled reports whether the CWE under test provisions
-// control planes through the control-plane controller. Like CWE, it treats an
-// unset or unparsable value as on, so the suite must see the value CWE was
-// deployed with.
+// control planes through the control-plane controller, read from
+// controlPlaneControllerEnv. An unset or empty value means true, CWE's default.
+// It panics if the value is not a boolean.
 func controlPlaneControllerEnabled() bool {
-	enabled, err := strconv.ParseBool(os.Getenv(controlPlaneControllerEnv))
-	return err != nil || enabled
+	value := os.Getenv(controlPlaneControllerEnv)
+	if value == "" {
+		return true
+	}
+	enabled, err := strconv.ParseBool(value)
+	if err != nil {
+		panic(fmt.Sprintf("%s=%q is not a boolean: %v", controlPlaneControllerEnv, value, err))
+	}
+	return enabled
 }
 
 // applyControlPlaneMode sends spec's control-plane pool as the equivalent
@@ -1007,6 +1014,31 @@ func TestUnit_CAPDSpec(t *testing.T) {
 			if spec.ControlPlane.ControlPlaneVIP != wantVIP {
 				t.Fatalf("ControlPlaneVIP = %q, want %q", spec.ControlPlane.ControlPlaneVIP, wantVIP)
 			}
+		})
+	}
+}
+
+func TestUnit_ControlPlaneControllerEnabled(t *testing.T) {
+	tests := []struct {
+		value     string
+		want      bool
+		wantPanic bool
+	}{
+		{value: "", want: true},
+		{value: "true", want: true},
+		{value: "1", want: true},
+		{value: "false", want: false},
+		{value: "0", want: false},
+		{value: "no", wantPanic: true},
+	}
+	for _, tt := range tests {
+		t.Run("value "+strconv.Quote(tt.value), func(t *testing.T) {
+			t.Setenv(controlPlaneControllerEnv, tt.value)
+			if tt.wantPanic {
+				require.Panics(t, func() { controlPlaneControllerEnabled() })
+				return
+			}
+			require.Equal(t, tt.want, controlPlaneControllerEnabled())
 		})
 	}
 }
