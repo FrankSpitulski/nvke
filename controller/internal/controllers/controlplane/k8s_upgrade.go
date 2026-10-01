@@ -14,11 +14,14 @@ import (
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	enginev1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
 
 	"github.com/dsx-ai-factory/nke/controller/internal/constants"
 	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nke/controller/internal/machinerelease"
 	"github.com/dsx-ai-factory/nke/controller/internal/temporal/workflows"
-	"github.com/dsx-ai-factory/nke/controller/internal/utils"
 )
 
 const (
@@ -300,66 +303,55 @@ func (r *reconciler) isControlPlaneUpgradeComplete(
 	return true
 }
 
-// resolveOSProfile finds the appropriate OSProfile for a given Kubernetes version.
-// It uses the metadata.yaml index to find the best profile matching the criteria from the current profile.
-// If currentProfileName is provided, it preserves architecture, variant, and ubuntu_version from it.
-// Otherwise, FindOSProfiles applies OSProfile defaults.
-func (r *reconciler) resolveOSProfile(k8sVersion, currentProfileName string) (string, error) {
-	// Load metadata index
-	metadataIdx, err := utils.LoadOSProfileMetadata(r.cfg.ProfilesDir)
+// selectUpgradeRelease finds the release for a given Kubernetes version.
+func (r *reconciler) selectUpgradeRelease(ctx context.Context, controlPlane bool, k8sVersion, currentRelease string) (string, error) {
+	if r.k8sReader == nil {
+		return "", fmt.Errorf("release reader is not configured")
+	}
+
+	var currentImage *enginev1.MachineImage
+	if currentRelease != "" {
+		var err error
+		if _, currentImage, err = r.resolveRelease(ctx, controlPlane, currentRelease); err != nil {
+			return "", fmt.Errorf("current OSProfile %q not found; cannot select a target OSProfile without its architecture, variant, and ubuntu version: %w", currentRelease, err)
+		}
+		r.logger.Info("Using metadata from current release",
+			"currentRelease", currentRelease,
+			"architecture", currentImage.Spec.Architecture,
+			"variant", currentImage.Spec.Variant,
+			"ubuntuVersion", currentImage.Spec.OperatingSystem.Version)
+	}
+
+	name, image, err := machinerelease.SelectUpgradeTarget(ctx, r.k8sReader, controlPlane, k8sVersion, currentImage)
 	if err != nil {
-		return "", fmt.Errorf("failed to load OSProfile metadata: %w", err)
+		return "", err
 	}
 
-	// Get metadata from current profile to preserve architecture, variant, and ubuntu_version.
-	var architecture string
-	var variant string
-	var ubuntuVersion string
-
-	if currentProfileName != "" {
-		currentMeta, ok := metadataIdx.GetOSProfileMetadata(currentProfileName, true)
-		if !ok {
-			return "", fmt.Errorf("current OSProfile %q not found in metadata; cannot resolve target profile without architecture, variant, and ubuntu version (add profile to metadata or fix profile name)", currentProfileName)
-		}
-		architecture = currentMeta.Architecture
-		variant = currentMeta.Variant
-		ubuntuVersion = currentMeta.UbuntuVersion
-		r.logger.Info("Using metadata from current profile",
-			"currentProfile", currentProfileName,
-			"architecture", architecture,
-			"variant", variant,
-			"ubuntuVersion", ubuntuVersion)
-	}
-
-	// Find profiles matching the k8s version and metadata criteria.
-	profiles := metadataIdx.FindOSProfiles(k8sVersion, architecture, variant, ubuntuVersion)
-	if len(profiles) == 0 {
-		return "", fmt.Errorf("no OSProfile found for Kubernetes version %s (architecture: %s, variant: %s, ubuntuVersion: %s)",
-			k8sVersion, architecture, variant, ubuntuVersion)
-	}
-
-	// Pick the profile with the newest build date
-	var profileName string
-	var meta utils.Metadata
-	var newestDate string
-
-	for name, m := range profiles {
-		if profileName == "" || m.BuildDate > newestDate {
-			profileName = name
-			meta = m
-			newestDate = m.BuildDate
-		}
-	}
-
-	r.logger.Info("Resolved OSProfile",
+	r.logger.Info("Selected upgrade release",
 		"k8sVersion", k8sVersion,
-		"selectedOSProfile", profileName,
-		"architecture", meta.Architecture,
-		"variant", meta.Variant,
-		"ubuntuVersion", meta.UbuntuVersion,
-		"buildDate", meta.BuildDate)
+		"selectedRelease", name,
+		"architecture", image.Spec.Architecture,
+		"variant", image.Spec.Variant,
+		"ubuntuVersion", image.Spec.OperatingSystem.Version,
+		"buildDate", image.Spec.BuildDate)
 
-	return profileName, nil
+	return name, nil
+}
+
+// resolveRelease reads the release a node pool stores by name, and the image it boots.
+func (r *reconciler) resolveRelease(ctx context.Context, controlPlane bool, name string) (metav1.Object, *enginev1.MachineImage, error) {
+	if controlPlane {
+		release, image, err := machinerelease.ResolveClusterRelease(ctx, r.k8sReader, name)
+		if err != nil {
+			return nil, nil, fmt.Errorf("resolving OSProfile %q: %w", name, err)
+		}
+		return release, image, nil
+	}
+	release, image, err := machinerelease.ResolveNodePoolRelease(ctx, r.k8sReader, name)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolving OSProfile %q: %w", name, err)
+	}
+	return release, image, nil
 }
 
 // updateKubeadmConfigMap updates the kubeadm configmap in the tenant cluster.
@@ -456,27 +448,35 @@ func (r *reconciler) updateNodePoolKubeVersion(
 		if err != nil {
 			return err
 		}
-		osProfile := nicoNodePoolProvider.OSProfile
+		currentRelease := nicoNodePoolProvider.OSProfile
 
-		kubeVersionInjected, err := utils.IsKubernetesVersionInjected(r.cfg.ProfilesDir, osProfile)
+		if r.k8sReader == nil {
+			return fmt.Errorf("release reader is not configured")
+		}
+		release, _, err := r.resolveRelease(ctx, nodePool.ControlPlane, currentRelease)
+		if err != nil {
+			return fmt.Errorf("failed to get NodePool KubernetesVersion injection status for NodePool %s: %w", nodePool.ID, err)
+		}
+		_, injected, err := machinerelease.ParseKubernetesVersionAnnotations(release)
 		if err != nil {
 			return fmt.Errorf("failed to get NodePool KubernetesVersion injection status for NodePool %s: %w", nodePool.ID, err)
 		}
 
-		// If the NodePool's OSProfile allows the KubernetesVersion to be injected at provisioning time, use the NodePool's KubernetesVersion.
-		// Else use the old OSProfile where KubernetesVersion was embedded into the OSProfile.
-		if kubeVersionInjected {
+		// If the NodePool's release allows the KubernetesVersion to be injected at provisioning time, use the NodePool's KubernetesVersion.
+		// Else select the release that embeds the new KubernetesVersion.
+		if injected {
 			logger.Info("KubernetesVersion is injected at provisioning time in NodePool", "nodePoolKubernetesVersion", nodePool.KubernetesVersion)
 			np.KubernetesVersion = cluster.KubernetesVersion
 		} else {
-			logger.Info("KubernetesVersion is not injected at provisioning time in NodePool - resolving new OSProfile", "nodePoolKubernetesVersion", nodePool.KubernetesVersion)
-			// Pass current profile name to preserve architecture, variant, and os_version
-			newOSProfile, err := r.resolveOSProfile(cluster.KubernetesVersion, osProfile)
+			logger.Info("KubernetesVersion is not injected at provisioning time in NodePool - selecting a new release", "nodePoolKubernetesVersion", nodePool.KubernetesVersion)
+			// Pass the current release to preserve architecture, variant, and os_version
+			newRelease, err := r.selectUpgradeRelease(ctx, nodePool.ControlPlane, cluster.KubernetesVersion, currentRelease)
 			if err != nil {
 				return fmt.Errorf("failed to resolve OSProfile: %w", err)
 			}
-			logger.Info("KubernetesVersion embedded in OSProfile - Resolved new OSProfile", "newOSProfile", newOSProfile)
-			nicoNodePoolProvider.OSProfile = newOSProfile
+			logger.Info("KubernetesVersion embedded in the release - selected new release", "newRelease", newRelease)
+			// The stored field keeps its name; it holds the release name.
+			nicoNodePoolProvider.OSProfile = newRelease
 			np.SetNico(nicoNodePoolProvider)
 			np.KubernetesVersion = cluster.KubernetesVersion
 		}

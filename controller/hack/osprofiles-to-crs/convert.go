@@ -21,8 +21,6 @@ import (
 	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	enginev1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
-
-	"github.com/dsx-ai-factory/nke/controller/internal/utils"
 )
 
 const (
@@ -74,7 +72,7 @@ const (
 
 type listedProfile struct {
 	name       string
-	meta       utils.Metadata
+	meta       profileMetadata
 	deprecated bool
 }
 
@@ -89,7 +87,7 @@ func convertWith(profilesDir string, gitops bool) (map[string][]byte, error) {
 	if profilesDir == "" {
 		return nil, errors.New("profiles directory is required")
 	}
-	index, err := utils.LoadOSProfileMetadata(profilesDir)
+	index, err := loadMetadata(profilesDir)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +109,7 @@ func convertWith(profilesDir string, gitops bool) (map[string][]byte, error) {
 	return out, nil
 }
 
-func listProfiles(index *utils.MetadataIndex) ([]listedProfile, error) {
+func listProfiles(index *metadataIndex) ([]listedProfile, error) {
 	listed := make([]listedProfile, 0, len(index.Profiles)+len(index.DeprecatedProfiles))
 	for name, meta := range index.Profiles {
 		listed = append(listed, listedProfile{name: name, meta: meta})
@@ -230,7 +228,7 @@ func clusterReleaseDoc(item listedProfile, userData string, gitops bool) *engine
 	}
 }
 
-func ubuntuVersion(meta utils.Metadata) string {
+func ubuntuVersion(meta profileMetadata) string {
 	if meta.UbuntuVersion == "" {
 		return defaultUbuntuVersion
 	}
@@ -247,7 +245,7 @@ func gitopsAnnotations(enabled bool) map[string]string {
 	}
 }
 
-func versionAnnotations(meta utils.Metadata, gitops bool) map[string]string {
+func versionAnnotations(meta profileMetadata, gitops bool) map[string]string {
 	annotations := gitopsAnnotations(gitops)
 	annotations[kubernetesVersionAnnotation] = meta.KubernetesVersion
 	annotations[kubernetesVersionInjectedAnnotation] = strconv.FormatBool(meta.KubernetesVersionInjected)

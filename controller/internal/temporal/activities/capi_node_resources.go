@@ -196,7 +196,7 @@ func (a *Activities) createTemplateLessForgeCAPIMachineForNode(ctx context.Conte
 		return err
 	}
 
-	nicoMachine, err := a.buildNicoMachineForNode(createCtx)
+	nicoMachine, err := a.buildNicoMachineForNode(ctx, createCtx)
 	if err != nil {
 		return err
 	}

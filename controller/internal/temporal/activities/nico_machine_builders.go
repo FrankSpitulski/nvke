@@ -7,8 +7,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
-	"path"
 	"strings"
 	"text/template"
 
@@ -17,15 +15,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	nicov1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
+	enginev1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
 
 	"github.com/dsx-ai-factory/nke/controller/internal/constants"
 	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nke/controller/internal/machinerelease"
 	"github.com/dsx-ai-factory/nke/controller/internal/teleport"
 	"github.com/dsx-ai-factory/nke/controller/internal/utils"
 )
 
 type templateLessForgeCAPINodeConfig struct {
-	osProfile                string
+	releaseName              string
 	diskSelectionStrategy    db.DiskSelectionStrategy
 	kubernetesVersion        string
 	teleportEnabled          bool
@@ -39,7 +39,7 @@ type templateLessForgeCAPINodeConfig struct {
 	nvLinkLogicalPartitionID *uuid.UUID
 }
 
-func (a *Activities) buildNicoMachineForNode(createCtx *capiMachineCreateContext) (*nicov1.NicoMachine, error) {
+func (a *Activities) buildNicoMachineForNode(ctx context.Context, createCtx *capiMachineCreateContext) (*nicov1.NicoMachine, error) {
 	provisioningConfig, err := resolveTemplateLessForgeCAPINodeConfig(createCtx)
 	if err != nil {
 		return nil, err
@@ -49,10 +49,13 @@ func (a *Activities) buildNicoMachineForNode(createCtx *capiMachineCreateContext
 		return nil, err
 	}
 
-	osProfileDir := path.Join(a.cfg.ProfilesDir, "osProfiles", provisioningConfig.osProfile)
-	ipxeScript, err := getIpxeScript(osProfileDir, string(provisioningConfig.diskSelectionStrategy))
+	_, image, err := a.resolveRelease(ctx, provisioningConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get iPXE script for OS profile %s: %w", provisioningConfig.osProfile, err)
+		return nil, err
+	}
+	ipxeScript, err := renderIpxeScript(image.Spec.NICo.IPXEScript, string(provisioningConfig.diskSelectionStrategy))
+	if err != nil {
+		return nil, fmt.Errorf("failed to render iPXE script for OS profile %s: %w", provisioningConfig.releaseName, err)
 	}
 
 	instanceLabels := buildNicoInstanceLabels(createCtx.node, createCtx.cluster, provisioningConfig.nodePoolID)
@@ -85,14 +88,17 @@ func (a *Activities) renderTemplateLessForgeCAPIBootstrapUserData(ctx context.Co
 		return "", err
 	}
 
-	osProfileDir := path.Join(a.cfg.ProfilesDir, "osProfiles", provisioningConfig.osProfile)
+	userDataTemplate, _, err := a.resolveRelease(ctx, provisioningConfig)
+	if err != nil {
+		return "", err
+	}
 	teleportCfg, err := a.nicoMachineTeleportConfig(createCtx, provisioningConfig.teleportEnabled, provisioningConfig.nodePoolID, provisioningConfig.isControlPlaneRole)
 	if err != nil {
 		return "", err
 	}
-	userData, err := a.getUserData(ctx, osProfileDir, createCtx.node, provisioningConfig.diskSelectionStrategy, provisioningConfig.kubernetesVersion, teleportCfg, createCtx.cluster)
+	userData, err := a.renderUserData(ctx, userDataTemplate, createCtx.node, provisioningConfig.diskSelectionStrategy, provisioningConfig.kubernetesVersion, teleportCfg, createCtx.cluster)
 	if err != nil {
-		return "", fmt.Errorf("failed to get user data for OS profile %s: %w", provisioningConfig.osProfile, err)
+		return "", fmt.Errorf("failed to render user data for OS profile %s: %w", provisioningConfig.releaseName, err)
 	}
 
 	return userData, nil
@@ -116,7 +122,7 @@ func resolveTemplateLessForgeNodeConfig(nodeSet db.NodeSet, nodePool db.NodePool
 	}
 
 	provisioningConfig := templateLessForgeCAPINodeConfig{
-		osProfile:                nicoNodeSetProvider.OSProfile,
+		releaseName:              nicoNodeSetProvider.OSProfile,
 		diskSelectionStrategy:    nicoNodeSetProvider.DiskSelectionStrategy,
 		kubernetesVersion:        nodeSet.KubernetesVersion,
 		teleportEnabled:          nodeSet.TeleportEnabled,
@@ -130,7 +136,7 @@ func resolveTemplateLessForgeNodeConfig(nodeSet db.NodeSet, nodePool db.NodePool
 		nvLinkLogicalPartitionID: nicoNodePoolProvider.NvLinkLogicalPartitionID,
 	}
 
-	if provisioningConfig.osProfile == "" {
+	if provisioningConfig.releaseName == "" {
 		return templateLessForgeCAPINodeConfig{}, fmt.Errorf("os profile is empty")
 	}
 	if provisioningConfig.instanceTypeID == uuid.Nil {
@@ -275,13 +281,26 @@ type IpxeData struct {
 	DiskSelectionStrategy string
 }
 
-func getIpxeScript(osProfileDir, diskSelectionStrategy string) (string, error) {
-	ipxeScriptBytes, err := os.ReadFile(path.Join(osProfileDir, "ipxeScript"))
-	if err != nil {
-		return "", fmt.Errorf("failed to read ipxeScript file: %w", err)
+// resolveRelease reads the release the node selects, and the image it boots.
+func (a *Activities) resolveRelease(
+	ctx context.Context,
+	provisioningConfig templateLessForgeCAPINodeConfig,
+) (string, *enginev1.MachineImage, error) {
+	if a.k8sClient == nil {
+		return "", nil, fmt.Errorf("release reader is not configured")
 	}
-
-	return renderIpxeScript(string(ipxeScriptBytes), diskSelectionStrategy)
+	if provisioningConfig.isControlPlaneRole {
+		release, image, err := machinerelease.ResolveClusterRelease(ctx, a.k8sClient, provisioningConfig.releaseName)
+		if err != nil {
+			return "", nil, fmt.Errorf("resolving OS profile %q: %w", provisioningConfig.releaseName, err)
+		}
+		return release.Spec.MachineInit.UserDataTemplate, image, nil
+	}
+	release, image, err := machinerelease.ResolveNodePoolRelease(ctx, a.k8sClient, provisioningConfig.releaseName)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolving OS profile %q: %w", provisioningConfig.releaseName, err)
+	}
+	return release.Spec.MachineInit.UserDataTemplate, image, nil
 }
 
 func renderIpxeScript(ipxeScriptTemplate, diskSelectionStrategy string) (string, error) {
@@ -305,23 +324,6 @@ type TeleportUserDataConfig struct {
 	ProxyAddress string
 	JoinMethod   string
 	Labels       string
-}
-
-func (a *Activities) getUserData(
-	ctx context.Context,
-	osProfileDir string,
-	node db.Node,
-	diskSelectionStrategy db.DiskSelectionStrategy,
-	kubernetesVersion string,
-	teleportCfg *TeleportUserDataConfig,
-	cluster db.Cluster,
-) (string, error) {
-	userDataTemplateBytes, err := os.ReadFile(path.Join(osProfileDir, "userData.tmpl"))
-	if err != nil {
-		return "", fmt.Errorf("failed to read user data template file: %w", err)
-	}
-
-	return a.renderUserData(ctx, string(userDataTemplateBytes), node, diskSelectionStrategy, kubernetesVersion, teleportCfg, cluster)
 }
 
 func (a *Activities) renderUserData(

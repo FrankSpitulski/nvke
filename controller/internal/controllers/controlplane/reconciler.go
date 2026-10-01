@@ -24,6 +24,7 @@ type reconciler struct {
 	db                db.Tx
 	cweTemporalClient temporalclient.Client
 	k8sClient         ctrlclient.Client
+	k8sReader         ctrlclient.Reader
 }
 
 func newReconciler(
@@ -32,6 +33,7 @@ func newReconciler(
 	db db.Tx,
 	cweTemporalClient temporalclient.Client,
 	k8sClient ctrlclient.Client,
+	k8sReader ctrlclient.Reader,
 ) *reconciler {
 	return &reconciler{
 		cfg:               cfg,
@@ -39,6 +41,7 @@ func newReconciler(
 		db:                db,
 		cweTemporalClient: cweTemporalClient,
 		k8sClient:         k8sClient,
+		k8sReader:         k8sReader,
 	}
 }
 

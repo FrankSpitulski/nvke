@@ -18,6 +18,7 @@ import (
 	"github.com/swaggest/swgui/v5emb"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.temporal.io/sdk/client"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/dsx-ai-factory/nke/controller/api"
 	"github.com/dsx-ai-factory/nke/controller/internal/auth"
@@ -38,6 +39,7 @@ func NewServer(
 	database db.DB,
 	temporalClient client.Client,
 	authn *auth.Authenticator,
+	k8sReader ctrlclient.Reader,
 ) (*http.Server, error) {
 	m := http.NewServeMux()
 
@@ -45,7 +47,7 @@ func NewServer(
 	if err != nil {
 		return nil, fmt.Errorf("failed to load OpenAPI spec: %w", err)
 	}
-	serverImpl := NewServerImpl(cfg, logger, database, temporalClient)
+	serverImpl := NewServerImpl(cfg, logger, database, temporalClient, k8sReader)
 	strictHandler := api.NewStrictHandlerWithOptions(serverImpl, nil, api.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.Error("OpenAPI StrictServer request error", "error", err)
@@ -187,7 +189,7 @@ func handleError(w http.ResponseWriter, logger *slog.Logger, message string, sta
 	}
 }
 
-func NewServerImpl(cfg config.Config, logger *slog.Logger, database db.DB, temporalClient client.Client) *serverImpl {
+func NewServerImpl(cfg config.Config, logger *slog.Logger, database db.DB, temporalClient client.Client, k8sReader ctrlclient.Reader) *serverImpl {
 	nodePoolService := NewNodePoolService(
 		logger,
 		database,
@@ -209,7 +211,7 @@ func NewServerImpl(cfg config.Config, logger *slog.Logger, database db.DB, tempo
 		nodePoolService:      *nodePoolService,
 		nodeSetService:       *NewNodeSetService(logger, database, temporalClient),
 		nodeService:          *NewNodeService(logger, database, temporalClient, cfg.UseControlPlaneControllerForControlPlane()),
-		osProfileService:     *NewOSProfileService(cfg, logger),
+		osProfileService:     *NewOSProfileService(logger, k8sReader),
 		configProfileService: *NewConfigProfileService(cfg, logger),
 		cniPluginsService:    *NewCNIPluginsService(),
 	}

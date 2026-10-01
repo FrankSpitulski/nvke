@@ -85,7 +85,7 @@ func TestNicoMachineBuilders_ResolveTemplateLessForgeCAPINodeConfig(t *testing.T
 				},
 			},
 			want: templateLessForgeCAPINodeConfig{
-				osProfile:             "cp-os",
+				releaseName:           "cp-os",
 				diskSelectionStrategy: db.DiskSelectionStrategySmallest,
 				kubernetesVersion:     "1.32.1",
 				teleportEnabled:       true,
@@ -115,7 +115,7 @@ func TestNicoMachineBuilders_ResolveTemplateLessForgeCAPINodeConfig(t *testing.T
 				nodePool: workerNodePool,
 			},
 			want: templateLessForgeCAPINodeConfig{
-				osProfile:                "worker-os",
+				releaseName:              "worker-os",
 				diskSelectionStrategy:    db.DiskSelectionStrategyLargest,
 				kubernetesVersion:        "1.33.0",
 				teleportEnabled:          true,
@@ -186,7 +186,7 @@ func TestNicoMachineBuilders_ControlPlaneConfigPinning(t *testing.T) {
 
 	got, err := resolveTemplateLessForgeCAPINodeConfig(createCtx)
 	require.NoError(t, err)
-	assert.Equal(t, "cp-os-a", got.osProfile)
+	assert.Equal(t, "cp-os-a", got.releaseName)
 	assert.Equal(t, db.DiskSelectionStrategyLargest, got.diskSelectionStrategy)
 	assert.Equal(t, "1.33.7", got.kubernetesVersion)
 	assert.True(t, got.teleportEnabled)
@@ -697,21 +697,42 @@ func TestUnit_RenderUserData_ProfileFixturesSupportGenericFiles(t *testing.T) {
 		return cloudConfig.Autoinstall.UserData.WriteFiles
 	}
 
-	fixturePaths := []string{
-		filepath.Join("..", "..", "..", "profiles", "example", "profiles", "osProfiles", "example-ubuntu-24.04-amd64", "userData.tmpl"),
-		filepath.Join("..", "..", "..", "test", "fixtures", "profiles", "osProfiles", "nke-local-dev-kindest-arm64", "userData.tmpl"),
-		filepath.Join("..", "..", "..", "test", "fixtures", "profiles", "osProfiles", "nke-nico-vms-24.04-amd64-fde", "userData.tmpl"),
-		filepath.Join("..", "..", "..", "test", "fixtures", "profiles", "osProfiles", "nke-nico-vms-24.04-arm64-fde", "userData.tmpl"),
-		filepath.Join("..", "..", "..", "test", "fixtures", "profiles", "osProfiles", "test-fixture-amd64", "userData.tmpl"),
-		filepath.Join("..", "..", "..", "nico-sim", "test", "integration", "testutil", "testdata", "prod-userdata.tmpl"),
+	releasesDir := filepath.Join("..", "..", "..", "test", "fixtures", "releases")
+	fixtureTemplates := map[string]func(t *testing.T) string{}
+	for _, name := range []string{
+		"nke-local-dev-kindest-arm64",
+		"nke-nico-vms-24.04-amd64-fde",
+		"nke-nico-vms-24.04-arm64-fde",
+		"test-fixture-amd64",
+	} {
+		fixtureTemplates["release "+name] = func(t *testing.T) string {
+			t.Helper()
+			data, err := os.ReadFile(filepath.Join(releasesDir, name+"-nodepoolrelease.yaml"))
+			require.NoError(t, err)
+			var release struct {
+				Spec struct {
+					MachineInit struct {
+						UserDataTemplate string `yaml:"userDataTemplate"`
+					} `yaml:"machineInit"`
+				} `yaml:"spec"`
+			}
+			require.NoError(t, yaml.Unmarshal(data, &release))
+			require.NotEmpty(t, release.Spec.MachineInit.UserDataTemplate)
+			return release.Spec.MachineInit.UserDataTemplate
+		}
+	}
+	fixtureTemplates["nico-sim prod-userdata"] = func(t *testing.T) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("..", "..", "..", "nico-sim", "test", "integration", "testutil", "testdata", "prod-userdata.tmpl"))
+		require.NoError(t, err)
+		return string(data)
 	}
 
-	for _, fixturePath := range fixturePaths {
-		t.Run(fixturePath, func(t *testing.T) {
+	for fixtureName, load := range fixtureTemplates {
+		t.Run(fixtureName, func(t *testing.T) {
 			t.Parallel()
 
-			templateBytes, err := os.ReadFile(fixturePath)
-			require.NoError(t, err)
+			templateBytes := []byte(load(t))
 			activities := &Activities{
 				cfg: config.Config{
 					DgxcTenantUser:               "test-admin",

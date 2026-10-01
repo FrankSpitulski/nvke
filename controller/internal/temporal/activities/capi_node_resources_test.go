@@ -6,8 +6,6 @@ package activities
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -26,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	nicov1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
+	enginev1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
 
 	"github.com/dsx-ai-factory/nke/controller/internal/config"
 	"github.com/dsx-ai-factory/nke/controller/internal/constants"
@@ -174,7 +173,7 @@ func TestActivities_CreateTemplateLessForgeCAPIMachineForNode_Idempotent(t *test
 	}
 	cluster.SetNicoProvider(db.NicoClusterProvider{OrgID: "org-1", SiteID: siteID, VpcID: vpcID})
 	namespace := constants.NamespaceNKESystem
-	k8sClient := newCAPIMachineCreateClient(t)
+	k8sClient := newCAPIMachineCreateClient(t, testWorkerRelease("test-os", "#!ipxe\n{{ .DiskSelectionStrategy }}", "#cloud-config\nhostname: {{ .Hostname }}\n")...)
 	a := &Activities{
 		cfg:       testTemplateLessForgeCAPICfg(t),
 		k8sClient: k8sClient,
@@ -207,6 +206,126 @@ func TestActivities_CreateTemplateLessForgeCAPIMachineForNode_Idempotent(t *test
 	require.Len(t, secretList.Items, 1)
 	assert.Equal(t, "worker-0-bootstrap-data", secretList.Items[0].Name)
 	assert.Contains(t, string(secretList.Items[0].Data["value"]), "worker-0")
+	assert.Contains(t, nicoMachineList.Items[0].Spec.IpxeScript, "smallest")
+}
+
+func TestActivities_CreateTemplateLessForgeCAPIMachineForNode_MissingRelease(t *testing.T) {
+	ctx := context.Background()
+	nodeSet := db.NodeSet{KubernetesVersion: "1.32.1"}
+	nodeSet.SetNico(db.NicoNodePoolProvider{OSProfile: "test-os", DiskSelectionStrategy: db.DiskSelectionStrategySmallest})
+	nodePool := db.NodePool{}
+	nodePool.SetNico(db.NicoNodePoolProvider{
+		InstanceTypeID: uuid.MustParse("70000000-0000-0000-0000-000000000005"),
+		VpcPrefixIDs:   []uuid.UUID{uuid.MustParse("70000000-0000-0000-0000-000000000007")},
+	})
+	cluster := db.Cluster{Name: "cluster-a", CniPlugin: db.CNICalico}
+	cluster.SetNicoProvider(db.NicoClusterProvider{VpcID: uuid.MustParse("70000000-0000-0000-0000-000000000006")})
+	k8sClient := newCAPIMachineCreateClient(t)
+	a := &Activities{
+		cfg:       testTemplateLessForgeCAPICfg(t),
+		k8sClient: k8sClient,
+	}
+
+	err := a.createTemplateLessForgeCAPIMachineForNode(ctx, &capiMachineCreateContext{
+		node:     db.Node{Name: "worker-0"},
+		nodeSet:  nodeSet,
+		nodePool: nodePool,
+		cluster:  cluster,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `NodePoolRelease "test-os" is not installed`)
+}
+
+func TestActivities_CreateTemplateLessForgeCAPIMachineForNode_ResolvesByRole(t *testing.T) {
+	const name = "shared-os"
+	controlPlane := testControlPlaneRelease(name, "#!ipxe\n# control-plane image {{ .DiskSelectionStrategy }}\n", "#cloud-config\n# control-plane user data for {{ .Hostname }}\n", false)
+	worker := testWorkerRelease(name, "#!ipxe\n# worker image {{ .DiskSelectionStrategy }}\n", "#cloud-config\n# worker user data for {{ .Hostname }}\n")
+
+	tests := []struct {
+		name         string
+		controlPlane bool
+		objects      []client.Object
+		wantIPXE     string
+		wantUserData string
+		wantErr      string
+	}{
+		{
+			name:         "control-plane node uses the ClusterRelease",
+			controlPlane: true,
+			objects:      append(append([]client.Object{}, controlPlane...), worker...),
+			wantIPXE:     "# control-plane image smallest",
+			wantUserData: "# control-plane user data for node-0",
+		},
+		{
+			name:         "worker node uses the NodePoolRelease",
+			controlPlane: false,
+			objects:      append(append([]client.Object{}, controlPlane...), worker...),
+			wantIPXE:     "# worker image smallest",
+			wantUserData: "# worker user data for node-0",
+		},
+		{
+			name:         "deprecated ClusterRelease still provisions an existing control plane",
+			controlPlane: true,
+			objects:      testControlPlaneRelease(name, "#!ipxe\n# deprecated image {{ .DiskSelectionStrategy }}\n", "#cloud-config\n# deprecated user data for {{ .Hostname }}\n", true),
+			wantIPXE:     "# deprecated image smallest",
+			wantUserData: "# deprecated user data for node-0",
+		},
+		{
+			name:         "control-plane node does not fall back to a NodePoolRelease",
+			controlPlane: true,
+			objects:      worker,
+			wantErr:      `ClusterRelease "shared-os" is not installed`,
+		},
+		{
+			name:         "worker node does not fall back to a ClusterRelease",
+			controlPlane: false,
+			objects:      controlPlane,
+			wantErr:      `NodePoolRelease "shared-os" is not installed`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			nodeSet := db.NodeSet{KubernetesVersion: "1.32.1"}
+			nodeSet.SetNico(db.NicoNodePoolProvider{OSProfile: name, DiskSelectionStrategy: db.DiskSelectionStrategySmallest})
+			nodePool := db.NodePool{ControlPlane: tt.controlPlane}
+			nodePool.SetNico(db.NicoNodePoolProvider{
+				InstanceTypeID: uuid.MustParse("70000000-0000-0000-0000-000000000005"),
+				VpcPrefixIDs:   []uuid.UUID{uuid.MustParse("70000000-0000-0000-0000-000000000007")},
+			})
+			cluster := db.Cluster{Name: "cluster-a", CniPlugin: db.CNICalico}
+			cluster.SetNicoProvider(db.NicoClusterProvider{VpcID: uuid.MustParse("70000000-0000-0000-0000-000000000006")})
+			k8sClient := newCAPIMachineCreateClient(t, tt.objects...)
+			a := &Activities{
+				cfg:       testTemplateLessForgeCAPICfg(t),
+				k8sClient: k8sClient,
+			}
+
+			err := a.createTemplateLessForgeCAPIMachineForNode(ctx, &capiMachineCreateContext{
+				node:      db.Node{Name: "node-0", ControlPlane: tt.controlPlane, Nico: &db.NicoNodeProvider{}},
+				nodeSet:   nodeSet,
+				nodePool:  nodePool,
+				cluster:   cluster,
+				namespace: constants.NamespaceNKESystem,
+			})
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+
+			nicoMachines := &nicov1.NicoMachineList{}
+			require.NoError(t, k8sClient.List(ctx, nicoMachines, client.InNamespace(constants.NamespaceNKESystem)))
+			require.Len(t, nicoMachines.Items, 1)
+			assert.Contains(t, nicoMachines.Items[0].Spec.IpxeScript, tt.wantIPXE)
+
+			secrets := &corev1.SecretList{}
+			require.NoError(t, k8sClient.List(ctx, secrets, client.InNamespace(constants.NamespaceNKESystem)))
+			require.Len(t, secrets.Items, 1)
+			assert.Contains(t, string(secrets.Items[0].Data["value"]), tt.wantUserData)
+		})
+	}
 }
 
 func TestActivities_WaitForCAPIMachineReady_RetryBehavior(t *testing.T) {
@@ -715,29 +834,82 @@ func newNicoMachineRotationClient(t *testing.T, nicoMachine *nicov1.NicoMachine)
 		Build()
 }
 
-func newCAPIMachineCreateClient(t *testing.T) client.Client {
+func newCAPIMachineCreateClient(t *testing.T, objects ...client.Object) client.Client {
 	t.Helper()
 
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, clusterv1.AddToScheme(scheme))
 	require.NoError(t, nicov1.AddToScheme(scheme))
+	require.NoError(t, enginev1.AddToScheme(scheme))
 	return fake.NewClientBuilder().
 		WithScheme(scheme).
+		WithObjects(objects...).
 		Build()
+}
+
+func testWorkerRelease(name, ipxe, userData string) []client.Object {
+	return []client.Object{
+		&enginev1.MachineImage{
+			ObjectMeta: metav1.ObjectMeta{Name: name + "-image"},
+			Spec: enginev1.MachineImageSpec{
+				OperatingSystem: enginev1.OperatingSystem{Family: "ubuntu", Version: "24.04"},
+				Architecture:    "amd64",
+				BuildDate:       "2026-01-01",
+				NICo:            enginev1.NICoBoot{IPXEScript: ipxe},
+			},
+		},
+		&enginev1.NodePoolRelease{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+				Annotations: map[string]string{
+					enginev1.MachineInitKubernetesVersionAnnotation:         "",
+					enginev1.MachineInitKubernetesVersionInjectedAnnotation: "true",
+				},
+			},
+			Spec: enginev1.NodePoolReleaseSpec{
+				MachineImageRef: enginev1.MachineImageReference{Name: enginev1.ResourceName(name + "-image")},
+				MachineInit:     enginev1.MachineInit{UserDataTemplate: userData},
+			},
+		},
+	}
+}
+
+// testControlPlaneRelease returns a ClusterRelease and its MachineImage. The
+// image gets its own name so a worker release of the same name does not share it.
+func testControlPlaneRelease(name, ipxe, userData string, deprecated bool) []client.Object {
+	return []client.Object{
+		&enginev1.MachineImage{
+			ObjectMeta: metav1.ObjectMeta{Name: name + "-control-plane-image"},
+			Spec: enginev1.MachineImageSpec{
+				OperatingSystem: enginev1.OperatingSystem{Family: "ubuntu", Version: "24.04"},
+				Architecture:    "amd64",
+				BuildDate:       "2026-01-01",
+				NICo:            enginev1.NICoBoot{IPXEScript: ipxe},
+			},
+		},
+		&enginev1.ClusterRelease{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+				Annotations: map[string]string{
+					enginev1.MachineInitKubernetesVersionAnnotation:         "",
+					enginev1.MachineInitKubernetesVersionInjectedAnnotation: "true",
+				},
+			},
+			Spec: enginev1.ClusterReleaseSpec{
+				MachineImageRef: enginev1.MachineImageReference{Name: enginev1.ResourceName(name + "-control-plane-image")},
+				MachineInit:     enginev1.MachineInit{UserDataTemplate: userData},
+				Lifecycle:       enginev1.ReleaseLifecycle{Deprecated: deprecated},
+			},
+		},
+	}
 }
 
 func testTemplateLessForgeCAPICfg(t *testing.T) config.Config {
 	t.Helper()
 
-	profilesDir := t.TempDir()
-	osProfileDir := filepath.Join(profilesDir, "osProfiles", "test-os")
-	require.NoError(t, os.MkdirAll(osProfileDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(osProfileDir, "ipxeScript"), []byte("#!ipxe\n{{ .DiskSelectionStrategy }}"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(osProfileDir, "userData.tmpl"), []byte("#cloud-config\nhostname: {{ .Hostname }}\n"), 0o644))
-
 	return config.Config{
-		ProfilesDir:                        profilesDir,
+		ProfilesDir:                        t.TempDir(),
 		DgxcTenantUser:                     "nvidia",
 		DgxcTenantPassword:                 "password",
 		NodeAgent:                          config.NodeAgentConfig{Port: "15005"},
