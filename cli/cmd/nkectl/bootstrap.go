@@ -222,6 +222,10 @@ func runBootstrapSite(out io.Writer, opts *bootstrapSiteOptions) (err error) {
 	// credentials needed for recovery.
 	ctx := context.Background()
 	cfg := bootstrapengine.DefaultConfig()
+	// A create that fails never reaches the diagnostics defer below, so the
+	// engine collects for itself and honours the same two flags.
+	cfg.DiagnosticsDir = opts.diagnosticsDir
+	cfg.KeepFailedCluster = opts.keepBootstrapKind
 	cweCfg, err := cweDeployConfig(inv, cfg.ClusterName, opts.disableMTLS)
 	if err != nil {
 		return err
