@@ -18,10 +18,6 @@ import (
 	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm/toolpath"
 )
 
-// maxUnixSocketPathLen is macOS's sockaddr_un.sun_path capacity, including
-// the NUL terminator.
-const maxUnixSocketPathLen = 104
-
 // swtpmPaths holds the on-disk locations for one instance's software TPM.
 type swtpmPaths struct {
 	StateDir   string // <instanceDir>/tpm — the only recovery-critical artifact for an FDE guest
@@ -68,8 +64,7 @@ func swtpmAvailable() (swtpmBin, swtpmSetupBin string, ok bool) {
 // disk once the passphrase slot has been removed. A Stat error other than
 // "not found" (EACCES, EIO, ...) is returned as an error rather than
 // silently treated as "unseeded": misreading it as false would seed right
-// over — or roll back — a directory whose real state we simply failed to
-// read.
+// over a directory whose real state we simply failed to read.
 func tpmStateSeeded(paths swtpmPaths) (bool, error) {
 	_, err := os.Stat(filepath.Join(paths.StateDir, "tpm2-00.permall"))
 	if err == nil {
@@ -81,26 +76,13 @@ func tpmStateSeeded(paths swtpmPaths) (bool, error) {
 	return false, err
 }
 
-// removeIfStillUnseeded deletes paths.StateDir, but only after re-checking
-// that it is, in fact, still unseeded. swtpm_setup can be killed (context
-// cancellation) after it has already written tpm2-00.permall but before
-// finishing; blindly deleting on any reported failure would then destroy
-// real TPM state. When the re-check finds state anyway, this leaves it in
-// place — a later call will see it as seeded and fail loudly on a missing
-// EK cert, which is a problem for a human to look at, not something to
-// paper over by deleting silently.
-func removeIfStillUnseeded(paths swtpmPaths) {
-	if seeded, err := tpmStateSeeded(paths); err != nil || seeded {
-		return
-	}
-	_ = os.RemoveAll(paths.StateDir)
-}
-
 // ensureSwtpmState seeds swtpm state for the instance exactly once and
 // returns the base64-encoded DER EK certificate. If state already exists —
 // from a prior seed, or nico-sim adopting an instance across a restart — it
-// returns the cached cert instead of reseeding.
-func ensureSwtpmState(ctx context.Context, swtpmSetupBin string, paths swtpmPaths) (string, error) {
+// returns the cached cert instead of reseeding. Any seeding failure removes
+// the state dir: QEMU has not been launched yet, so no guest can have sealed
+// anything to a half-seeded TPM.
+func ensureSwtpmState(ctx context.Context, swtpmSetupBin string, paths swtpmPaths) (encoded string, err error) {
 	seeded, err := tpmStateSeeded(paths)
 	if err != nil {
 		return "", fmt.Errorf("check swtpm state at %s: %w", paths.StateDir, err)
@@ -113,6 +95,11 @@ func ensureSwtpmState(ctx context.Context, swtpmSetupBin string, paths swtpmPath
 		return strings.TrimSpace(string(certData)), nil
 	}
 
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(paths.StateDir)
+		}
+	}()
 	if err := os.MkdirAll(paths.StateDir, 0o755); err != nil {
 		return "", fmt.Errorf("create swtpm state dir %s: %w", paths.StateDir, err)
 	}
@@ -120,14 +107,12 @@ func ensureSwtpmState(ctx context.Context, swtpmSetupBin string, paths swtpmPath
 	instanceDir := filepath.Dir(paths.StateDir)
 	certDir, err := os.MkdirTemp(instanceDir, "tpm-certs-")
 	if err != nil {
-		removeIfStillUnseeded(paths)
 		return "", fmt.Errorf("create swtpm cert scratch dir: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(certDir) }()
 
 	setupConf, err := writeSwtpmSetupConfig(instanceDir, swtpmSetupBin)
 	if err != nil {
-		removeIfStillUnseeded(paths)
 		return "", fmt.Errorf("write swtpm_setup config: %w", err)
 	}
 
@@ -140,20 +125,7 @@ func ensureSwtpmState(ctx context.Context, swtpmSetupBin string, paths swtpmPath
 		"--write-ek-cert-files", certDir,
 	)
 	if output, runErr := cmd.CombinedOutput(); runErr != nil {
-		removeIfStillUnseeded(paths)
 		return "", fmt.Errorf("swtpm_setup failed: %w: %s", runErr, string(output))
-	}
-
-	// swtpm_setup exiting 0 is not itself proof of success: verified live,
-	// it can exit 0 having written no state at all when swtpm_localca's own
-	// directory setup fails ("Could not create directory for 'statedir'").
-	// Assert the state file it is supposed to have written actually exists.
-	switch seededNow, err := tpmStateSeeded(paths); {
-	case err != nil:
-		return "", fmt.Errorf("verify swtpm state after seeding: %w", err)
-	case !seededNow:
-		removeIfStillUnseeded(paths)
-		return "", fmt.Errorf("swtpm_setup reported success but did not write %s", filepath.Join(paths.StateDir, "tpm2-00.permall"))
 	}
 
 	// Read the EK certificate (DER format) written by swtpm_setup. Same
@@ -166,18 +138,12 @@ func ensureSwtpmState(ctx context.Context, swtpmSetupBin string, paths swtpmPath
 			break
 		}
 	}
-	// From here, swtpm_setup is confirmed to have completed and this call is
-	// the one that created the state dir; nothing has read the cert out of
-	// it yet (that only happens once this function returns successfully),
-	// so it is still safe to delete outright on either remaining failure.
 	if certData == nil {
-		_ = os.RemoveAll(paths.StateDir)
 		return "", fmt.Errorf("swtpm_setup produced no EK certificate in %s", certDir)
 	}
 
-	encoded := base64.StdEncoding.EncodeToString(certData)
+	encoded = base64.StdEncoding.EncodeToString(certData)
 	if err := os.WriteFile(paths.EKCertPath, []byte(encoded), 0o644); err != nil {
-		_ = os.RemoveAll(paths.StateDir)
 		return "", fmt.Errorf("write EK cert %s: %w", paths.EKCertPath, err)
 	}
 	return encoded, nil
@@ -250,21 +216,6 @@ func writeSwtpmSetupConfig(instanceDir, swtpmSetupBin string) (string, error) {
 	return setupConf, nil
 }
 
-// validateCtrlSockPath rejects a ctrl socket path that would not fit in
-// sockaddr_un.sun_path on macOS. swtpmPathsForInstance already truncates
-// the instance ID for this reason, but a long TMPDIR can still push the
-// full path over the limit — binding to it would then fail with an opaque
-// OS error, so check the actual path we are about to use instead.
-func validateCtrlSockPath(path string) error {
-	if len(path)+1 > maxUnixSocketPathLen {
-		return fmt.Errorf(
-			"swtpm ctrl socket path %q is %d bytes, over macOS's %d-byte sockaddr_un.sun_path limit; set TMPDIR to a shorter path",
-			path, len(path), maxUnixSocketPathLen-1,
-		)
-	}
-	return nil
-}
-
 // startSwtpm launches swtpm as a self-daemonizing process bound to the
 // instance's ctrl socket, and waits for the socket to appear so QEMU's
 // eager -chardev connect (verified: it fails immediately against a missing
@@ -276,10 +227,6 @@ func validateCtrlSockPath(path string) error {
 // ctrl socket and starting a second daemon against the same tpmstate, which
 // would leave the first one live but unreachable.
 func startSwtpm(ctx context.Context, swtpmBin string, paths swtpmPaths) error {
-	if err := validateCtrlSockPath(paths.CtrlSock); err != nil {
-		return err
-	}
-
 	if pid, err := readPIDFile(paths.PIDFile); err == nil {
 		if alive, _ := isPIDAlive(pid); alive {
 			if _, statErr := os.Stat(paths.CtrlSock); statErr == nil {

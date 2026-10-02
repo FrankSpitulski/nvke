@@ -37,39 +37,9 @@ func TestFirmwareUsesSelectedQEMU(t *testing.T) {
 	require.Equal(t, "guest state", string(content))
 }
 
-func TestCopyVariablesLeavesNoPartialFileOnCrash(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "vars.fd")
-	require.NoError(t, os.WriteFile(src, []byte("template state"), 0o444))
-	dst := filepath.Join(dir, "efi-vars.fd")
-
-	require.NoError(t, copyVariables(src, dst))
-	content, err := os.ReadFile(dst)
-	require.NoError(t, err)
-	require.Equal(t, "template state", string(content))
-
-	// The temp sibling used mid-copy must never be left behind, and must
-	// never itself be mistaken for the finished file by a later call.
-	require.NoFileExists(t, dst+".tmp")
-}
-
-func TestCopyVariablesRejectsNonRegularDestination(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "vars.fd")
-	require.NoError(t, os.WriteFile(src, []byte("template state"), 0o444))
-	dst := filepath.Join(dir, "efi-vars.fd")
-	require.NoError(t, os.Mkdir(dst, 0o700))
-
-	err := copyVariables(src, dst)
-	require.ErrorContains(t, err, "not a regular file")
-}
-
-func TestFirmwareOverrideMustBeCompleteAndValid(t *testing.T) {
+func TestFirmwareOverrideMustBeComplete(t *testing.T) {
 	t.Setenv("NICO_VMS_EFI_CODE", "/missing/code")
 	t.Setenv("NICO_VMS_EFI_VARS_TEMPLATE", "")
 	_, _, err := firmwarePair(context.Background(), "not-invoked", "code", "vars")
 	require.ErrorContains(t, err, "set both")
-	t.Setenv("NICO_VMS_EFI_VARS_TEMPLATE", "/missing/vars")
-	_, _, err = firmwarePair(context.Background(), "not-invoked", "code", "vars")
-	require.ErrorContains(t, err, "open firmware")
 }

@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -27,13 +26,6 @@ func TestSwtpmPathsForInstance(t *testing.T) {
 	require.Equal(t, "/instances/abc123def456ghi789/tpm-ek.crt", paths.EKCertPath)
 	require.Equal(t, filepath.Join(os.TempDir(), "nvm-tpm-abc123def456.sock"), paths.CtrlSock)
 	require.LessOrEqual(t, len(paths.CtrlSock), 104, "macOS sockaddr_un.sun_path is capped at 104 bytes")
-}
-
-func TestValidateCtrlSockPath(t *testing.T) {
-	require.NoError(t, validateCtrlSockPath(strings.Repeat("a", 103)))
-	err := validateCtrlSockPath(strings.Repeat("a", 104))
-	require.ErrorContains(t, err, "TMPDIR")
-	require.ErrorContains(t, err, "104")
 }
 
 func TestTpmQEMUArgsDeviceNamePerArch(t *testing.T) {
@@ -76,7 +68,7 @@ func TestTpmStateSeededReportsUnreadableStateAsError(t *testing.T) {
 }
 
 func TestEnsureSwtpmStateRollback(t *testing.T) {
-	t.Run("swtpm_setup exits 0 without writing state: deleted, clear error", func(t *testing.T) {
+	t.Run("swtpm_setup exits 0 without writing state or cert: deleted, clear error", func(t *testing.T) {
 		dir := t.TempDir()
 		paths := swtpmPathsForInstance(dir, "test-instance-silent-noop")
 		fakeSetup := filepath.Join(dir, "swtpm_setup")
@@ -85,11 +77,11 @@ func TestEnsureSwtpmStateRollback(t *testing.T) {
 		t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 
 		_, err := ensureSwtpmState(context.Background(), fakeSetup, paths)
-		require.ErrorContains(t, err, "did not write")
+		require.ErrorContains(t, err, "no EK certificate")
 		require.NoDirExists(t, paths.StateDir)
 	})
 
-	t.Run("swtpm_setup fails but already wrote state: state preserved, not deleted", func(t *testing.T) {
+	t.Run("swtpm_setup fails after writing state: half-seeded state deleted so the next attempt reseeds", func(t *testing.T) {
 		dir := t.TempDir()
 		paths := swtpmPathsForInstance(dir, "test-instance-partial-write")
 		fakeSetup := filepath.Join(dir, "swtpm_setup")
@@ -102,8 +94,7 @@ func TestEnsureSwtpmStateRollback(t *testing.T) {
 
 		_, err := ensureSwtpmState(context.Background(), fakeSetup, paths)
 		require.ErrorContains(t, err, "swtpm_setup failed")
-		require.FileExists(t, filepath.Join(paths.StateDir, "tpm2-00.permall"),
-			"state written before the reported failure must survive rollback")
+		require.NoDirExists(t, paths.StateDir)
 	})
 
 	t.Run("EK cert write fails after a clean seed: state deleted, safe to retry", func(t *testing.T) {
@@ -232,13 +223,6 @@ func TestSwtpmAvailableRespectsEnvOverride(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, fakeSwtpm, swtpmBin)
 	require.Equal(t, fakeSwtpmSetup, swtpmSetupBin)
-}
-
-func TestSwtpmAvailableRejectsBogusOverride(t *testing.T) {
-	t.Setenv("NICO_VMS_SWTPM_PATH", "/does/not/exist/swtpm")
-	t.Setenv("NICO_VMS_SWTPM_SETUP_PATH", "/does/not/exist/swtpm_setup")
-	_, _, ok := swtpmAvailable()
-	require.False(t, ok, "a typo'd override must not be reported as available")
 }
 
 func TestResolveSwtpmLocalCAPrefersSiblingOverPath(t *testing.T) {

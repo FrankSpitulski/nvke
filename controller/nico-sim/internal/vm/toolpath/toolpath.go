@@ -10,15 +10,11 @@ import (
 )
 
 // Find locates an optional host tool: an env var override takes precedence
-// over a PATH lookup. Every candidate — including the override — is stat'd
-// and must be an executable regular file; a typo'd override must not be
-// handed back as if it were a resolved path. Returns "" if neither resolves.
+// over a PATH lookup. An override is returned as-is; exec reports a bad one
+// with its path. Returns "" if nothing resolves.
 func Find(name, env string) string {
 	if override := os.Getenv(env); override != "" {
-		if isExecutableRegularFile(override) {
-			return override
-		}
-		return ""
+		return override
 	}
 	if p, err := exec.LookPath(name); err == nil {
 		return p

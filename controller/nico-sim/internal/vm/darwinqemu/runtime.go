@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -77,7 +78,6 @@ func (r *darwinQEMU) pathsForInstance(instanceID string) darwinInstancePaths {
 type darwinRuntimeManifest struct {
 	LaunchPath string   `json:"launch_path"`
 	LaunchArgs []string `json:"launch_args"`
-	TPMEnabled bool     `json:"tpm_enabled"`
 }
 
 func (r *darwinQEMU) EnsureBridge(ctx context.Context, _, _ string) error {
@@ -183,7 +183,6 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 	if err := writeRuntimeManifest(paths.ManifestFile, darwinRuntimeManifest{
 		LaunchPath: vmnetClientPath,
 		LaunchArgs: append([]string{}, clientArgs...),
-		TPMEnabled: tpmEnabled,
 	}); err != nil {
 		_ = stopProcessGroup(vmnetPID)
 		if tpmEnabled {
@@ -239,51 +238,18 @@ func (r *darwinQEMU) startTPM(ctx context.Context, paths darwinInstancePaths) (b
 
 func (r *darwinQEMU) Reboot(_ context.Context, machineID string) error {
 	paths := r.pathsForInstance(machineID)
-	if err := r.checkSwtpmBeforeReboot(machineID, paths); err != nil {
-		return err
-	}
 	return qmpReboot(paths.QMPSock)
 }
 
-// checkSwtpmBeforeReboot refuses to reboot a TPM-enabled instance whose
-// swtpm process has died while QEMU kept running. QEMU's -chardev socket
-// has no reconnect logic, so relaunching swtpm at that point would give the
-// still-live guest nothing — its chardev is already broken — and the fresh
-// PID file a relaunch writes would then hide that failure from any later
-// check. There is also no recovery available across a real host reboot:
-// nothing survives that to relaunch swtpm against, since QEMU's own QMP
-// server is gone too. The instance must be recreated to get a working TPM.
-func (r *darwinQEMU) checkSwtpmBeforeReboot(machineID string, paths darwinInstancePaths) error {
-	manifest, err := readRuntimeManifest(paths.ManifestFile)
-	if err != nil || !manifest.TPMEnabled {
-		return nil
-	}
-	if pid, pidErr := readPIDFile(paths.TPM.PIDFile); pidErr == nil {
-		if alive, _ := isPIDAlive(pid); alive {
-			return nil
-		}
-	}
-	return fmt.Errorf("swtpm for %s died under a running QEMU; the guest's TPM is unusable until the instance is recreated", machineID)
-}
-
-// TPMEKCert reads the base64-encoded EK certificate written at seed time,
-// when the instance's runtime manifest records that TPM support was
-// enabled for it. ("", nil) means no TPM was configured for this instance.
+// TPMEKCert reads the base64-encoded EK certificate written at seed time.
+// ("", nil) means no TPM was configured for this instance.
 func (r *darwinQEMU) TPMEKCert(_ context.Context, machineID string) (string, error) {
-	paths := r.pathsForInstance(machineID)
-	manifest, err := readRuntimeManifest(paths.ManifestFile)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
-		}
-		return "", fmt.Errorf("read runtime manifest for %s: %w", machineID, err)
-	}
-	if !manifest.TPMEnabled {
+	certData, err := os.ReadFile(r.pathsForInstance(machineID).TPM.EKCertPath)
+	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
-	certData, err := os.ReadFile(paths.TPM.EKCertPath)
 	if err != nil {
-		return "", fmt.Errorf("TPM enabled but failed to read EK cert at %s: %w", paths.TPM.EKCertPath, err)
+		return "", fmt.Errorf("read EK cert for %s: %w", machineID, err)
 	}
 	return strings.TrimSpace(string(certData)), nil
 }
@@ -465,18 +431,6 @@ func writeRuntimeManifest(path string, manifest darwinRuntimeManifest) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
-}
-
-func readRuntimeManifest(path string) (darwinRuntimeManifest, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return darwinRuntimeManifest{}, err
-	}
-	var m darwinRuntimeManifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return darwinRuntimeManifest{}, err
-	}
-	return m, nil
 }
 
 func isPIDAlive(pid int) (bool, error) {
