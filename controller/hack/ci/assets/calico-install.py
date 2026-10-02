@@ -17,6 +17,28 @@ def run(*args: str) -> None:
     subprocess.run(args, check=True)
 
 
+def wait_for_api() -> None:
+    # kube-vip advertises the VIP after kubeadm starts the API server; applying
+    # early leaves the agent's CNI status in a terminal error state.
+    deadline = time.monotonic() + 90
+    while True:
+        result = subprocess.run(
+            ["kubectl", "--request-timeout=5s", "get", "--raw=/readyz"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                "Kubernetes API did not become ready through the control-plane endpoint: "
+                + result.stderr.strip()
+            )
+        time.sleep(2)
+
+
+wait_for_api()
 run(
     "kubectl",
     "apply",
