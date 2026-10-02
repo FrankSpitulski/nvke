@@ -176,9 +176,9 @@ CPUS ?= 4
 BOOT_WAIT ?= $(if $(filter kvm hvf,$(ACCELERATOR)),10s,30s)
 
 # Guest kernel package. Empty keeps the architecture default (linux-nvidia, or
-# linux-nvidia-64k on arm64). Apple silicon has no 64K page granule, so an
-# image for HVF guests needs KERNEL_PACKAGE=linux-generic.
-KERNEL_PACKAGE ?=
+# linux-nvidia-64k on arm64). Apple silicon has no 64K page granule, so an HVF
+# bake, which has to boot the image it builds, defaults to linux-generic.
+KERNEL_PACKAGE ?= $(if $(filter hvf,$(ACCELERATOR)),linux-generic,)
 
 # Firmware and acceleration checks share the boot harness selection, including
 # QEMU's firmware directory on hosts without /usr/share/OVMF or AAVMF. The
