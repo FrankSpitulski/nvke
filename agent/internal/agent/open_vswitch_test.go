@@ -146,6 +146,38 @@ func TestOpenVSwitchReconciliationTransformsNetplanAndVerifiesBridge(t *testing.
 	assert.Equal(t, map[string]any{"addresses": []any{"10.0.0.53"}}, bridge["nameservers"])
 }
 
+func TestOpenVSwitchNetplanMatchesImageDHCPInterfacePattern(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "etc/netplan"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "etc/netplan/00-dhcp-all.yaml"), []byte(`network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    default_nic:
+      match:
+        name: "e*"
+      dhcp4: true
+      optional: true
+`), 0o600))
+	server := &NodeAgentServer{RootPath: root}
+	link := openVSwitchLink{Name: "enp1s0", Address: "00:11:22:33:44:55", MTU: 1500}
+
+	plan, err := server.buildOpenVSwitchNetplanPlan(link, "172.30.0.1", "breth0")
+
+	require.NoError(t, err)
+	config := map[string]any{}
+	require.NoError(t, yaml.Unmarshal(plan.config, &config))
+	network := config["network"].(map[string]any)
+	ethernets := network["ethernets"].(map[string]any)
+	bridges := network["bridges"].(map[string]any)
+	assert.NotContains(t, ethernets, "default_nic")
+	assert.Contains(t, ethernets, "enp1s0")
+	bridge := bridges["breth0"].(map[string]any)
+	assert.Equal(t, true, bridge["dhcp4"])
+	assert.Equal(t, []any{"enp1s0"}, bridge["interfaces"])
+	assert.NotContains(t, bridge, "match")
+}
+
 func TestOpenVSwitchReconciliationResumesWrittenNetplanAfterInterruptedApply(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "etc/netplan"), 0o755))
