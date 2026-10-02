@@ -680,3 +680,15 @@ func TestLoadRejectsEmptyEtcdEncryption(t *testing.T) {
 		}
 	}
 }
+
+// TestControlPlaneSchedulable pins the rule: no worker nodes in the site spec
+// means a schedulable control plane. Update it when the spec can declare them.
+func TestControlPlaneSchedulable(t *testing.T) {
+	inv, err := Load(writeTemp(t, validYAML))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !inv.Cluster.ControlPlaneSchedulable() {
+		t.Error("ControlPlaneSchedulable() = false for a site spec with no worker nodes, want true")
+	}
+}

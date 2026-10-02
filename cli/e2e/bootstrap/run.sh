@@ -694,9 +694,10 @@ all_nodes_ready() {
 
 # ── Stage 4: every pre-provisioned host is a Ready node ─────────────────
 #
-# Every site spec node joins as a control-plane node and CWE untaints them, so
-# all must be Ready and schedulable. CWE joins them one at a time, ~6 min
-# apart, so the third kubelet starts ~13 min after the cluster is created.
+# Every site spec node joins as a control-plane node and nkectl removes the
+# control-plane taint once they have all joined, so all must be Ready and
+# schedulable. CWE joins them one at a time, ~6 min apart, so the third
+# kubelet starts ~13 min after the cluster is created.
 
 log "waiting for ${expected_nodes} nodes to report Ready"
 total_nodes=0
@@ -841,6 +842,28 @@ hello_world_served() {
     "http://${INIT_NODE_IP}:${TRAEFIK_NODE_PORT}/" | grep -q "Hostname:"
 }
 
+# ── Stage 4c: the control-plane taint is gone ───────────────────────────
+#
+# The site spec declares no worker nodes, so nkectl must have removed the
+# taint. The workloads below carry no toleration for it.
+
+log "checking that no node still carries the control-plane taint"
+node_names=$(kubectl --kubeconfig "${TENANT_KUBECONFIG}" get nodes -o jsonpath='{.items[*].metadata.name}') \
+  || fail "could not list nodes for the control-plane taint check"
+[ -n "${node_names}" ] || fail "the cluster lists no nodes"
+tainted_nodes=""
+for node_name in ${node_names}; do
+  taint_keys=$(kubectl --kubeconfig "${TENANT_KUBECONFIG}" get node "${node_name}" -o jsonpath='{.spec.taints[*].key}') \
+    || fail "could not read the taints of node ${node_name}"
+  if tr ' ' '\n' <<<"${taint_keys}" | grep -Fxq 'node-role.kubernetes.io/control-plane'; then
+    tainted_nodes="${tainted_nodes}${node_name} "
+  fi
+done
+if [ -n "${tainted_nodes}" ]; then
+  fail "nodes still carry the control-plane taint: ${tainted_nodes}"
+fi
+log "PASS: every node is schedulable"
+
 # ── Stage 5: hello world ────────────────────────────────────────────────
 #
 # Traefik is published on a NodePort because that is a route the host has to
@@ -859,9 +882,6 @@ helm --kubeconfig "${TENANT_KUBECONFIG}" upgrade --install traefik traefik \
   --namespace traefik --create-namespace \
   --set service.spec.type=NodePort \
   --set "ports.web.nodePort=${TRAEFIK_NODE_PORT}" \
-  --set 'tolerations[0].key=node-role.kubernetes.io/control-plane' \
-  --set 'tolerations[0].operator=Exists' \
-  --set 'tolerations[0].effect=NoSchedule' \
   --wait --timeout 5m
 
 log "deploying the hello-world workload"

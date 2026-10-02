@@ -200,6 +200,28 @@ is what a controller installed later is given, and the copy a restore onto new
 hosts needs. It is never overwritten, and the run refuses to start if it
 already exists.
 
+## Schedulable control plane
+
+Every site spec node is a control-plane node, and kubeadm taints each one
+`node-role.kubernetes.io/control-plane:NoSchedule`. With the taint in place
+nothing schedules: a Helm `--wait` or `clusterctl init` on the new cluster hangs
+until it times out, with no message saying why.
+
+The site spec declares no worker nodes, so the control-plane nodes are the
+only place workloads can run. Once every node has joined, `nkectl bootstrap
+site` removes that taint from each node. Other taints are left alone, and a
+node that already lacks the taint is not touched. There is no field for this:
+the taint follows the topology, and the rule will become "only when the site
+spec declares no worker nodes" once it can declare them.
+
+If the removal fails, the cluster is still up and the kubeconfig is on disk.
+The error names the command that finishes the step by hand:
+
+```bash
+kubectl taint nodes --all node-role.kubernetes.io/control-plane:NoSchedule- \
+  --kubeconfig <clusterName>.kubeconfig
+```
+
 ## The control-plane VIP
 
 `cluster.controlPlaneVIP` is an optional IPv4 address that fronts the Kubernetes

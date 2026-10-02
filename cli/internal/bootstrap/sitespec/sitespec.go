@@ -158,6 +158,15 @@ func (c Cluster) EtcdEncryptionEnabled() bool {
 	return c.EtcdEncryption == nil || *c.EtcdEncryption
 }
 
+// ControlPlaneSchedulable reports whether the control-plane NoSchedule taint
+// is removed from every node after bootstrap. It is removed when the site spec
+// declares no worker nodes.
+func (c Cluster) ControlPlaneSchedulable() bool {
+	// The site spec cannot declare worker nodes yet. Derive this from that
+	// list once it exists.
+	return true
+}
+
 // Node is a single pre-provisioned host.
 type Node struct {
 	Name string `yaml:"name"`

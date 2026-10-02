@@ -29,6 +29,7 @@ import (
 	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/sitecluster"
 	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/sitespec"
 	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/spireentrydump"
+	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/untaint"
 	"github.com/dsx-ai-factory/nke/cli/internal/clients"
 	"github.com/dsx-ai-factory/nke/cli/internal/config"
 )
@@ -101,6 +102,10 @@ type bootstrapSiteOptions struct {
 	// to avoid contacting a real cluster.
 	dumpSpireEntries func(context.Context, string, string) (int, error)
 
+	// untaintControlPlane overrides the control-plane untaint. Nil uses a
+	// client built from the cluster's kubeconfig; tests replace it.
+	untaintControlPlane func(ctx context.Context, kubeconfigPath string, logger *slog.Logger) ([]string, error)
+
 	// lookPath resolves the container runtime binary. Nil uses exec.LookPath;
 	// tests substitute it so they do not require a real nerdctl installation,
 	// the same seam bootstrapRunner and cweRunner provide for the commands.
@@ -139,6 +144,9 @@ nke-controller:latest and cluster-api-provider-provisioned:latest, which
 "make -C cli images" builds. NKECTL_CWE_IMAGE and NKECTL_CAPI_PROVISIONED_IMAGE
 name other images, such as ones pushed to a registry. cli/README.md lists every
 NKECTL_* variable.
+
+Every node becomes a control-plane node. Once the cluster is up, the
+control-plane NoSchedule taint is removed from each node so workloads can run.
 
 See the bundled examples/sitespec.yaml and docs/sitespec.md for the
 site spec file format.`,
@@ -291,12 +299,17 @@ func runBootstrapSite(out io.Writer, opts *bootstrapSiteOptions) (err error) {
 		return fmt.Errorf("standing up bootstrap kind cluster: %w", err)
 	}
 	siteClusterCreated := false
+	// handedOver is set once the site cluster and every artifact the operator
+	// needs are on disk. A failure after that is about the site cluster, so
+	// the bootstrap cluster's diagnostics are not collected and it is torn
+	// down.
+	handedOver := false
 	defer func() {
 		// Collect diagnostics before anything is torn down: this cluster is
 		// removed on every exit path, so this is the only moment the evidence
 		// still exists. Only on failure — a successful bootstrap has nothing
 		// to explain.
-		if err != nil {
+		if err != nil && !handedOver {
 			dir := opts.diagnosticsDir
 			logger.Info("bootstrap failed; collecting cluster diagnostics", "dir", dir)
 			cwedeploy.New(opts.cweRunner, logger).
@@ -360,7 +373,64 @@ func runBootstrapSite(out io.Writer, opts *bootstrapSiteOptions) (err error) {
 		}
 		logger.Info("wrote SPIRE bootstrap resources", "clusterStaticEntries", count)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Everything recovery needs is on disk by now, so the bootstrap cluster is
+	// torn down even if the untaint fails.
+	siteClusterCreated = false
+	handedOver = true
+	kubeconfigPath := siteKubeconfigPath(inv.ClusterName, opts)
+	if inv.Cluster.EtcdEncryptionEnabled() {
+		fmt.Fprintf(out, "\nThe etcd encryption key of cluster %q is at %s. Move that file off this host "+
+			"and keep it with the cluster's other credentials.\n", inv.ClusterName, etcdKeyPath(opts, inv.ClusterName))
+	}
+	if err := makeControlPlaneSchedulable(ctx, inv, kubeconfigPath, opts, logger); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(out, "\nCluster %q is ready. Talk to it with:\n  kubectl --kubeconfig %s get nodes\n",
+		inv.ClusterName, kubeconfigPath)
+	return nil
+}
+
+// untaintTimeout bounds the whole untaint: one List and a few Updates.
+const untaintTimeout = 2 * time.Minute
+
+// makeControlPlaneSchedulable removes the control-plane taint from every node
+// when the site spec's topology calls for it.
+func makeControlPlaneSchedulable(
+	ctx context.Context,
+	inv *sitespec.SiteSpec,
+	kubeconfigPath string,
+	opts *bootstrapSiteOptions,
+	logger *slog.Logger,
+) error {
+	if !inv.Cluster.ControlPlaneSchedulable() {
+		logger.Info("the site spec declares worker nodes; the control-plane taint stays on every node")
+		return nil
+	}
+
+	run := opts.untaintControlPlane
+	if run == nil {
+		run = func(ctx context.Context, kubeconfigPath string, logger *slog.Logger) ([]string, error) {
+			client, err := untaint.NewClient(kubeconfigPath)
+			if err != nil {
+				return nil, err
+			}
+			return untaint.ControlPlane(ctx, client, logger)
+		}
+	}
+	untaintCtx, cancel := context.WithTimeout(ctx, untaintTimeout)
+	defer cancel()
+	changed, err := run(untaintCtx, kubeconfigPath, logger)
+	if err != nil {
+		return fmt.Errorf("making the control-plane nodes schedulable: %w; the cluster is up and its kubeconfig is at %s, "+
+			"finish by hand with `%s --kubeconfig %s`", err, kubeconfigPath, untaint.ManualCommand, kubeconfigPath)
+	}
+	logger.Info("control-plane nodes are schedulable", "untainted", len(changed))
+	return nil
 }
 
 func dumpSpireBootstrapEntries(
@@ -380,9 +450,10 @@ func dumpSpireBootstrapEntries(
 }
 
 // createSiteCluster posts the cluster to CWE, waits for it to come up, and
-// writes out its kubeconfig. The boolean reports whether CWE accepted the
-// create request, after which callers must preserve the management cluster on
-// failure so the in-progress site cluster remains recoverable.
+// writes out its kubeconfig and etcd encryption key. The boolean reports
+// whether CWE accepted the create request, after which callers must preserve
+// the management cluster on failure so the in-progress site cluster remains
+// recoverable.
 //
 // The CWE client is built here rather than being passed in because its address
 // is only settled once the bootstrap cluster exists: it is the host port the
@@ -444,20 +515,11 @@ func createSiteCluster(
 	// Every control-plane node holds the key now, and this is the last moment
 	// the copy CWE keeps is reachable: it lives in the bootstrap cluster, which
 	// goes when the command does.
-	keyPath := ""
 	if inv.Cluster.EtcdEncryptionEnabled() {
-		keyPath = etcdKeyPath(opts, inv.ClusterName)
 		if err := saveEtcdEncryptionKey(ctx, bootstrapCluster, created.ID, inv.ClusterName,
-			keyPath, kubeconfigPath, opts, logger); err != nil {
+			etcdKeyPath(opts, inv.ClusterName), kubeconfigPath, opts, logger); err != nil {
 			return true, err
 		}
-	}
-
-	fmt.Fprintf(os.Stdout, "\nCluster %q is ready. Talk to it with:\n  kubectl --kubeconfig %s get nodes\n",
-		created.Name, kubeconfigPath)
-	if keyPath != "" {
-		fmt.Fprintf(os.Stdout, "Its etcd encryption key is at %s. Move that file off this host "+
-			"and keep it with the cluster's other credentials.\n", keyPath)
 	}
 	return true, nil
 }
