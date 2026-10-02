@@ -334,8 +334,14 @@ _kind_host_ip = str(local(
 #     CAPD machines share that Docker network and can use its NodePorts.
 _on_mac = str(local("uname -s", quiet=True, echo_off=True)).strip() == "Darwin"
 _mac_vm_tenants = _on_mac and cfg.get("nico_sim_backends", ["container"]) in (["vm"], "vm")
-# Apple's vmnet shared-mode gateway; matches nico-sim's darwin bridge CIDR.
-_vmnet_gateway_ip = "192.168.64.1"
+# Apple's vmnet shared-mode gateway: 192.168.64.1 unless a tool such as UTM or
+# Parallels moved the shared network.
+_vmnet_gateway_ip = ""
+if _mac_vm_tenants:
+    _vmnet_gateway_ip = str(local(
+        "defaults read /Library/Preferences/SystemConfiguration/com.apple.vmnet Shared_Net_Address 2>/dev/null || echo 192.168.64.1",
+        quiet=True, echo_off=True,
+    )).strip()
 if SITE_CONTROLLER_VIP_OVERRIDE:
     _kind_site_controller_vip = SITE_CONTROLLER_VIP_OVERRIDE
 elif _mac_vm_tenants:

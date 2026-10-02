@@ -283,7 +283,9 @@ func startMetadataServers(ctx context.Context, addrs []string, handler http.Hand
 			continue
 		}
 		bound++
-		server := &http.Server{Handler: handler}
+		// darwin binds every interface, so a LAN peer could otherwise hold
+		// connections open without ever sending headers.
+		server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 		logger.Info("Cloud-init metadata server started", "listenAddr", addr)
 		wg.Add(1)
 		go func() {
