@@ -13,6 +13,27 @@ import (
 	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 )
 
+func TestUnit_ListMachinesForFailureDomainDiscovery(t *testing.T) {
+	store := newUnifiedTestStore(t)
+	handler := newDispatchHandler(t, store, nil)
+	for _, apiName := range []string{"carbide", "forge"} {
+		t.Run(apiName, func(t *testing.T) {
+			path := "/v2/org/" + dispatchTestOrgID + "/" + apiName + "/machine?siteId=site-1&hasInstanceType=true&orderBy=ID_ASC&pageNumber=1&pageSize=100"
+			response := performJSONRequest(t, handler, nethttp.MethodGet, path, nil)
+			if response.Code != nethttp.StatusOK {
+				t.Fatalf("status = %d, want 200; body=%s", response.Code, response.Body.String())
+			}
+			var machines []nicosdk.Machine
+			if err := json.Unmarshal(response.Body.Bytes(), &machines); err != nil {
+				t.Fatalf("decode machines: %v; body=%s", err, response.Body.String())
+			}
+			if len(machines) != 0 {
+				t.Fatalf("machines = %+v, want no physical inventory", machines)
+			}
+		})
+	}
+}
+
 func TestUnit_HandleGetMachine(t *testing.T) {
 	type parameters struct {
 		setup      func(*testing.T, nethttp.Handler, *fakeContainerService) string

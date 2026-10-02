@@ -91,6 +91,9 @@ func NewHandler(store *state.Store, containers ContainerService, logger *slog.Lo
 	registerV2(mux, "POST", "instance", s.handleCreateInstance)
 	registerV2(mux, "PATCH", "instance/{instanceId}", s.handlePatchInstance)
 	registerV2(mux, "DELETE", "instance/{instanceId}", s.handleDeleteInstance)
+	// nico-sim has no physical Machine inventory to offer for failure-domain
+	// discovery. Its per-instance Machine lookup below is synthesized on demand.
+	registerV2(mux, "GET", "machine", s.handleEmptyList)
 	// CAPNICo resolves the DPU attached to an instance's primary machine
 	// interface after the instance is provisioned.
 	registerV2(mux, "GET", "machine/{machineId}", s.handleGetMachine)
