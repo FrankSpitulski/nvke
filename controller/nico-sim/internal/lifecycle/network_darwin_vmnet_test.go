@@ -44,3 +44,25 @@ func TestDarwinLeaseFiltersOutOfSubnetBeforeComparingExpiry(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "192.168.64.9", ip, "the out-of-subnet, later-expiring lease must not mask the in-subnet one")
 }
+
+func TestDarwinUserData(t *testing.T) {
+	tests := []struct {
+		name, in, want string
+	}{
+		{
+			name: "rewrites phone_home to the vmnet gateway",
+			in:   "phone_home:\n    url: http://169.254.169.254:7777/latest/meta-data/phone_home\n",
+			want: "phone_home:\n    url: http://192.168.64.1:7777/latest/meta-data/phone_home\n",
+		},
+		{
+			name: "leaves other link-local URLs alone",
+			in:   "url: http://169.254.169.254/latest/\n",
+			want: "url: http://169.254.169.254/latest/\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, darwinUserData(tt.in, "192.168.64.1"))
+		})
+	}
+}

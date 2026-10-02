@@ -307,6 +307,19 @@ func (e *Engine) reconcileAbsent(ctx context.Context, instance state.Instance, l
 	return nil
 }
 
+// localizeUserData adapts the tenant's user-data to this host: it injects the
+// diagnostic SSH user if enabled and, on darwin, retargets phone_home at the
+// vmnet gateway.
+func (e *Engine) localizeUserData(userData, gateway string) string {
+	if e.cfg.DiagSSHEnabled {
+		userData = cloudinit.InjectDiagUser(userData, e.cfg.DiagSSHUser, e.cfg.DiagSSHPassword)
+	}
+	if e.cfg.EffectiveVMBackend() == config.VMBackendDarwinQEMU {
+		userData = darwinUserData(userData, gateway)
+	}
+	return userData
+}
+
 func (e *Engine) reconcileProvisioning(ctx context.Context, instance state.Instance, log *slog.Logger) error {
 	// If machine already exists (e.g. after a process restart), check its state.
 	if instance.MachineID != "" {
@@ -381,11 +394,7 @@ func (e *Engine) reconcileProvisioning(ctx context.Context, instance state.Insta
 			return e.markError(ctx, instance.ID, fmt.Errorf("no bootable image available: base image %q does not exist", effectiveImage))
 		}
 	}
-
-	// Inject diagnostic SSH user if enabled.
-	if e.cfg.DiagSSHEnabled {
-		userData = cloudinit.InjectDiagUser(userData, e.cfg.DiagSSHUser, e.cfg.DiagSSHPassword)
-	}
+	userData = e.localizeUserData(userData, gw)
 
 	arch := "x86_64"
 	if runtime.GOARCH == "arm64" {

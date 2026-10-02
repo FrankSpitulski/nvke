@@ -166,8 +166,18 @@ func Setup(ctx context.Context, cfg config.Config, seedDoc seed.Document, logger
 			store,
 			filepath.Join(filepath.Dir(cfg.DBPath), "instances"),
 		)
+		handler := metadataServer.Handler()
+		if cfg.EffectiveVMBackend() == config.VMBackendDarwinQEMU {
+			// darwin binds every interface, and /nocloud/{instanceID} serves
+			// user-data by ID rather than by source address.
+			_, subnet, err := net.ParseCIDR(cfg.BridgeCIDR)
+			if err != nil {
+				return nil, fmt.Errorf("parse bridge CIDR for metadata server: %w", err)
+			}
+			handler = allowSourceSubnet(handler, subnet)
+		}
 		var metaErr error
-		metadataCancel, metadataWg, metaErr = startMetadataServers(ctx, engine.MetadataAddrs(), metadataServer.Handler(), logger)
+		metadataCancel, metadataWg, metaErr = startMetadataServers(ctx, engine.MetadataAddrs(), handler, logger)
 		if metaErr != nil {
 			return nil, fmt.Errorf("start metadata servers: %w", metaErr)
 		}
@@ -233,6 +243,18 @@ func (a *App) Close() {
 	}
 	// 5. Close store last — everything above may depend on it
 	_ = a.Store.Close()
+}
+
+// allowSourceSubnet rejects requests whose source address is outside subnet.
+func allowSourceSubnet(next http.Handler, subnet *net.IPNet) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if ip := net.ParseIP(host); err != nil || ip == nil || !subnet.Contains(ip) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // startMetadataServers starts the cloud-init metadata HTTP listeners on the

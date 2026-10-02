@@ -29,8 +29,20 @@ func (n darwinNetwork) EnsureSetup(ctx context.Context) error {
 
 func (n darwinNetwork) NeedsDHCP(state.Instance) bool                                 { return true }
 func (n darwinNetwork) WriteReservation(string, string, string, string, *slog.Logger) {}
-func (n darwinNetwork) MetadataAddrs() []string                                       { return nil }
 func (n darwinNetwork) Teardown(context.Context) error                                { return nil }
+
+// MetadataAddrs binds every interface: the vmnet gateway address exists only
+// while some guest holds the shared network up, which nico-sim cannot rely on
+// at startup. app.Setup restricts requests to the vmnet subnet.
+func (n darwinNetwork) MetadataAddrs() []string { return []string{":7777"} }
+
+// darwinUserData points phone_home at the vmnet gateway. CWE's user-data
+// hardcodes 169.254.169.254, which only root can assign on macOS; left alone,
+// every guest's cloud-init stalls ~20 minutes retrying it.
+func darwinUserData(userData, gateway string) string {
+	return strings.ReplaceAll(userData, "http://169.254.169.254:7777/", "http://"+net.JoinHostPort(gateway, "7777")+"/")
+}
+
 func (n darwinNetwork) LookupLease(_ context.Context, mac string) (string, bool, error) {
 	data, err := os.ReadFile("/var/db/dhcpd_leases")
 	if os.IsNotExist(err) {
