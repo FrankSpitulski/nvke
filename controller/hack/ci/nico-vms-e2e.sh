@@ -410,24 +410,36 @@ log "staged nke-agent for the tenant nodes: $(git -C "${WORKSPACE_ROOT}" describ
 # copies a local path straight into its image cache. See localImagePath and
 # copyLocal in nico-sim/internal/ipxe/imagecache.go, whose own comment gives
 # the reason -- an image built in the same job is already on disk.
-# The newest tag GHCR holds for this architecture. Registry tag order is not
-# chronological and sha-<hex> carries no ordering, so this reads updated_at
-# from the packages API. The -<arch> suffix comes off, because image_ref adds
-# it back.
+# The newest tag GHCR holds for this architecture, built from a commit on the
+# branch under test. Registry tag order is not chronological and sha-<hex>
+# carries no ordering, so this reads updated_at from the packages API. PR
+# builds publish here too, so a tag counts only if its commit is an ancestor
+# of HEAD (the checkout has fetch-depth 0). Flavor tags (-ubuntu24.04-) are
+# skipped. The -<arch> suffix comes off, because image_ref adds it back.
 newest_os_image_tag() {
-  local arch="$1" repo path org pkg
+  local arch="$1" repo path org pkg tag sha
   # Keep this in step with image_repo below: both lanes booted an LVM image
   # before this, and -fde is a different boot path that has to unlock first.
   repo="${NKE_E2E_OS_IMAGE_REPO:-ghcr.io/dsx-ai-factory/nke/os-image-non-fde}"
   path="${repo#ghcr.io/}"
   org="${path%%/*}"
   pkg="${path#*/}"
-  gh api --paginate \
+  while read -r tag; do
+    sha="${tag#sha-}"
+    sha="${sha%%-*}"
+    if ! git -C "${WORKSPACE_ROOT}" merge-base --is-ancestor "${sha}" HEAD 2>/dev/null; then
+      log "skipping os-image ${tag}: commit ${sha:0:9} is not on this branch" >&2
+      continue
+    fi
+    printf '%s\n' "${tag%-"${arch}"}"
+    return 0
+  done < <(gh api --paginate \
       "/orgs/${org}/packages/container/${pkg//\//%2F}/versions?per_page=100" \
       --jq '.[] | {u: .updated_at, t: (.metadata.container.tags // [])[]}' 2>/dev/null |
     jq -rs --arg a "-${arch}" \
-      'map(select(.t | endswith($a))) | sort_by(.u) | last | .t // empty' |
-    sed "s/-${arch}\$//"
+      'map(select(.t | startswith("sha-") and endswith($a) and (contains("-ubuntu") | not)))
+       | sort_by(.u) | reverse | .[].t')
+  return 1
 }
 
 os_image_tag_pinned=no
@@ -439,7 +451,7 @@ if [[ -z "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
   # depend on it. Stopping here costs a minute; falling back spends the whole
   # run to arrive somewhere we have decided not to go.
   [[ -n "${NKE_E2E_OS_IMAGE_TAG}" ]] ||
-    fail "no os-image published for ${host_arch}. Build one with os-image-artifact.yml, or set NKE_E2E_OS_IMAGE_TAG."
+    fail "no os-image built from this branch is published for ${host_arch}. Build one with os-image-artifact.yml, or set NKE_E2E_OS_IMAGE_TAG."
   log "newest published os-image for ${host_arch}: ${NKE_E2E_OS_IMAGE_TAG}"
 fi
 
