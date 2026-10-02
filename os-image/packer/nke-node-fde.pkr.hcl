@@ -118,7 +118,7 @@ build {
   }
 
   provisioner "shell" {
-    environment_vars = ["ROOT_FS_LABEL=${var.root_fs_label}"]
+    environment_vars = ["ROOT_FS_LABEL=${var.root_fs_label}", "KERNEL_PACKAGE=${local.nvidia_kernel_package}"]
     script           = "${local.project_root}/scripts/provision.sh"
   }
 
