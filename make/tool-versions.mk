@@ -70,3 +70,10 @@ PACKER_VERSION      ?= 1.15.4
 PACKER_SHA256_AMD64 ?= 15f97a6a99645c7d5308c609973b5280837b38e112beac413ccbce80da927cf1
 PACKER_SHA256_ARM64 ?= 23e6d2e596dd9e2527e0f7bea9aedd26059729375a0d17c462c2621f1b97b82d
 GO_LICENSES_VERSION ?= v2.0.2-0.20260709180300-7e73597a45d1
+# Lints controller/api/openapi.yaml (`make -C controller/api lint-spec`).
+VACUUM_VERSION      ?= v0.30.6
+# Renders controller/api/openapi.yaml into one HTML page (`make -C controller/api docs`).
+REDOCLY_VERSION     ?= 2.57.0
+# Checks and publishes the documentation site (.github/workflows/api-docs.yml).
+# fern/fern.config.json pins the same number; move both together.
+FERN_VERSION        ?= 5.143.6

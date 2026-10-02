@@ -94,7 +94,7 @@ for why the order matters. `nkectl` has no command for this step.
 
 The site cluster from step 2 is a plain Kubernetes cluster. The site controller
 (CWE) that manages tenant clusters is installed with the controller Helm chart
-in [`controller/deploy/charts/controller`](../../controller/deploy/charts/controller).
+in [`controller/deploy/charts/controller`](https://github.com/dsx-ai-factory/nke/tree/main/controller/deploy/charts/controller).
 `nkectl` has no command for this step yet.
 
 ### 5. Point the CLI at the site controller

@@ -195,7 +195,7 @@ IP and its **TPM EK thumbprint**: the site cluster attests nodes by TPM, and a
 node with no thumbprint cannot join.
 
 **kubeadm on each node, installed by your cloud-init.** An image built from
-[`os-image/`](../os-image/) only *stages* the packages in a local apt repo at
+[`os-image/`](https://github.com/dsx-ai-factory/nke/tree/main/os-image) only *stages* the packages in a local apt repo at
 `/usr/lib/nke/debs`; nothing installs them for a pre-provisioned node, because
 CWE writes no cloud-init for hosts it did not create. Install them yourself:
 
@@ -363,7 +363,7 @@ sit `Pending` on `no persistent volumes available for this claim and no storage
 class is set`. Install a provisioner, or run them without persistence.
 
 Use the chart in
-[`controller/deploy/charts/controller`](../controller/deploy/charts/controller).
+[`controller/deploy/charts/controller`](https://github.com/dsx-ai-factory/nke/tree/main/controller/deploy/charts/controller).
 It installs **CWE alone**, against a database and a Temporal you provide, and
 defaults to a ClusterIP service with ingress off, so nothing reaches the API
 until you change that.

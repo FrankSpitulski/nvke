@@ -104,9 +104,15 @@ generate: ## Run every generator in this module and in api/.
 # module's package graph -- which may need public module downloads. The api
 # module has neither problem: it is self-contained, so this target is the half
 # that CI can run.
+# GOWORK=off, so the self-contained api module is resolved on its own, and
+# GOTOOLCHAIN pinned to the Go version api/go.mod declares, which is the version
+# generate-check.yml installs. The embedded copy of openapi.yaml in server.gen.go
+# is gzip-compressed and compress/flate output differs between Go releases, so a
+# newer toolchain (go.work asks for one) regenerates a different blob and the
+# gate rejects it.
 .PHONY: generate-api
 generate-api: ## Regenerate the OpenAPI client, server and models.
-	cd api && go generate ./...
+	cd api && GOWORK=off GOTOOLCHAIN=go$$(awk '/^go /{print $$2; exit}' go.mod) go generate ./...
 
 # Verify the committed oapi-codegen output is reproducible with the pinned
 # generator (api/oapi-codegen.mod) and in sync with api/openapi.yaml. Catches an
