@@ -48,6 +48,7 @@ docs-check: ## Check the documented facts against the repository. (run by the me
 # for a public one, and an org, site, VPC or subnet id is a map of a real
 # account. Matched by digest so this check does not publish what it forbids.
 internal-config-check: ## Check the tree names no internal infrastructure. (run by the merge gate)
+	@python3 -B ./hack/test_internal_config_check.py
 	@./hack/internal-config-check.sh
 
 # helm lint and helm template both pass on a manifest Kubernetes would reject, so

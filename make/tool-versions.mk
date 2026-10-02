@@ -69,6 +69,12 @@ PACKER_VERSION      ?= 1.15.4
 # packer_<version>_linux_{amd64,arm64}.zip, from HashiCorp's SHA256SUMS.
 PACKER_SHA256_AMD64 ?= 15f97a6a99645c7d5308c609973b5280837b38e112beac413ccbce80da927cf1
 PACKER_SHA256_ARM64 ?= 23e6d2e596dd9e2527e0f7bea9aedd26059729375a0d17c462c2621f1b97b82d
+# The S3 client the OS-image bake reads its build cache with. The ARC runner
+# images carry no AWS CLI. s5cmd_<version>_Linux-{64bit,arm64}.tar.gz, from the
+# release's checksums.txt.
+S5CMD_VERSION      ?= 2.3.0
+S5CMD_SHA256_AMD64 ?= de0fdbfa3aceae55e069ba81a0fc17b2026567637603734a387b2fca06c299b4
+S5CMD_SHA256_ARM64 ?= 1439f0d00ecedcd2a2f1f2c6749bbb0152b2257bf5086f29646ec8ae38798e24
 GO_LICENSES_VERSION ?= v2.0.2-0.20260709180300-7e73597a45d1
 # Lints controller/api/openapi.yaml (`make -C controller/api lint-spec`).
 VACUUM_VERSION      ?= v0.30.6

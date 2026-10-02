@@ -47,6 +47,7 @@ show-versions: ## Print every pinned tool version.
 		"CERT_MANAGER_VERSION"   "$(CERT_MANAGER_VERSION)" \
 		"ORAS_VERSION"           "$(ORAS_VERSION)" \
 		"PACKER_VERSION"         "$(PACKER_VERSION)" \
+		"S5CMD_VERSION"          "$(S5CMD_VERSION)" \
 		"GO_LICENSES_VERSION"    "$(GO_LICENSES_VERSION)" \
 		"VACUUM_VERSION"         "$(VACUUM_VERSION)" \
 		"REDOCLY_VERSION"        "$(REDOCLY_VERSION)" \
