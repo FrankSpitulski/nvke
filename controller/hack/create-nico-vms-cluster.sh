@@ -50,16 +50,34 @@ ORG_ID="${ORG_ID:-novxwn552ssc}"
 SITE_ID="${SITE_ID:-a1b2c3d4-0001-4000-8000-000000000001}"
 VPC_ID="${VPC_ID:-a1b2c3d4-0002-4000-8000-000000000001}"
 VPC_PREFIX_ID="${VPC_PREFIX_ID:-a1b2c3d4-0004-4000-8000-000000000001}"
-INSTANCE_TYPE_ID="${INSTANCE_TYPE_ID:-a1b2c3d4-0005-4000-8000-000000000003}"  # cpu4-mem6gb-disk60gb
+# The arm64 generic kernel on darwin-qemu reserves 512Mi for crashkernel, which
+# leaves a 6Gi node too little allocatable for ovnkube-node's 1800Mi request.
+if [[ "$(uname -s)" == Darwin ]]; then
+  INSTANCE_TYPE_ID="${INSTANCE_TYPE_ID:-a1b2c3d4-0005-4000-8000-000000000006}"  # cpu4-mem8gb-disk60gb
+else
+  INSTANCE_TYPE_ID="${INSTANCE_TYPE_ID:-a1b2c3d4-0005-4000-8000-000000000003}"  # cpu4-mem6gb-disk60gb
+fi
 
 KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.34.2}"
 CONTROL_PLANE_DESIRED_COUNT="${CONTROL_PLANE_DESIRED_COUNT:-1}"
 WORKER_DESIRED_COUNT="${WORKER_DESIRED_COUNT:-1}"
 CONTROL_PLANE_VIP="${CONTROL_PLANE_VIP:-}"
-DEFAULT_VIP_RANGE="${DEFAULT_VIP_RANGE:-172.31.0.0/24}"
-FIRST_CONTROL_PLANE_VIP="${FIRST_CONTROL_PLANE_VIP:-172.31.0.10}"
+if [[ "$(uname -s)" == Darwin ]]; then
+  # darwin has no BGP route install, so the VIP must be on-link: the host and
+  # guests ARP for it, and the control-plane node answers because kube-vip binds
+  # it to lo. Apple's DHCP allocates from the bottom of vmnet's 192.168.64.0/24,
+  # so VIPs start at the top.
+  DEFAULT_VIP_RANGE="${DEFAULT_VIP_RANGE:-192.168.64.0/24}"
+  FIRST_CONTROL_PLANE_VIP="${FIRST_CONTROL_PLANE_VIP:-192.168.64.200}"
+else
+  DEFAULT_VIP_RANGE="${DEFAULT_VIP_RANGE:-172.31.0.0/24}"
+  FIRST_CONTROL_PLANE_VIP="${FIRST_CONTROL_PLANE_VIP:-172.31.0.10}"
+fi
 CNI_PLUGIN="${CNI_PLUGIN:-ovn-kubernetes}"
 CNI_VERSION="${CNI_VERSION:-}"
+# Empty keeps the API default (192.168.0.0/16). macOS vmnet hands out
+# 192.168.64.0/24, so darwin-qemu clusters need a pod CIDR outside it.
+POD_CIDR="${POD_CIDR:-}"
 
 OS_PROFILE="${OS_PROFILE:-nke-260611-24.04-amd64-fde}"
 CP_CONFIG_PROFILE="${CP_CONFIG_PROFILE:-nvcf-cp-v3}"
@@ -71,6 +89,12 @@ CNI_VERSION_JSON=""
 if [[ -n "${CNI_VERSION}" ]]; then
   CNI_VERSION_JSON=",
   \"cniVersion\": \"${CNI_VERSION}\""
+fi
+
+NETWORK_JSON=""
+if [[ -n "${POD_CIDR}" ]]; then
+  NETWORK_JSON=",
+  \"network\": {\"podCIDR\": \"${POD_CIDR}\"}"
 fi
 
 if [[ -z "${CONTROL_PLANE_VIP}" ]]; then
@@ -90,7 +114,7 @@ BODY=$(cat <<EOF
   },
   "controlPlaneKubernetesVersion": "${KUBERNETES_VERSION}",
   "controlPlaneVIP": "${CONTROL_PLANE_VIP}",
-  "cniPlugin": "${CNI_PLUGIN}"${CNI_VERSION_JSON},
+  "cniPlugin": "${CNI_PLUGIN}"${CNI_VERSION_JSON}${NETWORK_JSON},
   "etcdEncrypted": ${ETCD_ENCRYPTED},
   "teleportEnabled": false,
   "nodePools": [

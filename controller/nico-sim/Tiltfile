@@ -133,7 +133,9 @@ def register(ctx):
     # -----------------------------------------------------------------------
     # Network layout — partition bridge subnet into DHCP and VIP pools.
     # -----------------------------------------------------------------------
-    _bridge_cidr = os.getenv("NICO_VMS_BRIDGE_CIDR", "172.30.0.0/24")
+    # darwin-qemu attaches to Apple's vmnet shared network, whose subnet macOS
+    # owns; nico-sim rejects any other bridge CIDR there.
+    _bridge_cidr = os.getenv("NICO_VMS_BRIDGE_CIDR", "192.168.64.0/24" if _host_os == "Darwin" else "172.30.0.0/24")
     _ranges = _parse_bridge_ranges(_bridge_cidr)
     # The VIP range is intentionally OFF-LINK (a separate subnet from the bridge)
     # so the VIP is reached via L3 routing through the gateway + the BGP-installed
