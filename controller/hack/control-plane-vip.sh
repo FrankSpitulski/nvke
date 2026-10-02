@@ -2,10 +2,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# first_available_control_plane_vip RANGE CLUSTERS_JSON FIRST_VIP [TAKEN_IPS]
+# TAKEN_IPS is an optional newline-separated list of addresses to skip as well,
+# e.g. DHCP leases when the VIP range shares a subnet with the nodes.
 first_available_control_plane_vip() {
   local vip_range="${1}"
   local clusters="${2}"
   local first_vip="${3}"
+  local taken="${4:-}"
   local prefix
   local candidate
   local used
@@ -27,7 +31,7 @@ first_available_control_plane_vip() {
     return 1
   fi
 
-  used="$(jq -r '.clusters[]?.controlPlaneVIP // empty' <<<"${clusters}")"
+  used="$(jq -r '.clusters[]?.controlPlaneVIP // empty' <<<"${clusters}")"$'\n'"${taken}"
 
   for ((; host <= 254; host++)); do
     candidate="${prefix}${host}"

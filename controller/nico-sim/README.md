@@ -336,7 +336,7 @@ Requirements (macOS/darwin-qemu):
 
 If `swtpm_setup` is not found in `$PATH` (or `NICO_VMS_SWTPM_SETUP_PATH`/`NICO_VMS_SWTPM_PATH` are unset and nothing resolves), a **new** instance is created without a TPM — no error, no configuration needed. An instance whose TPM state is already seeded is different: an already-bound FDE guest cannot boot without its TPM, so a missing swtpm there is a hard error rather than a silent downgrade.
 
-**On darwin-qemu, TPM state (`<instance-dir>/tpm/`) is the only thing that makes a bound FDE guest bootable again.** NKE's FDE node image seals its LUKS key to the TPM on first boot and removes the plaintext passphrase slot entirely — every boot after that needs the *same* swtpm state to unseal the disk. `swtpm_setup` runs exactly once per instance (gated on `tpm/tpm2-00.permall` already existing); a second run would mint a different EK and permanently lock the guest out of its own disk. **Never delete `<instance-dir>/tpm/` for a running FDE VM outside of `Delete`.** Rebooting (QMP `system_reset`) does not touch it and does not relaunch swtpm either: QEMU's `-chardev socket` has no reconnect, so if swtpm has died while QEMU is still running, the guest's TPM is already unusable and `Reboot` refuses with an error instead of relaunching a daemon the live QEMU process can no longer reach — recreate the instance in that case.
+**On darwin-qemu, TPM state (`<instance-dir>/tpm/`) is the only thing that makes a bound FDE guest bootable again.** NKE's FDE node image seals its LUKS key to the TPM on first boot and removes the plaintext passphrase slot entirely — every boot after that needs the *same* swtpm state to unseal the disk. `swtpm_setup` runs exactly once per instance (gated on `tpm/tpm2-00.permall` already existing); a second run would mint a different EK and permanently lock the guest out of its own disk. **Never delete `<instance-dir>/tpm/` for a running FDE VM outside of `Delete`.** Rebooting (QMP `system_reset`) does not touch it and does not relaunch swtpm either: QEMU's `-chardev socket` has no reconnect, so if swtpm has died while QEMU is still running, the guest's TPM is unusable until the instance is recreated; an FDE guest then fails its readiness check after the reboot.
 
 ## nico-containers
 
@@ -993,6 +993,37 @@ The Mac lane discovers Apple's shared-network subnet and uses its DHCP. Leave
 It reads `/var/db/dhcpd_leases`;
 it never changes that file or Linux dnsmasq reservations. Seeds preserve the NIC
 name and request a MAC DHCP identifier. Cloud-init data comes from the attached
-NoCloud ISO. Linux metadata/BGP routing is not enabled on this path. Full CAPI
-cluster bootstrap, guest-reachable management services and HA endpoint handling
-are separate integration checks from this VM lifecycle test.
+NoCloud ISO. BGP is off on this path.
+
+### Full NKE stack on macOS
+
+`controller/hack/mac-vm-dev-up.sh` walks through the whole bring-up, explaining
+and pausing at each step (`--yes` runs straight through):
+
+1. it bakes the arm64 node image under HVF, if one is not already built;
+2. it writes local, gitignored config;
+3. it starts Colima and kind with CAPI core;
+4. it runs `tilt up` with `nico_sim_backends: ["vm"]`;
+5. it creates a one control-plane, one worker OVN cluster, and checks
+   cross-node pod traffic and DNS.
+
+`controller/hack/mac-vm-dev-down.sh` tears it all down again. The management
+plane runs in kind; only the tenant nodes are VMs.
+
+How the darwin path differs from the Linux bridge:
+
+- **Metadata.** CWE's user-data posts `phone_home` to `169.254.169.254:7777`,
+  which only root can assign on macOS. nico-sim rewrites that URL in the seed to
+  the vmnet gateway, and serves metadata on `:7777` to the vmnet subnet only.
+  Any VM on that subnet, including ones from UTM or Lima, can therefore read
+  user-data by instance ID.
+- **Control-plane VIPs.** Nothing installs BGP routes on macOS, so
+  `create-nico-vms-cluster.sh` picks on-link VIPs from `.200` up in vmnet's
+  /24, skipping addresses Apple's DHCP has leased. The control-plane node
+  answers ARP for its VIP, because kube-vip binds it to `lo`. The VIPs still
+  sit inside Apple's DHCP pool, so in principle a later lease could collide.
+  The first vmnet client to create the shared network sets the pool, so
+  nico-sim cannot shrink it.
+- **Node size.** The arm64 generic kernel reserves 512Mi for crashkernel, so
+  darwin clusters default to the `cpu4-mem8gb` instance type, which leaves room
+  for OVN.
