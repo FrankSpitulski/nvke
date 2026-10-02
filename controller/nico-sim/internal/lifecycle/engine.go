@@ -252,6 +252,18 @@ func (e *Engine) reconcileInstance(ctx context.Context, instanceID string) error
 		return nil
 	}
 
+	// A stopped VM is never re-provisioned by the drift check in
+	// reconcileRunning: those states are handled here, before it is reached.
+	if vmRecord.DesiredState == state.DesiredStateStopped {
+		if vmRecord.ObservedState == state.ObservedStateStopped {
+			return nil
+		}
+		return e.reconcileStop(ctx, instance, log)
+	}
+	if vmRecord.ObservedState == state.ObservedStateStopped {
+		return e.reconcileStart(ctx, instance, log)
+	}
+
 	if vmRecord.RebootRequested {
 		return e.reconcileReboot(ctx, instance, log)
 	}
@@ -263,12 +275,35 @@ func (e *Engine) reconcileInstance(ctx context.Context, instanceID string) error
 		return e.reconcileRunning(ctx, instance, log)
 	case state.ObservedStateReady:
 		return e.reconcileReady(ctx, instance, log)
-	case state.ObservedStateStopped:
-		// TODO: consider auto-recovery of stopped instances
-		return nil
 	default:
 		return nil
 	}
+}
+
+func (e *Engine) reconcileStop(ctx context.Context, instance state.Instance, log *slog.Logger) error {
+	log.Info("Stopping machine", "machineID", instance.MachineID)
+	if err := e.runtime.Stop(ctx, instance.MachineID); err != nil {
+		return e.markError(ctx, instance.ID, fmt.Errorf("stop failed: %w", err))
+	}
+	return e.store.PatchVMInstanceState(ctx, instance.ID, state.VMInstanceStatePatch{
+		Status:        ptr("stopped"),
+		ObservedState: ptr(state.ObservedStateStopped),
+		ErrorReason:   ptr("Stopped"),
+	})
+}
+
+// reconcileStart boots a stopped machine from its existing disk and hands it
+// to the running state, so the normal lease and readiness probing follows.
+func (e *Engine) reconcileStart(ctx context.Context, instance state.Instance, log *slog.Logger) error {
+	log.Info("Starting machine", "machineID", instance.MachineID)
+	if err := e.runtime.Start(ctx, instance.MachineID); err != nil {
+		return e.markError(ctx, instance.ID, fmt.Errorf("start failed: %w", err))
+	}
+	return e.store.PatchVMInstanceState(ctx, instance.ID, state.VMInstanceStatePatch{
+		Status:        ptr("running"),
+		ObservedState: ptr(state.ObservedStateRunning),
+		ErrorReason:   ptr(""),
+	})
 }
 
 func (e *Engine) reconcileAbsent(ctx context.Context, instance state.Instance, log *slog.Logger) error {

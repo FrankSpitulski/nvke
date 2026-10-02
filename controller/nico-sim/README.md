@@ -725,14 +725,29 @@ Run with `NICO_SIM_LOG_FORMAT=text` (the default for `make run`) for human-reada
 - `bgp` — BGP speaker route announcements and peer events
 - `promtail-targets` — Promtail targets file writer
 
-### Cleaning Up Stuck VMs
+### Managing VMs
+
+One script (`scripts/vms.sh`) lists, stops, starts and deletes VMs on macOS
+(darwin-qemu) and Linux (libvirt), including orphans: VMs the host still holds
+that nico-sim no longer knows about.
 
 ```bash
-# macOS: list and kill orphaned QEMU processes
-make darwin-qemu-list
-make darwin-qemu-clean
+make vms                        # nico-sim's view joined with the host's; orphans flagged
+make vm-stop VM="name-or-id"    # shut down, keeping disk and TPM state (vms-stop for all)
+make vm-start VM="name-or-id"   # boot from the same disk (vms-start for all)
+make vm-delete VM="a b"         # delete through nico-sim, or clean up an orphan
+make vms-clean                  # delete every orphan
+```
 
-# Linux (Lima): list and destroy orphaned libvirt domains
+Stop and start go through nico-sim (`nico-simctl instance stop|start`), so a
+stopped VM is not rebuilt by drift detection. `NICO_SIM_DB_PATH` (default: the
+Tilt database under `.dev/`) locates the instance directories and
+`NICO_SIM_URL` (default `http://localhost:18080`) nico-sim. When nico-sim is not
+running, `make vms` lists the host's view only.
+
+To clean up libvirt domains inside the Lima VM used by the integration tests:
+
+```bash
 make lima-libvirt-list
 make lima-libvirt-clean   # LIMA_VM_NAME=nico-vms by default
 ```
@@ -821,7 +836,7 @@ For one-shot nico-vms integration tests, sync just this tree and run on the remo
 | `scripts/setup-linux.sh`           | Full Linux environment setup (bridge, dnsmasq, iptables, swtpm)   |
 | `scripts/teardown-linux.sh`        | Tear down bridge + iptables + dnsmasq and wipe the nico-vms DB    |
 | `scripts/install-deps-homebrew.sh` | Install macOS dependencies via Homebrew                           |
-| `scripts/darwin-qemu-machines.sh`  | `list` / `clean` QEMU processes on macOS                          |
+| `scripts/vms.sh`                   | List, stop, start, delete VMs and clean up orphans                |
 | `scripts/lima-libvirt-machines.sh` | `list` / `clean` libvirt domains inside a Lima VM                 |
 | `scripts/sync-to-remote.sh`        | Rsync codebase to a remote test machine                           |
 
@@ -1008,7 +1023,8 @@ and pausing at each step (`--yes` runs straight through):
    cross-node pod traffic and DNS.
 
 `controller/hack/mac-vm-dev-down.sh` tears it all down again. The management
-plane runs in kind; only the tenant nodes are VMs.
+plane runs in kind; only the tenant nodes are VMs. To list, stop, start or
+delete the VMs (including lost ones), see [Managing VMs](#managing-vms).
 
 How the darwin path differs from the Linux bridge:
 

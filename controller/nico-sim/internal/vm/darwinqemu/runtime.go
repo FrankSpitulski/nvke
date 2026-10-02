@@ -69,12 +69,13 @@ func (r *darwinQEMU) pathsForInstance(instanceID string) darwinInstancePaths {
 	}
 }
 
-// darwinRuntimeManifest is persisted alongside each VM. Reboot itself only
-// issues a QMP system_reset and does not read this file — LaunchPath/
-// LaunchArgs record how the instance was originally launched for future use
-// by an adoption path that re-launches vmnet-run + QEMU after a nico-sim
-// process restart; that path does not exist yet (see the unused
-// stopVMProcesses below, added for the same future work).
+// stopTimeout is how long Stop waits for the guest to power off before
+// killing QEMU.
+const stopTimeout = 60 * time.Second
+
+// darwinRuntimeManifest is persisted alongside each VM. LaunchPath/LaunchArgs
+// record how the instance was launched so Start can launch it the same way.
+// Reboot itself only issues a QMP system_reset and does not read this file.
 type darwinRuntimeManifest struct {
 	LaunchPath string   `json:"launch_path"`
 	LaunchArgs []string `json:"launch_args"`
@@ -164,12 +165,22 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 	clientArgs = append(clientArgs, r.qemuSystemPath)
 	clientArgs = append(clientArgs, qemuArgs...)
 
-	vmnetPID, err := launchVMNetClient(vmnetClientPath, clientArgs, paths.VMNetClientLog)
+	if err := launch(paths, tpmEnabled, darwinRuntimeManifest{LaunchPath: vmnetClientPath, LaunchArgs: clientArgs}); err != nil {
+		return "", err
+	}
+	return spec.InstanceID, nil
+}
+
+// launch starts vmnet-run + QEMU as described by the manifest, records the
+// manifest and PID files, and waits for QEMU to come up. On failure it tears
+// the launch (and swtpm, if tpmEnabled) back down.
+func launch(paths darwinInstancePaths, tpmEnabled bool, manifest darwinRuntimeManifest) error {
+	vmnetPID, err := launchVMNetClient(manifest.LaunchPath, manifest.LaunchArgs, paths.VMNetClientLog)
 	if err != nil {
 		if tpmEnabled {
 			_ = stopSwtpm(paths.TPM)
 		}
-		return "", err
+		return err
 	}
 
 	if err := writePIDFile(paths.VMNetClientPIDFile, vmnetPID); err != nil {
@@ -177,18 +188,15 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 		if tpmEnabled {
 			_ = stopSwtpm(paths.TPM)
 		}
-		return "", fmt.Errorf("failed to write vmnet-client pid file: %w", err)
+		return fmt.Errorf("failed to write vmnet-client pid file: %w", err)
 	}
 
-	if err := writeRuntimeManifest(paths.ManifestFile, darwinRuntimeManifest{
-		LaunchPath: vmnetClientPath,
-		LaunchArgs: append([]string{}, clientArgs...),
-	}); err != nil {
+	if err := writeRuntimeManifest(paths.ManifestFile, manifest); err != nil {
 		_ = stopProcessGroup(vmnetPID)
 		if tpmEnabled {
 			_ = stopSwtpm(paths.TPM)
 		}
-		return "", fmt.Errorf("failed to write runtime manifest: %w", err)
+		return fmt.Errorf("failed to write runtime manifest: %w", err)
 	}
 
 	if err := waitForPIDFile(paths.PIDFile, 10*time.Second); err != nil {
@@ -197,10 +205,47 @@ func (r *darwinQEMU) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (
 			_ = stopSwtpm(paths.TPM)
 		}
 		logBytes, _ := os.ReadFile(paths.VMNetClientLog)
-		return "", fmt.Errorf("qemu did not start (pidfile %s): %w; log: %s", paths.PIDFile, err, truncateForDebug(string(logBytes), 2000))
+		return fmt.Errorf("qemu did not start (pidfile %s): %w; log: %s", paths.PIDFile, err, truncateForDebug(string(logBytes), 2000))
+	}
+	return nil
+}
+
+// Stop powers the guest off through nico-sim state (never by just killing
+// QEMU, which the drift check would rebuild) and tears down vmnet-run, QEMU and
+// swtpm. Disk, seed ISO, EFI vars, TPM state and the manifest stay for Start.
+func (r *darwinQEMU) Stop(_ context.Context, machineID string) error {
+	paths := r.pathsForInstance(machineID)
+	if err := qmpShutdown(paths.QMPSock, stopTimeout); err != nil {
+		slog.Warn("darwin-qemu: graceful shutdown failed, killing QEMU", "instance", machineID, "error", err)
+	}
+	// -no-shutdown keeps QEMU alive after the guest powers off.
+	stopVMProcesses(paths)
+	return stopSwtpm(paths.TPM)
+}
+
+// Start relaunches a stopped VM exactly as CreateAndStart launched it, with its
+// existing TPM state (never re-seeded).
+func (r *darwinQEMU) Start(ctx context.Context, machineID string) error {
+	paths := r.pathsForInstance(machineID)
+	raw, err := os.ReadFile(paths.ManifestFile)
+	if err != nil {
+		return fmt.Errorf("read runtime manifest: %w", err)
+	}
+	var manifest darwinRuntimeManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return fmt.Errorf("parse runtime manifest %s: %w", paths.ManifestFile, err)
 	}
 
-	return spec.InstanceID, nil
+	tpmEnabled, err := tpmStateSeeded(paths.TPM)
+	if err != nil {
+		return err
+	}
+	if tpmEnabled {
+		if _, _, err := r.startTPM(ctx, paths); err != nil {
+			return err
+		}
+	}
+	return launch(paths, tpmEnabled, manifest)
 }
 
 // startTPM seeds and starts swtpm for the instance if swtpm is installed,
@@ -560,6 +605,15 @@ func truncateForDebug(value string, maxLen int) string {
 		return value
 	}
 	return value[:maxLen]
+}
+
+func qmpShutdown(socketPath string, timeout time.Duration) error {
+	c := NewQMPClient(socketPath)
+	if err := c.Connect(); err != nil {
+		return err
+	}
+	defer c.Close()
+	return c.GracefulShutdown(timeout)
 }
 
 func qmpReboot(socketPath string) error {

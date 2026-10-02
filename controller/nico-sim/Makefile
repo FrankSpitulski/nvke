@@ -32,7 +32,7 @@ endif
 .PHONY: \
 	build build-static build-privileged run run-vm test \
 	test-integration-all test-integration-mock test-integration-libvirt test-integration-qemu \
-	install-deps-homebrew darwin-qemu-list darwin-qemu-clean \
+	install-deps-homebrew vms vm-delete vms-clean vm-stop vm-start vms-stop vms-start \
 	lima-libvirt-list lima-libvirt-clean setup teardown fmt lint \
 	nico-vms-up nico-vms-test nico-vms-test-cluster
 
@@ -101,13 +101,6 @@ test-integration-qemu:
 	fi
 	$(GO) test ./test/integration/qemu -tags=integration -v -count=1 -timeout "$(REAL_VM_TEST_TIMEOUT)" $(GO_TEST_RUN)
 
-# macOS darwin-qemu direct resource helpers (no API calls).
-darwin-qemu-list:
-	bash ./scripts/darwin-qemu-machines.sh list
-
-darwin-qemu-clean:
-	bash ./scripts/darwin-qemu-machines.sh clean
-
 # macOS libvirt resource helpers inside the Lima VM used by integration tests.
 lima-libvirt-list:
 	LIMA_VM_NAME="$(LIMA_VM_NAME)" bash ./scripts/lima-libvirt-machines.sh list
@@ -117,6 +110,29 @@ lima-libvirt-clean:
 
 install-deps-homebrew:
 	bash ./scripts/install-deps-homebrew.sh
+
+##@ VM management (macOS and Linux)
+
+vms: ## List VMs: nico-sim's view joined with the host's, orphans flagged.
+	bash ./scripts/vms.sh list
+
+vm-delete: ## Delete VMs by name or ID: make vm-delete VM="a b".
+	bash ./scripts/vms.sh delete $(VM)
+
+vms-clean: ## Delete orphaned VMs that nico-sim no longer knows about.
+	bash ./scripts/vms.sh clean
+
+vm-stop: ## Stop VMs, keeping their disks: make vm-stop VM="a b".
+	bash ./scripts/vms.sh stop $(VM)
+
+vm-start: ## Start stopped VMs: make vm-start VM="a b".
+	bash ./scripts/vms.sh start $(VM)
+
+vms-stop: ## Stop every VM.
+	bash ./scripts/vms.sh stop --all
+
+vms-start: ## Start every stopped VM.
+	bash ./scripts/vms.sh start --all
 
 ##@ nico-sim (macOS)
 
