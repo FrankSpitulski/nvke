@@ -14,6 +14,14 @@
           "aarch64-darwin"
         ]
       },
+      "cloud-utils": {
+        "pkg-path": "cloud-utils",
+        "pkg-group": "cloud-utils",
+        "version": "0.33",
+        "systems": [
+          "aarch64-darwin"
+        ]
+      },
       "clusterctl": {
         "pkg-path": "clusterctl"
       },
@@ -786,6 +794,37 @@
       },
       "system": "aarch64-darwin",
       "group": "qemu",
+      "priority": 5
+    },
+    {
+      "attr_path": "swtpm",
+      "broken": false,
+      "derivation": "/nix/store/0vp6za1a146rcqbgzyrgyy523ih8b016-swtpm-0.10.1-unstable-2026-05-21.drv",
+      "description": "Libtpms-based TPM emulator",
+      "install_id": "swtpm",
+      "license": "BSD-3-Clause",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=c59305bab2065cfecc4944690d9eedbb56f3a9fa",
+      "name": "swtpm-0.10.1-unstable-2026-05-21",
+      "pname": "swtpm",
+      "rev": "c59305bab2065cfecc4944690d9eedbb56f3a9fa",
+      "rev_count": 1083223,
+      "rev_date": "2026-10-01T02:47:39Z",
+      "scrape_date": "2026-10-02T05:02:15.261151Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2026-05-21",
+      "outputs_to_install": [
+        "man",
+        "out"
+      ],
+      "outputs": {
+        "man": "/nix/store/br9jv6sjggfzfrmymikwrlq6fy0lcc2d-swtpm-0.10.1-unstable-2026-05-21-man",
+        "out": "/nix/store/n4q26ng7b991m4554x04rnspsnzjsymq-swtpm-0.10.1-unstable-2026-05-21"
+      },
+      "system": "aarch64-darwin",
+      "group": "swtpm",
       "priority": 5
     },
     {
@@ -1905,34 +1944,33 @@
       "priority": 5
     },
     {
-      "attr_path": "swtpm",
+      "attr_path": "cloud-utils",
       "broken": false,
-      "derivation": "/nix/store/0vp6za1a146rcqbgzyrgyy523ih8b016-swtpm-0.10.1-unstable-2026-05-21.drv",
-      "description": "Libtpms-based TPM emulator",
-      "install_id": "swtpm",
-      "license": "BSD-3-Clause",
+      "derivation": "/nix/store/1i7mb5af9c860y6kcdz1dwyhfq2z6hp7-cloud-utils-0.33.drv",
+      "description": "Useful set of utilities for interacting with a cloud",
+      "install_id": "cloud-utils",
+      "license": "GPL-3.0",
       "locked_url": "https://github.com/flox/nixpkgs?rev=c59305bab2065cfecc4944690d9eedbb56f3a9fa",
-      "name": "swtpm-0.10.1-unstable-2026-05-21",
-      "pname": "swtpm",
+      "name": "cloud-utils-0.33",
+      "pname": "cloud-utils",
       "rev": "c59305bab2065cfecc4944690d9eedbb56f3a9fa",
       "rev_count": 1083223,
       "rev_date": "2026-10-01T02:47:39Z",
-      "scrape_date": "2026-10-02T05:02:15.261151Z",
+      "scrape_date": "2026-10-02T04:59:39.539639Z",
       "stabilities": [
         "unstable"
       ],
       "unfree": false,
-      "version": "2026-05-21",
+      "version": "0.33",
       "outputs_to_install": [
-        "man",
         "out"
       ],
       "outputs": {
-        "man": "/nix/store/br9jv6sjggfzfrmymikwrlq6fy0lcc2d-swtpm-0.10.1-unstable-2026-05-21-man",
-        "out": "/nix/store/n4q26ng7b991m4554x04rnspsnzjsymq-swtpm-0.10.1-unstable-2026-05-21"
+        "guest": "/nix/store/0yys5wnsjcnxwpdd5c48xkx9lfbsi6v3-cloud-utils-0.33-guest",
+        "out": "/nix/store/qnd6kv0aqghfs9i0z3r3qrp10nsmbkhi-cloud-utils-0.33"
       },
       "system": "aarch64-darwin",
-      "group": "swtpm",
+      "group": "cloud-utils",
       "priority": 5
     }
   ]
