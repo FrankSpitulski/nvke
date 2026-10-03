@@ -92,7 +92,7 @@ func (s *NodeAgentServer) StartOpenVSwitchReconciliation(
 	}
 
 	operationID := strings.TrimSpace(req.GetOperationId())
-	if err := s.recoverInterruptedOpenVSwitchReconciliation(operationID); err != nil {
+	if err := s.resetRestartableOpenVSwitchReconciliation(operationID); err != nil {
 		return nil, err
 	}
 	op, err := s.startNodeAgentOperation(nodeAgentOperationSpec{
@@ -365,13 +365,20 @@ func (s *NodeAgentServer) openVSwitchConvergenceDelayOrDefault() time.Duration {
 	return openVSwitchConvergenceDelay
 }
 
-func (s *NodeAgentServer) recoverInterruptedOpenVSwitchReconciliation(operationID string) error {
+// resetRestartableOpenVSwitchReconciliation drops a persisted reconciliation
+// that cannot make progress, so the Start that follows runs it again: one left
+// non-terminal by an agent restart, or one that FAILED. A failure here is
+// usually transient (a systemctl call during a systemd re-exec, a default-route
+// gap), and the controller retries by calling Start with the same operation ID;
+// a kept FAILED record would answer every retry without running anything.
+// SUCCEEDED stays, so a repeated Start after success remains idempotent.
+func (s *NodeAgentServer) resetRestartableOpenVSwitchReconciliation(operationID string) error {
 	s.mu.Lock()
 	s.ensureNodeAgentOperationStateLocked()
 	op, found := s.NodeStatus.NodeAgentOperations[operationID]
 	_, active := s.activeOperations[operationID]
-	stale := found && op.Type == operationTypeOpenVSwitchReconciliation &&
-		!nodeAgentOperationTerminal(op.Phase) && !active
+	stale := found && op.Type == operationTypeOpenVSwitchReconciliation && !active &&
+		(!nodeAgentOperationTerminal(op.Phase) || op.Phase == NodeAgentOperationPhaseFailed)
 	if stale {
 		delete(s.NodeStatus.NodeAgentOperations, operationID)
 	}

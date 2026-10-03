@@ -350,6 +350,45 @@ func TestStartOpenVSwitchReconciliationRecoversPersistedRunningOperation(t *test
 	}, time.Second, time.Millisecond)
 }
 
+// A FAILED reconciliation must run again on the next Start: the controller
+// retries with the same operation ID, and the failure that stuck here in CI was
+// one systemctl call made while systemd re-executed itself.
+func TestStartOpenVSwitchReconciliationRestartsPersistedFailedOperation(t *testing.T) {
+	runner := newOpenVSwitchTestRunner(t, map[string][]openVSwitchCommandResult{
+		"dpkg-query --show --showformat=${db:Status-Abbrev} openvswitch-switch": {{output: []byte("ii ")}},
+		"systemctl enable --now openvswitch-switch":                             {{}},
+		"ip -j route show default":                                              {{output: []byte(`[{"dst":"default","dev":"breth0"}]`)}},
+		"ovs-vsctl list-br":                                                     {{output: []byte("breth0\n")}},
+	})
+	server := &NodeAgentServer{
+		Runner:    runner,
+		Persister: &recordingPersister{},
+		NodeStatus: &NodeStatus{NodeAgentOperations: map[string]NodeAgentOperation{
+			"op-1": {
+				ID:    "op-1",
+				Type:  operationTypeOpenVSwitchReconciliation,
+				Phase: NodeAgentOperationPhaseFailed,
+				Step:  "reconciling",
+			},
+		}},
+	}
+
+	_, err := server.StartOpenVSwitchReconciliation(
+		context.Background(),
+		&pb.StartOpenVSwitchReconciliationRequest{OperationId: "op-1"},
+	)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		statusResponse, statusErr := server.GetOpenVSwitchReconciliationStatus(
+			context.Background(),
+			&pb.GetOpenVSwitchReconciliationStatusRequest{OperationId: "op-1"},
+		)
+		return statusErr == nil &&
+			statusResponse.GetOperation().GetOperation().GetPhase() == pb.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_SUCCEEDED
+	}, time.Second, time.Millisecond)
+}
+
 func TestOpenVSwitchOperationWaitsForTransientDefaultRouteGap(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "etc/netplan"), 0o755))
