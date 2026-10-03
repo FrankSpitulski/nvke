@@ -45,6 +45,15 @@ e2e_attestation_method() {
   fi
 }
 
+# Prefixes an official Docker Hub image with NKE_E2E_DOCKERHUB_MIRROR when that
+# is set, so a host `docker run` or `docker create` of it is not an anonymous
+# Hub pull from the runner's address. Bare names only: `alpine:3.22`, not
+# `org/image`.
+dockerhub_image() {
+  local image="$1" mirror="${NKE_E2E_DOCKERHUB_MIRROR:-}"
+  printf '%s' "${mirror:+${mirror}/library/}${image}"
+}
+
 # The bundle the node agent installs Calico from. hack/ci/prepare-capd-bundles.sh
 # builds it from checksum-verified public sources, and the node image carries no
 # bundle server of its own, so this is the only source a run has. Serving it from
@@ -53,11 +62,11 @@ e2e_attestation_method() {
 e2e_start_bundle_mirror() {
   local name="$1" volume="$2" dir="$3" loader="$1-loader" ip
   docker volume create "${volume}" >/dev/null || return 1
-  docker create --name "${loader}" -v "${volume}:/bundle" alpine:3.22 true >/dev/null || return 1
+  docker create --name "${loader}" -v "${volume}:/bundle" "$(dockerhub_image alpine:3.22)" true >/dev/null || return 1
   docker cp "${dir}/." "${loader}:/bundle/" >/dev/null || return 1
   docker rm "${loader}" >/dev/null || return 1
   docker run -d --name "${name}" --network kind \
-    -v "${volume}:/usr/share/nginx/html:ro" nginx:alpine >/dev/null || return 1
+    -v "${volume}:/usr/share/nginx/html:ro" "$(dockerhub_image nginx:alpine)" >/dev/null || return 1
   # An address, not the container name: tenant nodes are plain containers on the
   # kind network, where name resolution depends on the host resolver.
   ip="$(docker inspect "${name}" \

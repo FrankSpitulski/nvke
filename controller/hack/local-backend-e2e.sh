@@ -212,7 +212,7 @@ else
   # Prove it serves before building an image that bakes the URL in. Poll rather
   # than probe once: nginx has only just been started, and a single wget raced
   # its first socket bind and failed a run with "Connection refused".
-  docker run --rm --network kind alpine:3.22 sh -c \
+  docker run --rm --network kind "$(dockerhub_image alpine:3.22)" sh -c \
     'for _ in $(seq 30); do wget -q -O /dev/null "$1" && exit 0; sleep 1; done; exit 1' \
     _ "${INDEX_FILE_URL}" \
     || fail "bundle mirror is not serving ${INDEX_FILE_URL}"
@@ -227,7 +227,7 @@ if [[ "${LOCAL_NKE_E2E_REUSE_CAPD_SETUP:-false}" == true ]]; then
   kubectl rollout status deployment/capd-controller-manager -n capd-system --timeout=120s
   log "reusing the existing CAPD providers and node image ${node_image}"
 else
-  make -C "${repo_root}" capd-up
+  make -C "${repo_root}" capd-up REGISTRY_MIRROR_IMAGE="$(dockerhub_image registry:2)"
 fi
 
 # The committed fixture, not the provider checkout: this script installs the

@@ -559,7 +559,7 @@ make -C "${CONTROLLER_ROOT}" kind-up KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" \
   KIND_CLUSTER_CONFIG="${STATE_DIR}/kind-config.yaml"
 configure_kind_dockerhub_mirror "${KIND_CLUSTER_NAME}"
 make -C "${CONTROLLER_ROOT}" capi-core-up KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" \
-  REGISTRY_MIRROR_IMAGE="${NKE_E2E_DOCKERHUB_MIRROR:+${NKE_E2E_DOCKERHUB_MIRROR}/library/}registry:2"
+  REGISTRY_MIRROR_IMAGE="$(dockerhub_image registry:2)"
 kind get kubeconfig --name "${KIND_CLUSTER_NAME}" >"${E2E_KUBECONFIG}"
 log "loading ${CWE_IMAGE} and ${CWE_PROFILES_TILT_IMAGE} into the kind cluster"
 kind load docker-image --name "${KIND_CLUSTER_NAME}" "${CWE_IMAGE}" "${CWE_PROFILES_TILT_IMAGE}"

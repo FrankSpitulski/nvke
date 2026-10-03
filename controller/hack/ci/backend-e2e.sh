@@ -907,7 +907,7 @@ log "starting the CAPD bundle mirror on the Kind Docker network"
 docker volume create "${BUNDLE_VOLUME}" >/dev/null
 BUNDLE_VOLUME_OWNED=true
 BUNDLE_LOADER_OWNED=true
-bounded "${DOCKER_PULL_TIMEOUT}" docker create --name "${BUNDLE_LOADER_NAME}" -v "${BUNDLE_VOLUME}:/bundle" alpine:3.22 true >/dev/null
+bounded "${DOCKER_PULL_TIMEOUT}" docker create --name "${BUNDLE_LOADER_NAME}" -v "${BUNDLE_VOLUME}:/bundle" "$(dockerhub_image alpine:3.22)" true >/dev/null
 docker cp "${BUNDLE_DIR}/." "${BUNDLE_LOADER_NAME}:/bundle/"
 docker rm "${BUNDLE_LOADER_NAME}" >/dev/null
 BUNDLE_LOADER_OWNED=false
@@ -916,7 +916,7 @@ bounded "${DOCKER_PULL_TIMEOUT}" docker run -d \
   --name "${BUNDLE_MIRROR_NAME}" \
   --network kind \
   -v "${BUNDLE_VOLUME}:/usr/share/nginx/html:ro" \
-  nginx:alpine >/dev/null
+  "$(dockerhub_image nginx:alpine)" >/dev/null
 
 log "starting inner runner on the Kind Docker network"
 bounded "${DOCKER_PULL_TIMEOUT}" docker pull "${RUNNER_IMAGE}"
