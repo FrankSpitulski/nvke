@@ -188,9 +188,13 @@ CAPI_PROVISIONED_IMAGE ?= cluster-api-provider-provisioned:latest
 # and NKECTL_CAPI_PROVISIONED_IMAGE are unset; the bootstrap manifest pins them.
 CWE_IMAGE ?= nke-controller:latest
 
+# Set by cli/e2e/bootstrap/run.sh to point the images' Docker Hub bases at a
+# mirror; see dockerhub_build_args in controller/hack/backend-e2e-lib.sh.
+DOCKERHUB_MIRROR_BUILD_ARGS ?=
+
 ensure-provisioned-provider-image:
 	@nerdctl image inspect $(CAPI_PROVISIONED_IMAGE) >/dev/null 2>&1 || \
-	  nerdctl build -t $(CAPI_PROVISIONED_IMAGE) \
+	  nerdctl build -t $(CAPI_PROVISIONED_IMAGE) $(DOCKERHUB_MIRROR_BUILD_ARGS) \
 	    -f ../cluster-api-provider-provisioned/Dockerfile ..
 
 # The controller image records the commit it was built from; the Dockerfile
@@ -200,8 +204,8 @@ CWE_IMAGE_BUILD_ARGS = --build-arg BUILD_VERSION=$(NKECTL_VERSION) --build-arg G
 # `images` always rebuilds. An `ensure-*` target keeps a stale image after a
 # `git pull`; this target does not. BuildKit's cache keeps a no-op rebuild cheap.
 images: ## Build the two images `bootstrap site` side-loads by default.
-	nerdctl build -t $(CWE_IMAGE) $(CWE_IMAGE_BUILD_ARGS) -f ../controller/Dockerfile ..
-	nerdctl build -t $(CAPI_PROVISIONED_IMAGE) -f ../cluster-api-provider-provisioned/Dockerfile ..
+	nerdctl build -t $(CWE_IMAGE) $(CWE_IMAGE_BUILD_ARGS) $(DOCKERHUB_MIRROR_BUILD_ARGS) -f ../controller/Dockerfile ..
+	nerdctl build -t $(CAPI_PROVISIONED_IMAGE) $(DOCKERHUB_MIRROR_BUILD_ARGS) -f ../cluster-api-provider-provisioned/Dockerfile ..
 
 nodes-up: ensure-capd-image
 	$(GO) run ./e2e/bootstrap/substrate/cmd/nodes up

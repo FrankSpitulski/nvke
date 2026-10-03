@@ -377,8 +377,14 @@ if [ ! -c /dev/vtpmx ]; then
 fi
 
 log "building the provisioned CAPI provider image (${NKECTL_CAPI_PROVISIONED_IMAGE})"
+# Its Docker Hub bases come through NKE_E2E_DOCKERHUB_MIRROR when set, like
+# every other image the lanes build on the host.
+# shellcheck source=../../../controller/hack/backend-e2e-lib.sh
+source "${REPO_ROOT}/controller/hack/backend-e2e-lib.sh"
+mirror_build_args="$(dockerhub_build_args "${REPO_ROOT}/cluster-api-provider-provisioned/Dockerfile" | paste -sd ' ' -)"
 make -C "${CLI_DIR}" ensure-provisioned-provider-image \
-  CAPI_PROVISIONED_IMAGE="${NKECTL_CAPI_PROVISIONED_IMAGE}"
+  CAPI_PROVISIONED_IMAGE="${NKECTL_CAPI_PROVISIONED_IMAGE}" \
+  DOCKERHUB_MIRROR_BUILD_ARGS="${mirror_build_args}"
 
 # The completed images are sufficient from this point. On a CI runner,
 # retaining their BuildKit intermediates competes with the container storage
