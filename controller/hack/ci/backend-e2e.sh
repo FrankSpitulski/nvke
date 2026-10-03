@@ -23,7 +23,9 @@ DOCKERHUB_MIRROR="${NKE_E2E_DOCKERHUB_MIRROR:-}"
 # without it a NICo run reports itself as CAPD.
 BACKEND="${NKE_E2E_BACKEND:-capd}"
 RUNNER_NAME="capd-e2e-runner-${RUN_ID}"
-RUNNER_IMAGE="${NKE_E2E_RUNNER_IMAGE:-docker:29.1.3-cli@sha256:4fa0ee1f3a7e4354c4ea34558b6d4ee32859baf4973d4c8ccc8e7fe3dd730c04}"
+# The runner image comes through the Docker Hub mirror when one is set, like
+# every other image this lane pulls on the host; the digest is the same there.
+RUNNER_IMAGE="${NKE_E2E_RUNNER_IMAGE:-${DOCKERHUB_MIRROR:+${DOCKERHUB_MIRROR}/library/}docker:29.1.3-cli@sha256:4fa0ee1f3a7e4354c4ea34558b6d4ee32859baf4973d4c8ccc8e7fe3dd730c04}"
 STATE_VOLUME="capd-e2e-state-${RUN_ID}"
 BUNDLE_MIRROR_NAME="capd-e2e-bundle-mirror-${RUN_ID}"
 BUNDLE_LOADER_NAME="capd-e2e-bundle-loader-${RUN_ID}"
