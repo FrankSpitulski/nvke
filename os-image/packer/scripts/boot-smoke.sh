@@ -156,6 +156,11 @@ if systemctl is-active --quiet multipathd.service; then
   echo "boot-smoke: multipathd.service is active; it will claim Longhorn volumes" >&2
   exit 1
 fi
+# Background apt must stay masked: its first-boot run restarts systemd's
+# services under kubeadm and the kubelet never starts (see provision.sh).
+for unit in apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service; do
+  test "$(systemctl is-enabled "${unit}")" = masked
+done
 test -x /usr/local/bin/nke-agent
 test -x /usr/local/bin/nke-agent-updater
 # The mode bits say nothing about whether the binary runs: -version exits 0

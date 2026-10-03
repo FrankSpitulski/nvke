@@ -102,6 +102,16 @@ fi
 sudo systemctl disable --now multipathd.socket multipathd.service >/dev/null 2>&1 || true
 sudo systemctl mask multipathd.socket multipathd.service
 
+# No background apt on a node. Ubuntu's apt-daily timers run a few minutes
+# after first boot and, via needrestart and dpkg triggers, restart journald,
+# networkd, udevd and friends. kubeadm's kubelet-start phase runs
+# `systemctl daemon-reload` right then on a fresh node and gets exit 1, so the
+# kubelet never starts and init or join fails for good. unattended-upgrades
+# also holds the dpkg lock against cloud-init's package step. Nodes get updates
+# through a new image, not in place.
+sudo systemctl disable --now apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service >/dev/null 2>&1 || true
+sudo systemctl mask apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service unattended-upgrades.service
+
 # Golden image: next boot must look like a new instance, without the Packer
 # SSH key or a machine-id from this build VM.
 sudo cloud-init clean --logs --seed || true
