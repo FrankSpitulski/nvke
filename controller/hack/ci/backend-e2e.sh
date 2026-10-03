@@ -817,6 +817,11 @@ git -C "${WORKSPACE_ROOT}" ls-files --cached --others --exclude-standard -z cont
     --file "${SOURCE_ARCHIVE}"
 
 log "compiling the ${BACKEND} E2E suite for linux/${host_arch}"
+# `|` makes go fall back to a direct fetch on any proxy error; the default
+# `,` only does so on 404/410. A proxy.golang.org TLS handshake timeout took
+# all three attempts of one leg on 2026-10-03: 5s apart, each a minute in the
+# handshake. The pause now grows so the attempts spread over an outage.
+export GOPROXY="${GOPROXY:-https://proxy.golang.org|direct}"
 e2e_built=false
 for attempt in 1 2 3; do
   if (cd test/e2e && CGO_ENABLED=0 GOOS=linux GOARCH="${host_arch}" go test -c -o "${E2E_BIN}" .); then
@@ -824,7 +829,7 @@ for attempt in 1 2 3; do
     break
   fi
   log "E2E compile attempt ${attempt} failed"
-  sleep 5
+  sleep $((attempt * 20))
 done
 if [[ "${e2e_built}" != true ]]; then
   exit 1

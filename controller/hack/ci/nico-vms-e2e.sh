@@ -665,7 +665,19 @@ log "management plane is up: CWE, CAPNICo and nico-vms all answer"
 # ── The suite ───────────────────────────────────────────────────────────────
 # Through go.work: dependencies resolve from public modules and the Go cache.
 log "compiling the E2E suite"
-(cd test/e2e && CGO_ENABLED=0 go test -c -o "${E2E_BIN}" .)
+# `|` makes go fall back to a direct fetch on any proxy error; the default
+# `,` only does so on 404/410. See the same block in backend-e2e.sh.
+export GOPROXY="${GOPROXY:-https://proxy.golang.org|direct}"
+e2e_built=false
+for attempt in 1 2 3; do
+  if (cd test/e2e && CGO_ENABLED=0 go test -c -o "${E2E_BIN}" .); then
+    e2e_built=true
+    break
+  fi
+  log "E2E compile attempt ${attempt} failed"
+  sleep $((attempt * 20))
+done
+[[ "${e2e_built}" == true ]] || fail "compiling the E2E suite failed three times"
 
 jq -n \
   --arg kubeconfig "${E2E_KUBECONFIG}" \

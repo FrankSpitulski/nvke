@@ -312,11 +312,23 @@ TILT_DISABLE_ANALYTICS=1 tilt ci \
   >"${state_dir}/tilt.log" 2>&1
 
 log "compiling the E2E suite for linux/${host_arch}"
-(
-  cd "${repo_root}/test/e2e"
-  GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH="${host_arch}" \
-    go test -c -o "${e2e_binary}" .
-)
+# `|` makes go fall back to a direct fetch on any proxy error; the default
+# `,` only does so on 404/410. See the same block in hack/ci/backend-e2e.sh.
+export GOPROXY="${GOPROXY:-https://proxy.golang.org|direct}"
+e2e_built=false
+for attempt in 1 2 3; do
+  if (
+    cd "${repo_root}/test/e2e"
+    GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH="${host_arch}" \
+      go test -c -o "${e2e_binary}" .
+  ); then
+    e2e_built=true
+    break
+  fi
+  log "E2E compile attempt ${attempt} failed"
+  sleep $((attempt * 20))
+done
+[[ "${e2e_built}" == true ]] || fail "compiling the E2E suite failed three times"
 
 kind get kubeconfig --internal --name "${kind_cluster_name}" >"${internal_kubeconfig}"
 jq -n \
