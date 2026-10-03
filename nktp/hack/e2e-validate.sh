@@ -72,8 +72,15 @@ trap cleanup EXIT
 if [ "$REUSE_CLUSTER" = 0 ]; then
   log "Creating Kind cluster ${CLUSTER}"
   # The same node config the controller's own e2e uses, so this validates the
-  # chart on the shape a site controller actually runs on.
-  kind create cluster --name "$CLUSTER" --config "$KIND_CONFIG" --wait 300s
+  # chart on the shape a site controller actually runs on. The node image comes
+  # through the Docker Hub mirror when one is set, as in the controller's lanes.
+  kind_config="$(mktemp)"
+  if [ -n "${NKE_E2E_DOCKERHUB_MIRROR:-}" ]; then
+    sed -E "s#^([[:space:]]*image: )kindest/node:#\1${NKE_E2E_DOCKERHUB_MIRROR}/kindest/node:#" "$KIND_CONFIG" >"$kind_config"
+  else
+    cp "$KIND_CONFIG" "$kind_config"
+  fi
+  kind create cluster --name "$CLUSTER" --config "$kind_config" --wait 300s
 fi
 
 kubectl cluster-info >/dev/null || die "no reachable cluster"

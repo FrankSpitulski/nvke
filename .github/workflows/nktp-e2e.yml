@@ -116,6 +116,11 @@ jobs:
           raise_minimum fs.inotify.max_user_watches 1048576
 
       - name: Install and validate
+        env:
+          # The host daemon pulls the Kind node image, and it has no registry
+          # mirror on these runners. e2e-validate.sh rewrites the image to
+          # this mirror, as the backend lanes do for their Kind cluster.
+          NKE_E2E_DOCKERHUB_MIRROR: mirror.gcr.io
         run: ./nktp/hack/e2e-validate.sh
 
       # The script prints pods, Collectors and events on failure. This keeps the

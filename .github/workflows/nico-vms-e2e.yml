@@ -212,6 +212,15 @@ jobs:
         with:
           version: ${{ steps.versions.outputs.helm_version }}
 
+      # The Tiltfile fetches the Postgres chart from Docker Hub over OCI. The
+      # shim local-entrypoint-e2e.yml installs rewrites that pull to the mirror.
+      - name: Route helm OCI pulls through the mirror
+        run: |
+          real="$(command -v helm)"
+          sudo mv "${real}" /usr/local/bin/helm-real
+          sudo install -m 0755 controller/hack/ci/helm-dockerhub-mirror.sh "${real}"
+          helm version --short
+
       - name: Set up Kind and kubectl
         uses: ./.github/actions/setup-kind
         with:

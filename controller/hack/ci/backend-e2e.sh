@@ -311,25 +311,6 @@ wait_for_runner_tilt() {
   done
 }
 
-configure_kind_dockerhub_mirror() {
-  local node_name="${KIND_CLUSTER_NAME}-control-plane"
-  local registry_host
-
-  if [[ -z "${DOCKERHUB_MIRROR}" ]]; then
-    return
-  fi
-  log "routing management-cluster Docker Hub pulls through ${DOCKERHUB_MIRROR}"
-  for registry_host in docker.io registry-1.docker.io; do
-    docker exec "${node_name}" mkdir -p "/etc/containerd/certs.d/${registry_host}"
-    printf '%s\n' \
-      "server = \"https://${DOCKERHUB_MIRROR}\"" \
-      '' \
-      "[host.\"https://${DOCKERHUB_MIRROR}\"]" \
-      '  capabilities = ["pull", "resolve"]' | \
-      docker exec -i "${node_name}" cp /dev/stdin "/etc/containerd/certs.d/${registry_host}/hosts.toml"
-  done
-}
-
 start_state_monitor() {
   (
     while true; do
@@ -889,11 +870,12 @@ docker image inspect "${CAPD_NODE_IMAGE}" >"${STATE_DIR}/capd-node-image.json"
 
 log "creating Kind management cluster ${KIND_CLUSTER_NAME}"
 KIND_CLUSTER_OWNED=true
+kind_config_for_mirror hack/cwe-capi-kind.yaml "${STATE_DIR}/kind-config.yaml"
 kind create cluster \
   --name "${KIND_CLUSTER_NAME}" \
-  --config hack/cwe-capi-kind.yaml \
+  --config "${STATE_DIR}/kind-config.yaml" \
   --wait 5m
-configure_kind_dockerhub_mirror
+configure_kind_dockerhub_mirror "${KIND_CLUSTER_NAME}"
 kind load docker-image --name "${KIND_CLUSTER_NAME}" "${CWE_IMAGE}"
 kind load docker-image --name "${KIND_CLUSTER_NAME}" "${CWE_PROFILES_TILT_IMAGE}"
 

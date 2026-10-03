@@ -29,6 +29,9 @@ export COLIMA_PROFILE ?= default
 export COLIMA_DOCKER_HOST ?= unix://$(HOME)/.colima/$(COLIMA_PROFILE)/docker.sock
 export KIND_CLUSTER_NAME ?= cwe-capi
 export KIND_CLUSTER_CONFIG ?= hack/cwe-capi-kind.yaml
+# The image `make registry-mirror` runs. The host daemon pulls it anonymously,
+# so CI points it at the Docker Hub mirror.
+REGISTRY_MIRROR_IMAGE ?= registry:2
 # The pin lives in make/tool-versions.mk, so `nkectl bootstrap site` (which
 # runs clusterctl too, see cli/internal/bootstrap/cwedeploy) and this dev loop cannot
 # install different CAPI versions.
@@ -462,7 +465,7 @@ registry-mirror: ## Start Docker Hub and registry.k8s.io pull-through caches
 			--name registry-mirror \
 			--restart=always \
 			-e REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io \
-			registry:2 >/dev/null && \
+			$(REGISTRY_MIRROR_IMAGE) >/dev/null && \
 		echo "✅ Registry mirror started"; \
 	fi
 	@$(kind-docker-host) docker network connect kind registry-mirror 2>/dev/null || true
@@ -480,7 +483,7 @@ registry-mirror: ## Start Docker Hub and registry.k8s.io pull-through caches
 			--name registry-k8s-mirror \
 			--restart=always \
 			-e REGISTRY_PROXY_REMOTEURL=https://registry.k8s.io \
-			registry:2 >/dev/null && \
+			$(REGISTRY_MIRROR_IMAGE) >/dev/null && \
 		echo "✅ registry.k8s.io mirror started"; \
 	fi
 	@$(kind-docker-host) docker network connect kind registry-k8s-mirror 2>/dev/null || true

@@ -551,7 +551,15 @@ export CWE_PROFILES_PRELOADED=true
 # ── Management cluster: kind + CAPI core ────────────────────────────────────
 log "creating the kind management cluster ${KIND_CLUSTER_NAME} with CAPI core"
 KIND_CLUSTER_OWNED=true
-make -C "${CONTROLLER_ROOT}" capi-core-up KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}"
+# With a Docker Hub mirror set, the node image, the node's own containerd and
+# the pull-through cache image all go through it, as in the backend lanes. The
+# node first, so nothing capi-core-up starts pulls from Docker Hub directly.
+kind_config_for_mirror hack/cwe-capi-kind.yaml "${STATE_DIR}/kind-config.yaml"
+make -C "${CONTROLLER_ROOT}" kind-up KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" \
+  KIND_CLUSTER_CONFIG="${STATE_DIR}/kind-config.yaml"
+configure_kind_dockerhub_mirror "${KIND_CLUSTER_NAME}"
+make -C "${CONTROLLER_ROOT}" capi-core-up KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" \
+  REGISTRY_MIRROR_IMAGE="${NKE_E2E_DOCKERHUB_MIRROR:+${NKE_E2E_DOCKERHUB_MIRROR}/library/}registry:2"
 kind get kubeconfig --name "${KIND_CLUSTER_NAME}" >"${E2E_KUBECONFIG}"
 log "loading ${CWE_IMAGE} and ${CWE_PROFILES_TILT_IMAGE} into the kind cluster"
 kind load docker-image --name "${KIND_CLUSTER_NAME}" "${CWE_IMAGE}" "${CWE_PROFILES_TILT_IMAGE}"

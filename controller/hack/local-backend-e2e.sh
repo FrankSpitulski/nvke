@@ -43,25 +43,6 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 is required"
 }
 
-configure_kind_dockerhub_mirror() {
-  local node_name="${kind_cluster_name}-control-plane"
-  local registry_host
-
-  if [[ -z "${dockerhub_mirror}" ]]; then
-    return
-  fi
-  log "routing management-cluster Docker Hub pulls through ${dockerhub_mirror}"
-  for registry_host in docker.io registry-1.docker.io; do
-    docker exec "${node_name}" mkdir -p "/etc/containerd/certs.d/${registry_host}"
-    printf '%s\n' \
-      "server = \"https://${dockerhub_mirror}\"" \
-      '' \
-      "[host.\"https://${dockerhub_mirror}\"]" \
-      '  capabilities = ["pull", "resolve"]' | \
-      docker exec -i "${node_name}" cp /dev/stdin "/etc/containerd/certs.d/${registry_host}/hosts.toml"
-  done
-}
-
 collect_diagnostics() {
   local rc=$?
   set +e
@@ -195,8 +176,9 @@ else
 fi
 
 log "ensuring the Kind management cluster exists"
-make -C "${repo_root}" kind-up
-configure_kind_dockerhub_mirror
+kind_config_for_mirror "${repo_root}/hack/cwe-capi-kind.yaml" "${tmp_dir}/kind-config.yaml"
+make -C "${repo_root}" kind-up KIND_CLUSTER_CONFIG="${tmp_dir}/kind-config.yaml"
+configure_kind_dockerhub_mirror "${kind_cluster_name}"
 kind get kubeconfig --name "${kind_cluster_name}" >"${host_kubeconfig}"
 export KUBECONFIG="${host_kubeconfig}"
 management_ready=true

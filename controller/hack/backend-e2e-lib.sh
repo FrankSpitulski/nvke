@@ -246,3 +246,38 @@ dockerhub_build_args() {
     esac
   done < <(sed -n 's/^ARG \([A-Z_]*\)=\(docker\.io[^ ]*\)$/\1=\2/p' "${dockerfile}")
 }
+
+# Copies a kind config to $2, pointing its `image: kindest/node:...` lines at
+# NKE_E2E_DOCKERHUB_MIRROR when that is set. kind pulls the node image through
+# the host daemon, which on the ARC runners has no registry mirror, so this was
+# the last anonymous docker.io pull every CAPI lane made. The digest is the same
+# on the mirror, and the containerd mirror written into the nodes afterwards is
+# unaffected.
+kind_config_for_mirror() {
+  local src="$1" dst="$2" mirror="${NKE_E2E_DOCKERHUB_MIRROR:-}"
+  if [[ -n "${mirror}" ]]; then
+    sed -E "s#^(\s*image: )kindest/node:#\1${mirror}/kindest/node:#" "${src}" >"${dst}"
+  else
+    cp "${src}" "${dst}"
+  fi
+}
+
+# Points containerd in the kind node of cluster $1 at NKE_E2E_DOCKERHUB_MIRROR
+# for Docker Hub pulls, when that is set. Both Hub host names, since charts and
+# manifests name either. Without this every image the management cluster runs
+# from Docker Hub is an anonymous pull from the runner's address.
+configure_kind_dockerhub_mirror() {
+  local cluster_name="$1" mirror="${NKE_E2E_DOCKERHUB_MIRROR:-}" node_name registry_host
+  [[ -n "${mirror}" ]] || return 0
+  node_name="${cluster_name}-control-plane"
+  log "routing management-cluster Docker Hub pulls through ${mirror}"
+  for registry_host in docker.io registry-1.docker.io; do
+    docker exec "${node_name}" mkdir -p "/etc/containerd/certs.d/${registry_host}"
+    printf '%s\n' \
+      "server = \"https://${mirror}\"" \
+      '' \
+      "[host.\"https://${mirror}\"]" \
+      '  capabilities = ["pull", "resolve"]' |
+      docker exec -i "${node_name}" cp /dev/stdin "/etc/containerd/certs.d/${registry_host}/hosts.toml"
+  done
+}
