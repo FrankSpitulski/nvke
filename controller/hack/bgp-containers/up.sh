@@ -73,6 +73,17 @@ sed -e "s|@ROUTER_ID@|${KIND_GW}|g" \
     -e "s|@LISTEN_RANGE@|${KIND_SUBNET}|g" \
     "${HERE}/frr.conf.tmpl" > "${RENDERED_CONF}"
 
+# Pull first, with a retry: quay.io sits outside the Docker Hub mirror, and one
+# 502 on a blob GET during `docker create` took a whole lane down.
+if ! docker image inspect "${FRR_IMAGE}" >/dev/null 2>&1; then
+  for attempt in 1 2 3; do
+    docker pull "${FRR_IMAGE}" >/dev/null && break
+    [[ ${attempt} -lt 3 ]] || die "Could not pull ${FRR_IMAGE} after 3 attempts."
+    info "Pull of ${FRR_IMAGE} failed (attempt ${attempt}/3); retrying in 10 s."
+    sleep 10
+  done
+fi
+
 info "Starting FRR in host network mode (routes install on colima/host kernel)..."
 docker create \
   --name "${CONTAINER_NAME}" \
