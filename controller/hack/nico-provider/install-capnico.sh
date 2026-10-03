@@ -73,7 +73,17 @@ install_source_chart() {
   fi
 
   echo "Building CAPNICo from ${source_dir}..."
-  DOCKER_BUILDKIT=1 docker build -t "${CAPNICO_IMAGE}" "${source_dir}"
+  # The provider's Dockerfile names its Docker Hub base directly, with no ARG
+  # to override, so BuildKit gets a copy on stdin with official-image bases
+  # (golang:…, alpine:…) pointed at NKE_E2E_DOCKERHUB_MIRROR when it is set.
+  # Bases on other registries are left alone.
+  DOCKER_BUILDKIT=1 docker build -t "${CAPNICO_IMAGE}" -f - "${source_dir}" < <(
+    if [[ -n "${NKE_E2E_DOCKERHUB_MIRROR:-}" ]]; then
+      sed -E "s#^(FROM +(--platform=[^ ]+ +)?)(docker\.io/)?([a-z0-9._-]+)([:@])#\1${NKE_E2E_DOCKERHUB_MIRROR}/library/\4\5#" "${source_dir}/Dockerfile"
+    else
+      cat "${source_dir}/Dockerfile"
+    fi
+  )
   "${KIND_BIN}" load docker-image "${CAPNICO_IMAGE}" --name "${KIND_CLUSTER_NAME}"
 
   rm -rf "${CAPNICO_STAGED_CHART_DIR}"

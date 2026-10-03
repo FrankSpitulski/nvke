@@ -17,7 +17,9 @@
 
 ARG KINDEST_NODE_TAG=v1.34.8
 ARG CAPD_BASE_PLATFORM=linux/arm64
-FROM --platform=${CAPD_BASE_PLATFORM} kindest/node:${KINDEST_NODE_TAG}
+# build-image.sh points this at the Docker Hub mirror when one is configured.
+ARG KINDEST_NODE_IMAGE=docker.io/kindest/node
+FROM --platform=${CAPD_BASE_PLATFORM} ${KINDEST_NODE_IMAGE}:${KINDEST_NODE_TAG}
 
 ARG NODE_AGENT_VERSION=v0.1.29
 ARG NODE_AGENT_DIR_ARCH=arm64

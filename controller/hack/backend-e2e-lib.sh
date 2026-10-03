@@ -227,3 +227,22 @@ e2e_node_pool_filter() {
 E2E_CAPD_CP_CONTROLLER_FILTER="$(e2e_cp_controller_filter capd)"
 # shellcheck disable=SC2034
 E2E_CAPD_NODE_POOL_FILTER="$(e2e_node_pool_filter capd)"
+
+# Build-args that point a Dockerfile's Docker Hub bases at the mirror in
+# NKE_E2E_DOCKERHUB_MIRROR, one token per line for `mapfile -t`. Handles
+# `ARG BASE_REGISTRY=docker.io` and `ARG <NAME>_IMAGE=docker.io/<image>`, and
+# prints nothing when the mirror is unset. The dind daemon on the ARC runners
+# has no registry mirror of its own, and the arm64 pool shares one egress
+# address, so anonymous docker.io pulls return 429 whenever several lanes
+# build at once (failure 26 in the 2026-10-02 CI notes).
+dockerhub_build_args() {
+  local dockerfile="$1" mirror="${NKE_E2E_DOCKERHUB_MIRROR:-}" name value
+  [[ -n "${mirror}" ]] || return 0
+  while IFS='=' read -r name value; do
+    case "${value}" in
+      docker.io) printf -- '--build-arg\n%s=%s/library\n' "${name}" "${mirror}" ;;
+      docker.io/*/*) printf -- '--build-arg\n%s=%s/%s\n' "${name}" "${mirror}" "${value#docker.io/}" ;;
+      docker.io/*) printf -- '--build-arg\n%s=%s/library/%s\n' "${name}" "${mirror}" "${value#docker.io/}" ;;
+    esac
+  done < <(sed -n 's/^ARG \([A-Z_]*\)=\(docker\.io[^ ]*\)$/\1=\2/p' "${dockerfile}")
+}

@@ -216,10 +216,13 @@ if [[ -n "${NKE_E2E_DOCKERHUB_MIRROR}" ]]; then
   fi
   # Reachability is logged, not enforced: the image still builds and pulls fall
   # through to the next host.
-  if curl -fsS -m 5 -o /dev/null "https://${NKE_E2E_DOCKERHUB_MIRROR}/v2/"; then
-    echo "[build-image] mirror ${NKE_E2E_DOCKERHUB_MIRROR} answered /v2/"
+  # A registry answers /v2/ with 200 or, when it wants a token first, 401;
+  # mirror.gcr.io does the latter, and curl -f used to report that as silence.
+  probe_status="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "https://${NKE_E2E_DOCKERHUB_MIRROR}/v2/" || echo 000)"
+  if [[ "${probe_status}" == "200" || "${probe_status}" == "401" ]]; then
+    echo "[build-image] mirror ${NKE_E2E_DOCKERHUB_MIRROR} answered /v2/ (HTTP ${probe_status})"
   else
-    echo "[build-image] mirror ${NKE_E2E_DOCKERHUB_MIRROR} did not answer /v2/; pulls will fall through"
+    echo "[build-image] mirror ${NKE_E2E_DOCKERHUB_MIRROR} did not answer /v2/ (HTTP ${probe_status}); pulls will fall through"
   fi
   echo "[build-image] pull order: ${NKE_E2E_DOCKERHUB_MIRROR} -> local dev cache -> upstream"
 else
@@ -337,8 +340,11 @@ else
   fetch_url "${spire_bundle_url}" "${build_context}/spire-agent.tgz"
 fi
 
-echo "Ensuring kindest/node:${CAPD_KINDEST_NODE_TAG} is available for ${effective_platform}..."
-"${CONTAINER_CLI}" pull --platform "${effective_platform}" "kindest/node:${CAPD_KINDEST_NODE_TAG}"
+# Through the mirror when one is set: the host daemon has none of its own, and
+# an anonymous docker.io pull from the shared CI egress returns 429 under load.
+kindest_node_image="${NKE_E2E_DOCKERHUB_MIRROR:+${NKE_E2E_DOCKERHUB_MIRROR}/}kindest/node"
+echo "Ensuring ${kindest_node_image}:${CAPD_KINDEST_NODE_TAG} is available for ${effective_platform}..."
+"${CONTAINER_CLI}" pull --platform "${effective_platform}" "${kindest_node_image}:${CAPD_KINDEST_NODE_TAG}"
 
 build_args=(
   build
@@ -351,6 +357,7 @@ build_args=(
   --build-arg "BUNDLE_SERVER_URL=${BUNDLE_SERVER_URL}"
   --build-arg "INDEX_FILE_URL=${INDEX_FILE_URL}"
   --build-arg "NKE_E2E_DOCKERHUB_MIRROR=${NKE_E2E_DOCKERHUB_MIRROR}"
+  --build-arg "KINDEST_NODE_IMAGE=${kindest_node_image}"
 )
 
 if [[ -n "${CAPD_KINDEST_NODE_TAG:-}" ]]; then

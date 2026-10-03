@@ -730,21 +730,27 @@ CWE_PROFILES_TILT_IMAGE="docker.local/cwe-profiles:tilt"
 CAPD_REBOOT_IMAGE="ko.local/capd-reboot-controller"
 DSX_IDENTITY_EXCHANGE_IMAGE=""
 
+# Every host build below pulls its bases through the mirror; see
+# dockerhub_build_args in backend-e2e-lib.sh.
 log "building the sanitized profiles fixture image"
+mapfile -t profiles_build_args < <(dockerhub_build_args test/fixtures/Dockerfile)
 docker build \
   --platform "linux/${host_arch}" \
   --file test/fixtures/Dockerfile \
+  "${profiles_build_args[@]}" \
   --tag "${CWE_PROFILES_TILT_IMAGE}" \
   test/fixtures
 printf '%s\n' "${CWE_PROFILES_TILT_IMAGE}" >"${STATE_DIR}/cwe-profiles-image-ref.txt"
 docker image inspect "${CWE_PROFILES_TILT_IMAGE}" >"${STATE_DIR}/cwe-profiles-image.json"
 
 log "building controller image ${CWE_IMAGE} for the ${host_arch} CAPD runner"
+mapfile -t cwe_build_args < <(dockerhub_build_args "${CONTROLLER_ROOT}/Dockerfile")
 DOCKER_BUILDKIT=1 docker build \
   --platform "linux/${host_arch}" \
   --file "${CONTROLLER_ROOT}/Dockerfile" \
   --build-arg "BUILD_VERSION=${CWE_BUILD_VERSION}" \
   --build-arg "GIT_VERSION=${git_sha}" \
+  "${cwe_build_args[@]}" \
   --tag "${CWE_IMAGE}" \
   "${WORKSPACE_ROOT}"
 printf '%s\n' "${CWE_IMAGE}" >"${STATE_DIR}/cwe-image-ref.txt"
@@ -753,9 +759,11 @@ docker image inspect "${CWE_IMAGE}" >"${STATE_DIR}/cwe-image.json"
 if [[ "${DSX_IDENTITY_EXCHANGE_ENABLED}" == "true" ]]; then
   DSX_IDENTITY_EXCHANGE_IMAGE="dsx-identity-exchange-e2e:${git_short_sha}"
   log "building DSX identity exchange mock ${DSX_IDENTITY_EXCHANGE_IMAGE}"
+  mapfile -t dsx_build_args < <(dockerhub_build_args "${CONTROLLER_ROOT}/hack/dsx-identity-exchange-mock/Dockerfile")
   DOCKER_BUILDKIT=1 docker build \
     --platform "linux/${host_arch}" \
     --file "${CONTROLLER_ROOT}/hack/dsx-identity-exchange-mock/Dockerfile" \
+    "${dsx_build_args[@]}" \
     --tag "${DSX_IDENTITY_EXCHANGE_IMAGE}" \
     "${WORKSPACE_ROOT}"
   printf '%s\n' "${DSX_IDENTITY_EXCHANGE_IMAGE}" >"${STATE_DIR}/dsx-identity-exchange-image-ref.txt"
@@ -898,7 +906,9 @@ NKE_E2E_SPIRE_RELEASE="${NKE_E2E_SPIRE_RELEASE:-}"
 
 if [[ "${NKE_E2E_USE_STACK:-false}" == "true" ]]; then
   log "building capd-reboot-controller for the deploy-path lane"
+  mapfile -t reboot_build_args < <(dockerhub_build_args "${CONTROLLER_ROOT}/hack/capd-reboot-controller/Dockerfile")
   docker build \
+    "${reboot_build_args[@]}" \
     -t "${CAPD_REBOOT_IMAGE}" \
     -f "${CONTROLLER_ROOT}/hack/capd-reboot-controller/Dockerfile" \
     "${CONTROLLER_ROOT}/hack/capd-reboot-controller"

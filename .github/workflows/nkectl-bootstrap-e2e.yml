@@ -285,15 +285,20 @@ jobs:
 
       # Into the standalone containerd, not Docker: nkectl loads the image
       # from there, so a Docker-built one would be invisible to it.
+      # The base images come through the mirror too: configureDockerHubMirror
+      # covers the bootstrap cluster's node, not this host's containerd.
       - name: Build CWE image
         shell: bash
         run: |
+          source controller/hack/backend-e2e-lib.sh
+          mapfile -t mirror_args < <(dockerhub_build_args controller/Dockerfile)
           sudo -E env "PATH=$PATH" nerdctl build \
             --file controller/Dockerfile \
             --platform "linux/${{ matrix.arch }}" \
             --tag "${CWE_IMAGE}" \
             --build-arg "BUILD_VERSION=nkectl-bootstrap-e2e" \
             --build-arg "GIT_VERSION=${GITHUB_SHA}" \
+            "${mirror_args[@]}" \
             .
 
       # Built as the ordinary runner user: building ahead of run.sh keeps
