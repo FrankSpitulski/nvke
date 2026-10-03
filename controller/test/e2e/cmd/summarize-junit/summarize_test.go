@@ -37,15 +37,69 @@ func TestSuiteLevelNodesAreNotSpecs(t *testing.T) {
 	suites := loadFixture(t, "label-filtered.xml")
 	result := summarize(suites)
 
-	assert.Equal(t, 7, suites.Tests, "the fixture's attribute counts [AfterSuite] as a test")
-	assert.Equal(t, 6, result.TotalSpecs, "but it is not a spec, so the summary must not count it")
+	assert.Equal(t, 8, suites.Tests, "the fixture's attribute counts [AfterSuite] as a test")
+	assert.Equal(t, 7, result.TotalSpecs, "but it is not a spec, so the summary must not count it")
 	assert.Equal(t, 3, result.Executed)
 	assert.Equal(t, 3, result.Passed)
-	assert.Equal(t, 2, result.Skipped)
+	assert.Equal(t, 2, result.Deselected)
+	assert.Equal(t, 1, result.SkippedAtRuntime)
 	assert.Equal(t, 1, result.Pending)
 	assert.Equal(t, 0, result.SuiteNodeFailures, "a passing suite node is not reported at all")
-	assert.Equal(t, result.TotalSpecs, result.Executed+result.Skipped+result.Pending,
+	assert.Equal(t, result.TotalSpecs, result.Executed+result.Deselected+result.SkippedAtRuntime+result.Pending,
 		"every spec is either executed or not run")
+}
+
+// Ginkgo reports both as skipped, and a summary that cannot tell them apart
+// reports a check as filtered out when the lane selected it and it declined
+// to run -- which reads as coverage that exists.
+func TestRuntimeSkipsAreNotMistakenForDeselectedSpecs(t *testing.T) {
+	t.Parallel()
+
+	result := summarize(loadFixture(t, "label-filtered.xml"))
+
+	require.Len(t, result.RuntimeSkips, 1)
+	assert.Contains(t, result.RuntimeSkips[0].Name, "maps NKE's identities")
+	assert.Equal(t, "OIDC is disabled in the CWE deployment (NKE_OIDC_AUTH_ENABLED != true)",
+		result.RuntimeSkips[0].Message, "the reason is kept, with Ginkgo's prefix stripped")
+
+	// The reason is the point, so it is not held back behind -with-text the
+	// way a Gomega failure message is.
+	rendered := result.markdown("T", false)
+	assert.Contains(t, rendered, "**1 selected spec skipped at runtime.**")
+	assert.Contains(t, rendered, "OIDC is disabled in the CWE deployment")
+	assert.NotContains(t, rendered, "skipped - ", "Ginkgo's prefix is an artifact of the format")
+
+	// Deselected specs are counted apart from it rather than absorbing it.
+	assert.Contains(t, rendered, "3 of 7 specs in the suite did not run")
+}
+
+func TestSkipReason(t *testing.T) {
+	t.Parallel()
+
+	for name, testCase := range map[string]struct {
+		testCase reporters.JUnitTestCase
+		want     string
+	}{
+		"deselected by the filter": {
+			testCase: reporters.JUnitTestCase{Skipped: &reporters.JUnitSkipped{Message: "skipped"}},
+			want:     "",
+		},
+		"skipped itself": {
+			testCase: reporters.JUnitTestCase{Skipped: &reporters.JUnitSkipped{Message: "skipped - no GPU shape here"}},
+			want:     "no GPU shape here",
+		},
+		// Ginkgo writes pending specs through the same element.
+		"pending": {
+			testCase: reporters.JUnitTestCase{Skipped: &reporters.JUnitSkipped{Message: "pending"}},
+			want:     "",
+		},
+		"no skipped element": {testCase: reporters.JUnitTestCase{}, want: ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, testCase.want, skipReason(testCase.testCase))
+		})
+	}
 }
 
 func TestIsSuiteLevelNode(t *testing.T) {
@@ -190,7 +244,7 @@ func TestHeadlineLeadsWithWhatRan(t *testing.T) {
 	// The count that matters is what executed. A label-filtered lane skips
 	// most of the suite by design, and leading with that reads as breakage.
 	assert.Equal(t, "**3 passed** of 3 specs executed in 31m03s.", lines[2])
-	assert.Contains(t, rendered, "3 of 6 specs in the suite did not run")
+	assert.Contains(t, rendered, "3 of 7 specs in the suite did not run")
 	assert.Contains(t, rendered, "label filter `site-controller`")
 	assert.Contains(t, rendered, "(1 of them pending)")
 }

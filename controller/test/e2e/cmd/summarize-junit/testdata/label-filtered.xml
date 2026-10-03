@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-  <testsuites tests="7" disabled="3" errors="0" failures="0" time="1863.5">
-      <testsuite name="NKE E2E Suite" package="/work/controller/test/e2e" tests="7" disabled="1" skipped="2" errors="0" failures="0" time="1863.5" timestamp="2026-09-30T08:46:17">
+  <testsuites tests="8" disabled="4" errors="0" failures="0" time="1863.5">
+      <testsuite name="NKE E2E Suite" package="/work/controller/test/e2e" tests="8" disabled="1" skipped="3" errors="0" failures="0" time="1863.5" timestamp="2026-09-30T08:46:17">
           <properties>
               <property name="SuiteSucceeded" value="true"></property>
               <property name="LabelFilter" value="site-controller"></property>
@@ -19,6 +19,9 @@
           </testcase>
           <testcase name="[It] a spec nobody has written yet [health]" classname="NKE E2E Suite" status="pending" time="0">
               <skipped message="pending"></skipped>
+          </testcase>
+          <testcase name="[It] Site controller on Forge tenant maps NKE&#39;s identities through OIDC [site-controller, oidc]" classname="NKE E2E Suite" status="skipped" time="0">
+              <skipped message="skipped - OIDC is disabled in the CWE deployment (NKE_OIDC_AUTH_ENABLED != true)"></skipped>
           </testcase>
           <testcase name="[AfterSuite]" classname="NKE E2E Suite" status="passed" time="0.02"></testcase>
       </testsuite>

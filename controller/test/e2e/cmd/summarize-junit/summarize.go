@@ -29,6 +29,13 @@ const (
 	// comparison runs to kilobytes. A job summary is capped at 1 MiB per step
 	// and the diagnostic value is in the opening clause; the rest is in the log.
 	messageLimit = 300
+
+	// Ginkgo writes a bare "skipped" into the skipped element for a spec the
+	// label filter never selected, and "skipped - <reason>" for one that was
+	// selected, started, and called Skip. The two say opposite things about a
+	// lane: the first is it running the specs it was asked to, the second is
+	// coverage it was expected to have and silently does not.
+	skipReasonPrefix = "skipped - "
 )
 
 // outcome is one test case reduced to what the summary shows. Deliberately
@@ -56,15 +63,22 @@ type summary struct {
 	Failed      int
 	Errored     int
 	Unknown     int
-	Skipped     int
 	Pending     int
 	SuiteTime   time.Duration
 	LabelFilter string
 
+	// Deselected counts specs the label filter never selected; SkippedAtRuntime
+	// counts specs it did select and that then skipped themselves. Ginkgo
+	// reports both as skipped, but only the second is a gap in this lane.
+	Deselected       int
+	SkippedAtRuntime int
+
 	// Ran holds the executed specs in suite order; NotPassed holds everything
-	// that did not pass, specs and suite nodes alike.
-	Ran       []outcome
-	NotPassed []outcome
+	// that did not pass, specs and suite nodes alike; RuntimeSkips holds the
+	// SkippedAtRuntime specs with the reason each one gave.
+	Ran          []outcome
+	NotPassed    []outcome
+	RuntimeSkips []outcome
 
 	// SuiteNodeFailures counts BeforeSuite/AfterSuite-class nodes that did not
 	// pass. Tracked apart from the spec counts because it does not mean the
@@ -118,6 +132,18 @@ func failureMessage(testCase reporters.JUnitTestCase) string {
 	return ""
 }
 
+// skipReason returns why a spec skipped itself at runtime, or the empty
+// string if the label filter deselected it instead.
+func skipReason(testCase reporters.JUnitTestCase) string {
+	if testCase.Skipped == nil {
+		return ""
+	}
+	if !strings.HasPrefix(testCase.Skipped.Message, skipReasonPrefix) {
+		return ""
+	}
+	return strings.TrimPrefix(testCase.Skipped.Message, skipReasonPrefix)
+}
+
 func seconds(value float64) time.Duration {
 	return time.Duration(value * float64(time.Second))
 }
@@ -162,11 +188,18 @@ func (s *summary) add(testCase reporters.JUnitTestCase) {
 	s.TotalSpecs++
 
 	// Ginkgo writes pending specs as skipped too, counting them as disabled
-	// rather than skipped. Both mean the spec did not execute, which is the
-	// only distinction that matters here.
+	// rather than skipped. Neither executed, so neither joins the tallies
+	// below; a runtime skip is kept with its reason so the summary can say
+	// which coverage this lane did not reach.
 	switch item.Status {
 	case statusSkipped:
-		s.Skipped++
+		if reason := skipReason(testCase); reason != "" {
+			item.Message = reason
+			s.SkippedAtRuntime++
+			s.RuntimeSkips = append(s.RuntimeSkips, item)
+			return
+		}
+		s.Deselected++
 		return
 	case statusPending:
 		s.Pending++
@@ -283,20 +316,37 @@ func (s summary) writeHeadline(b *strings.Builder) {
 	}
 }
 
+// writeNotRun accounts for the specs that did not execute, keeping the two
+// reasons apart. Specs the label filter deselected belong to the other lanes
+// sharing this suite and say nothing about this one. A spec this lane selected
+// and that then skipped itself is coverage the lane was expected to have, and
+// folding it in with the deselected ones is how a summary comes to claim a
+// check was made that never ran.
 func (s summary) writeNotRun(b *strings.Builder) {
-	notRun := s.Skipped + s.Pending
-	if notRun == 0 {
+	if deselected := s.Deselected + s.Pending; deselected > 0 {
+		fmt.Fprintf(b, "\n%d of %d specs in the suite did not run", deselected, s.TotalSpecs)
+		if s.LabelFilter != "" {
+			fmt.Fprintf(b, ", having not been selected by the label filter `%s`", s.LabelFilter)
+		}
+		if s.Pending > 0 {
+			fmt.Fprintf(b, " (%d of them pending)", s.Pending)
+		}
+		fmt.Fprintf(b, ".\n")
+	}
+
+	if len(s.RuntimeSkips) == 0 {
 		return
 	}
 
-	fmt.Fprintf(b, "\n%d of %d specs in the suite did not run", notRun, s.TotalSpecs)
-	if s.LabelFilter != "" {
-		fmt.Fprintf(b, ", having not been selected by the label filter `%s`", s.LabelFilter)
+	// Always shown, never behind -with-text: these reasons are written by the
+	// specs themselves rather than rendered by Gomega, and a reason nobody
+	// reads is the whole defect this block exists to fix.
+	fmt.Fprintf(b, "\n**%d selected spec%s skipped at runtime.** This lane did not cover:\n\n```\n",
+		s.SkippedAtRuntime, plural(s.SkippedAtRuntime))
+	for _, item := range s.RuntimeSkips {
+		fmt.Fprintf(b, "%s\n%13s%s\n", fenceSafe(item.Name), "", clip(fenceSafe(item.Message), messageLimit))
 	}
-	if s.Pending > 0 {
-		fmt.Fprintf(b, " (%d of them pending)", s.Pending)
-	}
-	fmt.Fprintf(b, ".\n")
+	fmt.Fprintf(b, "```\n")
 }
 
 func (s summary) writeNotPassed(b *strings.Builder, withText bool) {
