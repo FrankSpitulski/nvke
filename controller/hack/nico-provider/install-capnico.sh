@@ -74,16 +74,32 @@ install_source_chart() {
 
   echo "Building CAPNICo from ${source_dir}..."
   # The provider's Dockerfile names its Docker Hub base directly, with no ARG
-  # to override, so BuildKit gets a copy on stdin with official-image bases
+  # to override, so BuildKit gets a rendered copy with official-image bases
   # (golang:…, alpine:…) pointed at NKE_E2E_DOCKERHUB_MIRROR when it is set.
   # Bases on other registries are left alone.
-  DOCKER_BUILDKIT=1 docker build -t "${CAPNICO_IMAGE}" -f - "${source_dir}" < <(
-    if [[ -n "${NKE_E2E_DOCKERHUB_MIRROR:-}" ]]; then
-      sed -E "s#^(FROM +(--platform=[^ ]+ +)?)(docker\.io/)?([a-z0-9._-]+)([:@])#\1${NKE_E2E_DOCKERHUB_MIRROR}/library/\4\5#" "${source_dir}/Dockerfile"
-    else
-      cat "${source_dir}/Dockerfile"
+  rendered_dockerfile="$(mktemp)"
+  if [[ -n "${NKE_E2E_DOCKERHUB_MIRROR:-}" ]]; then
+    sed -E "s#^(FROM +(--platform=[^ ]+ +)?)(docker\.io/)?([a-z0-9._-]+)([:@])#\1${NKE_E2E_DOCKERHUB_MIRROR}/library/\4\5#" "${source_dir}/Dockerfile" >"${rendered_dockerfile}"
+  else
+    cp "${source_dir}/Dockerfile" "${rendered_dockerfile}"
+  fi
+  # Two attempts: a pull-through mirror can serve a manifest and then answer
+  # "not found" for one of its blobs (mirror.gcr.io did, 2026-10-03), and
+  # BuildKit does not retry that. The second attempt finds the blob cached.
+  built=false
+  for attempt in 1 2; do
+    if DOCKER_BUILDKIT=1 docker build -t "${CAPNICO_IMAGE}" -f "${rendered_dockerfile}" "${source_dir}"; then
+      built=true
+      break
     fi
-  )
+    echo "CAPNICo image build failed (attempt ${attempt}/2); retrying in 15s" >&2
+    sleep 15
+  done
+  rm -f "${rendered_dockerfile}"
+  if [[ "${built}" != true ]]; then
+    echo "CAPNICo image build failed twice." >&2
+    exit 1
+  fi
   "${KIND_BIN}" load docker-image "${CAPNICO_IMAGE}" --name "${KIND_CLUSTER_NAME}"
 
   rm -rf "${CAPNICO_STAGED_CHART_DIR}"
