@@ -30,6 +30,8 @@ func Status(cl *api.Cluster) string {
 		return "Provisioning"
 	case IsTrue(&c.Provisioned):
 		return "Provisioned"
+	case IsProvisioningFailed(cl):
+		return "ProvisioningFailed"
 	default:
 		return "Unknown"
 	}
@@ -37,6 +39,13 @@ func Status(cl *api.Cluster) string {
 
 // IsProvisioned reports whether the cluster finished provisioning.
 func IsProvisioned(cl *api.Cluster) bool { return IsTrue(&cl.Conditions.Provisioned) }
+
+// IsProvisioningFailed reports whether the provisioning workflow died: CWE
+// flips Provisioning to False without ever setting Provisioned.
+func IsProvisioningFailed(cl *api.Cluster) bool {
+	c := cl.Conditions
+	return c.Provisioning.Status == api.ConditionStatusFalse && c.Provisioned.Status == api.ConditionStatusFalse
+}
 
 // IsTrue reports whether an optional condition is present and true.
 func IsTrue(condition *api.Condition) bool {

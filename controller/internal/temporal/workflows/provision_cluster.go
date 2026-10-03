@@ -31,7 +31,7 @@ func ProvisionCluster(ctx workflow.Context, input ProvisionClusterInput) error {
 
 	if err := provisionCluster(ctx, input); err != nil {
 		// Best effort to update the cluster conditions to indicate the provisioning workflow failed
-		if err := updateClusterProvisioningMessage(ctx, input.ClusterID, fmt.Sprintf("Workflow failed: %s", err)); err != nil {
+		if err := markClusterProvisioningFailed(ctx, input.ClusterID, err); err != nil {
 			logger.Error("failed to update cluster conditions", "error", err)
 		}
 
@@ -283,15 +283,18 @@ func installKubeLocalDNS(ctx workflow.Context, clusterID uuid.UUID) error {
 	return nil
 }
 
-func updateClusterProvisioningMessage(ctx workflow.Context, clusterID uuid.UUID, message string) error {
+// markClusterProvisioningFailed records a dead provisioning workflow. There is
+// no failed condition, so Provisioning flips to False with the cause as the
+// message; pollers would otherwise wait out their own timeout.
+func markClusterProvisioningFailed(ctx workflow.Context, clusterID uuid.UUID, cause error) error {
 	var a *activities.Activities
 
 	return workflow.ExecuteActivity(withDBOptions(ctx), a.UpdateClusterConditions, activities.ClusterConditionsUpdate{
 		ClusterID: clusterID,
 		Conditions: activities.ClusterConditions{
 			Provisioning: &activities.ConditionUpdate{
-				Status:  db.ConditionStatusTrue,
-				Message: message,
+				Status:  db.ConditionStatusFalse,
+				Message: fmt.Sprintf("Workflow failed: %s", cause),
 			},
 		},
 	}).Get(ctx, nil)

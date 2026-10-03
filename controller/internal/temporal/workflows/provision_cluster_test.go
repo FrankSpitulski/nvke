@@ -4,16 +4,40 @@
 package workflows
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/dsx-ai-factory/nke/controller/internal/db"
 	"github.com/dsx-ai-factory/nke/controller/internal/temporal/activities"
 )
+
+func TestProvisionClusterMarksProvisioningFalseWhenTheWorkflowFails(t *testing.T) {
+	clusterID := uuid.New()
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestWorkflowEnvironment()
+	a := &activities.Activities{}
+
+	env.OnActivity(a.ApplyCAPIClusterResources, mock.Anything, mock.Anything).
+		Return(temporal.NewNonRetryableApplicationError("capi apply failed", "Test", nil)).Once()
+	env.OnActivity(a.UpdateClusterConditions, mock.Anything, mock.MatchedBy(func(u activities.ClusterConditionsUpdate) bool {
+		p := u.Conditions.Provisioning
+		return u.ClusterID == clusterID && p != nil && p.Status == db.ConditionStatusFalse &&
+			strings.HasPrefix(p.Message, "Workflow failed: ")
+	})).Return(nil).Once()
+
+	env.ExecuteWorkflow(ProvisionCluster, ProvisionClusterInput{ClusterID: clusterID})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.Error(t, env.GetWorkflowError())
+	env.AssertExpectations(t)
+}
 
 func TestInstallKubeLocalDNSSchedulesInProcessActivity(t *testing.T) {
 	clusterID := uuid.New()

@@ -108,6 +108,10 @@ func WaitProvisioned(
 				return cluster, fmt.Errorf("%w: cluster %q started deleting while it was being provisioned",
 					ErrClusterFailed, cluster.Name)
 			}
+			if clusterstate.IsProvisioningFailed(cluster) {
+				return cluster, fmt.Errorf("%w: cluster %q provisioning failed: %s",
+					ErrClusterFailed, cluster.Name, cluster.Conditions.Provisioning.Message)
+			}
 			if clusterstate.IsTrue(cluster.Conditions.UpdateFailed) {
 				return cluster, fmt.Errorf("%w: cluster %q reports updateFailed: %s",
 					ErrClusterFailed, cluster.Name, cluster.Conditions.UpdateFailed.Message)

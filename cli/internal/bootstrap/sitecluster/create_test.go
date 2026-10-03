@@ -187,6 +187,23 @@ func TestWaitProvisioned_StopsOnADeletingCluster(t *testing.T) {
 	}
 }
 
+// TestWaitProvisioned_StopsOnProvisioningFailed: CWE reports a dead
+// provisioning workflow as Provisioning=False with the cause in the message.
+func TestWaitProvisioned_StopsOnProvisioningFailed(t *testing.T) {
+	shortPollInterval(t)
+	failed := clusterWith(api.ConditionStatusFalse, api.ConditionStatusFalse)
+	failed.Conditions.Provisioning.Message = "Workflow failed: kubeadm init failed"
+	client := &fakeClusterAPI{states: []api.Cluster{failed}}
+
+	_, err := WaitProvisioned(context.Background(), client, uuid.New(), time.Minute, quietLogger())
+	if !errors.Is(err, ErrClusterFailed) {
+		t.Fatalf("error = %v, want it to identify as ErrClusterFailed", err)
+	}
+	if !strings.Contains(err.Error(), "kubeadm init failed") {
+		t.Errorf("error %q does not carry the condition's message", err)
+	}
+}
+
 func TestWaitProvisioned_StopsOnUpdateFailed(t *testing.T) {
 	shortPollInterval(t)
 	failed := clusterWith(api.ConditionStatusFalse, api.ConditionStatusTrue)
