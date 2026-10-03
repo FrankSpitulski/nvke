@@ -4,6 +4,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	_ "embed"
@@ -916,19 +917,27 @@ func TestEtcdEncryptionVerifyScript(t *testing.T) {
 		},
 	}
 
+	// One fake kubectl for all subtests, written before any of them forks. Each
+	// subtest used to write its own and exec it at once while its siblings were
+	// forking; a fork can hold another subtest's write descriptor open until it
+	// execs, and the kernel then refuses to run that file (ETXTBSY). The
+	// script's first kubectl call failed exactly that way in CI, twice.
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "kubectl"), []byte(fakeEtcdVerifierKubectl), 0o700); err != nil {
+		t.Fatalf("writing fake kubectl: %v", err)
+	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
 			tempDir := t.TempDir()
-			kubectlPath := filepath.Join(tempDir, "kubectl")
-			if err := os.WriteFile(kubectlPath, []byte(fakeEtcdVerifierKubectl), 0o700); err != nil {
-				t.Fatalf("writing fake kubectl: %v", err)
-			}
 			terminationLogPath := filepath.Join(tempDir, "termination.log")
+			var stderr bytes.Buffer
 			command := exec.CommandContext(t.Context(), "sh", "-c", etcdEncryptionVerifyScript)
+			command.Stderr = &stderr
 			command.Env = append(os.Environ(),
-				"PATH="+tempDir+":"+os.Getenv("PATH"),
+				"PATH="+binDir+":"+os.Getenv("PATH"),
 				"E2E_KUBECONFIG_PATH="+filepath.Join(tempDir, "kubeconfig"),
 				"E2E_TERMINATION_LOG="+terminationLogPath,
 				"TMPDIR="+tempDir,
@@ -943,7 +952,7 @@ func TestEtcdEncryptionVerifyScript(t *testing.T) {
 
 			err := command.Run()
 			if test.wantSuccess && err != nil {
-				t.Fatalf("etcdEncryptionVerifyScript failed: %v", err)
+				t.Fatalf("etcdEncryptionVerifyScript failed: %v; stderr: %q", err, stderr.String())
 			}
 			if !test.wantSuccess && err == nil {
 				t.Fatal("etcdEncryptionVerifyScript succeeded, want failure")
@@ -956,7 +965,7 @@ func TestEtcdEncryptionVerifyScript(t *testing.T) {
 			logText := string(terminationLog)
 			for _, want := range test.wantLogContains {
 				if !strings.Contains(logText, want) {
-					t.Errorf("termination log %q does not contain %q", logText, want)
+					t.Errorf("termination log %q does not contain %q; stderr: %q", logText, want, stderr.String())
 				}
 			}
 			if !test.wantSuccess {
