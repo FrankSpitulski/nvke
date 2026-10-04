@@ -6,11 +6,12 @@ name: OS Image Artifact
 # Builds and validates the FDE and non-FDE Packer node images for amd64 and
 # arm64, in both published Ubuntu flavors (26.04 and 24.04 -- see
 # UBUNTU_RELEASE in os-image/packer/Makefile for why both ship), on an
-# os-image/v* tag (or a manual dispatch), pushes all eight qcow2s to GHCR as
-# OCI artifacts, and on a real tag cuts a GitHub Release carrying
-# nke-os-image-check + checksums covering all nine files. The GitHub Release
-# is created here (not in release.yml) so a failed bake or validation never
-# cuts a release.
+# os-image/v* tag, a manual dispatch or the 12-hourly schedule, pushes all
+# eight qcow2s to GHCR as OCI artifacts (the schedule stops there; NVCR, S3
+# and the Release stay tag/dispatch only), and on a real tag cuts a GitHub
+# Release carrying nke-os-image-check + checksums covering all nine files.
+# The GitHub Release is created here (not in release.yml) so a failed bake or
+# validation never cuts a release.
 #
 # FDE security note: its build-time LUKS_PASSPHRASE defaults to a shared,
 # documented placeholder ("changeit", see
@@ -66,6 +67,13 @@ on:
     paths:
       - "os-image/**"
       - .github/workflows/os-image-artifact.yml
+  # Twice a day from main's HEAD, so the e2e lanes -- which boot the newest
+  # published image built from a commit on their branch (see
+  # newest_os_image_tag in controller/hack/ci/nico-vms-e2e.sh) -- do not run
+  # on a stale image for long. GHCR only, and skipped when this commit already
+  # has its images (see the matrix job).
+  schedule:
+    - cron: "0 */12 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -91,8 +99,9 @@ concurrency:
   # share a group with its siblings and cancel them.
   group: OS Image Artifact-${{ github.ref }}
   # Supersede a mirror-branch build, which cannot publish: the push step needs
-  # a tag or a dispatch. Everything that can publish stays uncancellable, or a
-  # half-pushed qcow2 would leave a tag on a truncated layer.
+  # a tag, a dispatch or the schedule. Everything that can publish stays
+  # uncancellable, or a half-pushed qcow2 would leave a tag on a truncated
+  # layer.
   cancel-in-progress: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/pull-request/') }}
 
 env:
@@ -123,9 +132,34 @@ jobs:
     name: Pick the legs to build
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      packages: read
     outputs:
       legs: ${{ steps.pick.outputs.legs }}
+      skip: ${{ steps.existing.outputs.skip }}
     steps:
+      # A scheduled run on a commit whose default-flavor non-FDE images are
+      # already published has nothing to add. A tag, a push or a dispatch
+      # always bakes. Fails open: if GHCR cannot be listed, bake anyway.
+      - name: Skip a scheduled run when this commit is already published
+        id: existing
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          path="${REPO_NON_FDE#ghcr.io/}"
+          pkg="${path#*/}"
+          if ! tags="$(gh api --paginate "/orgs/${path%%/*}/packages/container/${pkg//\//%2F}/versions?per_page=100" \
+                --jq '.[].metadata.container.tags[]?')"; then
+            echo "::warning::could not list ${REPO_NON_FDE} versions; baking anyway"
+            tags=""
+          fi
+          if grep -qx "sha-${GITHUB_SHA}-amd64" <<< "${tags}" && grep -qx "sha-${GITHUB_SHA}-arm64" <<< "${tags}"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "sha-${GITHUB_SHA} is already published for both arches; nothing to bake"
+          fi
+
       - name: Pick
         id: pick
         env:
@@ -220,7 +254,7 @@ jobs:
 
   publish:
     needs: [matrix, validate-packer]
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository == 'dsx-ai-factory/nke' && needs.matrix.outputs.skip != 'true'
     name: Build and verify (${{ matrix.arch }}, ubuntu ${{ matrix.ubuntu_release }}, ${{ matrix.variant }})
     strategy:
       fail-fast: false
@@ -662,7 +696,8 @@ jobs:
         if: >-
           github.event.inputs.dry_run != 'true' &&
           (startsWith(github.ref, 'refs/tags/os-image/') ||
-           github.event_name == 'workflow_dispatch')
+           github.event_name == 'workflow_dispatch' ||
+           github.event_name == 'schedule')
         env:
           VERSION: ${{ steps.meta.outputs.version }}
           ALIASES: ${{ steps.meta.outputs.aliases }}
@@ -692,7 +727,8 @@ jobs:
         if: >-
           github.event.inputs.dry_run != 'true' &&
           (startsWith(github.ref, 'refs/tags/os-image/') ||
-           github.event_name == 'workflow_dispatch')
+           github.event_name == 'workflow_dispatch' ||
+           github.event_name == 'schedule')
         env:
           REPO: ${{ matrix.variant == 'fde' && env.REPO_FDE || env.REPO_NON_FDE }}
         run: oras manifest fetch --pretty "${REPO}:sha-${GITHUB_SHA}${{ matrix.tag_suffix }}-${{ matrix.arch }}"
