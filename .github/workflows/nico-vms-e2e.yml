@@ -27,6 +27,7 @@ on:
       - "controller/nico-sim/**"
       - "controller/hack/nico-provider/**"
       - "controller/hack/ci/nico-vms-e2e.sh"
+      - controller/hack/backend-e2e-lib.sh
       # This lane runs the nkectl smoke, and is the only one that exercises its
       # host-mode branch.
       - "controller/hack/ci/nkectl-smoke.sh"
