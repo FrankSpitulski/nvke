@@ -104,20 +104,20 @@ spec:
         - systemctl stop spire-agent.service
       {{- if .TeleportEnabled }}
         - echo 'Starting Teleport installation at '$(date) >> /var/log/cloud-init-teleport.log
-        - DEBIAN_FRONTEND=noninteractive apt-get install -y teleport-ent=18.6.4
+        - DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 teleport-ent=18.6.4
         - command -v teleport || { echo 'Teleport binary not found' >> /var/log/cloud-init-teleport.log; exit 1; }
         - systemctl enable --now teleport >> /var/log/cloud-init-teleport.log 2>&1
         - systemctl is-active --quiet teleport && echo 'Teleport service started successfully' >> /var/log/cloud-init-teleport.log || { echo 'Teleport service failed to start' >> /var/log/cloud-init-teleport.log; systemctl status teleport --no-pager >> /var/log/cloud-init-teleport.log; exit 1; }
         - echo 'Teleport installation completed at '$(date) >> /var/log/cloud-init-teleport.log
       {{- end }}
-        - DEBIAN_FRONTEND=noninteractive apt-get install -y nke-agent nke-kubeadm-distro-{{ trimPrefix .KubernetesVersion "v" }} spire-agent
+        - DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 nke-agent nke-kubeadm-distro-{{ trimPrefix .KubernetesVersion "v" }} spire-agent
         - [sh, -c, 'u=http://carbide-pxe.forge:18080/files/node-agent/nke-agent; if curl -fsSL "$u" -o /tmp/nke-agent; then install -m 0755 /tmp/nke-agent /usr/local/bin/nke-agent && echo "downloaded local nke-agent" && /usr/local/bin/nke-agent -version; else echo "local nke-agent not available at $u; using image agent"; fi']
       {{- if .CalicoEnabled }}
-        - DEBIAN_FRONTEND=noninteractive apt-get install -y nke-cni-calico-images-3.30.1 nke-cni-calico-manifests-3.30.1
+        - DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 nke-cni-calico-images-3.30.1 nke-cni-calico-manifests-3.30.1
       {{- end }}
       {{- if .OvnEnabled }}
         # The charts package is what the post-init CNI install reads.
-        - DEBIAN_FRONTEND=noninteractive apt-get install -y nke-cni-ovn-images-1.4.0 nke-cni-ovn-charts-1.4.0
+        - DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 nke-cni-ovn-images-1.4.0 nke-cni-ovn-charts-1.4.0
       {{- end }}
         - sysctl --system
         - systemctl daemon-reload

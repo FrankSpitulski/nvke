@@ -99,8 +99,8 @@ func AptProvision(repoURL, gpgURL, suite, component, deb, debVersion string) str
 		" gpg --dearmor -o /etc/apt/keyrings/nke.gpg &&" +
 		" echo \"deb [signed-by=/etc/apt/keyrings/nke.gpg] " + repoURL + " " + suite + " " + component + "\"" +
 		" > /etc/apt/sources.list.d/nke.list; fi'\n" +
-		"  - apt-get update\n" +
-		"  - DEBIAN_FRONTEND=noninteractive apt-get install -y " + deb + "=" + debVersion + " nke-agent"
+		"  - apt-get update -o DPkg::Lock::Timeout=600\n" +
+		"  - DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 " + deb + "=" + debVersion + " nke-agent"
 }
 
 // CommunityProvision returns the runcmd block that installs the same stack from
@@ -115,5 +115,5 @@ func CommunityProvision(provisionScriptURL, agentDebURL string) string {
 	return "  - curl -fsSL --retry 3 -o /tmp/install-k8s.sh " + provisionScriptURL + "\n" +
 		"  - bash /tmp/install-k8s.sh\n" +
 		"  - curl -fsSL --retry 3 -o /tmp/nke-agent.deb " + agentDebURL + "\n" +
-		"  - DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/nke-agent.deb"
+		"  - DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 /tmp/nke-agent.deb"
 }

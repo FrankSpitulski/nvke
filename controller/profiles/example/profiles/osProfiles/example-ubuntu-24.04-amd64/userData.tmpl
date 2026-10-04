@@ -37,9 +37,9 @@ autoinstall:
       - |
           set -eu
           REPLACE_APT_REPOSITORY_SETUP_COMMAND
-          apt-get update
+          apt-get update -o DPkg::Lock::Timeout=600
           install -d -m 0755 /etc/default
-          DEBIAN_FRONTEND=noninteractive apt-get install -y REPLACE_APT_PACKAGES {{ .CNIImagePackage }} {{ .CNIChartsPackage }}
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 REPLACE_APT_PACKAGES {{ .CNIImagePackage }} {{ .CNIChartsPackage }}
           systemctl enable nke-agent
           systemctl restart nke-agent
           install -d -m 0755 /run/cluster-api

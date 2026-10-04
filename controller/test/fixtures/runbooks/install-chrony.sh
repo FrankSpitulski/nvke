@@ -19,11 +19,11 @@ install_chrony() {
     fi
 
     echo "Installing chrony..."
-    if ! apt-get update &> /dev/null; then
+    if ! apt-get update -o DPkg::Lock::Timeout=600 &> /dev/null; then
         error "Failed to update package lists"
     fi
 
-    if ! apt-get install -y chrony &> /dev/null; then
+    if ! apt-get install -y -o DPkg::Lock::Timeout=600 chrony &> /dev/null; then
         error "Failed to install chrony"
     fi
 
