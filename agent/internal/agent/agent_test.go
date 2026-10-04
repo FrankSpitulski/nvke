@@ -539,6 +539,46 @@ func TestProcessKubeadmJoin_FilesWrittenBeforeKubeadm(t *testing.T) {
 	assert.Equal(t, "join succeeded", server.NodeStatus.KubeadmStatus)
 }
 
+func TestProcessKubeadmJoin_ResetsBeforeRetry(t *testing.T) {
+	tests := []struct {
+		name          string
+		kubeadmStatus string
+		wantCommands  []string
+	}{
+		{name: "retry after a failed join resets first", kubeadmStatus: joinFailedStatus, wantCommands: []string{"reset", "join"}},
+		{name: "first join does not reset", kubeadmStatus: "", wantCommands: []string{"join"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := newKubeadmFileTestServer(t)
+			server.NodeStatus = &NodeStatus{
+				Status:        PendingStatus,
+				Phase:         JoinPhase,
+				Role:          WorkerRole,
+				KubeadmStatus: tc.kubeadmStatus,
+			}
+
+			var commands []string
+			record := func(_ string, args []string, _ *nkeutils.CommandOptions) ([]byte, error) {
+				commands = append(commands, args[0])
+				return []byte("ok"), nil
+			}
+			server.Runner = &MockRunner{
+				Runners: []runner{
+					runForCommand("kubeadm", []string{"reset", "-f"}, record),
+					runForCommand("kubeadm", []string{"join", "10.0.0.1:6443"}, record),
+				},
+			}
+
+			server.processKubeadmJoin([]string{"join", "10.0.0.1:6443"}, &pb.KubeadmJoinRequest{})
+
+			assert.Equal(t, tc.wantCommands, commands)
+			assert.Equal(t, ReadyStatus, server.NodeStatus.Status)
+			assert.Equal(t, "join succeeded", server.NodeStatus.KubeadmStatus)
+		})
+	}
+}
+
 func TestProcessKubeadmInit_FilesWriteFailurePreventsKubeadm(t *testing.T) {
 	server := newKubeadmFileTestServer(t)
 	server.NodeStatus = &NodeStatus{

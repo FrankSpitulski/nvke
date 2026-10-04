@@ -63,6 +63,7 @@ const (
 	SuccessStatus        = "success"
 	NotReadyStatus       = "notready"
 	UninitializedStatus  = "uninitialized"
+	joinFailedStatus     = "join failed"
 	WorkerRole           = "worker"
 	ControlPlaneRole     = "controlplane"
 	UserScriptsDir       = "/usr/local/nke/user-scripts"
@@ -580,6 +581,12 @@ func (s *NodeAgentServer) processKubeadmJoin(args []string, req *pb.KubeadmJoinR
 	s.mu.Unlock()
 	defer s.flushStatus(&ns)
 
+	// A failed join leaves bootstrap-kubelet.conf and a half-built control
+	// plane behind, and kubeadm's preflight refuses to join over them.
+	if ns.KubeadmStatus == joinFailedStatus {
+		s.resetBeforeJoinRetry()
+	}
+
 	if err := s.writeFilesToDisk(req.GetFiles()); err != nil {
 		slog.Error("failed to write kubeadm prerequisite files", "err", err)
 		ns.Status = ErrorStatus
@@ -631,7 +638,7 @@ func (s *NodeAgentServer) processKubeadmJoin(args []string, req *pb.KubeadmJoinR
 		ns.Status = ErrorStatus
 		ns.CurrentMessage = err.Error()
 		ns.KubeadmErrorMessage = string(output)
-		ns.KubeadmStatus = "join failed"
+		ns.KubeadmStatus = joinFailedStatus
 
 	} else {
 		ns.Status = ReadyStatus
@@ -648,6 +655,21 @@ func (s *NodeAgentServer) processKubeadmJoin(args []string, req *pb.KubeadmJoinR
 		}
 	}
 	ns.CompletedPhases = append(ns.CompletedPhases, JoinPhase)
+}
+
+// kubeadmResetArgs is the argv every kubeadm reset in this package starts from.
+func kubeadmResetArgs() []string {
+	return []string{"reset", "-f"} //nolint:goconst // kubeadm argv fragment; naming each CLI flag reads worse than the literal
+}
+
+// resetBeforeJoinRetry runs kubeadm reset so a join retry starts from a clean
+// node. Best effort: when the reset fails, the join runs and reports its own error.
+func (s *NodeAgentServer) resetBeforeJoinRetry() {
+	slog.Info("previous kubeadm join failed, resetting the node before retrying")
+	output, err := s.Runner.Run("kubeadm", kubeadmResetArgs(), &nkeutils.CommandOptions{})
+	if err != nil {
+		slog.Error("kubeadm reset before join retry failed", "err", err, "output", string(output))
+	}
 }
 
 func (s *NodeAgentServer) ExecuteKubeadmInit(
@@ -1177,7 +1199,7 @@ func (s *NodeAgentServer) ExecuteKubeadmReset(
 	defer s.Persister.Persist(s.NodeStatus) //nolint:all
 	s.NodeStatus.Phase = ResetPhase
 
-	cmdArgs := []string{"reset", "-f"} //nolint:goconst // kubeadm argv fragment; naming each CLI flag reads worse than the literal
+	cmdArgs := kubeadmResetArgs()
 
 	// Append --skip-phases=<name> for each entry in the request. Used by the
 	// controller CP-teardown path to skip remove-etcd-member, which would otherwise hang in
