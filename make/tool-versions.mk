@@ -83,3 +83,44 @@ REDOCLY_VERSION     ?= 2.57.0
 # Checks and publishes the documentation site (.github/workflows/api-docs.yml).
 # fern/fern.config.json pins the same number; move both together.
 FERN_VERSION        ?= 5.143.6
+
+# Development tools invoked by module Makefiles. These were declared where they
+# were used -- buf in agent/, setup-envtest and ginkgo in controller/, and
+# controller-gen separately in two modules -- so nothing stopped two copies of
+# the same pin drifting apart, and hack/tool-version-check.sh had nothing to
+# check against. One declaration each, here.
+ADDLICENSE_VERSION       ?= v1.1.1
+BUF_VERSION              ?= v1.65.0
+CONTROLLER_TOOLS_VERSION ?= v0.20.1
+GINKGO_VERSION           ?= v2.27.2
+GOFAIL_VERSION           ?= v0.2.0
+GOFUMPT_VERSION          ?= v0.11.0
+GOIMPORTS_VERSION        ?= v0.48.0
+SETUP_ENVTEST_VERSION    ?= release-0.24
+# Kubernetes version for the envtest kube-apiserver and etcd binaries.
+ENVTEST_K8S_VERSION      ?= 1.34.1
+
+# The upstream SPIRE artifacts os-image/packages/spire-agent wraps into a .deb.
+# Not a development tool, but the same one-owner rule applies for the same
+# reason: these two also select the server-side attestor and the bundles the
+# CAPD and NICo flows build against, and every consumer has to agree with the
+# version the nodes actually run.
+#
+# Reading this file (enforced -- a literal re-declaration fails the check):
+#   os-image/packages/spire-agent/Makefile        the node .deb
+#   controller/hack/ci/prepare-capd-bundles.sh    CAPD e2e bundle
+#   controller/hack/capd-kindest-node/build-image.sh  CAPD/NICo node image
+#
+# NOT reachable by the check, because these embed the version inside an image
+# tag or a package spec rather than assigning it. Bump them by hand, here, in
+# the same commit:
+#   controller/Tiltfile                      spire-tpm-plugin image tag + the
+#                                            sha256 of the binary inside it
+#   hack/mirror-bootstrap-images.sh          spire-tpm-plugin image tag
+#   controller/hack/create-forge-nico-cluster.sh  apt spire-agent=<v>+tpm<v>
+#
+# `git grep -n '1\.14\.1\|1\.9\.0' -- controller hack os-image` finds the whole
+# set; the lock under os-image/packages/spire-agent/lock/ holds the digests and
+# is regenerated with `make lock`, never hand-edited.
+SPIRE_VERSION      ?= 1.14.1
+TPM_PLUGIN_VERSION ?= 1.9.0

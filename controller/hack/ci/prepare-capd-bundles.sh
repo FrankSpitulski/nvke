@@ -5,8 +5,16 @@
 set -Eeuo pipefail
 
 OUTPUT_DIR="${1:?usage: prepare-capd-bundles.sh OUTPUT_DIR}"
-SPIRE_AGENT_VERSION="1.14.1"
-TPM_PLUGIN_VERSION="1.9.0"
+
+# Read, do not restate. These are the same two upstream releases that
+# os-image/packages/spire-agent bundles into the node .deb, and the CAPD e2e
+# has to attest against the versions the nodes actually run. They were literals
+# here under a comment asking whoever bumped one to remember the other; the
+# pinned checksums below are what made that expensive to get wrong.
+# shellcheck source=../../../hack/read-tool-version.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/hack/read-tool-version.sh"
+SPIRE_AGENT_VERSION="$(read_tool_version SPIRE_VERSION)"
+TPM_PLUGIN_VERSION="$(read_tool_version TPM_PLUGIN_VERSION)"
 # SPIRE and the TPM plugin ship real binaries, so they follow the node image's
 # architecture. amd64 keeps the CI runners on the bytes they already used.
 BUNDLE_ARCH="${BUNDLE_ARCH:-amd64}"
