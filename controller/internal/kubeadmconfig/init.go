@@ -121,8 +121,11 @@ func (config *InitConfig) Render() (*BootstrapArtifacts, error) {
 		},
 	}
 
-	if cfg.AuthenticationConfig != nil {
-		file, err := GenerateAPIServerAuthenticationConfig(cfg.AuthenticationConfig)
+	if needsAuthenticationConfig(cfg.KubernetesVersion, cfg.AuthenticationConfig) {
+		file, err := GenerateAPIServerAuthenticationConfig(
+			apiServerAuthenticationConfig(cfg.AuthenticationConfig),
+			cfg.KubernetesVersion,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("building AuthenticationConfig file: %w", err)
 		}
@@ -257,7 +260,11 @@ func clusterConfiguration(config *InitConfig) kubeadmv1beta3.ClusterConfiguratio
 		apiServer.ExtraArgs["encryption-provider-config-automatic-reload"] = reload
 		apiServer.ExtraVolumes = append(apiServer.ExtraVolumes, encryptionVolume())
 	}
-	if config.AuthenticationConfig != nil {
+	// The AuthenticationConfiguration carries the anonymous-access restriction
+	// (CIS 1.2.1) whether or not OIDC is configured, so every cluster on a
+	// release that understands it gets the flag and the volume -- not just the
+	// OIDC ones. Below that floor only OIDC pulls the flag in, as before.
+	if needsAuthenticationConfig(config.KubernetesVersion, config.AuthenticationConfig) {
 		apiServer.ExtraArgs[AuthConfigFlagName] = defaultOIDCAuthConfigPath
 		apiServer.ExtraVolumes = append(apiServer.ExtraVolumes, authenticationConfigVolume())
 	}

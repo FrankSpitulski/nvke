@@ -160,6 +160,45 @@ func needsImageVolumeFeatureGate(kubernetesVersion string) bool {
 	return parsed.LessThan(imageVolumeGAVersion())
 }
 
+// anonymousAuthConfigMinVersion is the first release that can consume the
+// AuthenticationConfiguration this package renders. The gating fact is the API
+// version, not the feature gate: renderAuthenticationConfig always stamps
+// apiserver.config.k8s.io/v1, and AuthenticationConfiguration only joins that
+// group version in 1.34. Through 1.33 the kind exists solely as v1alpha1 (1.29)
+// and v1beta1 (1.30-1.33) -- 1.33's apiserver.config.k8s.io/v1 reference lists
+// only AdmissionConfiguration, AuthorizationConfiguration and
+// EncryptionConfiguration. Handing a 1.32 or 1.33 kube-apiserver a v1
+// AuthenticationConfiguration means it cannot decode the file and does not
+// start, which is the bringup break this whole change exists to avoid.
+//
+// AnonymousAuthConfigurableEndpoints is beta and on by default from 1.32, so it
+// is not the binding constraint; the API version is. Lowering this floor
+// therefore requires rendering v1beta1 for 1.32-1.33, not just a gate check.
+func anonymousAuthConfigMinVersion() *version.Version { return version.MustParseGeneric("1.34.0") }
+
+// supportsAnonymousAuthConfig reports whether kubernetesVersion understands the
+// anonymous-restricted AuthenticationConfiguration.
+//
+// An unparseable version yields false on purpose, mirroring
+// needsImageVolumeFeatureGate. Skipping the restriction leaves anonymous access
+// where it already is, which is recoverable; handing kube-apiserver a document
+// it cannot parse stops the control plane from starting at all.
+func supportsAnonymousAuthConfig(kubernetesVersion string) bool {
+	parsed, err := version.ParseGeneric(kubernetesVersion)
+	if err != nil {
+		return false
+	}
+	return !parsed.LessThan(anonymousAuthConfigMinVersion())
+}
+
+// needsAuthenticationConfig reports whether a control-plane node gets an
+// AuthenticationConfiguration at all. OIDC still requires one on every release
+// that supports it, so the anonymous restriction only widens the set of
+// clusters that get the file and the flag; it never narrows it.
+func needsAuthenticationConfig(kubernetesVersion string, oidc *OIDCAuthenticationConfig) bool {
+	return oidc != nil || supportsAnonymousAuthConfig(kubernetesVersion)
+}
+
 // imageVolumeKubeletFeatureGates returns the kubelet featureGates map for
 // kubernetesVersion, or nil when the gate is unnecessary. nil keeps the field
 // omitted from the rendered YAML rather than emitting an empty map.
