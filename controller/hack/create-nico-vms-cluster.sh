@@ -62,23 +62,13 @@ KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.34.2}"
 CONTROL_PLANE_DESIRED_COUNT="${CONTROL_PLANE_DESIRED_COUNT:-1}"
 WORKER_DESIRED_COUNT="${WORKER_DESIRED_COUNT:-1}"
 CONTROL_PLANE_VIP="${CONTROL_PLANE_VIP:-}"
-TAKEN_IPS=""
-# POD_CIDR empty keeps the API default (192.168.0.0/16).
+DEFAULT_VIP_RANGE="${DEFAULT_VIP_RANGE:-172.31.0.0/24}"
+FIRST_CONTROL_PLANE_VIP="${FIRST_CONTROL_PLANE_VIP:-172.31.0.10}"
+# POD_CIDR empty keeps the API default (192.168.0.0/16), which overlaps the
+# vmnet node network on darwin, so pick one outside it there.
 if [[ "$(uname -s)" == Darwin ]]; then
-  # darwin has no BGP route install, so the VIP must be on-link in vmnet's /24
-  # (192.168.64.0/24 unless UTM or Parallels moved it): the host and guests ARP
-  # for it, and the control-plane node answers because kube-vip binds it to lo.
-  # Apple's DHCP allocates upward from the bottom, so VIPs start at the top and
-  # skip any address it has leased. The default pod CIDR overlaps vmnet, so pick
-  # one outside it.
-  vmnet_gateway="$(defaults read /Library/Preferences/SystemConfiguration/com.apple.vmnet Shared_Net_Address 2>/dev/null || echo 192.168.64.1)"
-  DEFAULT_VIP_RANGE="${DEFAULT_VIP_RANGE:-${vmnet_gateway%.*}.0/24}"
-  FIRST_CONTROL_PLANE_VIP="${FIRST_CONTROL_PLANE_VIP:-${vmnet_gateway%.*}.200}"
-  TAKEN_IPS="$(sed -n 's/^[[:space:]]*ip_address=//p' /var/db/dhcpd_leases 2>/dev/null || true)"
   POD_CIDR="${POD_CIDR:-10.244.0.0/16}"
 else
-  DEFAULT_VIP_RANGE="${DEFAULT_VIP_RANGE:-172.31.0.0/24}"
-  FIRST_CONTROL_PLANE_VIP="${FIRST_CONTROL_PLANE_VIP:-172.31.0.10}"
   POD_CIDR="${POD_CIDR:-}"
 fi
 CNI_PLUGIN="${CNI_PLUGIN:-ovn-kubernetes}"
@@ -109,7 +99,7 @@ fi
 if [[ -z "${CONTROL_PLANE_VIP}" ]]; then
   CLUSTERS="$(curl "${AUTH_HEADER[@]+"${AUTH_HEADER[@]}"}" -fsS --max-time "${CURL_MAX_TIME:-30}" "${CLUSTERS_API_URL}")"
   CONTROL_PLANE_VIP="$(
-    first_available_control_plane_vip "${DEFAULT_VIP_RANGE}" "${CLUSTERS}" "${FIRST_CONTROL_PLANE_VIP}" "${TAKEN_IPS}"
+    first_available_control_plane_vip "${DEFAULT_VIP_RANGE}" "${CLUSTERS}" "${FIRST_CONTROL_PLANE_VIP}"
   )"
 fi
 

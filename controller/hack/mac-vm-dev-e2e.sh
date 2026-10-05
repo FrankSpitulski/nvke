@@ -11,7 +11,7 @@
 #   LABEL_FILTER          Ginkgo label filter (default: the arm64 CI lane's, less
 #                         parallel-lifecycle: its Calico tenant cannot exist here,
 #                         because CWE allows a custom pod CIDR only with OVN and
-#                         Calico's default 192.168.0.0/16 holds vmnet's on-link VIP)
+#                         Calico's default 192.168.0.0/16 overlaps vmnet's node network)
 #   E2E_TIMEOUT           suite timeout       (default: 270m, as in CI)
 #   NKE_E2E_UPGRADE_HOPS  upgrade hops to run (default: 1, as in CI)
 

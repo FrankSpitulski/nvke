@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -131,9 +132,19 @@ func Setup(ctx context.Context, cfg config.Config, seedDoc seed.Document, logger
 			store.Close()
 			return nil, fmt.Errorf("derive gateway IP for BGP: %w", gwErr)
 		}
+		listenAddr := gw
+		if runtime.GOOS == "darwin" {
+			// The vmnet gateway address only exists while a VM holds vmnet up,
+			// so bind every interface rather than the gateway.
+			listenAddr = ""
+			if err := bgp.CheckRouteSudo(); err != nil {
+				store.Close()
+				return nil, err
+			}
+		}
 		bgpSpeaker = bgp.New(bgp.Config{
 			Enabled:           true,
-			ListenAddr:        gw,
+			ListenAddr:        listenAddr,
 			ListenPort:        cfg.BGPListenPort,
 			LocalASN:          cfg.BGPLocalASN,
 			PeerASN:           cfg.BGPPeerASN,

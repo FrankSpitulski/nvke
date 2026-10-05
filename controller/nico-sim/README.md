@@ -180,6 +180,8 @@ VIP    172.31.0.0/24:  nke-controller allocates cluster VIPs; reached via BGP /3
 
 On startup the speaker installs a covering `blackhole` route for the VIP range (so traffic for a VIP that no CP is currently announcing is dropped locally rather than leaking to the host default route), plus a more-specific `/32` ECMP route per announced VIP. The Tiltfile sets `NICO_VMS_VIP_CIDR`, registers the site with nke-controller, and passes it as the speaker's allowlist; the layout is printed at `tilt up` time.
 
+The above describes Linux. On macOS the speaker listens on port 179 directly and installs a single-next-hop host route with `sudo route`; see [Full NKE stack on macOS](#full-nke-stack-on-macos).
+
 ### Libvirt-Network Mode
 
 For shared hosts where nico-vms must not create host networking of its own — most notably a hostNetwork Kubernetes pod.
@@ -249,10 +251,10 @@ Ranges used by a nico-vms deployment and the tenant clusters it creates — keep
 | Variable | Default | Description |
 |---|---|---|
 | `NICO_VMS_BGP_ENABLED` | `true` | Enable/disable the BGP speaker |
-| `NICO_VMS_BGP_LISTEN_PORT` | `10179` | Speaker listen port (179 is redirected here) |
+| `NICO_VMS_BGP_LISTEN_PORT` | `10179` (`179` on macOS) | Speaker listen port (on Linux, 179 is redirected here) |
 | `NICO_VMS_BGP_LOCAL_ASN` | `4294967000` | Host-side ASN |
 | `NICO_VMS_BGP_PEER_ASN` | `65100` | kube-vip ASN |
-| `NICO_VMS_BGP_VIP_CIDRS` | `""` (Tilt sets it to the VIP range) | VIP CIDRs the speaker accepts and installs a covering blackhole for |
+| `NICO_VMS_BGP_VIP_CIDRS` | `""` (Tilt sets it to the VIP range; `172.31.0.0/24` on macOS) | VIP CIDRs the speaker accepts and installs a covering blackhole for (not on macOS) |
 | `NICO_VMS_BGP_HOLD_TIME` | `9` | BGP hold timer (seconds) |
 | `NICO_VMS_BGP_KEEPALIVE` | `3` | BGP keepalive interval (seconds) |
 | `NICO_VMS_DHCP_RANGE_END` | last usable bridge host | Last DHCP IP (Tilt derives it from the bridge CIDR) |
@@ -1008,7 +1010,8 @@ The Mac lane discovers Apple's shared-network subnet and uses its DHCP. Leave
 It reads `/var/db/dhcpd_leases`;
 it never changes that file or Linux dnsmasq reservations. Seeds preserve the NIC
 name and request a MAC DHCP identifier. Cloud-init data comes from the attached
-NoCloud ISO. BGP is off on this path.
+NoCloud ISO. The BGP speaker runs on this path too; see
+[Sudoers rule for VIP routes](#sudoers-rule-for-vip-routes) for its prerequisite.
 
 ### Full NKE stack on macOS
 
@@ -1036,13 +1039,38 @@ How the darwin path differs from the Linux bridge:
   the vmnet gateway, and serves metadata on `:7777` to the vmnet subnet only.
   Any VM on that subnet, including ones from UTM or Lima, can therefore read
   user-data by instance ID.
-- **Control-plane VIPs.** Nothing installs BGP routes on macOS, so
-  `create-nico-vms-cluster.sh` picks on-link VIPs from `.200` up in vmnet's
-  /24, skipping addresses Apple's DHCP has leased. The control-plane node
-  answers ARP for its VIP, because kube-vip binds it to `lo`. The VIPs still
-  sit inside Apple's DHCP pool, so in principle a later lease could collide.
-  The first vmnet client to create the shared network sets the pool, so
-  nico-sim cannot shrink it.
+- **Control-plane VIPs.** As on Linux, VIPs come from `172.31.0.0/24`
+  (`172.31.0.10` first), off-link. kube-vip announces the VIP over BGP to the
+  vmnet gateway on port 179, which nico-sim's speaker listens on (all
+  interfaces, since the gateway address only exists while a VM holds vmnet up).
+  The speaker installs a host route on the Mac to the control plane holding the
+  VIP, and macOS only lets root change routes, so see
+  [Sudoers rule for VIP routes](#sudoers-rule-for-vip-routes). macOS has no
+  ECMP here: the route has one next hop, and failover moves it when kube-vip's
+  leader changes. No covering blackhole route is installed.
 - **Node size.** The arm64 generic kernel reserves 512Mi for crashkernel, so
   darwin clusters default to the `cpu4-mem8gb` instance type, which leaves room
   for OVN.
+
+#### Sudoers rule for VIP routes
+
+nico-sim installs the VIP host routes by running `sudo -n /sbin/route`, which
+needs a one-time passwordless rule. It survives reboots. Put it in
+`/etc/sudoers.d/nke-nico-sim` with `sudo visudo -f /etc/sudoers.d/nke-nico-sim`:
+
+```
+%admin ALL=(root) NOPASSWD: /sbin/route -n add -host 172.31.0.*, /sbin/route -n change -host 172.31.0.*, /sbin/route -n delete -host 172.31.0.*
+```
+
+sudoers `*` also matches spaces, so this limits the destination to
+`172.31.0.x` host routes, not the gateway or other arguments. nico-sim and
+`mac-vm-dev-up.sh` check the rule first and stop with an error pointing here if
+it is missing. To remove it, run `sudo rm /etc/sudoers.d/nke-nico-sim`.
+
+On nix-darwin, declare it instead:
+
+```nix
+security.sudo.extraConfig = ''
+  %admin ALL=(root) NOPASSWD: /sbin/route -n add -host 172.31.0.*, /sbin/route -n change -host 172.31.0.*, /sbin/route -n delete -host 172.31.0.*
+'';
+```

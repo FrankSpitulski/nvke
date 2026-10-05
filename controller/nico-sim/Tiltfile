@@ -134,8 +134,9 @@ def register(ctx):
     # Network layout — partition bridge subnet into DHCP and VIP pools.
     # -----------------------------------------------------------------------
     # None of this applies to darwin-qemu: its VMs join Apple's vmnet shared
-    # network, whose subnet nico-sim discovers and Apple's DHCP serves, and BGP
-    # is off there (hack/create-nico-vms-cluster.sh picks on-link VIPs instead).
+    # network, whose subnet nico-sim discovers and Apple's DHCP serves. Its VIPs
+    # still come from the VIP range below, routed by nico-sim's BGP speaker via
+    # sudo route (the VIP range defaults to the same 172.31.0.0/24 in nico-sim).
     _bridge_layout = _vm_backend_enabled and _host_os == "Linux"
     _bridge_cidr = os.getenv("NICO_VMS_BRIDGE_CIDR", "172.30.0.0/24")
     _ranges = _parse_bridge_ranges(_bridge_cidr)

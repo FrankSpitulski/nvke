@@ -113,6 +113,11 @@ for Kubernetes control plane VIPs.
 4. When a CP node goes down, kube-vip withdraws its announcement. The speaker removes that nexthop
    from the ECMP route. No ARP cache expiry or leader election needed.
 
+**macOS (darwin-qemu):** the speaker listens on `:179` (all interfaces; no iptables redirect) and
+`internal/bgp/routecmd.go` installs one next hop per VIP (no ECMP) with `sudo -n /sbin/route`, so
+it needs the sudoers rule in the README ("Sudoers rule for VIP routes"); startup fails without it.
+No covering blackhole route is installed there.
+
 **VIP range (off-link, routed via BGP):**
 
 The control-plane VIP range is a *separate* subnet, not carved from the bridge — clients reach the
@@ -135,7 +140,7 @@ VIP. These ranges are deliberately in class B (172.x) to avoid the tenant pod CI
 | Variable | Default | Purpose |
 |---|---|---|
 | `NICO_VMS_BGP_ENABLED` | `true` | Enable/disable the BGP speaker |
-| `NICO_VMS_BGP_LISTEN_PORT` | `10179` | Speaker listen port (179 is redirected here) |
+| `NICO_VMS_BGP_LISTEN_PORT` | `10179` (`179` on macOS) | Speaker listen port (on Linux, 179 is redirected here) |
 | `NICO_VMS_BGP_LOCAL_ASN` | `4294967000` | Host-side ASN |
 | `NICO_VMS_BGP_PEER_ASN` | `65100` | kube-vip ASN |
 | `NICO_VMS_BGP_VIP_CIDRS` | auto from bridge | Allowed VIP CIDRs (auto-derived if empty) |

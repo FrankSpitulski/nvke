@@ -138,12 +138,14 @@ func Parse(logger *slog.Logger) (Config, error) {
 		return Config{}, err
 	}
 
-	bgpDefault := "true"
+	bgpEnabled := strings.ToLower(envOrDefault("NICO_VMS_BGP_ENABLED", "true")) == "true"
+	// Linux redirects 179 to this port with iptables; darwin has no redirect,
+	// so kube-vip's session to the vmnet gateway lands on 179 directly.
+	bgpDefaultPort := 10179
 	if runtime.GOOS == "darwin" {
-		bgpDefault = "false"
+		bgpDefaultPort = 179
 	}
-	bgpEnabled := strings.ToLower(envOrDefault("NICO_VMS_BGP_ENABLED", bgpDefault)) == "true"
-	bgpListenPort, err := envOrDefaultInt("NICO_VMS_BGP_LISTEN_PORT", 10179)
+	bgpListenPort, err := envOrDefaultInt("NICO_VMS_BGP_LISTEN_PORT", bgpDefaultPort)
 	if err != nil {
 		return Config{}, err
 	}
@@ -164,6 +166,10 @@ func Parse(logger *slog.Logger) (Config, error) {
 		return Config{}, err
 	}
 	bgpVIPCIDRs := parseCommaSeparated(os.Getenv("NICO_VMS_BGP_VIP_CIDRS"))
+	// The Tiltfile sets this on Linux; the darwin sudoers rule only covers 172.31.0.x.
+	if runtime.GOOS == "darwin" && len(bgpVIPCIDRs) == 0 {
+		bgpVIPCIDRs = []string{"172.31.0.0/24"}
+	}
 
 	cfg := Config{
 		ListenAddr:                      envOrDefault("NICO_SIM_LISTEN_ADDR", ":18080"),

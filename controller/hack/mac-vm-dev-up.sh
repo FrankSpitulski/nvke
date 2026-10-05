@@ -14,6 +14,9 @@
 # check needs sshpass; with Nix installed, missing ones are borrowed from
 # nixpkgs. vmnet-helper 0.13 (https://github.com/nirs/vmnet-helper) must be on
 # PATH or given as NICO_VMS_VMNET_HELPER_PATH and NICO_VMS_VMNET_RUN_PATH.
+# nico-sim installs control-plane VIP routes with `sudo route`, which needs a
+# one-time sudoers rule (see "Sudoers rule for VIP routes" in
+# controller/nico-sim/README.md).
 # On Homebrew, `make -C controller/nico-sim install-deps-homebrew` installs
 # QEMU, vmnet-helper, cloud-localds and swtpm.
 #
@@ -77,8 +80,13 @@ ssh_node() {
 # ─────────────────────────────────────────────────────────────────────────────
 step "0. Check the host" \
   "HVF needs Apple silicon, and nico-sim needs vmnet-helper to put VMs on" \
-  "Apple's shared network without root."
+  "Apple's shared network without root. It also needs a sudoers rule to install" \
+  "control-plane VIP routes with route(8), which only root may change."
 [[ "$(uname -s)/$(uname -m)" == Darwin/arm64 ]] || die "this script is for Apple silicon Macs"
+sudo -n -l /sbin/route -n add -host 172.31.0.10 192.168.64.2 >/dev/null 2>&1 ||
+  die "passwordless sudo for VIP routes is not set up. Run 'sudo visudo -f /etc/sudoers.d/nke-nico-sim' and add:
+%admin ALL=(root) NOPASSWD: /sbin/route -n add -host 172.31.0.*, /sbin/route -n change -host 172.31.0.*, /sbin/route -n delete -host 172.31.0.*
+See \"Sudoers rule for VIP routes\" in controller/nico-sim/README.md."
 [[ "$(sysctl -n kern.hv_support)" == 1 ]] || die "Hypervisor.framework is not available"
 missing=()
 for cmd in colima jq curl openssl kind tilt kubectl helm go qemu-system-aarch64 swtpm; do
@@ -109,6 +117,9 @@ if ((${#images[@]} > 0)); then
   note "found ${images[0]#"${REPO_ROOT}/"}"
 else
   pause
+  # Packer refuses to write into an existing output directory, such as one
+  # left by an interrupted bake or with its image deleted.
+  run make -C "${PACKER_DIR}" clean-non-fde-output
   run with_nix_tools xorriso=xorriso 7z=p7zip -- \
     make -C "${PACKER_DIR}" os-image-non-fde ARCH=arm64
   images=("${PACKER_DIR}"/output-non-fde/nke-node-non-fde-ubuntu-*-arm64.qcow2)
@@ -201,8 +212,9 @@ done
 # ─────────────────────────────────────────────────────────────────────────────
 step "6. Create a tenant cluster" \
   "One control-plane VM and one worker, OVN-Kubernetes. On a Mac the script picks" \
-  "8 GiB nodes, a pod CIDR outside vmnet's 192.168.64.0/24, and a VIP from" \
-  "192.168.64.200 that the control-plane node answers ARP for."
+  "8 GiB nodes and a pod CIDR outside vmnet's 192.168.64.0/24. The VIP comes from" \
+  "172.31.0.10 up; kube-vip announces it over BGP and nico-sim routes it to the" \
+  "control plane that holds it."
 pause
 created="$(CLUSTER_NAME="${CLUSTER_NAME}" OS_PROFILE="${OS_PROFILE}" run "${CONTROLLER_DIR}/hack/create-nico-vms-cluster.sh")"
 cluster_id="$(jq -r .id <<<"${created}")"

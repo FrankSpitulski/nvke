@@ -1495,17 +1495,16 @@ const (
 	nicoVMSSSHKeyGroupID   = "a1b2c3d4-0006-4000-8000-000000000001"
 	nicoVMSCPConfigProfile = "nico-vms-cp"
 	nicoVMSWConfigProfile  = "nico-vms-worker"
+	nicoVMSControlPlaneVIP = "172.31.0.10"
 )
 
 // On macOS nico-sim runs the darwin-qemu backend, matching the defaults of
-// hack/create-nico-vms-cluster.sh there. It installs no BGP routes, so the VIP
-// is on-link in vmnet's 192.168.64.0/24, and the pod CIDR moves off the API
-// default 192.168.0.0/16, which overlaps it. The arm64 generic kernel reserves
-// 512Mi for crashkernel, which leaves a 6 GiB node too little for
-// ovnkube-node, so large nodes get 8 GiB.
+// hack/create-nico-vms-cluster.sh there. The pod CIDR moves off the API default
+// 192.168.0.0/16, which overlaps vmnet's 192.168.64.0/24 node network. The
+// arm64 generic kernel reserves 512Mi for crashkernel, which leaves a 6 GiB
+// node too little for ovnkube-node, so large nodes get 8 GiB.
 var (
 	nicoVMSLargeInstanceID = onDarwin("a1b2c3d4-0005-4000-8000-000000000006", "a1b2c3d4-0005-4000-8000-000000000003")
-	nicoVMSControlPlaneVIP = onDarwin("192.168.64.200", "172.31.0.10")
 	nicoVMSPodCIDR         = onDarwin("10.244.0.0/16", "")
 )
 
