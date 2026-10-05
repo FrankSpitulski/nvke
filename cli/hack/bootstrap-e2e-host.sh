@@ -55,6 +55,14 @@ STATE_DIR="${RUNNER_TEMP:-${TMPDIR:-/tmp}/bootstrap-e2e-host}"
 # instead of adding a second one somewhere else.
 NERDCTL_DATA_ROOT="/var/lib/containerd-nerdctl/nerdctl"
 
+# Where the unmanaged daemons' logs go, root-owned and 0700, rather than
+# /tmp/<name>.log. The daemons are started as root, so on a host where another
+# local user can pre-create /tmp/containerd-nerdctl.log as a symlink, that
+# redirect writes root-owned output wherever the link points. Created by
+# start_unmanaged before the first redirect, and read back by the failure
+# diagnostics below.
+UNMANAGED_LOG_DIR="/var/log/nke-bootstrap-e2e"
+
 log() { printf '[bootstrap-e2e-host] %s\n' "$*"; }
 
 # wait_for_socket waits up to $2 seconds for socket $1. As root: containerd's
@@ -66,6 +74,45 @@ wait_for_socket() {
     sleep 1
   done
   return 1
+}
+
+# have_systemd reports whether PID 1 is systemd. False on a container runner,
+# where /run/systemd/system is absent and systemctl exits with
+#   System has not been booted with systemd as init system (PID 1).
+have_systemd() { [ -d /run/systemd/system ]; }
+
+# disposable_host reports whether the caller has declared this host throwaway,
+# which is what makes deleting its Docker binaries acceptable rather than
+# vandalism. Nothing here can detect that: have_systemd tells us there is no
+# init system, not that the host gets discarded, and an ephemeral ARC pod and a
+# reusable non-systemd VM are indistinguishable from in here. So the workflow,
+# which does know, says so -- and anything that has not said so gets the
+# reversible path in remove_docker instead.
+disposable_host() {
+  case "${NKE_E2E_DISPOSABLE_HOST:-}" in
+    1 | true | TRUE | yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# start_unmanaged runs a daemon directly, for hosts with no init system to
+# hand it to. $1 names it for the log file; the rest is the command.
+start_unmanaged() {
+  local name="$1"; shift
+  log "no systemd: starting ${name} directly"
+  # install -d rather than mkdir -p: it sets the mode as it creates, so there
+  # is no window where the directory exists world-writable. See
+  # UNMANAGED_LOG_DIR for why the logs are not in /tmp.
+  sudo install -d -m 700 -o root -g root "${UNMANAGED_LOG_DIR}"
+  # argv as positional parameters, not joined into the -c string: "$*" would
+  # flatten it and let the root shell re-split on whitespace and act on
+  # metacharacters. The values come from the environment -- CONTAINERD_ADDRESS
+  # and BUILDKIT_HOST among them -- so what survives the join is the caller's
+  # quoting, and that is not something to hand a root shell. CI sets fixed
+  # values, so this is about the general case rather than a live hole. The
+  # trailing `sh` is $0 for the inner shell; the log path is $1, shifted off.
+  sudo sh -c 'logfile="$1"; shift; nohup "$@" >"${logfile}" 2>&1 &' \
+    sh "${UNMANAGED_LOG_DIR}/${name}.log" "$@"
 }
 
 # install_runtime installs nerdctl-full and starts the standalone containerd
@@ -89,7 +136,13 @@ install_runtime() {
 
   # A dedicated unit, config and data root, so this never reuses Docker's
   # `containerd`.
-  sudo mkdir -p /etc/containerd-nerdctl /var/lib/containerd-nerdctl /run/containerd-nerdctl /run/buildkit-nerdctl
+  # /etc/systemd/system included deliberately: the unit files below are
+  # written on every host, including the ones with no systemd to read them,
+  # where the directory is incidental rather than guaranteed. It happens to
+  # exist on both fleets today, so this is about not resting a suite whose
+  # point is working without systemd on a directory systemd owns.
+  sudo mkdir -p /etc/containerd-nerdctl /var/lib/containerd-nerdctl /run/containerd-nerdctl /run/buildkit-nerdctl \
+    /etc/systemd/system
   /usr/local/bin/containerd config default | sudo tee /etc/containerd-nerdctl/config.toml >/dev/null
   # Match on the path only, not the quoting, which differs across containerd
   # versions. The grpc address is the only line carrying this path; the
@@ -157,17 +210,30 @@ KillMode=process
 WantedBy=multi-user.target
 UNIT
 
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now containerd-nerdctl
+  # The units above are still written either way: they document the exact
+  # flags, and a VM runner uses them. Only the starting differs.
+  if have_systemd; then
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now containerd-nerdctl
+  else
+    start_unmanaged containerd-nerdctl \
+      /usr/local/bin/containerd --config /etc/containerd-nerdctl/config.toml
+  fi
 
   if ! wait_for_socket "${CONTAINERD_ADDRESS}" 30; then
     echo "::error::containerd-nerdctl never opened ${CONTAINERD_ADDRESS}"
-    echo "::group::containerd-nerdctl.service status"
-    sudo systemctl status containerd-nerdctl --no-pager -l || true
-    echo "::endgroup::"
-    echo "::group::containerd-nerdctl journal"
-    sudo journalctl -u containerd-nerdctl --no-pager || true
-    echo "::endgroup::"
+    if have_systemd; then
+      echo "::group::containerd-nerdctl.service status"
+      sudo systemctl status containerd-nerdctl --no-pager -l || true
+      echo "::endgroup::"
+      echo "::group::containerd-nerdctl journal"
+      sudo journalctl -u containerd-nerdctl --no-pager || true
+      echo "::endgroup::"
+    else
+      echo "::group::containerd-nerdctl output"
+      sudo cat "${UNMANAGED_LOG_DIR}/containerd-nerdctl.log" || true
+      echo "::endgroup::"
+    fi
     echo "::group::/etc/containerd-nerdctl/config.toml"
     sudo cat /etc/containerd-nerdctl/config.toml || true
     echo "::endgroup::"
@@ -176,24 +242,78 @@ UNIT
 
   sudo -E env "PATH=$PATH" nerdctl info
 
-  sudo systemctl enable --now buildkit-nerdctl
+  if have_systemd; then
+    sudo systemctl enable --now buildkit-nerdctl
+  else
+    start_unmanaged buildkit-nerdctl \
+      /usr/local/bin/buildkitd \
+      --addr "unix://${BUILDKIT_HOST#unix://}" \
+      --oci-worker=false \
+      --containerd-worker=true \
+      --containerd-worker-addr "${CONTAINERD_ADDRESS}" \
+      --containerd-worker-namespace "${CONTAINERD_NAMESPACE}"
+  fi
   if ! wait_for_socket "${BUILDKIT_HOST#unix://}" 30; then
     echo "::error::buildkitd never opened ${BUILDKIT_HOST}"
-    echo "::group::buildkit-nerdctl journal"
-    sudo journalctl -u buildkit-nerdctl --no-pager || true
-    echo "::endgroup::"
+    if have_systemd; then
+      echo "::group::buildkit-nerdctl journal"
+      sudo journalctl -u buildkit-nerdctl --no-pager || true
+      echo "::endgroup::"
+    else
+      echo "::group::buildkit-nerdctl output"
+      sudo cat "${UNMANAGED_LOG_DIR}/buildkit-nerdctl.log" || true
+      echo "::endgroup::"
+    fi
     exit 1
   fi
 }
 
-# remove_docker masks Docker, shims it on PATH, and asserts it is gone.
+# remove_docker makes Docker unusable, shims it on PATH, and asserts it. How it
+# does the first part depends on the runner: masked units where there is
+# systemd, a deleted client where Docker is a dind sidecar on a host the caller
+# has declared disposable, and shim-plus-DOCKER_HOST alone anywhere else.
 remove_docker() {
   # containerd.service here is Docker's, on /run/containerd/containerd.sock:
   # the socket nerdctl falls back to without CONTAINERD_ADDRESS. `disable`
   # may fail for a unit that is not loaded; `mask` must not, because the
   # assertions below rely on it.
-  sudo systemctl disable --now docker.socket docker.service containerd.service 2>/dev/null || true
-  sudo systemctl mask docker.socket docker.service containerd.service
+  # On a container runner there are no units to mask: Docker is a dind
+  # sidecar reached over the mounted socket. Deleting the socket alone would
+  # be weaker than masking -- the kubelet can restart that sidecar, and it
+  # recreates the socket on startup. So take the client away instead, and
+  # point DOCKER_HOST at nothing in case a daemon reappears anyway.
+  #
+  # Deleting it is only acceptable on a host that is discarded after the job,
+  # so it waits on disposable_host rather than on have_systemd: the two are not
+  # the same test, and on a reusable non-systemd host the deletion outlives the
+  # run and takes the next one -- and whoever's Docker install -- with it.
+  # Without that declaration the shim and DOCKER_HOST below still make docker
+  # unusable for this run, reversibly, which is weaker only against a caller
+  # that invokes a real binary by absolute path with its own -H.
+  docker_deleted=no
+  if have_systemd; then
+    sudo systemctl disable --now docker.socket docker.service containerd.service 2>/dev/null || true
+    sudo systemctl mask docker.socket docker.service containerd.service
+  else
+    # GITHUB_ENV so every later step of the job inherits it, the same way
+    # the shim below uses GITHUB_PATH.
+    if [ -n "${GITHUB_ENV:-}" ]; then
+      echo "DOCKER_HOST=unix:///nonexistent/docker.sock" >> "${GITHUB_ENV}"
+    fi
+    export DOCKER_HOST="unix:///nonexistent/docker.sock"
+    if disposable_host; then
+      log "no systemd: removing the Docker client rather than masking units"
+      while read -r real; do
+        sudo rm -f "${real}"
+      done < <(type -aP docker || true)
+      docker_deleted=yes
+    else
+      log "no systemd, and NKE_E2E_DISPOSABLE_HOST is unset: keeping the Docker binaries."
+      log "The shim and DOCKER_HOST still make docker unusable for this run, and the"
+      log "assertions below still hold. Set NKE_E2E_DISPOSABLE_HOST=1 only on a runner"
+      log "that is discarded afterwards, which is what makes deleting them recoverable."
+    fi
+  fi
   sudo rm -f /var/run/docker.sock /run/docker.sock
 
   shim_dir="${STATE_DIR}/no-docker"
@@ -234,7 +354,7 @@ SHIM
       echo "::error::${real} still reaches a daemon after removal"; exit 1
     fi
   done < <(type -aP docker || true)
-  if systemctl is-active --quiet docker.service; then
+  if have_systemd && systemctl is-active --quiet docker.service; then
     echo "::error::docker.service is still active after removal"; exit 1
   fi
   if [ -S /var/run/docker.sock ]; then
@@ -242,12 +362,34 @@ SHIM
   fi
   # Masked, not merely stopped: docker.socket could otherwise socket-activate
   # the daemon back after the check above.
-  for unit in docker.socket docker.service containerd.service; do
-    state="$(systemctl is-enabled "${unit}" 2>/dev/null || true)"
-    if [ "${state}" != "masked" ]; then
-      echo "::error::${unit} is '${state:-absent}' after removal, want masked"; exit 1
+  if have_systemd; then
+    for unit in docker.socket docker.service containerd.service; do
+      state="$(systemctl is-enabled "${unit}" 2>/dev/null || true)"
+      if [ "${state}" != "masked" ]; then
+        echo "::error::${unit} is '${state:-absent}' after removal, want masked"; exit 1
+      fi
+    done
+  else
+    # The equivalent without units: no real client left to reach a restarted
+    # sidecar with. Asserted rather than assumed, for the same reason the
+    # masking is -- a removal that did not take reads as a guarantee while
+    # providing nothing.
+    #
+    # Only when the deletion was the path taken. Where it was declined the
+    # binaries are meant to still be there, and what carries the guarantee
+    # instead is the loop above, which ran every one of them and required it to
+    # fail to reach a daemon.
+    if [ "${docker_deleted}" = yes ]; then
+      while read -r real; do
+        if [ "${real}" != "${shim_dir}/docker" ]; then
+          echo "::error::${real} still exists after removal, want it gone"; exit 1
+        fi
+      done < <(type -aP docker || true)
     fi
-  done
+    if [ "${DOCKER_HOST:-}" = "" ]; then
+      echo "::error::DOCKER_HOST is unset after removal, want it pointing nowhere"; exit 1
+    fi
+  fi
   echo "docker removed; invoking it now fails with:"
   docker version 2>&1 | sed 's/^/  /' || true
 }

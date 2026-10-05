@@ -288,7 +288,16 @@ jobs:
       # masked and shimmed before the first image is built. Nothing undoes it:
       # the runners are single-use, so the masks die with the job. The
       # containerd installed above is a separate unit on a separate socket.
+      #
+      # NKE_E2E_DISPOSABLE_HOST is this workflow asserting the thing only it
+      # knows: every runner it targets is discarded after one job. On a
+      # container runner there are no units to mask and the script deletes the
+      # Docker binaries instead, which is recoverable only because of that --
+      # so it deletes nothing without being told, and a fork pointing this lane
+      # at a reusable runner keeps its Docker install.
       - name: Remove Docker
+        env:
+          NKE_E2E_DISPOSABLE_HOST: "1"
         run: cli/hack/bootstrap-e2e-host.sh remove-docker
 
       # Into the standalone containerd, not Docker: nkectl loads the image
