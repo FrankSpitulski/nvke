@@ -1022,6 +1022,9 @@ and pausing at each step (`--yes` runs straight through):
 5. it creates a one control-plane, one worker OVN cluster, and checks
    cross-node pod traffic and DNS.
 
+`controller/hack/mac-vm-dev-e2e.sh` runs the nico-vms e2e specs against that
+stack, with the arm64 CI lane's label filter less `parallel-lifecycle` (see the
+script for why) unless `LABEL_FILTER` is set.
 `controller/hack/mac-vm-dev-down.sh` tears it all down again. The management
 plane runs in kind; only the tenant nodes are VMs. To list, stop, start or
 delete the VMs (including lost ones), see [Managing VMs](#managing-vms).

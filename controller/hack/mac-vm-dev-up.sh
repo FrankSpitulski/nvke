@@ -136,9 +136,6 @@ fi
 # The Tilt CWE image bakes profiles from CWE_PROFILES_DIR, whose parent must
 # hold the fixture Dockerfile and runbooks too.
 set_env_line CWE_PROFILES_DIR .local/fixtures/profiles
-# create-nico-vms-cluster.sh describes the control plane as a node pool, which
-# CWE only accepts with the control-plane controller off (as in CI's VM lane).
-set_env_line PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER false
 
 rm -rf .local/fixtures && mkdir -p .local/fixtures
 cp -R test/fixtures/Dockerfile test/fixtures/runbooks test/fixtures/profiles .local/fixtures/
