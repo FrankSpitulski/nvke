@@ -30,6 +30,9 @@ import (
 // machines; netlink applies the value only on Linux anyway.
 const rtnBlackhole = 6
 
+// routeResyncInterval is how often announced VIP routes are re-applied.
+const routeResyncInterval = 30 * time.Second
+
 // Config holds BGP speaker configuration.
 type Config struct {
 	// Enabled controls whether the BGP speaker starts.
@@ -102,7 +105,7 @@ type Speaker struct {
 // New creates a new BGP Speaker. Does not start it.
 func New(cfg Config, logger *slog.Logger) *Speaker {
 	if runtime.GOOS == "darwin" {
-		return NewWithRouteManager(cfg, logger, routeCmdManager{run: sudoRoute})
+		return NewWithRouteManager(cfg, logger, routeCmdManager{run: sudoRoute, get: getRoute})
 	}
 	return NewWithRouteManager(cfg, logger, netlinkRouteManager{})
 }
@@ -171,6 +174,23 @@ func (s *Speaker) Start(ctx context.Context) error {
 		defer wg.Done()
 		<-ctx.Done()
 		s.listener.Close()
+	}()
+	// Routes are installed only when announcements change, but something else
+	// on the host can delete them, as a VPN client on macOS does. Re-apply them
+	// so a VIP does not stay unreachable until its control plane reconnects.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(routeResyncInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.resyncRoutes()
+			}
+		}
 	}()
 
 	for {
@@ -451,6 +471,19 @@ func (s *Speaker) handlePeerDown(peerAddr string) {
 
 	for _, vip := range affectedVIPs {
 		s.logger.Info("BGP peer down, updating route", "peer", peerAddr, "vip", vip)
+		s.syncRoute(vip)
+	}
+}
+
+// resyncRoutes re-applies the route of every announced VIP.
+func (s *Speaker) resyncRoutes() {
+	s.mu.Lock()
+	vips := make([]string, 0, len(s.vipNexthops))
+	for vip := range s.vipNexthops {
+		vips = append(vips, vip)
+	}
+	s.mu.Unlock()
+	for _, vip := range vips {
 		s.syncRoute(vip)
 	}
 }

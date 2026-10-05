@@ -85,7 +85,7 @@ step "0. Check the host" \
 [[ "$(uname -s)/$(uname -m)" == Darwin/arm64 ]] || die "this script is for Apple silicon Macs"
 sudo -n -l /sbin/route -n add -host 172.31.0.10 192.168.64.2 >/dev/null 2>&1 ||
   die "passwordless sudo for VIP routes is not set up. Run 'sudo visudo -f /etc/sudoers.d/nke-nico-sim' and add:
-%admin ALL=(root) NOPASSWD: /sbin/route -n add -host 172.31.0.*, /sbin/route -n change -host 172.31.0.*, /sbin/route -n delete -host 172.31.0.*
+%admin ALL=(root) NOPASSWD: /sbin/route -n add -host 172.31.0.*, /sbin/route -n delete -host 172.31.0.*
 See \"Sudoers rule for VIP routes\" in controller/nico-sim/README.md."
 [[ "$(sysctl -n kern.hv_support)" == 1 ]] || die "Hypervisor.framework is not available"
 missing=()

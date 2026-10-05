@@ -1059,7 +1059,7 @@ needs a one-time passwordless rule. It survives reboots. Put it in
 `/etc/sudoers.d/nke-nico-sim` with `sudo visudo -f /etc/sudoers.d/nke-nico-sim`:
 
 ```
-%admin ALL=(root) NOPASSWD: /sbin/route -n add -host 172.31.0.*, /sbin/route -n change -host 172.31.0.*, /sbin/route -n delete -host 172.31.0.*
+%admin ALL=(root) NOPASSWD: /sbin/route -n add -host 172.31.0.*, /sbin/route -n delete -host 172.31.0.*
 ```
 
 sudoers `*` also matches spaces, so this limits the destination to
@@ -1071,6 +1071,6 @@ On nix-darwin, declare it instead:
 
 ```nix
 security.sudo.extraConfig = ''
-  %admin ALL=(root) NOPASSWD: /sbin/route -n add -host 172.31.0.*, /sbin/route -n change -host 172.31.0.*, /sbin/route -n delete -host 172.31.0.*
+  %admin ALL=(root) NOPASSWD: /sbin/route -n add -host 172.31.0.*, /sbin/route -n delete -host 172.31.0.*
 '';
 ```
