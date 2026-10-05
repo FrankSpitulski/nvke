@@ -15,7 +15,11 @@
 #   1. Every tag on it starts with "sha-", or it has none. GHCR puts a release
 #      tag and its sha- tag on the SAME version, so requiring EVERY tag to be a
 #      sha- tag is what keeps a release, and any moving tag, alive.
-#   2. It is not among the newest KEEP_MIN of its package.
+#   2. It is not among the newest KEEP_MIN of its package. A bake publishes
+#      four versions per package (amd64/arm64 x two Ubuntu flavors), and the
+#      scheduled bake skips a commit that already has its images, so after a
+#      quiet week the newest bake is all the e2e lanes have: KEEP_MIN covers
+#      two full bakes so no leg loses its image to this script.
 #   3. It is older than KEEP_DAYS.
 #
 # Needs gh with delete:packages, or GITHUB_TOKEN with packages: write.
@@ -24,7 +28,7 @@ set -euo pipefail
 ORG="${ORG:-dsx-ai-factory}"
 PACKAGES="${PACKAGES:-nke/os-image-fde nke/os-image-non-fde}"
 KEEP_DAYS="${KEEP_DAYS:-7}"
-KEEP_MIN="${KEEP_MIN:-3}"
+KEEP_MIN="${KEEP_MIN:-8}"
 DELETE=0
 
 case "${1:-}" in
