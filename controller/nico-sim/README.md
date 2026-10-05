@@ -747,6 +747,10 @@ Tilt database under `.dev/`) locates the instance directories and
 `NICO_SIM_URL` (default `http://localhost:18080`) nico-sim. When nico-sim is not
 running, `make vms` lists the host's view only.
 
+A running VM that still has no DHCP lease 5 minutes after it started is
+power-cycled once; if it has none 5 minutes after that, nico-sim marks the
+instance Error, since the guest likely failed to boot (see its console log).
+
 To clean up libvirt domains inside the Lima VM used by the integration tests:
 
 ```bash

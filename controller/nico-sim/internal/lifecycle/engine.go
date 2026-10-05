@@ -29,8 +29,17 @@ import (
 	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm/libvirt"
 )
 
+// leaseTimeout is how long a running VM may go without a DHCP lease, both
+// after it starts and after its power-cycle, before reconcileMissingLease acts.
+const leaseTimeout = 5 * time.Minute
+
+// leasePowerCycledReason marks an instance whose VM was power-cycled for
+// lacking a lease. It is cleared when the instance is next patched to ready.
+const leasePowerCycledReason = "Power-cycled: no DHCP lease"
+
 type Engine struct {
 	cfg         config.Config
+	now         func() time.Time
 	store       *state.Store
 	logger      *slog.Logger
 	runtime     vm.Runtime
@@ -58,6 +67,7 @@ func New(cfg config.Config, store *state.Store, logger *slog.Logger) *Engine {
 	}
 	return &Engine{
 		cfg:     cfg,
+		now:     time.Now,
 		store:   store,
 		logger:  logger.With("component", "controller"),
 		runtime: rt,
@@ -578,7 +588,7 @@ func (e *Engine) reconcileRunning(ctx context.Context, instance state.Instance, 
 				return e.markError(ctx, instance.ID, err)
 			}
 			if ip == "" {
-				return nil // Waiting for DHCP lease; retry next reconcile tick.
+				return e.reconcileMissingLease(ctx, instance, log)
 			}
 
 			nicMAC := nicMACForInstance(instance.ID)
@@ -726,7 +736,31 @@ func (e *Engine) readinessAge(instance state.Instance) time.Duration {
 }
 
 func (e *Engine) storeNow() time.Time {
-	return time.Now().UTC()
+	return e.now().UTC()
+}
+
+// reconcileMissingLease waits for a DHCP lease on a running VM. A guest that
+// hangs before it starts DHCP (firmware stuck in the bootloader) never gets
+// one, so it is power-cycled once after leaseTimeout and marked errored if the
+// second boot fails the same way.
+func (e *Engine) reconcileMissingLease(ctx context.Context, instance state.Instance, log *slog.Logger) error {
+	waited := e.readinessAge(instance)
+	if waited < leaseTimeout {
+		return nil
+	}
+	if instance.VM.ErrorReason == leasePowerCycledReason {
+		return e.markError(ctx, instance.ID,
+			fmt.Errorf("no DHCP lease %s after a power-cycle; the guest likely failed to boot, see its console log", leaseTimeout))
+	}
+
+	log.Warn("No DHCP lease, power-cycling the VM", "machineID", instance.MachineID, "waited", waited)
+	if err := e.runtime.Stop(ctx, instance.MachineID); err != nil {
+		return e.markError(ctx, instance.ID, fmt.Errorf("power-cycle stop failed: %w", err))
+	}
+	if err := e.runtime.Start(ctx, instance.MachineID); err != nil {
+		return e.markError(ctx, instance.ID, fmt.Errorf("power-cycle start failed: %w", err))
+	}
+	return e.store.PatchVMInstanceState(ctx, instance.ID, state.VMInstanceStatePatch{ErrorReason: ptr(leasePowerCycledReason)})
 }
 
 // resolveBootImage determines the base image and UEFI setting for an instance.
