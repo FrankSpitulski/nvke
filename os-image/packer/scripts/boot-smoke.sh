@@ -4,8 +4,9 @@
 #
 # Smoke test: boot a qcow2 the non-FDE build produced and confirm it comes up
 # clean (cloud-init completes, SSH answers, nke-agent and spire-agent units
-# are installed and enabled). Does not exercise SPIRE/nke-agent against a real
-# server -- just proves the image boots on its own.
+# are installed and enabled, conntrack-tune.service sized the conntrack
+# limits; see check-conntrack.sh). Does not exercise SPIRE/nke-agent against a
+# real server -- just proves the image boots on its own.
 #
 # QCOW defaults to the single *.qcow2 under output-non-fde/ (its filename
 # encodes the Ubuntu version/arch, e.g. nke-node-non-fde-ubuntu-26.04.1-amd64.qcow2
@@ -213,5 +214,11 @@ have_in_local_repo nke-kubeadm-distro
 have_in_local_repo nke-cni-calico-images
 
 EOF
+
+# Conntrack tuning, checked by a script shared with demo-fde.sh.
+timeout 60 ssh -i "${SSH_KEY}" -p "${SSH_PORT}" \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o ConnectTimeout=5 -o BatchMode=yes \
+    ubuntu@127.0.0.1 bash -s <"${ROOT}/scripts/check-conntrack.sh"
 
 echo "boot-smoke: image contract and root-filesystem growth are satisfied"
