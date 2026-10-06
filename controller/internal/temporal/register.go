@@ -163,16 +163,7 @@ func NewWorker(
 		controllerClientCABundle = string(caPEM)
 	}
 
-	workerOpts := worker.Options{}
-	if cfg.Tracing.Enabled {
-		tracingInterceptor, err := newTracingInterceptor()
-		if err != nil {
-			return nil, err
-		}
-		workerOpts.Interceptors = []interceptor.WorkerInterceptor{tracingInterceptor}
-	}
-
-	w := worker.New(temporalClient, cfg.TemporalTaskQueue, workerOpts)
+	w := worker.New(temporalClient, cfg.TemporalTaskQueue, WorkerOptions())
 
 	w.RegisterActivity(activities.NewActivities(
 		cfg,

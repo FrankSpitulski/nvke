@@ -33,11 +33,28 @@ func loggingMiddleware(next http.Handler, logger *slog.Logger) http.Handler {
 
 		// Log the completed request
 		logger.Log(r.Context(), level, "Request completed",
+			"event", "http.completed",
+			"outcome", httpOutcome(wrapped.status),
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", wrapped.status,
 			"duration", time.Since(start).String())
 	})
+}
+
+// httpOutcome describes the HTTP response, which is separate from the later
+// asynchronous workflow outcome. A 4xx is the server correctly rejecting a bad
+// request, so it is "rejected"; only a 5xx is "failed", which keeps client errors
+// out of dashboards that filter on outcome=failed.
+func httpOutcome(status int) string {
+	switch {
+	case status >= http.StatusInternalServerError:
+		return "failed"
+	case status >= http.StatusBadRequest:
+		return "rejected"
+	default:
+		return "succeeded"
+	}
 }
 
 // responseWriter wraps http.ResponseWriter to capture the status code.
