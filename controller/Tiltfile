@@ -518,16 +518,32 @@ helm_resource(
     port_forwards=[5432],
 )
 
-helm_repo(
-    "temporal",
-    "https://go.temporal.io/helm-charts",
+# Pull the chart with retries and install from the archive: the repo index
+# points at a GitHub release asset, and helm_repo cannot retry a 500 on it.
+TEMPORAL_CHART_DIR = ".local/charts"
+TEMPORAL_CHART_ARCHIVE = "%s/temporal-%s.tgz" % (TEMPORAL_CHART_DIR, CHART_VERSION_TEMPORAL)
+
+local_resource(
+    "temporal-chart",
+    cmd=["bash", "-c", """
+      set -euo pipefail
+      mkdir -p "%s"
+      for attempt in 1 2 3 4 5; do
+        if helm pull temporal --repo https://go.temporal.io/helm-charts --version "%s" --destination "%s"; then
+          exit 0
+        fi
+        echo "helm pull temporal %s failed (attempt ${attempt}/5), retrying in $((attempt * 10))s" >&2
+        sleep $((attempt * 10))
+      done
+      exit 1
+    """ % (TEMPORAL_CHART_DIR, CHART_VERSION_TEMPORAL, TEMPORAL_CHART_DIR, CHART_VERSION_TEMPORAL)],
     labels=["1-infra"],
-    resource_name="temporal-repo",
+    allow_parallel=True,
 )
 
 helm_resource(
     "temporal",
-    "temporal/temporal",
+    TEMPORAL_CHART_ARCHIVE,
     labels=["1-infra"],
     release_name="temporal",
     namespace=TEMPORAL_NAMESPACE,
@@ -541,7 +557,7 @@ helm_resource(
       "--wait",
       "--timeout", "15m",
     ],
-    resource_deps=["check-management-cluster", "temporal-repo", "postgres"],
+    resource_deps=["check-management-cluster", "temporal-chart", "postgres"],
     links=[
       ui_link(CWE_TEMPORAL_UI_PORT, "", "Temporal UI"),
     ],
