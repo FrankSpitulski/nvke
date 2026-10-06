@@ -41,7 +41,8 @@ endif
 export PACKER_CACHE_DIR
 # FDE/non-FDE only: where the guest's serial console (boot + autoinstall
 # output) gets captured, for CI to upload as an artifact on failure -- no
-# VNC/monitor access there to inspect a stuck build interactively.
+# VNC/monitor access there to inspect a stuck build interactively. Packer's
+# debug log goes there too (PACKER_LOG): the only trace of a QEMU start failure.
 BUILD_LOGS  := $(CURDIR)/build-logs
 PACKER_BUILD_FDE := nke-node-fde.qemu.nke-fde
 PACKER_BUILD_NON_FDE := nke-node-non-fde.qemu.nke-non-fde
@@ -526,6 +527,7 @@ _os-image-fde: prepare-image-build
 	@if [ "$(ACCELERATOR)" = "tcg" ]; then \
 		echo "no usable /dev/kvm: building with software emulation, which is far slower"; \
 	fi
+	PACKER_LOG=1 PACKER_LOG_PATH="$(BUILD_LOGS)/packer-fde.log" \
 	PKR_VAR_luks_passphrase=$(LUKS_PASSPHRASE) \
 	$(PACKER_BUILD) \
 		-only=$(PACKER_BUILD_FDE) \
@@ -567,6 +569,7 @@ _os-image-non-fde: prepare-image-build
 	@if [ "$(ACCELERATOR)" = "tcg" ]; then \
 		echo "no usable /dev/kvm: building with software emulation, which is far slower"; \
 	fi
+	PACKER_LOG=1 PACKER_LOG_PATH="$(BUILD_LOGS)/packer-non-fde.log" \
 	$(PACKER_BUILD) \
 		-only=$(PACKER_BUILD_NON_FDE) \
 		-var "architecture=$(ARCH)" \
