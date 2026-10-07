@@ -258,8 +258,14 @@ jobs:
       CNI_OVN_VERSION: ${{ inputs.cni-ovn-version || vars.SITE_E2E_CNI_OVN_VERSION }}
       OS_IMAGE_BOOTLOADER_AMD64: ${{ inputs.os-image-bootloader-amd64 || vars.SITE_E2E_OS_IMAGE_BOOTLOADER_AMD64 }}
       OS_IMAGE_AMD64: ${{ inputs.os-image-amd64 || vars.SITE_E2E_OS_IMAGE_AMD64 }}
-      OS_IMAGE_BOOTLOADER_ARM64: ${{ inputs.os-image-bootloader-arm64 || vars.SITE_E2E_OS_IMAGE_BOOTLOADER_ARM64 }}
-      OS_IMAGE_ARM64: ${{ inputs.os-image-arm64 || vars.SITE_E2E_OS_IMAGE_ARM64 }}
+      # TEMPORARY: hardcoded to the non-prod build of commit abeacbeb0d4c
+      # (includes #1139, Jay's fallback-DHCP-on-all-NICs fix), to test whether
+      # it resolves the GB200 "no route to host" node-agent failure on 24.04.
+      # Revert to the vars-driven form below once that's answered.
+      # OS_IMAGE_BOOTLOADER_ARM64: ${{ inputs.os-image-bootloader-arm64 || vars.SITE_E2E_OS_IMAGE_BOOTLOADER_ARM64 }}
+      # OS_IMAGE_ARM64: ${{ inputs.os-image-arm64 || vars.SITE_E2E_OS_IMAGE_ARM64 }}
+      OS_IMAGE_BOOTLOADER_ARM64: https://d1veq6e8nuk2fy.cloudfront.net/nke-isos/qcow/efi/aarch64/2026-06-25/1782410719/qcow-imager.efi
+      OS_IMAGE_ARM64: https://d3stn69qht3x25.cloudfront.net/nke-packages/os-image/releases/sha-abeacbeb0d4ca534375e4331e7c6ea22844e4c65/arm64/nke-node-non-fde-ubuntu-24.04.5-arm64.qcow2
       # The account the OS images bake. Empty is what the OSS os-image releases
       # use; an image from the internal pipeline bakes a different one, and a
       # mismatch fails as a publickey rejection after the provisioning wait
