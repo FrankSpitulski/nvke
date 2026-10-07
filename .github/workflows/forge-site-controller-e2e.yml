@@ -760,6 +760,15 @@ jobs:
                 repository: nke-e2e-profiles
                 tag: local
                 archive: ${SITE_INPUTS}/profiles.tar
+          # TEMPORARY: a GB200 worker that times out on readiness is deleted
+          # in normal teardown before anyone can look at it -- keep-site only
+          # preserves the site controller, not the tenant cluster. Keeping
+          # the tenant on a failure too, so a repeat of the "no route to
+          # host" node-agent failure leaves the stuck instance up long enough
+          # to pull /var/log/mlx5-rescan.log, dmesg and lspci off it. Revert
+          # once that diagnosis is done.
+          lifecycle:
+            preserveOnFailure: true
           EOF
           echo "--- e2e-config.yaml ---"
           cat controller/test/e2e/e2e-config.yaml
