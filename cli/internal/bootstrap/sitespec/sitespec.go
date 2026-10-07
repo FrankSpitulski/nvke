@@ -376,6 +376,7 @@ func (inv *SiteSpec) appendDataChecks(v *validator) {
 	v.checkCNI(inv.Cluster.CniName)
 	v.checkCIDR(pathPodCidr, inv.Cluster.PodCidr, true)
 	v.checkCIDR(pathServiceCidr, inv.Cluster.ServiceCidr, false)
+	v.checkCIDRsDisjoint(inv.Cluster)
 	v.checkControlPlaneVIP(inv.Cluster)
 	v.checkNodeAgentPort(inv.Cluster.NodeAgentPort)
 	v.checkRegistry(inv.Registry)
@@ -564,15 +565,51 @@ func (v *validator) checkControlPlaneVIP(c Cluster) {
 	v.checkVIPOutsideCIDR(vip, c.ControlPlaneVIP, pathServiceCidr, c.ServiceCidr)
 }
 
+// checkCIDRsDisjoint refuses a pod CIDR that overlaps the service CIDR.
+// kubeadm accepts the pair and the cluster then fails to route. Malformed
+// CIDRs are reported by checkCIDR and skipped here.
+func (v *validator) checkCIDRsDisjoint(c Cluster) {
+	svc, ok := parsePrefix(c.ServiceCidr)
+	if !ok {
+		return
+	}
+	for _, p := range strings.Split(c.PodCidr, ",") {
+		p = strings.TrimSpace(p)
+		pod, ok := parsePrefix(p)
+		if !ok {
+			continue
+		}
+		if pod.Overlaps(svc) {
+			v.addf("%s %q overlaps %s %q", pathPodCidr, p, pathServiceCidr, c.ServiceCidr)
+		}
+	}
+}
+
 // checkVIPOutsideCIDR reports when the VIP falls inside cidr. A malformed or
 // empty cidr is left to checkCIDR; nothing is reported here for it.
+// parsePrefix parses a CIDR the way checkCIDR accepts it, with net.ParseCIDR,
+// and returns it as a netip.Prefix. net.ParseCIDR allows a prefix length with
+// a leading zero; netip.ParsePrefix does not, so parsing with netip alone would
+// skip a CIDR that checkCIDR had accepted.
+func parsePrefix(cidr string) (netip.Prefix, bool) {
+	_, ipnet, err := net.ParseCIDR(strings.TrimSpace(cidr))
+	if err != nil {
+		return netip.Prefix{}, false
+	}
+	prefix, err := netip.ParsePrefix(ipnet.String())
+	if err != nil {
+		return netip.Prefix{}, false
+	}
+	return prefix, true
+}
+
 func (v *validator) checkVIPOutsideCIDR(vip netip.Addr, vipText, path, cidr string) {
 	cidr = strings.TrimSpace(cidr)
 	if cidr == "" {
 		return
 	}
-	prefix, err := netip.ParsePrefix(cidr)
-	if err != nil {
+	prefix, ok := parsePrefix(cidr)
+	if !ok {
 		return
 	}
 	if prefix.Contains(vip) {
