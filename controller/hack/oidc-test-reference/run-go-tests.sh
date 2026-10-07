@@ -6,12 +6,12 @@ set -Eeuo pipefail
 
 mode="${1:-}"
 [[ "${2:-}" == "--" ]] || {
-  printf 'usage: %s <any|reference> -- <go test arguments...>\n' "$0" >&2
+  printf 'usage: %s <any|reference|wiring> -- <go test arguments...>\n' "$0" >&2
   exit 2
 }
 shift 2
 case "${mode}" in
-  any | reference) ;;
+  any | reference | wiring) ;;
   *)
     printf 'unsupported OIDC test selection %q\n' "${mode}" >&2
     exit 2
@@ -53,6 +53,17 @@ if mode == "reference":
     selection_name = "OIDC reference"
     expected = {f"SNAP-OIDC-{number}" for number in ("001", "002", "003")}
     observed = {match.group(1) for name in passed if (match := re.search(r"/(SNAP-OIDC-[0-9]+)$", name))}
+elif mode == "wiring":
+    selection_name = "OIDC snapshot wiring"
+    expected = {
+        "TestOIDCSnapshotWiringSharedProviderControl",
+        "TestOIDCSnapshotWiringJoinWithPinnedEmptyProvidersKeepsSharedProvider",
+        "TestOIDCSnapshotWiringInitUsesPinnedProviders",
+        "TestOIDCSnapshotWiringInitStopsOnPinError",
+        "TestOIDCSnapshotWiringJoinUsesPinnedProviders",
+    }
+    observed = {name for name in passed if name.startswith("TestOIDCSnapshotWiring")}
+
 if expected:
     if observed != expected:
         missing = ", ".join(sorted(expected - observed)) or "none"

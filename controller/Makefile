@@ -259,6 +259,11 @@ test-oidc-reference: oidc-envtest-assets ## Run the production-rendered OIDC mat
 		KUBEBUILDER_ASSETS="$$KUBEBUILDER_ASSETS" ./hack/oidc-test-reference/run-go-tests.sh reference -- \
 		-tags=oidc_integration -count=1 ./test/oidctest/envtest/...
 
+.PHONY: test-oidc-snapshot-wiring
+test-oidc-snapshot-wiring: ## Run the opt-in expected-failing init and join snapshot regressions.
+	./hack/oidc-test-reference/run-go-tests.sh wiring -- \
+		-tags=oidc_snapshot_wiring -count=1 -run '^TestOIDCSnapshotWiring' ./internal/temporal/activities
+
 .PHONY: test-e2e-nico-vms
 test-e2e-nico-vms: ## Run NICo VMs happy-path e2e tests
 	make test-e2e ARGS='--label-filter="nico-vms && happy-path && (lifecycle || readiness) && !scale && !upgrade && !reboot"'
