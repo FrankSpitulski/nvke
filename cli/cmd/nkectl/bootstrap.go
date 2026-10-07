@@ -60,6 +60,10 @@ type bootstrapSiteOptions struct {
 	siteSpec       string
 	dryRun         bool
 	registryAPIKey string
+	// controllerImage and provisionedProviderImage are the --controller-image and
+	// --provisioned-provider-image flags. A flag wins over its variable.
+	controllerImage          string
+	provisionedProviderImage string
 	// diagnosticsDir is where a failed bootstrap writes what the cluster had
 	// to say for itself, before it is torn down.
 	diagnosticsDir    string
@@ -141,9 +145,10 @@ dispatched or any node is touched.
 
 The bootstrap side-loads two images this repository builds,
 nke-controller:latest and cluster-api-provider-provisioned:latest, which
-"make -C cli images" builds. NKECTL_CWE_IMAGE and NKECTL_CAPI_PROVISIONED_IMAGE
-name other images, such as ones pushed to a registry. cli/README.md lists every
-NKECTL_* variable.
+"make -C cli images" builds. --controller-image and --provisioned-provider-image, or
+NKECTL_CWE_IMAGE and NKECTL_CAPI_PROVISIONED_IMAGE, name other images, such as
+ones pushed to a registry; a flag wins over its variable. cli/README.md lists
+every NKECTL_* variable.
 
 Every node becomes a control-plane node. Once the cluster is up, the
 control-plane NoSchedule taint is removed from each node so workloads can run.
@@ -157,7 +162,12 @@ site spec file format.`,
   nkectl bootstrap site -f sitespec.yaml --dry-run
 
   # Supply the registry credential without putting it in the file
-  REGISTRY_API_KEY=... nkectl bootstrap site -f sitespec.yaml`,
+  REGISTRY_API_KEY=... nkectl bootstrap site -f sitespec.yaml
+
+  # Deploy images you pushed to a registry instead of the local build
+  nkectl bootstrap site -f sitespec.yaml \
+    --controller-image nvcr.io/<org>/nke-controller:edge \
+    --provisioned-provider-image nvcr.io/<org>/cluster-api-provider-provisioned:edge`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -172,6 +182,10 @@ site spec file format.`,
 		"Load and validate the site spec and print it, but do not dispatch any workflow")
 	cmd.Flags().StringVar(&opts.registryAPIKey, "registry-api-key", "",
 		"Container registry credential (overrides registry.apiKey and the "+registryAPIKeyEnv+" env var)")
+	cmd.Flags().StringVar(&opts.controllerImage, "controller-image", "",
+		"Controller image to deploy (overrides NKECTL_CWE_IMAGE and the manifest default)")
+	cmd.Flags().StringVar(&opts.provisionedProviderImage, "provisioned-provider-image", "",
+		"Provisioned-provider image to deploy (overrides NKECTL_CAPI_PROVISIONED_IMAGE and the manifest default)")
 	cmd.Flags().StringVar(&opts.diagnosticsDir, "diagnostics-dir",
 		envOrDefault("NKECTL_BOOTSTRAP_DIAGNOSTICS_DIR", "cluster-diagnostics"),
 		"Directory a failed bootstrap writes cluster diagnostics to before tearing the cluster down. "+
@@ -240,7 +254,7 @@ func runBootstrapSite(out io.Writer, opts *bootstrapSiteOptions) (err error) {
 	// engine collects for itself and honours the same two flags.
 	cfg.DiagnosticsDir = opts.diagnosticsDir
 	cfg.KeepFailedCluster = opts.keepBootstrapKind
-	cweCfg, err := cweDeployConfig(inv, cfg.ClusterName, opts.disableMTLS)
+	cweCfg, err := cweDeployConfig(inv, cfg.ClusterName, opts.disableMTLS, opts.controllerImage, opts.provisionedProviderImage)
 	if err != nil {
 		return err
 	}
@@ -748,7 +762,7 @@ func envOrDefault(key, fallback string) string {
 }
 
 // cweDeployConfig assembles everything the CWE deploy needs into one value,
-// from the site spec and the environment, before any of it is used.
+// from the site spec, the flags and the environment, before any of it is used.
 //
 // It is separate from deployAndWaitForCWE so that the two questions stay apart:
 // this one is "what did the operator ask for", and everything it can get wrong
@@ -757,16 +771,23 @@ func envOrDefault(key, fallback string) string {
 //
 // clusterName is the ephemeral cluster's name, which is settled before the
 // cluster is created; SPIRE is told it, and it seeds the default trust domain.
-func cweDeployConfig(inv *sitespec.SiteSpec, clusterName string, disableMTLS bool) (cwedeploy.Config, error) {
+func cweDeployConfig(inv *sitespec.SiteSpec, clusterName string, disableMTLS bool, controllerImage, provisionedImage string) (cwedeploy.Config, error) {
 	cfg := cwedeploy.DefaultConfig()
+	// Flag, then variable, then the manifest default.
+	if controllerImage != "" {
+		cfg.CWEImage = controllerImage
+	}
+	if provisionedImage != "" {
+		cfg.ProvisionedProviderImage = provisionedImage
+	}
 
 	// Both images default to the local build's tag from the bootstrap
 	// manifest, so an empty value means the manifest lacks the entry.
 	if cfg.CWEImage == "" {
-		return cfg, errors.New("NKECTL_CWE_IMAGE is not set and the bootstrap manifest carries no default CWE image")
+		return cfg, errors.New("--controller-image and NKECTL_CWE_IMAGE are not set and the bootstrap manifest carries no default CWE image")
 	}
 	if cfg.ProvisionedProviderImage == "" {
-		return cfg, errors.New("NKECTL_CAPI_PROVISIONED_IMAGE is not set and the bootstrap manifest carries no default provisioned-provider image")
+		return cfg, errors.New("--provisioned-provider-image and NKECTL_CAPI_PROVISIONED_IMAGE are not set and the bootstrap manifest carries no default provisioned-provider image")
 	}
 
 	// SPIRE is told the Kind cluster's own name. The identity trust domain comes
@@ -961,12 +982,13 @@ func requireLocalImages(ctx context.Context, engine *bootstrapengine.Engine, ima
 	return nil
 }
 
-// missingLocalImageError names the build command and the two variables that
-// replace a local build, and keeps the inspect failure.
+// missingLocalImageError names the build command and the flags and variables
+// that replace a local build, and keeps the inspect failure.
 func missingLocalImageError(image string, err error, out string) error {
 	return fmt.Errorf("image %s is not in the local image store (%w\n%s) and names no registry to pull it from; "+
-		"build it with `make -C cli images`, or set NKECTL_CWE_IMAGE / NKECTL_CAPI_PROVISIONED_IMAGE "+
-		"to an image the runtime can pull (for Docker Hub, write docker.io/<org>/<name>)",
+		"build it with `make -C cli images`, or name an image the runtime can pull with "+
+		"--controller-image / --provisioned-provider-image or NKECTL_CWE_IMAGE / NKECTL_CAPI_PROVISIONED_IMAGE "+
+		"(for Docker Hub, write docker.io/<org>/<name>)",
 		image, err, strings.TrimSpace(out))
 }
 
