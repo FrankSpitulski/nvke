@@ -18,6 +18,9 @@
 #     kubeadm's upgrade-health-check Job). 6Gi leaves ~3Gi allocatable, enough headroom.
 #   - systemReservedMemory defaults to 1Gi. The CWE API/DB default is 16Gi, which alone
 #     exceeds these small seed instance types, so it must be set explicitly here.
+#   - The control plane is cluster-level controlPlaneConfig, not a node pool.
+#     CWE rejects control-plane node pools when control-plane controller
+#     provisioning is enabled, which is the default.
 #   - The worker pool is always included; set WORKER_DESIRED_COUNT=0 to create a
 #     control-plane-only cluster.
 #   - CNI defaults to ovn-kubernetes. Set CNI_PLUGIN=calico to use Calico instead.
@@ -61,9 +64,17 @@ FIRST_CONTROL_PLANE_VIP="${FIRST_CONTROL_PLANE_VIP:-172.31.0.10}"
 CNI_PLUGIN="${CNI_PLUGIN:-ovn-kubernetes}"
 CNI_VERSION="${CNI_VERSION:-}"
 
-OS_PROFILE="${OS_PROFILE:-nke-260611-24.04-amd64-fde}"
-CP_CONFIG_PROFILE="${CP_CONFIG_PROFILE:-nvcf-cp-v3}"
-WORKER_CONFIG_PROFILE="${WORKER_CONFIG_PROFILE:-nvcf-monitoring-v3}"
+case "$(uname -m)" in
+  x86_64) PROFILE_ARCH=amd64 ;;
+  aarch64 | arm64) PROFILE_ARCH=arm64 ;;
+  *)
+    echo "Unsupported host architecture for nico-vms: $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+OS_PROFILE="${OS_PROFILE:-nke-nico-vms-24.04-${PROFILE_ARCH}-fde}"
+CP_CONFIG_PROFILE="${CP_CONFIG_PROFILE:-nico-vms-cp}"
+WORKER_CONFIG_PROFILE="${WORKER_CONFIG_PROFILE:-nico-vms-worker}"
 SYSTEM_RESERVED_MEMORY="${SYSTEM_RESERVED_MEMORY:-1Gi}"
 ETCD_ENCRYPTED="${ETCD_ENCRYPTED:-false}"
 
@@ -93,24 +104,18 @@ BODY=$(cat <<EOF
   "cniPlugin": "${CNI_PLUGIN}"${CNI_VERSION_JSON},
   "etcdEncrypted": ${ETCD_ENCRYPTED},
   "teleportEnabled": false,
+  "controlPlaneConfig": {
+    "desiredCount": ${CONTROL_PLANE_DESIRED_COUNT},
+    "systemReservedMemory": "${SYSTEM_RESERVED_MEMORY}",
+    "teleportEnabled": false,
+    "nico": {
+      "instanceTypePreference": ["${INSTANCE_TYPE_ID}"],
+      "vpcPrefixIDs": ["${VPC_PREFIX_ID}"],
+      "osProfile": "${OS_PROFILE}",
+      "configProfile": "${CP_CONFIG_PROFILE}"
+    }
+  },
   "nodePools": [
-    {
-      "name": "control-plane",
-      "nodeNamePrefix": "cp",
-      "nico": {
-        "vpcPrefixIDs": ["${VPC_PREFIX_ID}"],
-        "instanceTypeID": "${INSTANCE_TYPE_ID}",
-        "osProfile": "${OS_PROFILE}",
-        "configProfile": "${CP_CONFIG_PROFILE}"
-      },
-      "systemReservedMemory": "${SYSTEM_RESERVED_MEMORY}",
-      "controlPlane": true,
-      "desiredNodeCount": ${CONTROL_PLANE_DESIRED_COUNT},
-      "autoProvisionDisabled": false,
-      "autoModeDisabled": false,
-      "recycleBudget": 0,
-      "teleportEnabled": false
-    },
     {
       "name": "worker",
       "nodeNamePrefix": "w",
@@ -135,6 +140,6 @@ EOF
 
 echo "Creating nico-vms cluster '${CLUSTER_NAME}' (cp=${CONTROL_PLANE_DESIRED_COUNT}, worker=${WORKER_DESIRED_COUNT}, cni=${CNI_PLUGIN}${CNI_VERSION:+/${CNI_VERSION}}, controlPlaneVIP=${CONTROL_PLANE_VIP})" >&2
 
-curl "${AUTH_HEADER[@]+"${AUTH_HEADER[@]}"}" -fsS --max-time "${CURL_MAX_TIME:-30}" "${CLUSTERS_API_URL}" \
+curl "${AUTH_HEADER[@]+"${AUTH_HEADER[@]}"}" -sS --max-time "${CURL_MAX_TIME:-30}" "${CLUSTERS_API_URL}" \
   -H "Content-Type: application/json" \
   --data-raw "${BODY}" | jq
