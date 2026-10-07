@@ -24,6 +24,7 @@ cluster:
   k8sVersion: "1.32.0"
   cniName: calico
   cniVersion: "3.31.4"
+  controlPlaneVIP: "10.0.0.100"
   podCidr: "10.100.0.0/16"
   serviceCidr: "10.200.0.0/16"
   kubeletConfig:
@@ -196,16 +197,13 @@ func TestValidateInvalidInputs(t *testing.T) {
 		{"missing serviceCidr", func(i *SiteSpec) { i.Cluster.ServiceCidr = "" }, pathServiceCidr},
 		{"vip not an IP", func(i *SiteSpec) { i.Cluster.ControlPlaneVIP = "nope" }, pathControlPlaneVIP},
 		{"vip is IPv6", func(i *SiteSpec) { i.Cluster.ControlPlaneVIP = "fd00::1" }, pathControlPlaneVIP},
-		{"vip equals a node IP", func(i *SiteSpec) { i.Cluster.ControlPlaneVIP = "10.0.0.1" }, pathControlPlaneVIP},
 		{"vip inside podCidr", func(i *SiteSpec) { i.Cluster.ControlPlaneVIP = "10.100.0.5" }, pathControlPlaneVIP},
 		{"vip inside serviceCidr", func(i *SiteSpec) { i.Cluster.ControlPlaneVIP = "10.200.0.5" }, pathControlPlaneVIP},
 		{"vip inside second podCidr", func(i *SiteSpec) {
 			i.Cluster.PodCidr = "10.100.0.0/16,10.40.0.0/16"
 			i.Cluster.ControlPlaneVIP = "10.40.0.5"
 		}, pathControlPlaneVIP},
-		// A 4-in-6 mapped address must be rejected the way CWE rejects it. Here
-		// the mapped form equals the node at 10.0.0.1, so a string compare would
-		// miss the collision. The address-based compare must still catch it.
+		// IPv4-mapped IPv6 addresses remain invalid even when they name a node IP.
 		{"vip mapped IPv4 equals a node IP", func(i *SiteSpec) {
 			i.Cluster.ControlPlaneVIP = "::ffff:10.0.0.1"
 		}, pathControlPlaneVIP},
@@ -245,19 +243,76 @@ func TestValidateInvalidInputs(t *testing.T) {
 	}
 }
 
-// TestValidateControlPlaneVIP_Accepts checks empty and non-overlapping IPv4 VIPs.
 func TestValidateControlPlaneVIP_Accepts(t *testing.T) {
 	for name, vip := range map[string]string{
 		"empty is valid":       "",
 		"valid IPv4 VIP":       "10.0.0.100",
+		"first node IP":        "10.0.0.1",
+		"another node IP":      "10.0.0.2",
 		"public address":       "198.51.100.10",
 		"shared address space": "100.64.0.10",
 	} {
 		t.Run(name, func(t *testing.T) {
 			inv := minimalValid()
 			inv.Cluster.ControlPlaneVIP = vip
+			if vip == "" {
+				inv.Cluster.Nodes = inv.Cluster.Nodes[:1]
+			}
 			if err := inv.Validate(); err != nil {
 				t.Errorf("Validate rejected VIP %q: %v", vip, err)
+			}
+		})
+	}
+}
+
+func TestValidateControlPlaneVIP_NodeCountRequirement(t *testing.T) {
+	tests := []struct {
+		name    string
+		nodes   []Node
+		vip     string
+		wantErr bool
+	}{
+		{
+			name:  "one node without a VIP",
+			nodes: []Node{{Name: "node1", IP: "10.0.0.1"}},
+		},
+		{
+			name: "several nodes without a VIP",
+			nodes: []Node{
+				{Name: "node1", IP: "10.0.0.1"},
+				{Name: "node2", IP: "10.0.0.2"},
+				{Name: "node3", IP: "10.0.0.3"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "several nodes with a VIP",
+			nodes: []Node{
+				{Name: "node1", IP: "10.0.0.1"},
+				{Name: "node2", IP: "10.0.0.2"},
+				{Name: "node3", IP: "10.0.0.3"},
+			},
+			vip: "10.0.0.100",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			inv := minimalValid()
+			inv.Cluster.Nodes = tc.nodes
+			inv.Cluster.ControlPlaneVIP = tc.vip
+			err := inv.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("Validate accepted a multi-node control plane without a VIP")
+				}
+				if !strings.Contains(err.Error(), pathControlPlaneVIP) || !strings.Contains(err.Error(), "more than one node") {
+					t.Fatalf("error %q does not explain the %s node-count requirement", err, pathControlPlaneVIP)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Validate rejected valid input: %v", err)
 			}
 		})
 	}
@@ -295,6 +350,7 @@ func TestValidValidatesClean(t *testing.T) {
 	inv := &SiteSpec{
 		ClusterName: "nke-site",
 		Cluster: Cluster{
+			ControlPlaneVIP: "10.0.0.100",
 			Nodes: []Node{
 				{Name: "node1", IP: "10.0.0.1"},
 				{Name: "node2", IP: "10.0.0.2"},
@@ -377,6 +433,7 @@ func TestLoadTrustDomainFromEnvironment(t *testing.T) {
 
 func TestLoadNodesFromEnv(t *testing.T) {
 	t.Setenv("NKECTL_CLUSTER_NODES", "node1:10.0.0.1,node2:10.0.0.2,node3:10.0.0.3")
+	t.Setenv("CLUSTER_CONTROL_PLANE_VIP", "10.0.0.100")
 
 	inv, err := Load(writeTemp(t, noNodesYAML))
 	if err != nil {
@@ -475,6 +532,7 @@ func minimalValid() *SiteSpec {
 	return &SiteSpec{
 		ClusterName: "nke-site",
 		Cluster: Cluster{
+			ControlPlaneVIP: "10.0.0.100",
 			Nodes: []Node{
 				{Name: "node1", IP: "10.0.0.1"},
 				{Name: "node2", IP: "10.0.0.2"},
