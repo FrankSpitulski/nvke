@@ -82,6 +82,36 @@ attributed modules that appear in no `go.sum` here and are not vendored, while
 missing others. **A wrong notices file is worse than a missing one, because it
 looks compliant.** The check in CI is what makes the difference.
 
+## Copied source files
+
+The generated notices cover Go modules only. These five files under
+`controller/internal/kubeadmconfig/thirdparty/` are copied from
+[kubernetes/kubernetes](https://github.com/kubernetes/kubernetes) at **v1.34.0**
+(commit `f28b4c9efbca5c5c0af716d9f2d5702667ee8a45`), modified, and keep their
+upstream copyright and license block. Kubernetes ships no `NOTICE` file at that
+revision. The revision was not recorded when the files were copied; it is
+inferred, and the copies match v1.33 and v1.34.
+
+| Local file | Upstream file(s) | Upstream copyright |
+|---|---|---|
+| `bootstraptoken/v1/types.go` | `cmd/kubeadm/app/apis/bootstraptoken/v1/types.go`, `utils.go` | Copyright 2021 The Kubernetes Authors. |
+| `kubeadmtypes/v1beta3/types.go` | `cmd/kubeadm/app/apis/kubeadm/v1beta3/types.go` | Copyright 2021 The Kubernetes Authors. |
+| `kubeadmtypes/v1beta4/types.go` | `cmd/kubeadm/app/apis/kubeadm/v1beta4/types.go` | Copyright 2023 The Kubernetes Authors. |
+| `kubeletconfig/v1beta1/types.go` | `staging/src/k8s.io/kubelet/config/v1beta1/types.go` | Copyright 2017 The Kubernetes Authors. |
+| `kubeproxyconfig/v1alpha1/types.go` | `staging/src/k8s.io/kube-proxy/config/v1alpha1/types.go` | Copyright 2017 The Kubernetes Authors. |
+
+License: Apache License, Version 2.0, the same terms as this repository's
+[LICENSE](LICENSE); the original is
+[v1.34.0/LICENSE](https://github.com/kubernetes/kubernetes/blob/v1.34.0/LICENSE).
+
+## Embedded frontend libraries
+
+The nico-sim UI bundles xterm.js (with its fit and search addons), highlight.js
+and the Nord highlight.js theme under
+`controller/nico-sim/ui/vendor/`. Their component names, versions, origins,
+copyright notices and full license text are in
+[controller/nico-sim/ui/vendor/THIRD_PARTY_NOTICES.md](controller/nico-sim/ui/vendor/THIRD_PARTY_NOTICES.md).
+
 ## Scope of a generated file
 
 Each generated file lists every Go module reachable from that component's

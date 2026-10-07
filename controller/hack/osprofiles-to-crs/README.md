@@ -20,6 +20,8 @@ manifests into a flat output directory, all named after the profile:
 - `<profile>-nodepoolrelease.yaml`
 - `<profile>-clusterrelease.yaml`
 
+An SPDX header after the first line of either file is not copied into the manifests.
+
 Because the names are the profile names, the `osProfile` values that clusters
 and node pools already store keep resolving.
 
