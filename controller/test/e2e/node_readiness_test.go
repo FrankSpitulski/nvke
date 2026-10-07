@@ -26,8 +26,25 @@ func validateNodeReadinessPostCreate(test *tenantTest) {
 		expectedPools := expectedNodeCounts(test.spec)
 		expectedNodeCount := clusterNodeCount(test.spec)
 
+		// On the way out rather than at each failed poll. The assertion below
+		// returns the first node that is not ready and says nothing about the
+		// rest, and a spec timeout reports no node at all, so the one failure
+		// this lane keeps hitting is the one that collected nothing: the
+		// provision succeeds, so the collector on that path never fires.
+		//
+		// Detached because a spec that timed out arrives here with its
+		// context already canceled, which is exactly when this matters.
+		detached := context.WithoutCancel(ctx)
+		DeferCleanup(func() {
+			if !CurrentSpecReport().Failed() || test.cluster == nil {
+				return
+			}
+			test.collectDiagnostics(detached, test.cluster.ID)
+		})
+
 		By("Asserting CWE reports KubernetesReady for every desired node")
-		Eventually(test.assertDesiredNodesReady).WithContext(ctx).WithTimeout(test.timeouts.Provision).WithPolling(1*time.Second).
+		Eventually(test.nodesReadyWithProgress(readinessProgressEvery)).WithContext(ctx).
+			WithTimeout(test.timeouts.Provision).WithPolling(1*time.Second).
 			Should(Succeed(), "all desired nodes should become ready in CWE")
 
 		By("Asserting the tenant cluster reports Ready for every desired node")
@@ -47,6 +64,13 @@ func validateNodeReadinessPostCreate(test *tenantTest) {
 		}).WithContext(ctx).WithTimeout(2 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())
 
 		test.log.Info("All desired tenant nodes are ready", "count", expectedNodeCount, "nodes", readyNodeNames)
+		// 45 minutes is a canary, not a budget. This spec took 844s, just
+		// over 14 minutes, in run 36691646226, the passing arm64 GB200 run,
+		// so a run that exceeds the cap is a 3x regression and the cap is the
+		// signal. Raising it to match Provision's 90 minutes buys longer
+		// failures and no information: the runs that hit this died at exactly
+		// 2700s, and when the cap was moved out of the way the run burned the
+		// full 90 minutes earlier in the chain instead.
 	}, Label("readiness"), SpecTimeout(45*time.Minute))
 }
 
@@ -99,6 +123,33 @@ func totalExpectedNodes(expectedPools map[string]int) int {
 		total += count
 	}
 	return total
+}
+
+// readinessProgressEvery is how often the wait below says what it is waiting
+// for. The assertion polls every second, so logging each failure would write
+// 2700 identical lines over a full budget; a minute is often enough to show a
+// node changing state and rare enough to read.
+const readinessProgressEvery = time.Minute
+
+// nodesReadyWithProgress is assertDesiredNodesReady, reporting what is still
+// outstanding as it goes.
+//
+// Without it the readiness wait is silent for its whole budget, so a run that
+// is making progress and one that is stuck look identical until the timeout,
+// and the timeout names only whichever node happened to fail last.
+func (t *tenantTest) nodesReadyWithProgress(every time.Duration) func(context.Context) error {
+	start := time.Now()
+	var last time.Time
+	return func(ctx context.Context) error {
+		err := t.assertDesiredNodesReady(ctx)
+		if err != nil && time.Since(last) >= every {
+			last = time.Now()
+			t.log.Info("waiting for nodes to become ready",
+				"elapsed", time.Since(start).Round(time.Second).String(),
+				"outstanding", err.Error())
+		}
+		return err
+	}
 }
 
 // assertDesiredNodesReady checks that CWE reports every desired node of the

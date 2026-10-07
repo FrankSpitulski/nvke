@@ -178,6 +178,7 @@ var _ = Describe("Site controller on Forge", Ordered, ContinueOnFailure, Label("
 			built, err = site.Bootstrap(ctx, node, session, candidate, opts)
 			if err != nil {
 				collectSiteDiagnostics(ctx, session, lane.placedSecrets()...)
+				collectSiteClusterState(ctx, session, lane.placedSecrets()...)
 			}
 			Expect(err).NotTo(HaveOccurred(), "should build the site controller")
 			GinkgoLogr.Info("site controller", "kubeconfig", built.Kubeconfig, "cweVersion", built.Version)
@@ -214,9 +215,16 @@ var _ = Describe("Site controller on Forge", Ordered, ContinueOnFailure, Label("
 		if session == nil {
 			return
 		}
-		if keepSite || (lane.cfg.Lifecycle.PreserveOnFailure && failed) {
+		// SkipDelete as well as the other two. It keeps the tenant and skips
+		// the nkectl sweep, and this node is what those tenants' instances
+		// hang off, so releasing it either deletes them through the sweep --
+		// silently undoing the flag -- or orphans them with no CWE left to
+		// release them. Whatever keeps a tenant has to keep its site.
+		if keepSite || lane.cfg.Lifecycle.SkipDelete || (lane.cfg.Lifecycle.PreserveOnFailure && failed) {
 			GinkgoLogr.Info("keeping the site controller", "name", node.Name, "ip", node.IP,
-				"jumpHost", lane.site.JumpHost, "kubeconfig", built.Kubeconfig)
+				"jumpHost", lane.site.JumpHost, "kubeconfig", built.Kubeconfig,
+				"reason", keepReason(keepSite, lane.cfg.Lifecycle.SkipDelete))
+			GinkgoLogr.Info("the Forge instance survives this run and must be released by hand", "name", node.Name)
 			return
 		}
 		detached := context.WithoutCancel(ctx)
@@ -226,6 +234,7 @@ var _ = Describe("Site controller on Forge", Ordered, ContinueOnFailure, Label("
 		// that evidence is released three lines down.
 		if failed {
 			collectSiteDiagnostics(detached, session, lane.placedSecrets()...)
+			collectSiteClusterState(detached, session, lane.placedSecrets()...)
 		}
 		if built.Kubeconfig != "" {
 			if err := sweepSiteTenants(detached, built.Kubeconfig); err != nil {
@@ -239,10 +248,13 @@ var _ = Describe("Site controller on Forge", Ordered, ContinueOnFailure, Label("
 // siteLane is what the lane resolves once, before it creates anything, so a
 // missing input fails the run before a machine exists.
 type siteLane struct {
-	cfg          config.Config
-	name         string
-	env          *environment.Forge
-	site         environment.ForgeSite
+	cfg  config.Config
+	name string
+	env  *environment.Forge
+	site environment.ForgeSite
+	// capabilities is what the site node is provisioned with, which is a CPU
+	// machine of the configured architecture rather than what the run asked
+	// to qualify. The run's own capabilities pick the site, not this machine.
 	capabilities map[string]string
 	apiKey       string
 	provider     infra.Provider
@@ -266,11 +278,14 @@ func newSiteLane() (siteLane, error) {
 	if err != nil {
 		return siteLane{}, err
 	}
-	env, err := forgeEnvironment()
+	env, err := runEnvironment()
 	if err != nil {
 		return siteLane{}, err
 	}
-	forgeSite, err := env.Site("")
+	// Projected here rather than by the suite: this lane is one of the two
+	// places that speak Forge, and the suite only knows that -e2e.environment
+	// named a file.
+	forgeEnv, err := env.Forge()
 	if err != nil {
 		return siteLane{}, err
 	}
@@ -278,13 +293,28 @@ func newSiteLane() (siteLane, error) {
 	if err != nil {
 		return siteLane{}, err
 	}
-	// Resolved for the error, not for the value: the provider matches again
-	// when it creates the machine, and the node reports its own architecture.
-	// Matching here is what makes capabilities nothing can satisfy fail before
-	// a machine exists rather than a minute into provisioning.
-	if _, matchErr := forgeSite.MatchInstanceType(capabilities); matchErr != nil {
-		return siteLane{}, matchErr
+	// The run's capabilities choose the site, not a name: a stream asks for
+	// {gpu: gb200, arch: amd64} and which site owns both such machines is
+	// infrastructure. Resolving here also makes capabilities nothing can
+	// satisfy fail before a machine exists rather than a minute into
+	// provisioning.
+	selection, err := forgeEnv.Resolve(capabilities)
+	if err != nil {
+		return siteLane{}, err
 	}
+	forgeSite := selection.Site
+	// The site node is the run's CPU shape, never its GPU one. The site
+	// controller supports the tenants this site will host and runs no
+	// workload of its own, so passing the run's capabilities straight through
+	// would put it on a GB200. Its architecture is still the run's: Resolve
+	// matched this shape on the `arch` capability, so asking for what the
+	// shape provides asks for that architecture.
+	//
+	// The shape's own `provides` rather than a map rebuilt here. The provider
+	// matches again when it creates the machine, and handing it the matched
+	// shape's description is what makes the second match land on the first
+	// one's answer.
+	siteCapabilities := selection.CPU.Provides
 	apiKey := os.Getenv(envForgeAPIKey)
 	if apiKey == "" {
 		return siteLane{}, fmt.Errorf("%s is not set", envForgeAPIKey)
@@ -325,18 +355,16 @@ func newSiteLane() (siteLane, error) {
 		}
 	}
 	provider, err := forge.New(forge.Options{
-		Env:      env,
+		Env:      forgeEnv,
 		Site:     forgeSite.Key,
 		APIKey:   apiKey,
 		JumpHost: forgeSite.JumpHost,
-		// The site node boots the same OS image as the tenants it will host.
-		Images: func(string) (string, string, error) {
-			bootLoaderURL, berr := requireVersion("os-image-bootloader")
-			if berr != nil {
-				return "", "", berr
-			}
-			imageURL, ierr := requireVersion("os-image")
-			return bootLoaderURL, imageURL, ierr
+		NodeUser: cfg.Node.User,
+		// The site node boots the OS image built for its own architecture,
+		// which is the same image a tenant control plane of that architecture
+		// boots. A GPU tenant's workers boot a different one.
+		Images: func(_, arch string) (string, string, error) {
+			return requireNodeArtifacts(arch)
 		},
 		Dialer: forge.Teleport(dialer),
 		Node:   nodeInputs(kubernetesVersion),
@@ -351,10 +379,23 @@ func newSiteLane() (siteLane, error) {
 		return siteLane{}, err
 	}
 	return siteLane{
-		cfg: cfg, name: name, env: env, site: forgeSite,
-		capabilities: capabilities, apiKey: apiKey, provider: provider,
+		cfg: cfg, name: name, env: forgeEnv, site: forgeSite,
+		capabilities: siteCapabilities, apiKey: apiKey, provider: provider,
 		tenantPassword: tenantPassword, dbPassword: dbPassword,
 	}, nil
+}
+
+// keepReason names which setting held the node, so the log says what to
+// change rather than only that something did.
+func keepReason(keepSite, skipDelete bool) string {
+	switch {
+	case keepSite:
+		return "-e2e.keep-site"
+	case skipDelete:
+		return "lifecycle.skipDelete"
+	default:
+		return "lifecycle.preserveOnFailure after a failure"
+	}
 }
 
 // sessionRelay tunnels a tenant's API server through the site node, which is
@@ -421,6 +462,39 @@ func collectSiteDiagnostics(ctx context.Context, session infra.Session, secrets 
 	GinkgoLogr.Info("collected the node's diagnostics", "path", siteDiagnostics)
 }
 
+// siteClusterState is written beside siteDiagnostics, and is plain text
+// rather than a tarball so a reader can open it from the artifact listing.
+const siteClusterState = "site-cluster-state.txt"
+
+// siteClusterStateCollected is set once this run has written siteClusterState.
+var siteClusterStateCollected bool
+
+// collectSiteClusterState records what the site cluster says about CWE.
+//
+// Separate from collectSiteDiagnostics because the two cover different
+// failures and neither substitutes for the other: nkectl writes diagnostics
+// when the bootstrap fails, so a run that bootstrapped and then never saw CWE
+// answer gets ErrNoDiagnostics and, before this, kept nothing.
+//
+// Best effort and never fails the spec, for the same reason as the
+// diagnostics: the failure that prompted it is the finding.
+func collectSiteClusterState(ctx context.Context, session infra.Session, secrets ...string) {
+	if siteClusterStateCollected {
+		return
+	}
+	// Detached and short. The cluster is reached from the node, so this does
+	// not wait on anything the failing probe waits on, and a spec that died
+	// on its own timeout arrives here with a context already done.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Minute)
+	defer cancel()
+	if err := site.CollectClusterState(ctx, session, siteClusterState, secrets...); err != nil {
+		GinkgoLogr.Error(err, "could not collect the site cluster's state")
+		return
+	}
+	siteClusterStateCollected = true
+	GinkgoLogr.Info("collected the site cluster's state", "path", siteClusterState)
+}
+
 // nodeInputs is what cloud-init writes onto the node. The agent's arguments
 // are decided here because they have to agree with the bootstrap's
 // --disable-mtls, which comes from the same constant: the two sides
@@ -429,8 +503,7 @@ func collectSiteDiagnostics(ctx context.Context, session infra.Session, secrets 
 func nodeInputs(kubernetesVersion string) nke.NodeInputs {
 	inputs := nke.NodeInputs{
 		KubernetesVersion: kubernetesVersion,
-		CNIVersion:        cmp.Or(optionalVersion("nke-cni-ovn"), forgeDefaultCNIVersion),
-		SpireVersion:      cmp.Or(optionalVersion("spire-agent"), forgeDefaultSpireVersion),
+		CNIVersion:        cmp.Or(optionalVersion("cni-ovn"), forgeDefaultCNIVersion),
 	}
 	if siteDisableMTLS {
 		inputs.AgentArgs = nke.AgentArgsNoMTLS
@@ -468,6 +541,13 @@ func (l siteLane) candidate(node infra.Node) (site.Candidate, site.Options, erro
 		return site.Candidate{}, site.Options{}, err
 	}
 	DeferCleanup(func() { _ = os.RemoveAll(assets) })
+
+	// Before a machine is taken: the deploy path chooses the name CWE is
+	// installed under, the lane chooses the name the suite looks for, and
+	// nothing else makes the two agree.
+	if nameErr := site.CheckControllerName(assets); nameErr != nil {
+		return site.Candidate{}, site.Options{}, nameErr
+	}
 
 	c := site.Candidate{
 		SiteName:   l.name,
