@@ -169,6 +169,13 @@ type Config struct {
 	// subnet-based NICo pools use the static Forge peer ASN.
 	KubeVipFMDSEndpoint string `env:"KUBE_VIP_FMDS_ENDPOINT"`
 
+	// ReferencedReleaseCheckEnabled fails startup when a release an existing
+	// cluster or node pool selects is not installed. Turn it off to let the
+	// worker start against a site whose releases are incomplete, accepting that
+	// provisioning and upgrades fail later instead. The release CRD check is
+	// separate and always runs.
+	ReferencedReleaseCheckEnabled bool `env:"REFERENCED_RELEASE_CHECK_ENABLED" default:"true"`
+
 	// ProfilesDir is the directory from which to read osProfiles and configProfiles
 	ProfilesDir string `env:"PROFILES_DIR" default:"./profiles"`
 

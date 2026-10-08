@@ -29,6 +29,7 @@ type Queries interface {
 	NodeQueries
 	WorkflowOutboxQueries
 	NodeSetQueries
+	ReferencedReleaseQueries
 }
 
 func NewDB(db *bun.DB) *dbImpl {

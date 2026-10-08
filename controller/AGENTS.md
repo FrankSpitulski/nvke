@@ -199,6 +199,7 @@ Key configuration (see `internal/config/config.go` for full list):
 | `DB_CONNECTION_STRING` | `postgres://...` | PostgreSQL connection string |
 | `TEMPORAL_HOST_PORT` | `localhost:7233` | Temporal server for CWE workflows |
 | `PROFILES_DIR` | `./profiles` | Directory for OS/config profiles. Fleet profile content is maintained outside this repository and supplied at deploy time; this repo ships only example profiles. The directory may be empty: CWE starts without a profiles tree, and one is needed to provision a node, not to come up. |
+| `REFERENCED_RELEASE_CHECK_ENABLED` | `true` | Exit at startup when a release an existing cluster or node pool selects is not installed. Set it to `false` as a break-glass to start against a site whose releases are incomplete, accepting that provisioning and upgrades fail later instead. The release CRD check is separate and always fatal. |
 | `SPIFFE_ENDPOINT_SOCKET` | (optional) | SPIRE agent socket path for SPIFFE identity (e.g., `unix:///tmp/spire-agent/agent.sock`) |
 | `AUTH_CONFIG_PATH` | (unset) | API authentication config file. Unset disables authentication entirely, which is what a host-local `go run` gets. Set but unreadable is a startup failure, never "disabled". |
 | `PERMISSIVE_MODE` | `false` | Only read when `AUTH_CONFIG_PATH` is set. `true` evaluates, logs and counts every request, then serves it anyway — nothing is rejected. |
@@ -212,7 +213,7 @@ Preferred day-to-day path is CAPI + Tilt (see `README.md` in this directory).
 1. Start local Temporal: `temporal server start-dev`
 2. Start PostgreSQL (see above)
 3. Install the release CRDs and the fixture releases into the cluster in `KUBECONFIG`.
- CWE resolves every OS image from them, so provisioning fails without them:
+ CWE exits at startup without the CRDs, and provisioning fails without the releases:
  ```bash
  make releases-install
  ```

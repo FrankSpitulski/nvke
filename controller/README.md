@@ -463,6 +463,21 @@ You'll probably also want the Temporal UI (open in browser at http://localhost:1
 kubectl port-forward -n temporal svc/temporal-web 18233:8080
 ```
 
+CWE resolves every OS image from `MachineImage`, `ClusterRelease` and
+`NodePoolRelease` resources, and exits at startup if their CRDs are not
+installed in the cluster in `KUBECONFIG`. The controller chart installs them, so
+check what the cluster already has before installing anything:
+```bash
+kubectl get clusterreleases,nodepoolreleases,machineimages
+```
+On a local development cluster, install the CRDs and this repository's fixture
+releases:
+```bash
+make releases-install
+```
+Those releases are test fixtures and are cluster-scoped, so do not run that
+against a shared site.
+
 And now you're ready to build and run CWE:
 ```bash
 TEMPORAL_HOST_PORT=localhost:17233 go run ./cmd/worker/main.go

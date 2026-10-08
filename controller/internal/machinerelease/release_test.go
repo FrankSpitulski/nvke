@@ -4,18 +4,26 @@
 package machinerelease_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	enginev1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
 
+	"github.com/dsx-ai-factory/nke/controller/internal/db"
 	"github.com/dsx-ai-factory/nke/controller/internal/machinerelease"
+	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
 )
 
 func TestResolveClusterReleaseIncludesDeprecatedAndReturnsImage(t *testing.T) {
@@ -106,6 +114,33 @@ func TestParseKubernetesVersionAnnotationsRejectsBadInjectionAnnotation(t *testi
 	_, _, err := machinerelease.ParseKubernetesVersionAnnotations(release)
 	require.ErrorIs(t, err, machinerelease.ErrInvalidRelease)
 	assert.Contains(t, err.Error(), "maybe")
+}
+
+func TestCheckCRDsPassesWhenKindsAreRegistered(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, machinerelease.CheckCRDs(t.Context(), fakeClient(t)))
+}
+
+func TestCheckCRDsFailsWhenKindsAreNotInScheme(t *testing.T) {
+	t.Parallel()
+
+	reader := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).Build()
+	err := machinerelease.CheckCRDs(t.Context(), reader)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "checking MachineImage")
+}
+
+// An API server that serves the group without the kind is what a cluster the
+// release CRDs were never applied to looks like, and it is the case the
+// startup check exists for.
+func TestCheckCRDsNamesTheKindThatIsNotInstalled(t *testing.T) {
+	t.Parallel()
+
+	notInstalled := &meta.NoKindMatchError{GroupKind: schema.GroupKind{Group: enginev1.GroupVersion.Group, Kind: "MachineImage"}}
+
+	err := machinerelease.CheckCRDs(t.Context(), failingClient(t, notInstalled))
+	require.ErrorContains(t, err, "MachineImage CRD is not installed")
 }
 
 func TestSelectUpgradeTargetSkipsDeprecatedAndPrefersNewestBuild(t *testing.T) {
@@ -270,4 +305,166 @@ func versionAnnotations(version string, injected bool) map[string]string {
 		enginev1.MachineInitKubernetesVersionAnnotation:         version,
 		enginev1.MachineInitKubernetesVersionInjectedAnnotation: injectedValue,
 	}
+}
+
+const referencedImageName = "test-image"
+
+// referencedClient is a cluster holding the given objects plus the image every
+// test release boots.
+func referencedClient(t *testing.T, objects ...client.Object) client.Client {
+	t.Helper()
+	all := append([]client.Object{image(referencedImageName, "amd64", "", "22.04", "2026-01-01", "#!ipxe\n")}, objects...)
+	return fakeClient(t, all...)
+}
+
+// failingClient fails every read, like an unreachable API server.
+func failingClient(t *testing.T, err error) client.Client {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	require.NoError(t, enginev1.AddToScheme(scheme))
+	return fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+			return err
+		},
+		List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+			return err
+		},
+	}).Build()
+}
+
+// mockReferenced is a database whose live resources reference the given names.
+func mockReferenced(referenced db.ReferencedReleases) *testutil.MockDB {
+	database := &testutil.MockDB{}
+	database.On("ListReferencedReleaseNames", mock.Anything).Return(referenced, nil)
+	return database
+}
+
+func testClusterRelease(name string, deprecated bool) *enginev1.ClusterRelease {
+	return clusterRelease(name, referencedImageName, deprecated)
+}
+
+func testNodePoolRelease(name string, deprecated bool) *enginev1.NodePoolRelease {
+	return nodePoolRelease(name, referencedImageName, "1.31.12", false, deprecated, "#cloud-config\n")
+}
+
+func TestCheckReferencedReleases(t *testing.T) {
+	installed := []client.Object{
+		testNodePoolRelease("nke-worker", false),
+		testClusterRelease("nke-cp", false),
+		testNodePoolRelease("nke-old", true),
+		testClusterRelease("nke-old-cp", true),
+	}
+	noImage := testClusterRelease("nke-no-image", false)
+	noImage.Spec.MachineImageRef.Name = "gone"
+	badAnnotation := testNodePoolRelease("nke-bad-annotation", false)
+	badAnnotation.Annotations = map[string]string{}
+
+	tests := []struct {
+		name       string
+		referenced db.ReferencedReleases
+		objects    []client.Object
+		failWith   error
+		wantErrs   []string
+	}{
+		{name: "nothing is referenced"},
+		{
+			name:       "every selection is installed",
+			referenced: db.ReferencedReleases{ControlPlane: []string{"nke-cp"}, Worker: []string{"nke-worker"}},
+			objects:    installed,
+		},
+		{
+			name:       "deprecated releases still count as installed",
+			referenced: db.ReferencedReleases{ControlPlane: []string{"nke-old-cp"}, Worker: []string{"nke-old"}},
+			objects:    installed,
+		},
+		{
+			name:       "a control-plane selection names a missing ClusterRelease",
+			referenced: db.ReferencedReleases{ControlPlane: []string{"nke-missing"}},
+			objects:    installed,
+			wantErrs:   []string{`1 referenced release(s) are unavailable`, `ClusterRelease "nke-missing" is not installed`},
+		},
+		{
+			name:       "a control-plane selection needs a ClusterRelease, not a NodePoolRelease",
+			referenced: db.ReferencedReleases{ControlPlane: []string{"nke-worker"}},
+			objects:    installed,
+			wantErrs:   []string{`ClusterRelease "nke-worker" is not installed`},
+		},
+		{
+			name:       "a worker selection needs a NodePoolRelease, not a ClusterRelease",
+			referenced: db.ReferencedReleases{Worker: []string{"nke-cp"}},
+			objects:    installed,
+			wantErrs:   []string{`NodePoolRelease "nke-cp" is not installed`},
+		},
+		{
+			name:       "every missing release is reported",
+			referenced: db.ReferencedReleases{ControlPlane: []string{"nke-a"}, Worker: []string{"nke-b", "nke-c"}},
+			objects:    installed,
+			wantErrs: []string{
+				`3 referenced release(s) are unavailable`,
+				`ClusterRelease "nke-a" is not installed`,
+				`NodePoolRelease "nke-b" is not installed`,
+				`NodePoolRelease "nke-c" is not installed`,
+			},
+		},
+		{
+			name:       "a release whose MachineImage is not installed is missing",
+			referenced: db.ReferencedReleases{ControlPlane: []string{"nke-no-image"}},
+			objects:    append([]client.Object{noImage}, installed...),
+			wantErrs:   []string{`release "nke-no-image"`, `MachineImage "gone" is not installed`},
+		},
+		{
+			name:       "a release with bad annotations is missing",
+			referenced: db.ReferencedReleases{Worker: []string{"nke-bad-annotation"}},
+			objects:    append([]client.Object{badAnnotation}, installed...),
+			wantErrs:   []string{`release "nke-bad-annotation" is missing annotation`},
+		},
+		{
+			name:       "a read failure is not reported as a missing release",
+			referenced: db.ReferencedReleases{Worker: []string{"nke-worker"}},
+			failWith:   errors.New("connection refused"),
+			wantErrs:   []string{"connection refused"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var reader client.Reader = referencedClient(t, tt.objects...)
+			if tt.failWith != nil {
+				reader = failingClient(t, tt.failWith)
+			}
+
+			err := machinerelease.CheckReferencedReleases(t.Context(), mockReferenced(tt.referenced), reader)
+
+			if len(tt.wantErrs) == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			for _, want := range tt.wantErrs {
+				require.ErrorContains(t, err, want)
+			}
+			if tt.failWith != nil {
+				assert.NotErrorIs(t, err, machinerelease.ErrInvalidRelease)
+			}
+		})
+	}
+}
+
+func TestCheckReferencedReleasesReadsNothingWhenNothingIsReferenced(t *testing.T) {
+	reader := failingClient(t, errors.New("must not be called"))
+
+	require.NoError(t, machinerelease.CheckReferencedReleases(t.Context(), mockReferenced(db.ReferencedReleases{}), reader))
+}
+
+func TestCheckReferencedReleasesRejectsBrokenInputs(t *testing.T) {
+	t.Run("missing reader", func(t *testing.T) {
+		require.ErrorContains(t, machinerelease.CheckReferencedReleases(t.Context(), &testutil.MockDB{}, nil), "release reader is not configured")
+	})
+	t.Run("missing database", func(t *testing.T) {
+		require.ErrorContains(t, machinerelease.CheckReferencedReleases(t.Context(), nil, fakeClient(t)), "database is not configured")
+	})
+	t.Run("database error", func(t *testing.T) {
+		database := &testutil.MockDB{}
+		database.On("ListReferencedReleaseNames", mock.Anything).Return(db.ReferencedReleases{}, errors.New("db down"))
+		require.ErrorContains(t, machinerelease.CheckReferencedReleases(t.Context(), database, fakeClient(t)), "db down")
+	})
 }

@@ -285,6 +285,15 @@ func (m *MockDB) ListNodeSets(ctx context.Context, filters db.NodeSetFilters) ([
 	return v, args.Error(1)
 }
 
+func (m *MockDB) ListReferencedReleaseNames(ctx context.Context) (db.ReferencedReleases, error) {
+	args := m.Called(ctx)
+	v, ok := args.Get(0).(db.ReferencedReleases)
+	if !ok {
+		return db.ReferencedReleases{}, args.Error(1)
+	}
+	return v, args.Error(1)
+}
+
 // MockTx is a testify mock for db.Tx.
 type MockTx struct {
 	mock.Mock

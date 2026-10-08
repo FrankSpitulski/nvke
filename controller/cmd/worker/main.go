@@ -49,6 +49,7 @@ import (
 	"github.com/dsx-ai-factory/nke/controller/internal/db/migrations"
 	"github.com/dsx-ai-factory/nke/controller/internal/dbmetrics"
 	"github.com/dsx-ai-factory/nke/controller/internal/kube"
+	"github.com/dsx-ai-factory/nke/controller/internal/machinerelease"
 	"github.com/dsx-ai-factory/nke/controller/internal/metrics"
 	"github.com/dsx-ai-factory/nke/controller/internal/otelx"
 	"github.com/dsx-ai-factory/nke/controller/internal/runbook"
@@ -218,6 +219,16 @@ func main() {
 	if err != nil {
 		logger.Error("Failed to create management-cluster Kubernetes client", "error", err)
 		os.Exit(1)
+	}
+	if err := machinerelease.CheckCRDs(ctx, managementK8sClient); err != nil {
+		logger.Error("Failed the release CRD startup check", "error", err)
+		os.Exit(1)
+	}
+	if cfg.ReferencedReleaseCheckEnabled {
+		if err := machinerelease.CheckReferencedReleases(ctx, dbInstance, managementK8sClient); err != nil {
+			logger.Error("Failed the referenced-release startup check", "error", err)
+			os.Exit(1)
+		}
 	}
 
 	controllerRuntimeLogger := logger.With("logger", "controller-runtime")
