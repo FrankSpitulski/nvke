@@ -157,6 +157,27 @@ When modifying the API:
 
 **Do not manually edit generated files** - they will be overwritten.
 
+Two gates cover a spec change, and they answer different questions:
+
+```bash
+make generate-check    # the committed *.gen.go match api/openapi.yaml
+make api-compat-check  # the openapi.yaml change does not break an existing client
+```
+
+A removed field or a newly required property passes the first and fails the
+second. `api-compat-check` compares against the newest published
+`controller/api/vX.Y.Z` tag and is waived, never disabled, per change in
+`api/openapi-compat-waivers.yaml`.
+
+Removing an operation is the exception, and the one agents get wrong: do not
+write a waiver for it. Mark it `deprecated: true` with an `x-sunset` date at
+least 180 days out, ship that, and remove it once the date has passed — the gate
+lets that through on its own. A deprecation with no `x-sunset`, or one dated
+sooner than that, fails.
+
+See [`api/README.md`](api/README.md#compatibility) and
+[`hack/openapi-compat/README.md`](hack/openapi-compat/README.md).
+
 ## Database
 
 - ORM: [Bun](https://bun.uptrace.dev/)
@@ -300,6 +321,7 @@ JSON under `deploy/dashboards/` is imported by operators (see [deploy/dashboards
 - Ensure all `TODO:` comments are resolved
 - Add license headers: `make license`
 - Regenerate API code if OpenAPI spec changed: `make generate`
+- Check the spec change is backward compatible: `make api-compat-check`
 
 ### PR Format
 - Use a Conventional Commit title, such as `fix: handle node reset timeout`
