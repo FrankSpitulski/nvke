@@ -26,10 +26,11 @@ cd nke
 | [nerdctl](https://github.com/containerd/nerdctl) with containerd | Real Site | The bootstrap drives kind and pulls images through it; no Docker daemon |
 | GNU Make 4.0+ | all | macOS ships 3.81; `brew install make` gives `gmake` |
 | [temporal](https://docs.temporal.io/cli) | API Only | `brew install temporal`, or `curl -sSf https://temporal.download/cli.sh \| sh` |
-| [kind](https://kind.sigs.k8s.io/), `kubectl` | API Only, Mock NICo | |
+| [kind](https://kind.sigs.k8s.io/), `kubectl` | all | Real Site: `nkectl bootstrap site` runs both |
 | `jq` | Mock NICo | `dev-check` exits 1 without it |
-| [helm](https://helm.sh/), [tilt](https://docs.tilt.dev/install.html) | Mock NICo | |
-| [clusterctl](https://cluster-api.sigs.k8s.io/user/quick-start) | Mock NICo | `make capd-up` installs it into `controller/.local/bin` |
+| [helm](https://helm.sh/) | Mock NICo, Real Site | `nkectl bootstrap site` runs it for the Postgres, Temporal, SPIRE and CWE releases |
+| [tilt](https://docs.tilt.dev/install.html) | Mock NICo | |
+| [clusterctl](https://cluster-api.sigs.k8s.io/user/quick-start) | Mock NICo, Real Site | `make capd-up` installs it into `controller/.local/bin`; `nkectl bootstrap site` runs `clusterctl init` |
 | `dpkg-deb` | Mock NICo (macOS) | `brew install dpkg`; the bundle mirror build needs it |
 | [Flox](https://flox.dev/) | optional | Pins the whole toolchain; never required |
 
@@ -229,7 +230,7 @@ run the bootstrap on.** Use a floating IP rather than the node's own address, so
 it still resolves after bootstrapping completes.
 
 **Network.** CWE must reach each node on **15005** and the new API server on
-**6443**, and **30081** on nodes with a TPM thumbprint.
+**6443**; nodes with a TPM thumbprint must reach this machine on **30081**, the fixed NodePort `nkectl` publishes the bootstrap SPIRE server on.
 
 **Run the bootstrap on one of the provisioned bare metal machines**, under
 `tmux` — not a laptop that sleeps. `nkectl` runs directly on that node; there is
@@ -239,9 +240,9 @@ no jump box.
 every bootstrap image through nerdctl, and exports
 `KIND_EXPERIMENTAL_PROVIDER=nerdctl` on every kind call itself. **Docker is not
 supported for bootstrapping** — the machine needs no Docker daemon. **Do not run
-nerdctl rootless.** The bootstrap sets up the kind node's networking — an
-iptables rule and a bridge address — which needs a rootful nerdctl; run it as
-root.
+nerdctl rootless.** `nkectl` and kind's nerdctl provider both exec a bare
+`nerdctl` with no `sudo`, and rootful is the only configuration CI exercises;
+run it as root.
 
 **A registry login** on that machine: `nerdctl login nvcr.io`. The images are
 pulled with nerdctl.
@@ -255,7 +256,16 @@ looks healthy and provisions nothing. See
 
 ```bash
 make -C cli build      # not `go build` — that leaves the Cluster API version unset
+export PATH="$PWD/cli/bin:$PATH"   # the binary lands in cli/bin, not on PATH
 ```
+
+The rest of this path calls `nkectl` unqualified, so either export the path as above
+or invoke it as `./cli/bin/nkectl`.
+
+`nkectl` also shells out to `helm`, `kubectl` and `clusterctl` during bootstrap, on
+top of the nerdctl and containerd below. Only the container runtime is checked before
+the run starts, so a missing one of the other three surfaces mid-bootstrap, after the
+Kind cluster is already up.
 
 ### 2. Generate the site spec
 
@@ -332,8 +342,16 @@ It creates a throwaway kind cluster, installs Postgres, Temporal, SPIRE, CAPI an
 CWE into it, builds the site cluster on your hosts through `nke-agent`, and
 writes `my-site.kubeconfig`. Allow 30 minutes.
 
-On failure it writes `cluster-diagnostics/` first, and **leaves the seed cluster
-behind** — delete it before retrying, or the next run stops on a name clash:
+Allow longer than that and raise `--timeout` (default `30m`) if the site is large —
+the command gives up on the provisioning wait when it expires.
+
+On failure it writes diagnostics to `cluster-diagnostics/` (override with
+`--diagnostics-dir`). It then **keeps the seed cluster only if the failure came after
+the site cluster was created**, or if you passed `--keep-bootstrap-cluster`; an earlier
+failure — a failed image pull, an unhealthy CWE — tears it down.
+When it is kept, `nkectl` prints the delete command. Run it before retrying, once
+anything you need from the seed cluster is saved: a leftover cluster makes the next
+run refuse to start, and its message leads with saving the etcd encryption key.
 
 ```bash
 KIND_EXPERIMENTAL_PROVIDER=nerdctl kind delete cluster --name nkectl-bootstrap
