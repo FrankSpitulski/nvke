@@ -30,7 +30,7 @@ import (
 	"github.com/dsx-ai-factory/nke/controller/api"
 	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/config"
 	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/cwe"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/environment"
+	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra/forge"
 	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube"
 	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
 	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nkectl"
@@ -454,12 +454,21 @@ func nicoForgeTenant() testSpec {
 		// machine booting an OS image over the network and installing
 		// packages, none of which a container does.
 		//
+		// Provision is 45 rather than the 90 it was. A tenant that comes up
+		// takes about 16 minutes, measured across the runs that have passed,
+		// so 90 was five times the work and the whole of it was spent
+		// whenever a node could not be provisioned: CWE retries forever, so
+		// nothing flips Provisioning to False and the deadline is the only
+		// thing that ends the wait. Two runs cost two hours each to report
+		// that the time ran out. The wait also gives up when the message
+		// stops changing, which ends a stuck one sooner than either number.
+		//
 		// Delete is 45 minutes because Forge takes 20 to 40 to actually
 		// release a machine, and the cluster is not gone until both of its
 		// machines are. Run 36051890151 failed the delete at 1800.306s
 		// against the 30 minutes this used to be, while the instances were
 		// still reporting Terminating.
-		options: nke.Options{Provision: 90 * time.Minute, Delete: 45 * time.Minute, Poll: 30 * time.Second},
+		options: nke.Options{Provision: 45 * time.Minute, Delete: 45 * time.Minute, Poll: 30 * time.Second},
 		// Provisioning only, because that is the path this lane exercises:
 		// a tenant is created on real hardware, its nodes reach Ready, and it
 		// is deleted. The rest assert against a running cluster and belong to
@@ -711,7 +720,7 @@ func tenantSubtree(resolve managementResolver) func(spec testSpec) {
 			// cannot fit between -ginkgo.timeout and the go-test backstop --
 			// and that backstop panics without unwinding, which leaks the
 			// site's instance. See the three nested timeouts in
-			// forge-site-controller-e2e.yml.
+			// site-and-tenant-e2e.yml.
 		}, NodeTimeout(15*time.Minute))
 	}
 }
@@ -995,15 +1004,22 @@ func (t *tenantTest) initCluster(ctx context.Context, b testSpec) {
 
 	By("Waiting for the tenant cluster to be provisioned")
 	start := time.Now()
-	cluster, err = t.lifecycle.WaitForClusterReady(ctx, cluster.ID)
+	// The id, not cluster.ID: WaitForClusterReady returns a nil cluster when
+	// it expires, and assigning that over the one just created leaves the
+	// collector below dereferencing nil. A timed-out provision then panicked
+	// instead of reporting, which cost the diagnostics the wait exists to
+	// produce.
+	id := cluster.ID
+	ready, err := t.lifecycle.WaitForClusterReady(ctx, id)
 	if err != nil {
 		// Here rather than in a post-create spec: when this wait expires the
 		// specs that would have reported anything never run, which is how a
 		// failed provision produced a log naming no node at all. Detached
 		// because the context that just expired is the one that failed.
-		t.collectDiagnostics(context.WithoutCancel(ctx), cluster.ID)
+		t.collectDiagnostics(context.WithoutCancel(ctx), id)
 	}
 	Expect(err).NotTo(HaveOccurred(), "should provision the cluster")
+	cluster = ready
 	t.log.Info("Cluster provisioned", "name", cluster.Name, "duration", time.Since(start).Round(time.Second).String())
 
 	t.cluster = cluster
@@ -1411,22 +1427,22 @@ func builtControlPlaneInstanceType(spec nke.ClusterSpec) string {
 }
 
 func TestUnit_ForgeControlPlaneConfig(t *testing.T) {
-	cpu := environment.ForgeInstanceType{Name: "cpu", ID: uuid.NewString()}
+	cpu := forge.InstanceType{Name: "cpu", ID: uuid.NewString()}
 	subnet, prefix, keys := uuid.NewString(), uuid.NewString(), uuid.NewString()
 
 	tests := map[string]struct {
-		site                      environment.ForgeSite
+		site                      forge.Site
 		wantSubnets, wantPrefixes []string
 	}{
 		// az61: attaches by subnet.
 		"subnet site": {
-			site:        environment.ForgeSite{ID: uuid.NewString(), VpcID: uuid.NewString(), SubnetID: subnet, SSHKeyGroupID: keys},
+			site:        forge.Site{ID: uuid.NewString(), VpcID: uuid.NewString(), SubnetID: subnet, SSHKeyGroupID: keys},
 			wantSubnets: []string{subnet},
 		},
 		// ytl: attaches by VPC prefix and has no subnet, which must stay empty
 		// rather than become [""].
 		"VPC prefix site": {
-			site:         environment.ForgeSite{ID: uuid.NewString(), VpcID: uuid.NewString(), VpcPrefixID: prefix, SSHKeyGroupID: keys},
+			site:         forge.Site{ID: uuid.NewString(), VpcID: uuid.NewString(), VpcPrefixID: prefix, SSHKeyGroupID: keys},
 			wantPrefixes: []string{prefix},
 		},
 	}
@@ -1548,7 +1564,7 @@ func nicoForgeSpec(_ config.Config, name string, shape clusterShape) nke.Cluster
 
 	env, err := runEnvironment()
 	Expect(err).NotTo(HaveOccurred(), "should load the environment named by -e2e.environment")
-	forge, err := env.Forge()
+	forgeEnv, err := forge.Decode(env.Infrastructure)
 	Expect(err).NotTo(HaveOccurred(), "should read it as a Forge declaration")
 	capabilities, err := runCapabilities()
 	Expect(err).NotTo(HaveOccurred(), "should parse -e2e.capabilities")
@@ -1566,7 +1582,7 @@ func nicoForgeSpec(_ config.Config, name string, shape clusterShape) nke.Cluster
 	// the lane offers. A pool that names its own InstanceTypeID still
 	// overrides it, though its payloads follow the role rather than the pool,
 	// so an override that changes architecture would boot the wrong image.
-	selection, err := forge.Resolve(capabilities)
+	selection, err := forgeEnv.Resolve(capabilities)
 	Expect(err).NotTo(HaveOccurred(), "should resolve a site offering the requested shapes")
 	site := selection.Site
 	controlPlaneType, workerType := selection.CPU, selection.WorkerType()
@@ -1586,7 +1602,7 @@ func nicoForgeSpec(_ config.Config, name string, shape clusterShape) nke.Cluster
 		// OVN, matching the nke-cni-ovn-images package the pre-kubeadm
 		// commands install. Calico here would install one CNI and run another.
 		CNIPlugin:    cmp.Or(shape.cniPlugin, CNIPluginOVN),
-		OrgID:        forge.Org.ID,
+		OrgID:        forgeEnv.Org.ID,
 		SiteID:       site.ID,
 		VpcID:        site.VpcID,
 		NodePayloads: payloads,
@@ -1613,8 +1629,8 @@ func nicoForgeSpec(_ config.Config, name string, shape clusterShape) nke.Cluster
 // which CWE reads as "no cluster-level control plane".
 func forgeControlPlaneConfig(
 	cfg *nke.ControlPlaneConfigSpec,
-	site environment.ForgeSite,
-	instanceType environment.ForgeInstanceType,
+	site forge.Site,
+	instanceType forge.InstanceType,
 ) *nke.ControlPlaneConfigSpec {
 	if cfg == nil {
 		return nil
@@ -1681,8 +1697,8 @@ func forgeRolePayloads(archs roleArchs, kubernetesVersion string) (*nke.RolePayl
 func forgeNodePoolSpecs(
 	pools []nke.NodePoolSpec,
 	defaultName, defaultNodeNamePrefix string,
-	site environment.ForgeSite,
-	instanceType environment.ForgeInstanceType,
+	site forge.Site,
+	instanceType forge.InstanceType,
 ) []nke.NodePoolSpec {
 	out := make([]nke.NodePoolSpec, 0, len(pools))
 	for _, pool := range pools {
