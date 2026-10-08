@@ -7,11 +7,18 @@ package dex
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,53 +28,14 @@ import (
 	"time"
 )
 
-func TestDexPasswordGrantAndVerification(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
-	defer cancel()
-	requireCommand(t, "docker")
-	dir := t.TempDir()
-	port := reserveLoopbackPort(t)
-	issuer := "https://127.0.0.1:" + strconv.Itoa(port)
-	runtime, config, cert, key, err := NewRuntime(issuer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeRuntimeFile(t, dir, "config.yaml", []byte(config))
-	writeRuntimeFile(t, dir, "tls.crt", cert)
-	writeRuntimeFile(t, dir, "tls.key", key)
-	name := fmt.Sprintf("nke-oidc-test-dex-%d", port)
-	startDex(t, ctx, name, port, dir)
-	client := tlsClient(t, runtime.CAPEM)
-	waitForDex(t, ctx, client, issuer)
-	token, err := AcquireIDToken(ctx, client, runtime)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := VerifyRuntimeIDToken(ctx, client, token, runtime); err != nil {
-		t.Fatal(err)
-	}
-	runtime.Password = "wrong-password"
-	if _, err := AcquireIDToken(ctx, client, runtime); err == nil {
-		t.Fatal("wrong password acquired a token")
-	}
-}
+// dexImage pins Dex v2.45.1 by manifest digest.
+const dexImage = "ghcr.io/dexidp/dex@sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462"
 
-func TestNewRuntimeCreatesIndependentRuntimeMaterial(t *testing.T) {
-	runtime, config, cert, key, err := NewRuntime("https://127.0.0.1:5556")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtime.Username == "" || runtime.Password == "" || runtime.ClientSecret == "" || runtime.CAPEM == "" {
-		t.Fatal("NewRuntime returned incomplete runtime material")
-	}
-	if len(cert) == 0 || len(key) == 0 {
-		t.Fatal("NewRuntime returned incomplete TLS material")
-	}
-	for _, value := range []string{runtime.Issuer, runtime.Username, runtime.ClientID, runtime.ClientSecret} {
-		if !strings.Contains(config, value) {
-			t.Fatal("Dex config omitted generated runtime material")
-		}
-	}
+type dexRuntime struct {
+	ClientID     string
+	ClientSecret string
+	Issuer       string
+	CAPEM        string
 }
 
 func requireCommand(t *testing.T, command string) {
@@ -79,7 +47,8 @@ func requireCommand(t *testing.T, command string) {
 
 func reserveLoopbackPort(t *testing.T) int {
 	t.Helper()
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(t.Context(), "tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,13 +81,13 @@ func startDex(t *testing.T, ctx context.Context, name string, port int, director
 			t.Error("Dex container ID file is empty")
 			return
 		}
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
 		if err := exec.CommandContext(cleanupCtx, "docker", "rm", "-f", string(containerID)).Run(); err != nil {
 			t.Errorf("remove Dex container: %v", err)
 		}
 	})
-	cmd := exec.CommandContext(ctx, "docker", "run", "--detach", "--cidfile", cidFile, "--name", name, "--user", user, "-p", fmt.Sprintf("127.0.0.1:%d:5556", port), "-v", directory+":/runtime:ro", "--entrypoint", "dex", Image, "serve", "/runtime/config.yaml")
+	cmd := exec.CommandContext(ctx, "docker", "run", "--detach", "--cidfile", cidFile, "--name", name, "--user", user, "-p", fmt.Sprintf("127.0.0.1:%d:5556", port), "-v", directory+":/runtime:ro", "--entrypoint", "dex", dexImage, "serve", "/runtime/config.yaml")
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -162,4 +131,51 @@ func waitForDex(t *testing.T, ctx context.Context, client *http.Client, issuer s
 		case <-ticker.C:
 		}
 	}
+}
+
+func randomText() (string, error) {
+	const length = 32
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("read random bytes: %w", err)
+	}
+	return fmt.Sprintf("%x", bytes)[:length], nil
+}
+
+func certificate(rawIssuer string) ([]byte, []byte, []byte, error) {
+	issuer, err := url.Parse(rawIssuer)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("parse issuer: %w", err)
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("generate TLS key: %w", err)
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("generate certificate serial: %w", err)
+	}
+	template := x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: issuer.Hostname()},
+		NotBefore:    time.Now().Add(-time.Minute),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{issuer.Hostname()},
+	}
+	if ip := net.ParseIP(issuer.Hostname()); ip != nil {
+		template.IPAddresses = []net.IP{ip}
+		template.DNSNames = nil
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create certificate: %w", err)
+	}
+	cert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	privateKey, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("marshal TLS key: %w", err)
+	}
+	return cert, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: privateKey}), cert, nil
 }

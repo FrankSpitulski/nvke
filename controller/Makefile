@@ -213,15 +213,13 @@ DEX_TEST_DIR := ./hack/oidc-test-dex
 DEX_IMAGE := ghcr.io/dexidp/dex@sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462
 
 .PHONY: test-oidc-dex
-test-oidc-dex: ## Run the self-contained Dex password-grant smoke test through local Docker.
+test-oidc-dex: ## Test NKE operator authentication with Dex-issued tokens through local Docker.
 	@command -v docker >/dev/null || { echo "ERROR: Docker is required for test-oidc-dex."; exit 1; }
 	@docker info >/dev/null 2>&1 || { echo "ERROR: Docker cannot reach its daemon."; exit 1; }
-	@command -v python3 >/dev/null || { echo "ERROR: Python 3 with bcrypt is required for test-oidc-dex."; exit 1; }
-	@python3 -c 'import bcrypt' >/dev/null 2>&1 || { echo "ERROR: Python bcrypt is required for test-oidc-dex."; exit 1; }
 	@docker image inspect "$(DEX_IMAGE)" >/dev/null 2>&1 || { echo "ERROR: pull $(DEX_IMAGE) before running test-oidc-dex."; exit 1; }
-	@selected="$$(go test -tags=oidc_dex_integration -skip '^$$' -list '^TestDexPasswordGrantAndVerification$$' $(DEX_TEST_DIR) | sed -n '/^TestDexPasswordGrantAndVerification$$/p')"; \
-		test "$$selected" = "TestDexPasswordGrantAndVerification" || { echo "ERROR: Dex smoke test selection is empty or changed: $$selected"; exit 1; }
-	go test -tags=oidc_dex_integration -skip '^$$' -count=1 -run '^TestDexPasswordGrantAndVerification$$' $(DEX_TEST_DIR)
+	@selected="$$(go test -tags=oidc_dex_integration -skip '^$$' -list '^TestNKEAuthenticationWithDexTokens$$' $(DEX_TEST_DIR) | sed -n '/^TestNKEAuthenticationWithDexTokens$$/p')"; \
+		test "$$selected" = "TestNKEAuthenticationWithDexTokens" || { echo "ERROR: NKE authentication test selection is empty or changed: $$selected"; exit 1; }
+	go test -tags=oidc_dex_integration -skip '^$$' -count=1 -v -run '^TestNKEAuthenticationWithDexTokens$$' $(DEX_TEST_DIR)
 
 .PHONY: test-health
 test-health: ## Run the health-labeled subset of the test/e2e suite against the cluster in KUBECONFIG.
