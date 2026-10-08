@@ -185,9 +185,21 @@ ensure-capd-image:
 # workspace vendor tree.
 CAPI_PROVISIONED_IMAGE ?= cluster-api-provider-provisioned:latest
 # The tags below are the defaults `bootstrap site` uses when neither the image
-# flags nor NKECTL_CWE_IMAGE / NKECTL_CAPI_PROVISIONED_IMAGE name an image; the
+# flags nor NKECTL_CONTROLLER_IMAGE / NKECTL_CAPI_PROVISIONED_IMAGE name an image; the
 # bootstrap manifest pins them.
-CWE_IMAGE ?= nke-controller:latest
+# CONTROLLER_IMAGE is the tag `images` gives the controller image. CWE_IMAGE
+# is its deprecated name. When CONTROLLER_IMAGE is unset or empty and
+# CWE_IMAGE is set, `images` uses CWE_IMAGE and make prints a warning. When
+# both are set, CONTROLLER_IMAGE wins and there is no warning. `override` is
+# needed because an empty CONTROLLER_IMAGE= on the command line otherwise
+# blocks the assignment. CWE_IMAGE support is removed in a later release.
+ifneq ($(CWE_IMAGE),)
+ifeq ($(CONTROLLER_IMAGE),)
+$(warning CWE_IMAGE is deprecated and will be removed in a future release; set CONTROLLER_IMAGE instead)
+override CONTROLLER_IMAGE := $(CWE_IMAGE)
+endif
+endif
+CONTROLLER_IMAGE ?= nke-controller:latest
 
 # Set by cli/e2e/bootstrap/run.sh to point the images' Docker Hub bases at a
 # mirror; see dockerhub_build_args in controller/hack/backend-e2e-lib.sh.
@@ -200,12 +212,12 @@ ensure-provisioned-provider-image:
 
 # The controller image records the commit it was built from; the Dockerfile
 # defaults both to v0.0.0 otherwise.
-CWE_IMAGE_BUILD_ARGS = --build-arg BUILD_VERSION=$(NKECTL_VERSION) --build-arg GIT_VERSION=$(NKECTL_COMMIT)
+CONTROLLER_IMAGE_BUILD_ARGS = --build-arg BUILD_VERSION=$(NKECTL_VERSION) --build-arg GIT_VERSION=$(NKECTL_COMMIT)
 
 # `images` always rebuilds. An `ensure-*` target keeps a stale image after a
 # `git pull`; this target does not. BuildKit's cache keeps a no-op rebuild cheap.
 images: ## Build the two images `bootstrap site` side-loads by default.
-	nerdctl build -t $(CWE_IMAGE) $(CWE_IMAGE_BUILD_ARGS) $(DOCKERHUB_MIRROR_BUILD_ARGS) -f ../controller/Dockerfile ..
+	nerdctl build -t $(CONTROLLER_IMAGE) $(CONTROLLER_IMAGE_BUILD_ARGS) $(DOCKERHUB_MIRROR_BUILD_ARGS) -f ../controller/Dockerfile ..
 	nerdctl build -t $(CAPI_PROVISIONED_IMAGE) $(DOCKERHUB_MIRROR_BUILD_ARGS) -f ../cluster-api-provider-provisioned/Dockerfile ..
 
 nodes-up: ensure-capd-image
