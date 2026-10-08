@@ -77,6 +77,24 @@ type MachineCreateDeps struct {
 	SeedControlPlaneInstanceType func(ctx context.Context, node db.Node, nodePool db.NodePool) (db.NodePool, error)
 }
 
+// MachineAdvanceDeps bundles what Activities supplies so a provider client's
+// TryAdvanceStuckMachine can run. Separate from MachineCreateDeps because it
+// serves a different caller (waitForCAPIMachineReady, not
+// CreateCAPIInfraMachineForNode) with a much smaller set of needs — just the
+// k8s client and the one DB-backed lookup only Activities can perform.
+type MachineAdvanceDeps struct {
+	K8sClient client.Client
+
+	// ControlPlaneConfigSnapshot returns the control-plane-config snapshot
+	// pinned to node's ControlPlaneConfigurationID. Only called for a
+	// control-plane node that carries one — the caller checks eligibility
+	// itself, since that only needs fields already on db.Node. Interpreting
+	// the snapshot's contents (e.g. a NICo instance-type preference) is the
+	// caller's job too; this is just the DB-backed fetch only Activities can
+	// perform.
+	ControlPlaneConfigSnapshot func(ctx context.Context, node db.Node) (db.ControlPlaneConfigSpec, error)
+}
+
 // BuildBootstrapSecret builds the bootstrap data Secret for a node. Identical
 // for every provider — the content differs, not the shape.
 func BuildBootstrapSecret(node db.Node, cluster db.Cluster, namespace, userData string) *corev1.Secret {
