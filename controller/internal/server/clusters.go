@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -378,6 +379,9 @@ func (s *clusterService) ValidateCreateClusterRequestFields(req *api.CreateClust
 		if err := naming.ValidateNodeNamePrefix(req.Name, nodePool.NodeNamePrefix); err != nil {
 			return fmt.Errorf("invalid node pool %q: %w", nodePool.Name, err)
 		}
+		if nodePool.ControlPlane && len(nodePool.NodeTaints) > 0 {
+			return fmt.Errorf("invalid node pool %q: nodeTaints are not allowed on a control-plane pool", nodePool.Name)
+		}
 	}
 
 	return nil
@@ -419,6 +423,7 @@ func (s *clusterService) createInitialNodePools(ctx context.Context, tx db.Tx, c
 			SystemReservedMemory:        nodePoolConfig.SystemReservedMemory,
 			KubeReservedMemory:          nodePoolConfig.KubeReservedMemory,
 			NodeLabels:                  nodePoolConfig.NodeLabels,
+			NodeTaints:                  nodePoolConfig.NodeTaints,
 			ControlPlane:                nodePoolConfig.ControlPlane,
 			DesiredNodeCount:            nodePoolConfig.DesiredNodeCount,
 			Description:                 nodePoolConfig.Description,
@@ -824,7 +829,6 @@ func (s *clusterService) applyClusterControlPlaneConfigUpdate(ctx context.Contex
 func hasClusterLevelControlPlaneUpdate(req *api.UpdateClusterControlPlaneConfig) bool {
 	if req.DesiredCount != nil ||
 		req.SystemReservedMemory != nil ||
-		req.NodeLabels != nil ||
 		req.TeleportEnabled != nil ||
 		req.Infra != nil {
 		return true
@@ -874,9 +878,6 @@ func (s *clusterService) applyClusterLevelControlPlaneSpecUpdate(
 
 	if req.SystemReservedMemory != nil {
 		spec.SystemReservedMemory = *req.SystemReservedMemory
-	}
-	if req.NodeLabels != nil {
-		spec.NodeLabels = append([]string(nil), *req.NodeLabels...)
 	}
 	if req.TeleportEnabled != nil {
 		spec.TeleportEnabled = *req.TeleportEnabled
@@ -992,7 +993,7 @@ func apiControlPlaneConfigFromDB(cfg db.ControlPlaneConfig) *api.ControlPlaneCon
 		MaxSurge:                    &maxSurge,
 		ProvisioningMonitorDisabled: &provisioningMonitorDisabled,
 		SystemReservedMemory:        cfg.SystemReservedMemory,
-		NodeLabels:                  append([]string(nil), cfg.NodeLabels...),
+		NodeLabels:                  maps.Clone(cfg.NodeLabels),
 		TeleportEnabled:             &teleportEnabled,
 		Nico:                        apiNicoControlPlaneProviderFromDB(cfg.Nico),
 		Infra:                       apiInfraControlPlaneProviderFromDB(cfg.Capi),
