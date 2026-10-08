@@ -108,6 +108,9 @@ func (s *nodeService) DeleteNode(ctx context.Context, req api.DeleteNodeRequestO
 		if errors.As(err, &quorumFloor) {
 			return api.DeleteNode400JSONResponse{Message: quorumFloor.Error()}, nil
 		}
+		if errors.Is(err, db.ErrControlPlaneMutationBlocked) {
+			return api.DeleteNode409JSONResponse{Message: err.Error()}, nil
+		}
 		if errors.Is(err, nodes.ErrLastJoinedControlPlaneNode) {
 			return api.DeleteNode400JSONResponse{Message: err.Error()}, nil
 		}
