@@ -518,8 +518,8 @@ func TestSyncClusterControlPlaneConfigFromCPNodePools_NoActiveCPPools(t *testing
 // Note: GetClusterForUpdate uses SQL SELECT ... FOR UPDATE which is
 // Postgres-only; SQLite (used by SetupDB) rejects the syntax. Matches the
 // existing GetNodePoolForUpdate pattern — no SQLite unit test. The behavior
-// is exercised via MockTx in server-layer tests and end-to-end via the
-// CAPD/Tilt local stack.
+// is exercised via MockTx in server-layer tests and against PostgreSQL in
+// e2e/gofail/cluster_condition_locking_test.go.
 
 func TestSyncClusterControlPlaneConfigFromCPNodePools_PreservesClusterOverrides(t *testing.T) {
 	t.Parallel()
