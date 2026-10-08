@@ -6,6 +6,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -475,16 +476,6 @@ func TestInstallCNIPluginSelection(t *testing.T) {
 			cniPluginName:  "calico",
 			expectedPlugin: "calico",
 		},
-		{
-			name:           "empty defaults to calico",
-			cniPluginName:  "",
-			expectedPlugin: "calico",
-		},
-		{
-			name:           "unknown defaults to calico",
-			cniPluginName:  "unknown",
-			expectedPlugin: "calico",
-		},
 	}
 
 	for _, tc := range tests {
@@ -499,10 +490,20 @@ func TestInstallCNIPluginSelection(t *testing.T) {
 			case "tigera", "calico":
 				expected = "calico"
 			default:
-				expected = "calico"
+				t.Fatalf("plugin name %q is not a known installCNIPlugin selection", tc.cniPluginName)
 			}
 			assert.Equal(t, tc.expectedPlugin, expected)
 		})
+	}
+}
+
+func TestInstallCNIPluginRejectsUnknownName(t *testing.T) {
+	server := &NodeAgentServer{}
+	for _, name := range []string{"", "flannel"} {
+		req := &pb.InstallCNIPluginRequest{PluginName: name}
+		err := server.installCNIPlugin(req)
+		require.EqualError(t, err, fmt.Sprintf("unsupported CNI plugin %q", name))
+		assert.Equal(t, name, req.GetPluginName())
 	}
 }
 
@@ -667,10 +668,22 @@ func TestOVNKubernetesCNIConfig(t *testing.T) {
 		assert.Equal(t, "--gateway-interface=custom0 --allow-no-uplink", config[ovnGatewayOptsHelmValue])
 	})
 
-	t.Run("system datapath preserves the request", func(t *testing.T) {
+	t.Run("kernel container datapath selects a dummy gateway bridge", func(t *testing.T) {
 		request := map[string]string{"global.image.pullPolicy": "Never"}
 
 		config := ovnKubernetesCNIConfig(request, "system")
+
+		assert.Equal(t, ovnDummyGatewayBridgeEnabled, config[ovnDummyGatewayBridgeHelmValue])
+		assert.Equal(t, ovnLocalGatewayMode, config[ovnGatewayModeHelmValue])
+		assert.Equal(t, ovnDummyGatewayOpts, config[ovnGatewayOptsHelmValue])
+		assert.Equal(t, "Never", config["global.image.pullPolicy"])
+		assert.NotContains(t, request, ovnDummyGatewayBridgeHelmValue)
+	})
+
+	t.Run("empty datapath preserves the request", func(t *testing.T) {
+		request := map[string]string{"global.image.pullPolicy": "Never"}
+
+		config := ovnKubernetesCNIConfig(request, "")
 
 		assert.Equal(t, request, config)
 		assert.NotContains(t, config, ovnDummyGatewayBridgeHelmValue)

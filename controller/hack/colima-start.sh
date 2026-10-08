@@ -44,10 +44,10 @@ setup_failed() {
     echo "colima-start: the VM is NOT ready for CWE local development." >&2
     echo "" >&2
     echo "If Docker did not come up:" >&2
-    echo "  colima ssh -- sudo systemctl reset-failed docker.service && colima ssh -- sudo systemctl start docker.service" >&2
-    echo "  colima ssh -- sudo journalctl -u docker.service -n 120 --no-pager" >&2
+    echo "  colima ssh --profile ${COLIMA_PROFILE} -- sudo systemctl reset-failed docker.service && colima ssh --profile ${COLIMA_PROFILE} -- sudo systemctl start docker.service" >&2
+    echo "  colima ssh --profile ${COLIMA_PROFILE} -- sudo journalctl -u docker.service -n 120 --no-pager" >&2
     echo "If /dev/vtpmx is missing, the vTPM proxy module is not loaded:" >&2
-    echo "  colima ssh -- modinfo tpm_vtpm_proxy && colima ssh -- ls -l /dev/vtpmx" >&2
+    echo "  colima ssh --profile ${COLIMA_PROFILE} -- modinfo tpm_vtpm_proxy && colima ssh --profile ${COLIMA_PROFILE} -- ls -l /dev/vtpmx" >&2
 }
 
 # Check steps individually: bash ignores `set -e` where a command's status is
@@ -62,7 +62,7 @@ run_step() {
 }
 
 configure_colima_vm() {
-    colima ssh -- sudo sh -c "
+    colima ssh --profile "${COLIMA_PROFILE}" -- sudo sh -c "
 set -eu
 
 cat >/etc/sysctl.d/99-capi.conf <<EOF
@@ -106,31 +106,11 @@ fi
 }
 
 ensure_colima_vtpm_proxy() {
-    colima ssh -- sudo sh -c "
-set -eu
-
-# swtpm --vtpm-proxy needs the Linux vTPM proxy driver to expose /dev/vtpmx.
-# Some Colima kernels ship the module in linux-modules-extra instead of the base
-# image, so install that package only when the module is absent.
-release=\$(uname -r)
-vtpm_module=tpm_vtpm_proxy
-modules_extra_pkg=linux-modules-extra-\${release}
-
-if ! modinfo \"\${vtpm_module}\" >/dev/null 2>&1; then
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y \"\${modules_extra_pkg}\"
-fi
-
-# Persist the module load so subsequent Colima boots still expose /dev/vtpmx
-# before the local node image asks the kernel for a vTPM-backed TPM device.
-install -d /etc/modules-load.d
-cat >/etc/modules-load.d/99-capi-vtpm.conf <<EOF
-\${vtpm_module}
-EOF
-
-modprobe \"\${vtpm_module}\"
-"
+    # Same helper the Linux host runs. Docker's kernel here is the Colima VM.
+    local script
+    script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ensure-vtpm-proxy.sh"
+    [[ -f "${script}" ]] || fail "missing ${script}"
+    colima ssh --profile "${COLIMA_PROFILE}" -- sudo bash -s <"${script}"
 }
 
 # Colima ignores --cpu and --memory when the profile already exists, so a VM
@@ -143,13 +123,13 @@ verify_colima_size() {
     # The VM reports a little less RAM than it was given, hence the slack.
     if (( cpus < COLIMA_CPUS || mem_gib + 2 < COLIMA_MEMORY_GIB )); then
         echo "colima-start: profile ${COLIMA_PROFILE} has ${cpus} CPUs and ${mem_gib} GiB, not the ${COLIMA_CPUS} CPUs and ${COLIMA_MEMORY_GIB} GiB requested." >&2
-        echo "colima-start: Colima cannot resize a VM that exists. Run: colima stop && colima start --cpu ${COLIMA_CPUS} --memory ${COLIMA_MEMORY_GIB} --disk ${COLIMA_DISK_GIB} --profile ${COLIMA_PROFILE}" >&2
+        echo "colima-start: Colima cannot resize a VM that exists. Run: colima stop --profile ${COLIMA_PROFILE} && colima start --cpu ${COLIMA_CPUS} --memory ${COLIMA_MEMORY_GIB} --disk ${COLIMA_DISK_GIB} --profile ${COLIMA_PROFILE}" >&2
         return 1
     fi
 }
 
 verify_colima_vm() {
-    colima ssh -- sh -lc "
+    colima ssh --profile "${COLIMA_PROFILE}" -- sh -lc "
 set -eu
 # Fail fast on the exact VM-side contract the local node image depends on:
 # tuned limits, a running Docker daemon, and /dev/vtpmx from the vTPM proxy.
@@ -191,7 +171,7 @@ main() {
     echo "Set DOCKER_HOST in your shell before running kind or tilt:"
     echo "  export DOCKER_HOST=${docker_host}"
     echo ""
-    echo "To stop Colima: colima stop"
+    echo "To stop Colima: colima stop --profile ${COLIMA_PROFILE}"
 }
 
 main "$@"

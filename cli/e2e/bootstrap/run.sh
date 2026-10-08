@@ -328,13 +328,16 @@ collect_diagnostics() {
 
 # ── Stage 1: fake nodes ──────────────────────────────────────────────────
 
-log "building the Calico manifests package for post-init CNI"
-BUNDLE_ARCH="$(go env GOARCH)" \
-  bash "${CLI_DIR}/../controller/hack/ci/prepare-capd-bundles.sh" "${CNI_BUNDLE_DIR}"
-CAPD_CNI_MANIFESTS_DEB_PATH="${CNI_BUNDLE_DIR}/nke-cni-calico-manifests-3.30.1_3.30.1_all.deb"
-export CAPD_CNI_MANIFESTS_DEB_PATH
-if [ ! -f "${CAPD_CNI_MANIFESTS_DEB_PATH}" ]; then
-  fail "no Calico manifests package was built"
+log "building the OVN packages for post-init CNI"
+BUNDLE_ARCH="$(go env GOARCH)"
+export BUNDLE_ARCH
+bash "${CLI_DIR}/../controller/hack/ci/prepare-capd-bundles.sh" "${CNI_BUNDLE_DIR}"
+CAPD_CNI_CHARTS_DEB_PATH="${CNI_BUNDLE_DIR}/nke-cni-ovn-charts-1.4.0_1.4.0_${BUNDLE_ARCH}.deb"
+CAPD_CNI_IMAGES_DEB_PATH="${CNI_BUNDLE_DIR}/nke-cni-ovn-images-1.4.0_1.4.0_${BUNDLE_ARCH}.deb"
+CAPD_HELM_DEB_PATH="${CNI_BUNDLE_DIR}/nke-e2e-helm.deb"
+export CAPD_CNI_CHARTS_DEB_PATH CAPD_CNI_IMAGES_DEB_PATH CAPD_HELM_DEB_PATH
+if [ ! -f "${CAPD_CNI_CHARTS_DEB_PATH}" ] || [ ! -f "${CAPD_CNI_IMAGES_DEB_PATH}" ] || [ ! -f "${CAPD_HELM_DEB_PATH}" ]; then
+  fail "OVN packages were not built"
 fi
 
 log "starting fake node containers"
@@ -354,31 +357,13 @@ log "PASS: all fake nodes are up with TPM and SPIRE services ready"
 # and have been retrying since. This stage only records their EK thumbprints in
 # the site spec and runs the command; the next one checks the agents got in.
 
-if [ ! -c /dev/vtpmx ]; then
-  log "loading the vTPM proxy driver (/dev/vtpmx)"
-  sudo modprobe tpm_vtpm_proxy 2>/dev/null || {
-    log "not loadable as shipped; it usually lives in linux-modules-extra"
-    sudo apt-get install -y "linux-modules-extra-$(uname -r)" >/dev/null 2>&1 || true
-    sudo modprobe tpm_vtpm_proxy 2>/dev/null || true
-  }
-fi
-if [ ! -c /dev/vtpmx ]; then
-  fail "no /dev/vtpmx. The fake nodes emulate a TPM with swtpm, which asks" \
-    "the kernel to allocate one through that device, so this suite cannot run" \
-    "without it. There are two causes, and the kernel config separates them:" \
-    "" \
-    "  grep CONFIG_TCG_VTPM_PROXY /boot/config-$(uname -r)" \
-    "" \
-    "=m       built, just not installed or loaded. Install" \
-    "         linux-modules-extra-$(uname -r) and modprobe tpm_vtpm_proxy." \
-    "         Persist it with:" \
-    "           echo tpm_vtpm_proxy | sudo tee /etc/modules-load.d/tpm_vtpm_proxy.conf" \
-    "not set  this kernel never built it, and no package will supply it." \
-    "         Ubuntu enables it on some flavours and versions and not others" \
-    "         (6.8-azure yes; 6.11-azure and 6.17-azure no), so this is an" \
-    "         ordinary outcome rather than a broken machine. Run on a host" \
-    "         whose kernel has it -- the CI workflow pins its runner for" \
-    "         exactly this reason."
+log "ensuring /dev/vtpmx for the fake nodes' swtpm"
+# The arm64 runner executes this job as root, and its sudoers file does not
+# grant root permission to use sudo. The script itself requires root.
+if [ "$(id -u)" -eq 0 ]; then
+  bash "${CLI_DIR}/../controller/hack/ensure-vtpm-proxy.sh"
+else
+  sudo bash "${CLI_DIR}/../controller/hack/ensure-vtpm-proxy.sh"
 fi
 
 log "building the provisioned CAPI provider image (${NKECTL_CAPI_PROVISIONED_IMAGE})"
@@ -427,8 +412,8 @@ RENDERED_SITESPEC="${SCRIPT_DIR}/.sitespec.rendered.yaml"
 "${NKECTL}" generate sitespec "${E2E_CLUSTER_NAME}" \
   --nodes "${NKECTL_E2E_HOSTS_CSV}" \
   --set cluster.k8sVersion=1.34.8 \
-  --set cluster.cniName=calico \
-  --set cluster.cniVersion=3.30.1 \
+  --set cluster.cniName=ovn-kubernetes \
+  --set cluster.cniVersion=1.4.0 \
   --set cluster.podCidr=192.168.0.0/16 \
   --set cluster.serviceCidr=10.96.0.0/12 \
   --set cluster.kubeletConfig.systemReservedMemory=512Mi \

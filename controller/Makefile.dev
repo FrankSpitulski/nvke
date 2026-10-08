@@ -380,6 +380,14 @@ dev-clusters: ## List available clusters via Teleport
 	@echo ""
 	@tsh kube ls
 
+.PHONY: host-up
+host-up: ## Prepare the Docker host for local clusters (Colima on macOS, vTPM proxy on Linux)
+	@case "$$(uname -s)" in \
+		Darwin) $(MAKE) colima-up ;; \
+		Linux) sudo ./hack/ensure-vtpm-proxy.sh ;; \
+		*) echo "host-up: unsupported OS $$(uname -s)" >&2; exit 1 ;; \
+	esac
+
 .PHONY: colima-up
 colima-up: ## Start Colima with CWE-friendly defaults
 	@./hack/colima-start.sh
@@ -428,10 +436,12 @@ BUNDLE_MIRROR_NAME ?= capd-bundle-mirror
 BUNDLE_MIRROR_VOLUME ?= capd-bundle-mirror-data
 
 .PHONY: bundle-mirror
-# The agent installs Calico by fetching a bundle through its index, so a node
+# The agent installs its CNI by fetching a bundle through its index, so a node
 # with no bundle server cannot bring CNI up. prepare-capd-bundles.sh builds that
 # bundle from checksum-verified public sources; serving it here beside the
-# registry caches means `make capd-up` needs no external bundle host.
+# registry caches means `make capd-up` needs no external bundle host. The
+# packages follow the Docker daemon's architecture. OVN image debs are not
+# architecture-independent, so an arm64 daemon cannot install an amd64 build.
 # e2e_start_bundle_mirror copies into a named volume rather than bind mounting,
 # because the daemon that resolves a bind path is not always this host.
 bundle-mirror: kind-up ## Serve the CAPD bundle, built from public sources, on the kind network
@@ -439,8 +449,15 @@ bundle-mirror: kind-up ## Serve the CAPD bundle, built from public sources, on t
 		echo "✅ Bundle mirror already running"; \
 	else \
 		echo "Building the CAPD bundle from public sources..."; \
+		server_arch="$$($(kind-docker-host) docker version --format '{{.Server.Arch}}')"; \
+		case "$$server_arch" in \
+			amd64|x86_64) bundle_arch=amd64 ;; \
+			arm64|aarch64) bundle_arch=arm64 ;; \
+			*) echo "unsupported docker server arch: $$server_arch" >&2; exit 1 ;; \
+		esac; \
 		rm -rf "$(CURDIR)/.local/bundles" && \
-		bash ./hack/ci/prepare-capd-bundles.sh "$(CURDIR)/.local/bundles" && \
+		CNI_PLUGIN="$${CNI_PLUGIN:-$(CNI_PLUGIN)}" BUNDLE_ARCH="$$bundle_arch" \
+			bash ./hack/ci/prepare-capd-bundles.sh "$(CURDIR)/.local/bundles" && \
 		$(kind-docker-host) bash -c '. hack/backend-e2e-lib.sh; \
 			e2e_stop_bundle_mirror $(BUNDLE_MIRROR_NAME) $(BUNDLE_MIRROR_VOLUME); \
 			e2e_start_bundle_mirror $(BUNDLE_MIRROR_NAME) $(BUNDLE_MIRROR_VOLUME) \
@@ -622,10 +639,13 @@ capd-upgrade: ## Rebuild CAPD node image for TARGET_VERSION and PATCH the cluste
 capd-kubeconfig: ## Write CAPD workload kubeconfig for kubectl on this host (CLUSTER_NAME=capd OUTPUT=path ./hack/fetch-capd-kubeconfig.sh)
 	@cd "$(CURDIR)" && DOCKER_HOST="$(COLIMA_DOCKER_HOST)" ./hack/fetch-capd-kubeconfig.sh "$(or $(CLUSTER_NAME),capd)" $(if $(OUTPUT),"$(OUTPUT)",)
 
-# Local nodes install CNI from the packaged manifests after kubeadm init.
-# Explicit legacy runs can still select the in-init bundle path.
+# Local nodes install CNI from a Debian package after kubeadm init.
+# The package matches the default CNI, ovn-kubernetes. Set CNI_PLUGIN=calico
+# to bake the Calico manifests package instead. Explicit legacy runs can still
+# select the in-init bundle path with INSTALL_CNI_AFTER_INIT=false.
 INSTALL_CNI_AFTER_INIT ?= true
-# Keep the package name in sync with hack/ci/prepare-calico-assets.sh.
+CNI_PLUGIN ?= ovn-kubernetes
+# Keep these names in sync with hack/ci/prepare-calico-assets.sh and prepare-ovn-assets.sh.
 CAPD_CNI_MANIFESTS_DEB := $(CURDIR)/.local/cni/nke-cni-calico-manifests-3.30.1_3.30.1_all.deb
 ifeq ($(INSTALL_CNI_AFTER_INIT),true)
 CAPD_IMAGE_DEPS :=
@@ -636,17 +656,49 @@ endif
 .PHONY: capd-image
 capd-image: $(CAPD_IMAGE_DEPS) ## Build the custom CAPD node image for DockerMachine (hack/capd-kindest-node/Dockerfile; same Docker host as CAPD)
 	@cd "$(CURDIR)" && \
+		cni_plugin="$${CNI_PLUGIN:-$(CNI_PLUGIN)}"; \
 		if [ "$(INSTALL_CNI_AFTER_INIT)" = "true" ]; then \
-			if [ -z "$${CAPD_CNI_MANIFESTS_DEB_PATH:-}" ]; then \
-				if [ ! -f "$(CAPD_CNI_MANIFESTS_DEB)" ] || \
-				   [ ./hack/ci/prepare-calico-assets.sh -nt "$(CAPD_CNI_MANIFESTS_DEB)" ] || \
-				   [ ./hack/ci/assets/calico-install.py -nt "$(CAPD_CNI_MANIFESTS_DEB)" ]; then \
-					mkdir -p "$(CURDIR)/.local/cni"; \
-					bash ./hack/ci/prepare-calico-assets.sh "$(CURDIR)/.local/cni"; \
+			mkdir -p "$(CURDIR)/.local/cni"; \
+			case "$$cni_plugin" in \
+			ovn-kubernetes) \
+				CAPD_CNI_MANIFESTS_DEB_PATH=""; \
+				server_arch="$$($(kind-docker-host) docker version --format '{{.Server.Arch}}')"; \
+				case "$$server_arch" in \
+					amd64|x86_64) bundle_arch=amd64 ;; \
+					arm64|aarch64) bundle_arch=arm64 ;; \
+					*) echo "unsupported docker server arch: $$server_arch" >&2; exit 1 ;; \
+				esac; \
+				ovn_charts="$(CURDIR)/.local/cni/nke-cni-ovn-charts-1.4.0_1.4.0_$${bundle_arch}.deb"; \
+				ovn_images="$(CURDIR)/.local/cni/nke-cni-ovn-images-1.4.0_1.4.0_$${bundle_arch}.deb"; \
+				ovn_helm="$(CURDIR)/.local/cni/nke-e2e-helm.deb"; \
+				[ -n "$${CAPD_CNI_CHARTS_DEB_PATH:-}" ] || CAPD_CNI_CHARTS_DEB_PATH="$$ovn_charts"; \
+				[ -n "$${CAPD_CNI_IMAGES_DEB_PATH:-}" ] || CAPD_CNI_IMAGES_DEB_PATH="$$ovn_images"; \
+				[ -n "$${CAPD_HELM_DEB_PATH:-}" ] || CAPD_HELM_DEB_PATH="$$ovn_helm"; \
+				if { [ "$$CAPD_CNI_CHARTS_DEB_PATH" = "$$ovn_charts" ] && { [ ! -f "$$ovn_charts" ] || [ ./hack/ci/prepare-ovn-assets.sh -nt "$$ovn_charts" ]; }; } \
+				   || { [ "$$CAPD_CNI_IMAGES_DEB_PATH" = "$$ovn_images" ] && { [ ! -f "$$ovn_images" ] || [ ./hack/ci/prepare-ovn-assets.sh -nt "$$ovn_images" ]; }; } \
+				   || { [ "$$CAPD_HELM_DEB_PATH" = "$$ovn_helm" ] && { [ ! -f "$$ovn_helm" ] || [ ./hack/ci/prepare-ovn-assets.sh -nt "$$ovn_helm" ]; }; }; then \
+					$(kind-docker-host) BUNDLE_ARCH="$$bundle_arch" bash ./hack/ci/prepare-ovn-assets.sh "$(CURDIR)/.local/cni"; \
 				fi; \
-				CAPD_CNI_MANIFESTS_DEB_PATH="$(CAPD_CNI_MANIFESTS_DEB)"; \
-			fi; \
-			test -f "$${CAPD_CNI_MANIFESTS_DEB_PATH}" || { echo "missing CNI package: $${CAPD_CNI_MANIFESTS_DEB_PATH}" >&2; exit 1; }; \
+				test -f "$$CAPD_CNI_CHARTS_DEB_PATH" || { echo "missing OVN charts package: $$CAPD_CNI_CHARTS_DEB_PATH" >&2; exit 1; }; \
+				test -f "$$CAPD_CNI_IMAGES_DEB_PATH" || { echo "missing OVN images package: $$CAPD_CNI_IMAGES_DEB_PATH" >&2; exit 1; }; \
+				test -f "$$CAPD_HELM_DEB_PATH" || { echo "missing Helm package: $$CAPD_HELM_DEB_PATH" >&2; exit 1; }; \
+				;; \
+			calico) \
+				CAPD_CNI_CHARTS_DEB_PATH=""; \
+				CAPD_CNI_IMAGES_DEB_PATH=""; \
+				CAPD_HELM_DEB_PATH=""; \
+				if [ -z "$${CAPD_CNI_MANIFESTS_DEB_PATH:-}" ]; then \
+					if [ ! -f "$(CAPD_CNI_MANIFESTS_DEB)" ] || \
+					   [ ./hack/ci/prepare-calico-assets.sh -nt "$(CAPD_CNI_MANIFESTS_DEB)" ] || \
+					   [ ./hack/ci/assets/calico-install.py -nt "$(CAPD_CNI_MANIFESTS_DEB)" ]; then \
+						bash ./hack/ci/prepare-calico-assets.sh "$(CURDIR)/.local/cni"; \
+					fi; \
+					CAPD_CNI_MANIFESTS_DEB_PATH="$(CAPD_CNI_MANIFESTS_DEB)"; \
+				fi; \
+				test -f "$${CAPD_CNI_MANIFESTS_DEB_PATH}" || { echo "missing CNI package: $${CAPD_CNI_MANIFESTS_DEB_PATH}" >&2; exit 1; }; \
+				;; \
+			*) echo "unsupported CNI_PLUGIN: $$cni_plugin" >&2; exit 1 ;; \
+			esac; \
 			BUNDLE_SERVER_URL=""; INDEX_FILE_URL=""; \
 		else \
 			BUNDLE_MIRROR_IP="$$($(kind-docker-host) docker inspect $(BUNDLE_MIRROR_NAME) --format '{{(index .NetworkSettings.Networks "kind").IPAddress}}')"; \
@@ -661,6 +713,9 @@ capd-image: $(CAPD_IMAGE_DEPS) ## Build the custom CAPD node image for DockerMac
 		CAPD_KINDEST_NODE_PLATFORM="$(CAPD_KINDEST_NODE_PLATFORM)" \
 		COLIMA_DOCKER_HOST="$(COLIMA_DOCKER_HOST)" \
 		CAPD_CNI_MANIFESTS_DEB_PATH="$${CAPD_CNI_MANIFESTS_DEB_PATH:-}" \
+		CAPD_CNI_CHARTS_DEB_PATH="$${CAPD_CNI_CHARTS_DEB_PATH:-}" \
+		CAPD_CNI_IMAGES_DEB_PATH="$${CAPD_CNI_IMAGES_DEB_PATH:-}" \
+		CAPD_HELM_DEB_PATH="$${CAPD_HELM_DEB_PATH:-}" \
 		BUNDLE_SERVER_URL="$${BUNDLE_SERVER_URL:-}" \
 		INDEX_FILE_URL="$${INDEX_FILE_URL:-}" \
 		bash ./hack/capd-kindest-node/build-image.sh
