@@ -138,7 +138,7 @@ notices-check` verifies it is up to date.
 | `go.yaml.in/yaml/v3` | MIT | `go.yaml.in/yaml/v3@v3.0.5` | https://github.com/yaml/go-yaml/blob/v3.0.5/LICENSE |
 | `go.yaml.in/yaml/v4` | Apache-2.0 | `go.yaml.in/yaml/v4@v4.0.0-rc.6` | https://github.com/yaml/go-yaml/blob/v4.0.0-rc.6/LICENSE |
 | `golang.org/x/crypto` | BSD-3-Clause | `golang.org/x/crypto@v0.57.0` | https://cs.opensource.google/go/x/crypto/+/v0.57.0:LICENSE |
-| `golang.org/x/net` | BSD-3-Clause | `golang.org/x/net@v0.59.0` | https://cs.opensource.google/go/x/net/+/v0.59.0:LICENSE |
+| `golang.org/x/net` | BSD-3-Clause | `golang.org/x/net@v0.60.0` | https://cs.opensource.google/go/x/net/+/v0.60.0:LICENSE |
 | `golang.org/x/oauth2` | BSD-3-Clause | `golang.org/x/oauth2@v0.37.0` | https://cs.opensource.google/go/x/oauth2/+/v0.37.0:LICENSE |
 | `golang.org/x/sync` | BSD-3-Clause | `golang.org/x/sync@v0.23.0` | https://cs.opensource.google/go/x/sync/+/v0.23.0:LICENSE |
 | `golang.org/x/sys` | BSD-3-Clause | `golang.org/x/sys@v0.48.0` | https://cs.opensource.google/go/x/sys/+/v0.48.0:LICENSE |
@@ -14321,7 +14321,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### golang.org/x/net
 
-_BSD-3-Clause — golang.org/x/net@v0.59.0_
+_BSD-3-Clause — golang.org/x/net@v0.60.0_
 
 #### LICENSE
 
