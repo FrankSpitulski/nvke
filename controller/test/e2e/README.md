@@ -199,6 +199,18 @@ branches use these rows for bounded feedback. Runs on `main`, scheduled runs,
 and manual runs keep the comprehensive backend rows, including the extended
 lifecycle validations.
 
+The CAPD `cp-controller` rows advertise failure domains through
+`DockerCluster.spec.failureDomains` and check that control-plane Machines land
+only in eligible domains and stay balanced through create, scale, rolling
+update, and delete. These rows reject `lifecycle.reuseCluster`, since each
+needs its own set of domains.
+
+To run only these scenarios locally:
+
+```bash
+make test-e2e ARGS='--label-filter="capd && cp-controller"'
+```
+
 ### Local CAPD e2e (`make test-e2e-capd-local`)
 
 `make test-e2e-capd-local` (Colima + kind + Tilt + CAPD) runs the CAPD suite
