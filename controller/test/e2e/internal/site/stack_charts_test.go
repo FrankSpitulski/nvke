@@ -61,11 +61,12 @@ const databasePassword = "db-secret"
 
 var wantDBSecret = base64.StdEncoding.EncodeToString([]byte(databasePassword))
 
-// skipOffline skips when helm could not reach a chart repository, since these
-// tests are about what the charts read and not about the network.
+// skipOffline skips when helm could not reach a chart repository or was rate
+// limited by it, since these tests are about what the charts read and not
+// about the network.
 func skipOffline(t *testing.T, chart string, err error) {
 	t.Helper()
-	for _, offline := range []string{"dial tcp", "no such host", "cannot be reached"} {
+	for _, offline := range []string{"dial tcp", "no such host", "cannot be reached", "toomanyrequests"} {
 		if strings.Contains(err.Error(), offline) {
 			t.Skipf("%s chart unreachable: %v", chart, err)
 		}
