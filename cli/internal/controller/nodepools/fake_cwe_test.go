@@ -106,6 +106,8 @@ type seed struct {
 	name             string
 	desiredNodeCount int
 	controlPlane     bool
+	nodeLabels       map[string]string
+	nodeTaints       []api.NodeTaint
 	// conditions overrides the default, which marks the pool provisioned.
 	conditions *api.NodePoolConditions
 }
@@ -123,6 +125,13 @@ func newFakeCWE(t *testing.T, seeds ...seed) (*fakeCWE, ControllerClientFn) {
 			clusterIDs[s.clusterName] = clusterID
 			f.clusterNames[clusterID] = s.clusterName
 		}
+		labels, taints := map[string]string{}, []api.NodeTaint{}
+		if s.nodeLabels != nil {
+			labels = s.nodeLabels
+		}
+		if s.nodeTaints != nil {
+			taints = s.nodeTaints
+		}
 		f.nodePools = append(f.nodePools, api.NodePool{
 			ID:                uuid.New(),
 			ClusterID:         clusterID,
@@ -130,7 +139,8 @@ func newFakeCWE(t *testing.T, seeds ...seed) (*fakeCWE, ControllerClientFn) {
 			NodeNamePrefix:    s.name,
 			KubernetesVersion: "1.30.0",
 			DesiredNodeCount:  s.desiredNodeCount,
-			NodeLabels:        map[string]string{},
+			NodeLabels:        labels,
+			NodeTaints:        taints,
 			ControlPlane:      s.controlPlane,
 			Conditions:        conditionsFor(s),
 		})
@@ -346,13 +356,31 @@ func (f *fakeCWE) create(w http.ResponseWriter, r *http.Request) {
 	name, _ := raw["name"].(string)
 	prefix, _ := raw["nodeNamePrefix"].(string)
 	count, _ := raw["desiredNodeCount"].(float64)
+	// An omitted map or list reads back empty, as the controller answers, not null.
+	labels, taints := map[string]string{}, []api.NodeTaint{}
+	var fields struct {
+		NodeLabels map[string]string `json:"nodeLabels"`
+		NodeTaints []api.NodeTaint   `json:"nodeTaints"`
+	}
+	body, _ := json.Marshal(raw)
+	if err := json.Unmarshal(body, &fields); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.GenericError{Message: "malformed labels or taints: " + err.Error()})
+		return
+	}
+	if fields.NodeLabels != nil {
+		labels = fields.NodeLabels
+	}
+	if fields.NodeTaints != nil {
+		taints = fields.NodeTaints
+	}
 	pool := api.NodePool{
 		ID:               uuid.New(),
 		ClusterID:        clusterID,
 		Name:             name,
 		NodeNamePrefix:   prefix,
 		DesiredNodeCount: int(count),
-		NodeLabels:       map[string]string{},
+		NodeLabels:       labels,
+		NodeTaints:       taints,
 	}
 	f.nodePools = append(f.nodePools, pool)
 	writeJSON(w, http.StatusCreated, pool)

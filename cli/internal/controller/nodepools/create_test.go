@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	api "github.com/dsx-ai-factory/nke/controller/api"
 )
 
 // writeSpec writes a spec file named name and returns its path.
@@ -32,6 +35,12 @@ nodeNamePrefix: gpu
 desiredNodeCount: 2
 nodeLabels:
   role: gpu
+nodeTaints:
+  - key: nvidia.com/gpu
+    value: "true"
+    effect: NoSchedule
+  - key: dedicated
+    effect: PreferNoSchedule
 `, clusterID)
 
 	out, err := run(t, NewCreateCmd(clientFn), "-f", writeSpec(t, "pool.yaml", spec))
@@ -67,12 +76,32 @@ nodeLabels:
 	if !ok || labels["role"] != "gpu" {
 		t.Errorf("nodeLabels = %v, want map[role:gpu]", body["nodeLabels"])
 	}
+	wantTaints := []any{
+		map[string]any{"key": "nvidia.com/gpu", "value": "true", "effect": "NoSchedule"},
+		map[string]any{"key": "dedicated", "effect": "PreferNoSchedule"},
+	}
+	if !reflect.DeepEqual(body["nodeTaints"], wantTaints) {
+		t.Errorf("nodeTaints = %v, want %v", body["nodeTaints"], wantTaints)
+	}
 	if _, present := body["controlPlane"]; present {
 		t.Errorf("controlPlane was sent though the spec omitted it: %v", body)
 	}
 
-	if pools := fake.stored(); len(pools) != 2 {
-		t.Errorf("stored %d pools, want 2", len(pools))
+	pools := fake.stored()
+	if len(pools) != 2 {
+		t.Fatalf("stored %d pools, want 2", len(pools))
+	}
+	// What the controller stored is what the pool reports back through get.
+	created := pools[1]
+	if want := map[string]string{"role": "gpu"}; !reflect.DeepEqual(created.NodeLabels, want) {
+		t.Errorf("stored nodeLabels = %v, want %v", created.NodeLabels, want)
+	}
+	wantStored := []api.NodeTaint{
+		{Key: "nvidia.com/gpu", Value: "true", Effect: api.NodeTaintEffectNoSchedule},
+		{Key: "dedicated", Effect: api.NodeTaintEffectPreferNoSchedule},
+	}
+	if !reflect.DeepEqual(created.NodeTaints, wantStored) {
+		t.Errorf("stored nodeTaints = %v, want %v", created.NodeTaints, wantStored)
 	}
 }
 
@@ -219,6 +248,14 @@ func TestCreateNodePoolServerErrors(t *testing.T) {
 			want:   []string{"400", "desiredNodeCount must be positive"},
 		},
 		{
+			// Rules the controller owns, such as no taints on a control-plane
+			// pool, are not repeated in the CLI and reach the user verbatim.
+			name:   "taints on a control-plane pool",
+			status: 400,
+			body:   `{"message": "nodeTaints are not allowed on a control-plane pool"}`,
+			want:   []string{"400", "nodeTaints are not allowed on a control-plane pool"},
+		},
+		{
 			name:   "cluster deleting",
 			status: 409,
 			body:   `{"message": "cluster is in the process of being deleted"}`,
@@ -243,6 +280,49 @@ func TestCreateNodePoolServerErrors(t *testing.T) {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("error = %v, want it to contain %q", err, want)
 				}
+			}
+		})
+	}
+}
+
+// TestCreateNodePoolRejectsInvalidLabelsAndTaints verifies that a spec which
+// cannot decode into the create request fails before any request is sent:
+// nodeLabels is a map of keys to values, so the old key=value list is refused,
+// and a taint carries only key, value and effect. The values themselves, such
+// as a taint effect, are validated by the controller and not repeated here.
+func TestCreateNodePoolRejectsInvalidLabelsAndTaints(t *testing.T) {
+	tests := []struct {
+		name    string
+		fields  string
+		wantErr string
+	}{
+		{
+			name:    "labels as the old key=value list",
+			fields:  "nodeLabels:\n  - role=gpu\n",
+			wantErr: "nodeLabels",
+		},
+		{
+			name:    "taint with an unknown field",
+			fields:  "nodeTaints:\n  - key: dedicated\n    effect: NoSchedule\n    timeAdded: now\n",
+			wantErr: "timeAdded",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fake, clientFn := newFakeCWE(t, seed{clusterName: "alpha", name: "existing", desiredNodeCount: 1})
+			clusterID := fake.clusterIDFor(t, "alpha")
+
+			spec := fmt.Sprintf("clusterID: %s\nname: bad\nnodeNamePrefix: gpu\ndesiredNodeCount: 1\n%s", clusterID, tc.fields)
+
+			out, err := run(t, NewCreateCmd(clientFn), "-f", writeSpec(t, "pool.yaml", spec))
+			if err == nil {
+				t.Fatalf("expected an error, got output %q", out)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error = %v, want it to contain %q", err, tc.wantErr)
+			}
+			if got := fake.seen(); len(got) != 0 {
+				t.Errorf("requests = %v, want none", got)
 			}
 		})
 	}
