@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Cancels queued main runs of the e2e lanes whose commit has been superseded.
+#
+# The lanes keep one concurrency group per commit on main (README.md,
+# "Concurrency"), so GitHub never cancels a queued run when newer merges
+# arrive. On a busy day that leaves dozens of two-hour legs queued for commits
+# that are no longer the head, and the head waits hours for its first result.
+#
+# The sweeper keeps every running leg, because a leg that has started still
+# produces a result, and the newest `keep` queued runs per lane. It cancels the
+# older queued ones. Those commits keep every other check, and a lane can be
+# dispatched on one of them by hand when its result is wanted.
+#
+# Gofail and NKTP are left out: they run on hosted and cpu8 runners and finish
+# in minutes.
+name: E2E queue sweeper
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: Queued main runs to keep per lane, newest first
+        type: number
+        default: 2
+      dry-run:
+        description: Only list the runs that would be cancelled
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: E2E queue sweeper
+  cancel-in-progress: true
+
+jobs:
+  sweep:
+    if: github.repository == 'dsx-ai-factory/nke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KEEP: ${{ inputs.keep || 2 }}
+      DRY_RUN: ${{ inputs.dry-run && 'true' || 'false' }}
+    steps:
+      - name: Cancel the superseded queued runs
+        run: |
+          set -euo pipefail
+          lanes=(
+            capd-e2e.yml
+            nico-e2e.yml
+            capd-dsx-identity-exchange-e2e.yml
+            local-entrypoint-e2e.yml
+            nico-vms-e2e.yml
+            nkectl-bootstrap-e2e.yml
+            kubeadm-bringup-e2e.yml
+          )
+          cancelled=0
+          for lane in "${lanes[@]}"; do
+            # Queued push runs on main, newest first; the first KEEP stay.
+            while read -r id sha created; do
+              [ -n "${id}" ] || continue
+              echo "${lane}: cancel ${id} (${sha}, queued since ${created})"
+              if [ "${DRY_RUN}" != true ]; then
+                gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/cancel" >/dev/null
+              fi
+              cancelled=$((cancelled + 1))
+            done < <(gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/${lane}/runs" \
+                       -f branch=main -f event=push -f status=queued -f per_page=100 \
+                       --jq '.workflow_runs | sort_by(.created_at) | reverse
+                             | .[] | "\(.id) \(.head_sha[0:9]) \(.created_at)"' \
+                     | tail -n +"$((KEEP + 1))")
+          done
+          echo "superseded queued runs: ${cancelled} (dry run: ${DRY_RUN}, keep: ${KEEP})"
