@@ -90,8 +90,12 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fern-preview
+          # Also the files fern/generators.yml and docs/index.yml read by ../ path.
           path: |
             fern/
             docs/
+            cli/docs/
+            controller/docs/
+            controller/api/openapi.yaml
             preview-metadata/
           retention-days: 1

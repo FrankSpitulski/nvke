@@ -50,26 +50,27 @@ jobs:
           echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "head_ref=$(cat preview-metadata/head_ref)" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout trusted Fern config from base branch
+      # The docs link to files all over the repo, so build from the whole trusted tree.
+      - name: Checkout trusted tree from base branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.base_branch }}
-          sparse-checkout: fern
-          sparse-checkout-cone-mode: true
           persist-credentials: false
-          path: trusted-fern
+          path: trusted
 
-      - name: Replace artifact fern/ with trusted config
+      - name: Overlay the PR's docs content on the trusted tree
         run: |
-          rm -rf fern/
-          cp -r trusted-fern/fern/ fern/
+          for d in docs cli/docs controller/docs; do
+            if [ -d "${d}" ]; then rm -rf "trusted/${d}" && cp -r "${d}" "trusted/${d}"; fi
+          done
+          if [ -f controller/api/openapi.yaml ]; then cp controller/api/openapi.yaml trusted/controller/api/openapi.yaml; fi
 
       - name: Generate preview URL
         id: generate-docs
         env:
           FERN_TOKEN: ${{ secrets.FERN_TOKEN }}
           PR_NUMBER: ${{ steps.metadata.outputs.pr_number }}
-        working-directory: ./fern
+        working-directory: ./trusted/fern
         run: |
           set -o pipefail
           PREVIEW_ID=$(printf 'pr-%s' "$PR_NUMBER" | tr -c 'A-Za-z0-9-' '-')
