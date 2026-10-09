@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Cancels queued main runs of the e2e lanes whose commit has been superseded.
+# Cancels queued e2e runs that can no longer matter: main runs of superseded
+# commits, and pull-request mirror runs whose pull request is merged or closed.
 #
 # The lanes keep one concurrency group per commit on main (README.md,
 # "Concurrency"), so GitHub never cancels a queued run when newer merges
@@ -12,6 +13,11 @@
 # produces a result, and the newest `keep` queued runs per lane. It cancels the
 # older queued ones. Those commits keep every other check, and a lane can be
 # dispatched on one of them by hand when its result is wanted.
+#
+# The same pool serves the pull-request mirror branches (`pull-request/<n>`,
+# pushed by copy-pr-bot), and a queued run there outlives its pull request: once
+# the PR is merged or closed its result changes nothing, yet the two-hour legs
+# still wait in line ahead of main. The sweeper cancels those too.
 #
 # Gofail and NKTP are left out: they run on hosted and cpu8 runners and finish
 # in minutes.
@@ -44,6 +50,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       actions: write
+      pull-requests: read
     env:
       GH_TOKEN: ${{ github.token }}
       KEEP: ${{ inputs.keep || 2 }}
@@ -78,3 +85,37 @@ jobs:
                      | tail -n +"$((KEEP + 1))")
           done
           echo "superseded queued runs: ${cancelled} (dry run: ${DRY_RUN}, keep: ${KEEP})"
+      - name: Cancel the queued runs of merged and closed pull requests
+        run: |
+          set -euo pipefail
+          lanes=(
+            capd-e2e.yml
+            nico-e2e.yml
+            capd-dsx-identity-exchange-e2e.yml
+            local-entrypoint-e2e.yml
+            nico-vms-e2e.yml
+            nkectl-bootstrap-e2e.yml
+            kubeadm-bringup-e2e.yml
+          )
+          declare -A state
+          cancelled=0
+          for lane in "${lanes[@]}"; do
+            # Queued runs on the copy-pr-bot mirror branches, one PR number each.
+            while read -r id branch created; do
+              [ -n "${id}" ] || continue
+              pr="${branch#pull-request/}"
+              if [ -z "${state[${pr}]:-}" ]; then
+                state[${pr}]="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" --jq .state 2>/dev/null || echo unknown)"
+              fi
+              [ "${state[${pr}]}" = closed ] || continue
+              echo "${lane}: cancel ${id} (#${pr} is closed, queued since ${created})"
+              if [ "${DRY_RUN}" != true ]; then
+                gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/cancel" >/dev/null
+              fi
+              cancelled=$((cancelled + 1))
+            done < <(gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/${lane}/runs" \
+                       -f status=queued -f per_page=100 \
+                       --jq '.workflow_runs[] | select(.head_branch | startswith("pull-request/"))
+                             | "\(.id) \(.head_branch) \(.created_at)"')
+          done
+          echo "queued runs of closed pull requests: ${cancelled} (dry run: ${DRY_RUN})"
