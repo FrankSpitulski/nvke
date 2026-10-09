@@ -73,6 +73,10 @@ jobs:
             # Queued push runs on main, newest first; the first KEEP stay.
             while read -r id sha created; do
               [ -n "${id}" ] || continue
+              # A run still reads "queued" while one leg waits and another runs.
+              running="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/jobs" \
+                           --jq '[.jobs[] | select(.status == "in_progress")] | length')"
+              [ "${running}" = 0 ] || continue
               echo "${lane}: cancel ${id} (${sha}, queued since ${created})"
               if [ "${DRY_RUN}" != true ]; then
                 gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/cancel" >/dev/null
