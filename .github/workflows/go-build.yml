@@ -119,6 +119,9 @@ jobs:
       - name: Check .grype.yaml exceptions are scoped, owned and in date
         run: make grype-ignore-check
 
+      - name: Check every deploy-list item has its directory
+        run: make deploy-lists-check
+
       - name: Build
         run: make version-check
 

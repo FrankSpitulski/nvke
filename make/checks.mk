@@ -298,6 +298,10 @@ go-version-sync: ## Rewrite every go.mod `go` directive to match go.work.
 grype-ignore-check: ## Verify every .grype.yaml exception is scoped, owned and in date.
 	@./hack/grype-ignore-check.sh
 
+.PHONY: deploy-lists-check
+deploy-lists-check: ## Verify every nvke-deploy.yaml item has its directory.
+	@./hack/deploy-lists-check.sh
+
 gate: ## Run the merge-gate checks that work on a laptop.
 	@$(MAKE) --no-print-directory tool-version-check
 	@$(MAKE) --no-print-directory tools-check
@@ -305,6 +309,7 @@ gate: ## Run the merge-gate checks that work on a laptop.
 	@$(MAKE) --no-print-directory go-version-check
 	@$(MAKE) --no-print-directory base-image-check
 	@$(MAKE) --no-print-directory grype-ignore-check
+	@$(MAKE) --no-print-directory deploy-lists-check
 	@CGO_ENABLED=1 $(MAKE) --no-print-directory GO_TEST_FLAGS=-race test
 	@$(MAKE) --no-print-directory test-compile
 	@$(MAKE) --no-print-directory lint
