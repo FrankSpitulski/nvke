@@ -613,9 +613,9 @@ func TestOVNHelmArgsImageRegistry(t *testing.T) {
 	const upstream = "ghcr.io/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu"
 
 	t.Run("image registry replaces the upstream host, keeps the path", func(t *testing.T) {
-		args := buildOvnKubernetesHelmInstallArgs(chartDir, apiServer, podCIDR, svcCIDR, "my-mirror.example.com/nke/", upstream, nil)
+		args := buildOvnKubernetesHelmInstallArgs(chartDir, apiServer, podCIDR, svcCIDR, "my-mirror.example.com/nvke/", upstream, nil)
 		joined := strings.Join(args, " ")
-		assert.Contains(t, joined, "--set global.image.repository=my-mirror.example.com/nke/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu")
+		assert.Contains(t, joined, "--set global.image.repository=my-mirror.example.com/nvke/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu")
 		assert.Equal(t, "m.example.com/a/b", ovnImageRepository("m.example.com", "quay.io/a/b"))
 	})
 

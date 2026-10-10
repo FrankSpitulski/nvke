@@ -230,8 +230,8 @@ func TestControlPlaneConfigFromNodePool(t *testing.T) {
 			SubnetIDs:             []uuid.UUID{sub},
 			VpcPrefixIDs:          []uuid.UUID{},
 			SSHKeyGroupIDs:        []uuid.UUID{},
-			OSProfile:             "nke-test-os",
-			ConfigProfile:         "nke-test-cfg",
+			OSProfile:             "nvke-test-os",
+			ConfigProfile:         "nvke-test-cfg",
 			DiskSelectionStrategy: db.DiskSelectionStrategyLargest,
 		})
 
@@ -245,8 +245,8 @@ func TestControlPlaneConfigFromNodePool(t *testing.T) {
 		assert.Equal(t, "1.31.0", cfg.KubernetesVersion)
 		// Typed Nico provider carries all provider-specific fields.
 		require.NotNil(t, cfg.Nico)
-		assert.Equal(t, "nke-test-os", cfg.Nico.OSProfile)
-		assert.Equal(t, "nke-test-cfg", cfg.Nico.ConfigProfile)
+		assert.Equal(t, "nvke-test-os", cfg.Nico.OSProfile)
+		assert.Equal(t, "nvke-test-cfg", cfg.Nico.ConfigProfile)
 		assert.Equal(t, db.DiskSelectionStrategyLargest, cfg.Nico.DiskSelectionStrategy)
 		assert.Equal(t, []uuid.UUID{sub}, cfg.Nico.SubnetIDs)
 		assert.Equal(t, []uuid.UUID{inst}, cfg.Nico.InstanceTypePreference)

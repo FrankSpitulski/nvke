@@ -189,7 +189,7 @@ func TestBuildNicoVMSNodePoolKubeReservedMemory(t *testing.T) {
 		InstanceTypeID:     uuid.NewString(),
 		VpcPrefixIDs:       []string{uuid.NewString()},
 		SSHKeyGroupIDs:     []string{uuid.NewString()},
-		OSProfile:          "nke-test",
+		OSProfile:          "nvke-test",
 		ConfigProfile:      "test-config",
 		KubeReservedMemory: "250Mi",
 	}

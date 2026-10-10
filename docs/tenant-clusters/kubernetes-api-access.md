@@ -250,7 +250,7 @@ logs.
    confirm that a cluster-scoped request outside the binding receives HTTP 403:
 
    ```bash
-   VALIDATION_NAMESPACE="nke-api-access-validation-$(date +%s)"
+   VALIDATION_NAMESPACE="nvke-api-access-validation-$(date +%s)"
    kubectl --kubeconfig "$TENANT_KUBECONFIG" \
      create namespace "$VALIDATION_NAMESPACE"
    kubectl --kubeconfig "$TENANT_KUBECONFIG" -n "$VALIDATION_NAMESPACE" \

@@ -58,7 +58,7 @@ AGENT_ARGS="--disable-mtls"
 # Optional: enable legacy HTTP/OCI bundle installs
 AGENT_ARGS="--bundle-server-url https://artifacts.example.com/ --disable-mtls"
 # OCI bundles:
-# AGENT_ARGS="--bundle-server-url oci://registry.example.com/nke/bundles --disable-mtls"
+# AGENT_ARGS="--bundle-server-url oci://registry.example.com/nvke/bundles --disable-mtls"
 ```
 
 There is no built-in artifact host. When using bundles, consumers must point the

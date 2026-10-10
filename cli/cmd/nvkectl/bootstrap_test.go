@@ -91,7 +91,7 @@ func startFakeCWEAPIWithNodes(t *testing.T, provisioned bool, total, joined int)
 	}
 	cluster := api.Cluster{
 		ID:   id,
-		Name: "nke-site",
+		Name: "nvke-site",
 		Conditions: api.ClusterConditions{
 			Provisioned:  api.Condition{Status: status},
 			Provisioning: api.Condition{Status: api.ConditionStatusTrue},
@@ -172,7 +172,7 @@ func (fakeBootstrapRunner) Run(_ context.Context, _ map[string]string, name stri
 }
 
 const validSiteSpec = `
-clusterName: nke-site
+clusterName: nvke-site
 cluster:
   nodes:
     - name: node1
@@ -187,7 +187,7 @@ registry:
 `
 
 const threeNodeSiteSpec = `
-clusterName: nke-site
+clusterName: nvke-site
 cluster:
   nodes:
     - name: node1
@@ -250,7 +250,7 @@ func TestRunBootstrapSiteDryRunValid(t *testing.T) {
 // before reaching the (stubbed) dispatch step.
 func TestRunBootstrapSiteInvalidFailsFast(t *testing.T) {
 	const bad = `
-clusterName: nke-site
+clusterName: nvke-site
 cluster:
   nodes:
     - name: node1
@@ -286,7 +286,7 @@ func TestRunBootstrapSiteCreatesTheCluster(t *testing.T) {
 	setBootstrapEnv(t)
 	startFakeCWEAPI(t, true)
 
-	kubeconfigOut := filepath.Join(t.TempDir(), "nke-site.kubeconfig")
+	kubeconfigOut := filepath.Join(t.TempDir(), "nvke-site.kubeconfig")
 	runner := &recordingRunner{next: fakeBootstrapRunner{}}
 	spireEntriesDumped := false
 	err := runBootstrapSite(context.Background(), io.Discard, &bootstrapSiteOptions{
@@ -340,7 +340,7 @@ func TestRunBootstrapSiteRetainsBootstrapClusterWhenSpireEntryDumpFails(t *testi
 		siteSpec:            writeSiteSpec(t, validSiteSpec),
 		bootstrapRunner:     runner,
 		cweRunner:           fakeCWERunner{},
-		kubeconfigOut:       filepath.Join(t.TempDir(), "nke-site.kubeconfig"),
+		kubeconfigOut:       filepath.Join(t.TempDir(), "nvke-site.kubeconfig"),
 		lookPath:            runtimeOnPath,
 		dialContext:         refuseDial,
 		untaintControlPlane: skipUntaint,
@@ -367,7 +367,7 @@ func TestRunBootstrapSiteSkipsSpireEntryDumpWhenMTLSDisabled(t *testing.T) {
 		disableMTLS:         true,
 		bootstrapRunner:     fakeBootstrapRunner{},
 		cweRunner:           fakeCWERunner{},
-		kubeconfigOut:       filepath.Join(t.TempDir(), "nke-site.kubeconfig"),
+		kubeconfigOut:       filepath.Join(t.TempDir(), "nvke-site.kubeconfig"),
 		lookPath:            runtimeOnPath,
 		dialContext:         refuseDial,
 		untaintControlPlane: skipUntaint,
@@ -511,7 +511,7 @@ func TestRunBootstrapSiteUsesNerdctl(t *testing.T) {
 		siteSpec:            writeSiteSpec(t, validSiteSpec),
 		bootstrapRunner:     runner,
 		cweRunner:           fakeCWERunner{},
-		kubeconfigOut:       filepath.Join(t.TempDir(), "nke-site.kubeconfig"),
+		kubeconfigOut:       filepath.Join(t.TempDir(), "nvke-site.kubeconfig"),
 		lookPath:            runtimeOnPath,
 		dialContext:         refuseDial,
 		untaintControlPlane: skipUntaint,
@@ -918,7 +918,7 @@ func TestRunBootstrapSite_DiagnosticsOnlyOnRealFailures(t *testing.T) {
 			diagnosticsDir:      dir,
 			bootstrapRunner:     fakeBootstrapRunner{},
 			cweRunner:           fakeCWERunner{},
-			kubeconfigOut:       filepath.Join(t.TempDir(), "nke-site.kubeconfig"),
+			kubeconfigOut:       filepath.Join(t.TempDir(), "nvke-site.kubeconfig"),
 			lookPath:            runtimeOnPath,
 			dialContext:         refuseDial,
 			untaintControlPlane: skipUntaint,
@@ -1059,7 +1059,7 @@ func TestRunBootstrapSiteTearsDownOnceEveryNodeHasJoined(t *testing.T) {
 		siteSpec:            writeSiteSpec(t, threeNodeSiteSpec),
 		bootstrapRunner:     runner,
 		cweRunner:           fakeCWERunner{},
-		kubeconfigOut:       filepath.Join(t.TempDir(), "nke-site.kubeconfig"),
+		kubeconfigOut:       filepath.Join(t.TempDir(), "nvke-site.kubeconfig"),
 		lookPath:            runtimeOnPath,
 		dialContext:         refuseDial,
 		untaintControlPlane: skipUntaint,
@@ -1168,8 +1168,8 @@ func TestRunBootstrapSiteSavesTheEtcdEncryptionKey(t *testing.T) {
 	if secret.Metadata.Namespace != nil {
 		t.Errorf("metadata.namespace = %q, want none", *secret.Metadata.Namespace)
 	}
-	if secret.Metadata.Annotations["nke.nvidia.com/cluster-name"] != "nke-site" {
-		t.Errorf("cluster-name annotation = %q, want %q", secret.Metadata.Annotations["nke.nvidia.com/cluster-name"], "nke-site")
+	if secret.Metadata.Annotations["nke.nvidia.com/cluster-name"] != "nvke-site" {
+		t.Errorf("cluster-name annotation = %q, want %q", secret.Metadata.Annotations["nke.nvidia.com/cluster-name"], "nvke-site")
 	}
 	if string(secret.Data["active"]) != fakeEtcdKey {
 		t.Errorf("data.active is not the key the controller served")
@@ -1424,7 +1424,7 @@ func TestRunBootstrapSiteRemovesTheControlPlaneTaint(t *testing.T) {
 	setBootstrapEnv(t)
 	startFakeCWEAPI(t, true)
 
-	kubeconfigOut := filepath.Join(t.TempDir(), "nke-site.kubeconfig")
+	kubeconfigOut := filepath.Join(t.TempDir(), "nvke-site.kubeconfig")
 	untaintedWith := ""
 	err := runBootstrapSite(context.Background(), io.Discard, &bootstrapSiteOptions{
 		siteSpec:         writeSiteSpec(t, validSiteSpec),
@@ -1455,7 +1455,7 @@ func TestRunBootstrapSiteReportsAnUntaintFailure(t *testing.T) {
 	setBootstrapEnv(t)
 	startFakeCWEAPI(t, true)
 
-	kubeconfigOut := filepath.Join(t.TempDir(), "nke-site.kubeconfig")
+	kubeconfigOut := filepath.Join(t.TempDir(), "nvke-site.kubeconfig")
 	keyOut := filepath.Join(t.TempDir(), "key.json")
 	spireEntriesDumped := false
 	runner := &recordingRunner{next: fakeBootstrapRunner{}}

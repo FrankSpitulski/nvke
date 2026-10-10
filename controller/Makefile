@@ -10,7 +10,7 @@ export GOTOOLCHAIN
 WORKER_BIN_NAME			?= controller
 TEMPORAL_CLI_DOWNLOAD_DIR	?= $(CURDIR)/.go/temporal-cli
 # The e2e-gofail settings are NKE_CONTROLLER_GOFAIL_E2E_*. An empty value counts as unset.
-# CWE_GOFAIL_E2E_* are deprecated aliases for them; nke#1399 removes them.
+# CWE_GOFAIL_E2E_* are deprecated aliases for them; #1399 removes them.
 gofail_e2e_worker_binary	= $(or $(NKE_CONTROLLER_GOFAIL_E2E_WORKER_BINARY),$(CWE_GOFAIL_E2E_WORKER_BINARY),$(CURDIR)/.go/bin/cwe-worker-gofail)
 GOFAIL				?= $(shell go env GOPATH)/bin/gofail
 SETUP_ENVTEST			?= $(shell go env GOPATH)/bin/setup-envtest

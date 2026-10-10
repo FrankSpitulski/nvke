@@ -95,7 +95,7 @@ setup-hooks: ## Install or update Git pre-commit hook (monorepo-aware)
 ##@ Docker images
 .PHONY: build-builder-image push-builder-image setup-buildx
 
-BUILDER_IMAGE := $(or $(BUILDER_IMAGE),$(if $(NKE_CONTAINER_REGISTRY),$(NKE_CONTAINER_REGISTRY)/$(or $(NKE_BUILDER_IMAGE_NAME),nke-builder),ghcr.io/example/nke/nke-builder))
+BUILDER_IMAGE := $(or $(BUILDER_IMAGE),$(if $(NKE_CONTAINER_REGISTRY),$(NKE_CONTAINER_REGISTRY)/$(or $(NKE_BUILDER_IMAGE_NAME),nke-builder),ghcr.io/example/nvke/nke-builder))
 BUILDER_TAG := $(or $(BUILDER_TAG),$(or $(NKE_BUILDER_IMAGE_TAG),latest))
 BUILDX_PLATFORMS := linux/amd64,linux/arm64
 BUILDX_BUILDER := nke-multiarch-builder

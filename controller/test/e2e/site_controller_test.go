@@ -792,7 +792,7 @@ func newStack(cfg config.Config, arch string) (site.Stack, []string, error) {
 		Registry:   site.Registry{Server: siteCAPNICoRegistry, Username: user, Token: token},
 		// The login baked into tenant nodes' user-data. Nothing outside the
 		// run needs it.
-		Tenant: site.Tenant{User: "nke-tenant", Password: tenantPassword},
+		Tenant: site.Tenant{User: "nvke-tenant", Password: tenantPassword},
 		// Set here rather than left for the deployer to generate, so the
 		// value is one the redaction list can name.
 		DatabasePassword: dbPassword,

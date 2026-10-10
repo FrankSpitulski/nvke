@@ -116,7 +116,7 @@ on:
         type: string
         required: false
       cwe-name:
-        description: "Deprecated alias for controller-name, read when controller-name is empty; nke#1399 removes it."
+        description: "Deprecated alias for controller-name, read when controller-name is empty; #1399 removes it."
         type: string
         required: false
       os-image-version:
@@ -480,7 +480,7 @@ jobs:
       # knobs that have to be equal.
       #
       # The cwe-name input and the CWE_NAMESPACE and CWE_SERVICE variables are
-      # deprecated aliases, read after the new names; nke#1399 removes them.
+      # deprecated aliases, read after the new names; #1399 removes them.
       NKE_CONTROLLER_NAMESPACE: ${{ inputs.controller-name || inputs.cwe-name || vars.NVKE_CONTROLLER_NAMESPACE || vars.CWE_NAMESPACE }}
       NKE_CONTROLLER_SERVICE: ${{ inputs.controller-name || inputs.cwe-name || vars.NVKE_CONTROLLER_SERVICE || vars.CWE_SERVICE }}
       # One pair per architecture. A run boots as many as its shapes need: a
@@ -1107,7 +1107,7 @@ jobs:
           VAR_CONTROLLER_SERVICE: ${{ vars.NVKE_CONTROLLER_SERVICE }}
           # The names those two replaced, read separately so the summary can
           # say a deprecated one answered instead of hiding it behind the
-          # value it supplied. nke#1399 removes them.
+          # value it supplied. #1399 removes them.
           WAS_CONTROLLER_NAMESPACE: ${{ vars.CWE_NAMESPACE }}
           WAS_CONTROLLER_SERVICE: ${{ vars.CWE_SERVICE }}
           VAR_OS_IMAGE_BOOTLOADER_AMD64: ${{ vars.QUALIFY_E2E_OS_IMAGE_BOOTLOADER_AMD64 }}
@@ -1197,7 +1197,7 @@ jobs:
           # because the name the controller is installed under is read by the
           # suite from the environment variables it already honours, so it
           # carries no QUALIFY_E2E_ prefix of its own. CWE_ is its deprecated
-          # alias; nke#1399 removes it.
+          # alias; #1399 removes it.
           missing=()
           while read -r name; do
             printf '%s\n' "${rows[@]}" | cut -d'|' -f5,7 | tr '|' '\n' | grep -qx "${name}" || missing+=("vars.${name}")
@@ -1207,7 +1207,7 @@ jobs:
               grep -qx "IN_$(printf '%s' "${name}" | tr 'a-z-' 'A-Z_')" || missing+=("inputs.${name}")
           # The leading [^a-z-] keeps this off its own artifact name: a bare
           # `inputs\.` also matches the `run-inputs.txt` two lines above.
-          # cwe-name is a deprecated alias for controller-name; nke#1399
+          # cwe-name is a deprecated alias for controller-name; #1399
           # removes it. The summary below names it as the controller rows'
           # source when it answered.
           done < <(grep -oE '[^a-z-]inputs\.[a-z0-9-]+' "${WORKFLOW}" | sed 's/.*inputs\.//' | grep -vx 'cwe-name' | sort -u)

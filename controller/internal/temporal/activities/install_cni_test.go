@@ -69,9 +69,9 @@ func TestInstallCNIRequest(t *testing.T) {
 			// which the agent ignores once the in-init install is skipped.
 			name:        "the CNI image registry override is carried over",
 			cluster:     db.Cluster{CniPlugin: db.CNICalico},
-			registry:    "registry.example.com/nke",
+			registry:    "registry.example.com/nvke",
 			wantVariant: nvkeproto.CniVariant_CNI_VARIANT_CALICO,
-			wantConfig:  map[string]string{cniRegistryHelmValue: "registry.example.com/nke"},
+			wantConfig:  map[string]string{cniRegistryHelmValue: "registry.example.com/nvke"},
 		},
 		{
 			name:        "a version other than the default selects that stream",

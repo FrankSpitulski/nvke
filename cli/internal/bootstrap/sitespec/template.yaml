@@ -9,7 +9,7 @@
 # error. See docs/sitespec.md for the full field reference.
 
 # Name of the Kubernetes cluster to create (lowercase RFC 1123 label).
-clusterName: "nke-site"
+clusterName: "nvke-site"
 
 cluster:
   # Pre-provisioned control-plane nodes. The site spec does not select which

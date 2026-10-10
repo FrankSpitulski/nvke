@@ -117,7 +117,7 @@ RELEASE_LDFLAGS ?= -s -w -buildid= -extldflags -static
 
 # Must match WORKER_BIN_NAME in controller/Makefile. `build` fails if it does not.
 # NKE_CONTROLLER_BIN_NAME overrides it. An empty value counts as unset.
-# CWE_BIN_NAME is a deprecated alias for NKE_CONTROLLER_BIN_NAME; nke#1399 removes it.
+# CWE_BIN_NAME is a deprecated alias for NKE_CONTROLLER_BIN_NAME; #1399 removes it.
 controller_bin_name = $(or $(NKE_CONTROLLER_BIN_NAME),$(CWE_BIN_NAME),controller)
 
 # No module is excluded from the workspace any more; kept (empty) because

@@ -11,7 +11,7 @@ This page summarises the schema; the CLI's
 ## Example
 
 ```yaml
-clusterName: "nke-site"
+clusterName: "nvke-site"
 
 cluster:
   # Pre-provisioned control-plane nodes.

@@ -231,7 +231,7 @@ func TestSBOMAgainstDeployPath(t *testing.T) {
 			t.Fatal("controller Deployment has no containers")
 		}
 		container, _ := containers[0].(map[string]any)
-		if got := container["image"]; got != "nvcr.io/nke/cwe:v1.2.3" {
+		if got := container["image"]; got != "nvcr.io/nvke/cwe:v1.2.3" {
 			t.Errorf("controller image = %v", got)
 		}
 		env := map[string]any{}
@@ -262,7 +262,7 @@ func TestSBOMAgainstDeployPath(t *testing.T) {
 		}
 
 		for _, want := range []string{
-			"nvcr.io/nke/profiles:run-42",
+			"nvcr.io/nvke/profiles:run-42",
 			"https://10.0.0.5:30443/.well-known/openid-configuration",
 			"e2e-site.nke.local",
 			"clusters/finalizers",

@@ -116,7 +116,7 @@ lint-chart: ## Lint and render the Helm chart, then validate it. (run by the mer
 	@helm lint $(CHART)
 	@# A directory, not `mktemp -t`: kubeconform selects files by extension, and
 	@# macOS mktemp appends random characters after the template, so a file named
-	@# nke-chart-XXXXXX.qlKjrjG4RL is skipped and the summary reads
+	@# nvke-chart-XXXXXX.qlKjrjG4RL is skipped and the summary reads
 	@# "0 resource found in 0 file" while the target reports success.
 	@set -eu; \
 	 dir=$$(mktemp -d); \

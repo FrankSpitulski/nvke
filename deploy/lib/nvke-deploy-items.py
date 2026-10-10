@@ -48,7 +48,7 @@ def unquote(pair):
 
 
 def die(msg):
-    sys.exit("nke-deploy-items: %s" % msg)
+    sys.exit("nvke-deploy-items: %s" % msg)
 
 
 def significant(path):

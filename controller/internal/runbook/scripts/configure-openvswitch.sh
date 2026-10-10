@@ -634,7 +634,7 @@ configure_openvswitch() {
   fi
 
   # API validation already catches these from controller-driven runs; the checks
-  # below are defense-in-depth for direct nkecli / manual invocation. They
+  # below are defense-in-depth for direct nvkectl / manual invocation. They
   # apply regardless of backend so bad input fails fast.
   if [ -n "${UPLINK_ADDRESS:-}" ]; then
     if [ -z "${UPLINK_PREFIX:-}" ]; then

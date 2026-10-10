@@ -198,7 +198,7 @@ func TestConvertRejectsBadInput(t *testing.T) {
 		assert.Contains(t, err.Error(), "both metadata.yaml and deprecated.yaml")
 	})
 	t.Run("names that are not Kubernetes object names", func(t *testing.T) {
-		for _, name := range []string{"Nke-Upper", "nke_underscore", "-leading-dash", "trailing.", "double..dot", strings.Repeat("a", 254)} {
+		for _, name := range []string{"Nvke-Upper", "nvke_underscore", "-leading-dash", "trailing.", "double..dot", strings.Repeat("a", 254)} {
 			root := writeTree(t, strings.ReplaceAll(activeMetadata(), activeName, name), "", map[string][2]string{name: {testIPXE, testUser}})
 			_, err := convert(root)
 			require.Error(t, err, name)

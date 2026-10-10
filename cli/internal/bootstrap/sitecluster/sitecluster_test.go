@@ -22,7 +22,7 @@ func capiInfraCluster(t *testing.T, req api.CreateClusterJSONRequestBody) map[st
 
 func testSiteSpec() *sitespec.SiteSpec {
 	return &sitespec.SiteSpec{
-		ClusterName: "nke-site",
+		ClusterName: "nvke-site",
 		Cluster: sitespec.Cluster{
 			Nodes: []sitespec.Node{
 				{Name: "node1", IP: "172.26.0.10", TPMEKThumbprint: strings.Repeat("1", 64)},

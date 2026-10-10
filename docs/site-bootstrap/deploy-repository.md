@@ -20,7 +20,7 @@ To use the reference repo:
 ```yaml
 argocd:
   repos:
-    - url: "https://github.com/my-org/my-nke-deploy.git"
+    - url: "https://github.com/my-org/my-nvke-deploy.git"
       token: "ghp-xxxxxxxxxxxx"
       deployPaths:
         - "deploy"
@@ -40,7 +40,7 @@ my-deploy-repo/
 │   │   ├── 20-argocd-repo-secrets.yaml.tmpl
 │   │   ├── 30-cnpg-secrets.yaml.tmpl
 │   │   └── 50-monitoring-secrets.yaml.tmpl
-│   ├── nke-storage/                     # manifest: StorageClasses and PVs
+│   ├── nvke-storage/                     # manifest: StorageClasses and PVs
 │   │   ├── storage-classes.yaml
 │   │   └── persistent-volumes.yaml
 │   ├── kubernetes-replicator/           # argocd: replicates pull secrets
@@ -62,7 +62,7 @@ Place an `nvke-deploy.yaml` at the root of each deploy path to declare item orde
 items:
   - name: nvke-base-config
     type: template
-  - name: nke-storage
+  - name: nvke-storage
     type: manifest
   - name: kubernetes-replicator
     type: argocd
@@ -429,7 +429,7 @@ items:
     type: template
   - name: my-app              # <-- new item
     type: manifest
-  - name: nke-storage
+  - name: nvke-storage
     type: manifest
   # ...
 ```

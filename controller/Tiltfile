@@ -987,7 +987,7 @@ _cwe_oidc_enabled = os.getenv(
 
 # NVKE API authentication. Enforcing by default now that the suite mints its own
 # token: internal/authtoken discovers the audience from the nke-auth-config
-# ConfigMap and nke.NewClient presents it on every call, so the ordinary specs
+# ConfigMap and nvke.NewClient presents it on every call, so the ordinary specs
 # exercise the shipping authentication path rather than bypassing it.
 #
 # The config file comes from the nke-auth-config ConfigMap in

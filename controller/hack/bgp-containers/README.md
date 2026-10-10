@@ -43,7 +43,7 @@ make capd-create-cluster
 make bgp-containers-verify
 watch -n1 make bgp-containers-verify
 
-# 5. Trigger a CP node removal via CWE or nkecli. FRR should drop the target
+# 5. Trigger a CP node removal via CWE or nvkectl. FRR should drop the target
 #    peer's nexthop, and the drain-kube-vip runbook should complete cleanly.
 
 # 6. Tear down when done.

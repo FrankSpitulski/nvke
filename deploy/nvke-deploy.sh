@@ -33,7 +33,7 @@ VALUES_FOR=()
 DEPLOY_PATH=""
 
 log() { printf '\n=== %s\n' "$*" >&2; }
-die() { printf 'nke-deploy: %s\n' "$*" >&2; exit 1; }
+die() { printf 'nvke-deploy: %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat >&2 <<'USAGE'

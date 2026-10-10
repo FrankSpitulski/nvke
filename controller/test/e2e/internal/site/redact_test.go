@@ -138,10 +138,10 @@ func TestRedactArchiveWithoutSecrets(t *testing.T) {
 // A value too short to search for is dropped, because replacing it would hit
 // unrelated text. Worth pinning: the alternative reads as redaction working.
 func TestRedactions(t *testing.T) {
-	got := redactions([]string{"tok", "", "nke-tenant", "nke-tenant", testDBPassword})
+	got := redactions([]string{"tok", "", "nvke-tenant", "nvke-tenant", testDBPassword})
 	want := map[string]bool{
-		"nke-tenant": true,
-		base64.StdEncoding.EncodeToString([]byte("nke-tenant")): true,
+		"nvke-tenant": true,
+		base64.StdEncoding.EncodeToString([]byte("nvke-tenant")): true,
 		testDBPassword: true,
 		base64.StdEncoding.EncodeToString([]byte(testDBPassword)): true,
 	}

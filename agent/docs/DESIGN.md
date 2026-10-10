@@ -182,9 +182,9 @@ goroutines and report progress via persisted status rather than blocking the RPC
 The central type. It embeds the generated `UnimplementedNodeAgentServer` and holds:
 
 - **Behavior seams (interfaces) for testability:**
-  - `Runner nkeutils.CommandRunner` — abstracts `exec` (`Run`, `RunSplitOutput`,
+  - `Runner nvkeutils.CommandRunner` — abstracts `exec` (`Run`, `RunSplitOutput`,
     stdin/stdout/stderr options). Mocked in tests.
-  - `FileWriter nkeutils.FileWriter` — abstracts file writes.
+  - `FileWriter nvkeutils.FileWriter` — abstracts file writes.
   - `Persister NodeStatusPersister` — load/persist `NodeStatus`.
   - `clientRegistry kubernetesClientRegistry` — lazy K8s clients.
   - `kubeadmFileOps fileOps` — ownership resolution for staged files.

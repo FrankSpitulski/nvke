@@ -212,7 +212,7 @@ func TestValidate(t *testing.T) {
 		assert.Error(t, withDialer(ready()).Validate(context.Background(), fakeCluster{name: "tenant-1", k8s: "1.29.5", cps: []rollout.Node{cpNode()}}))
 	})
 	t.Run("k8s with v-prefix and suffix accepted", func(t *testing.T) {
-		require.NoError(t, withDialer(ready()).Validate(context.Background(), fakeCluster{name: "tenant-1", k8s: "v1.31.2+nke1", cps: []rollout.Node{cpNode()}}))
+		require.NoError(t, withDialer(ready()).Validate(context.Background(), fakeCluster{name: "tenant-1", k8s: "v1.31.2+nvke1", cps: []rollout.Node{cpNode()}}))
 	})
 	t.Run("non-DNS-1123 cluster name rejected", func(t *testing.T) {
 		assert.Error(t, withDialer(ready()).Validate(context.Background(), fakeCluster{name: "Tenant_1", k8s: "1.30.0", cps: []rollout.Node{cpNode()}}))

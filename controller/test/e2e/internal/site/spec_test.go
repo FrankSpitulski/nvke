@@ -228,8 +228,8 @@ func testSite(t *testing.T) Spec {
 		KubernetesVersion:    "1.32.0",
 		CNI:                  "calico",
 		DisableMTLS:          true,
-		ControllerImage:      "nvcr.io/nke/cwe:v1.2.3",
-		CAPIProvisionedImage: "nvcr.io/nke/capi-provisioned:v0.1.0",
+		ControllerImage:      "nvcr.io/nvke/cwe:v1.2.3",
+		CAPIProvisionedImage: "nvcr.io/nvke/capi-provisioned:v0.1.0",
 	}
 }
 
@@ -279,7 +279,7 @@ func TestBootstrap(t *testing.T) {
 		}
 	}
 	boot := s.cmd(t, "bootstrap site")
-	for _, want := range []string{"sudo -n -i sh -c ", "--disable-mtls", "--kubeconfig-out", "NVKECTL_CONTROLLER_IMAGE=nvcr.io/nke/cwe:v1.2.3", "NVKECTL_CWE_IMAGE=nvcr.io/nke/cwe:v1.2.3", "NVKECTL_CAPI_PROVISIONED_IMAGE="} {
+	for _, want := range []string{"sudo -n -i sh -c ", "--disable-mtls", "--kubeconfig-out", "NVKECTL_CONTROLLER_IMAGE=nvcr.io/nvke/cwe:v1.2.3", "NVKECTL_CWE_IMAGE=nvcr.io/nvke/cwe:v1.2.3", "NVKECTL_CAPI_PROVISIONED_IMAGE="} {
 		if !strings.Contains(boot, want) {
 			t.Errorf("bootstrap site lacks %s: %s", want, boot)
 		}

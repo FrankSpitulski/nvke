@@ -55,7 +55,7 @@ const (
 	// undeployed NVKE or the wrong kubeconfig.
 	coldStartBudget = 5 * time.Second
 	// reconnectBudget has to outlast a pod replacement, because an NVKE rollout
-	// breaks these and the waiters in internal/nke abort on the first error.
+	// breaks these and the waiters in internal/nvke abort on the first error.
 	reconnectBudget     = 90 * time.Second
 	retryBackoff        = time.Second
 	maxRetryBackoff     = 10 * time.Second
@@ -174,7 +174,7 @@ func (f *ServiceForwarder) Get(ctx context.Context, path string) (int, []byte, e
 // request establishes a new one against whatever pod backs the Service then.
 //
 // This is what a caller that replaced the pod itself wants. Close would leave a
-// forwarder that never reconnects, and callers such as internal/nke's API client
+// forwarder that never reconnects, and callers such as internal/nvke's API client
 // hold one from before the rollout.
 func (f *ServiceForwarder) Reset() {
 	f.mu.Lock()

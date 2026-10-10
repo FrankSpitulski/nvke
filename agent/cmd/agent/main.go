@@ -404,7 +404,7 @@ func main() {
 	bundleServerURL := flag.String(
 		"bundle-server-url",
 		envOr("NKE_BUNDLE_SERVER_URL", ""),
-		"Optional bundle source URL for InstallBundle/InstallCollection(.json). Supports http://, https://, file://, or oci://. Also set via NKE_BUNDLE_SERVER_URL. Prefer apt repos when unset. Example: https://artifacts.example.com/ or oci://registry.example.com/nke/bundles",
+		"Optional bundle source URL for InstallBundle/InstallCollection(.json). Supports http://, https://, file://, or oci://. Also set via NKE_BUNDLE_SERVER_URL. Prefer apt repos when unset. Example: https://artifacts.example.com/ or oci://registry.example.com/nvke/bundles",
 	)
 	indexFileURL := flag.String(
 		"index-file-url",
@@ -414,7 +414,7 @@ func main() {
 	cniImageRegistry := flag.String(
 		"cni-image-registry",
 		envOr("NKE_CNI_IMAGE_REGISTRY", ""),
-		"OCI registry prefix for CNI component images (e.g. registry.example.com/nke). When set, passed to the CNI helm chart as --set global.registry=<value>. Also set via NKE_CNI_IMAGE_REGISTRY",
+		"OCI registry prefix for CNI component images (e.g. registry.example.com/nvke). When set, passed to the CNI helm chart as --set global.registry=<value>. Also set via NKE_CNI_IMAGE_REGISTRY",
 	)
 	flag.Parse()
 

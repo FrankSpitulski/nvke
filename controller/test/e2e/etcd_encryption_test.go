@@ -714,7 +714,7 @@ case "$args" in
 			other)
 				printf '%s\n' \
 					'apiserver_storage_transformation_operations_total{resource="secrets",status="OK",transformation_type="to_storage",transformer_prefix="k8s:enc:aescbc:v1:"} 1' \
-					'apiserver_storage_transformation_operations_total{resource="secrets",status="OK",transformation_type="to_storage",transformer_prefix="nke-key-1:"} 1'
+					'apiserver_storage_transformation_operations_total{resource="secrets",status="OK",transformation_type="to_storage",transformer_prefix="nvke-key-1:"} 1'
 				;;
 		esac
 		;;
@@ -981,7 +981,7 @@ func TestEtcdEncryptionVerifyScript(t *testing.T) {
 			for _, secretMaterial := range []string{
 				"RAW_SECRET_SENTINEL",
 				"nke-e2e-plaintext-e2e-etcd-encryption-",
-				"nke-key-1",
+				"nvke-key-1",
 			} {
 				if strings.Contains(logText, secretMaterial) {
 					t.Errorf("termination log exposes Secret material %q: %q", secretMaterial, logText)

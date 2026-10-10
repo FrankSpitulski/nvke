@@ -280,7 +280,7 @@ func TestTenantKubeconfigRetriesUntilPublished(t *testing.T) {
 		{output: base64.StdEncoding.EncodeToString([]byte("apiVersion: v1\nkind: Config\n"))},
 	}}
 	got, err := New(runner, nil).TenantKubeconfig(
-		context.Background(), "/tmp/kubeconfig", "nke-site", time.Second,
+		context.Background(), "/tmp/kubeconfig", "nvke-site", time.Second,
 	)
 	if err != nil {
 		t.Fatalf("TenantKubeconfig returned error: %v", err)
@@ -303,7 +303,7 @@ func TestTenantKubeconfigTimesOutWithLastError(t *testing.T) {
 		err:    errors.New("exit status 1"),
 	}}}
 	_, err := New(runner, nil).TenantKubeconfig(
-		context.Background(), "/tmp/kubeconfig", "nke-site", 5*time.Millisecond,
+		context.Background(), "/tmp/kubeconfig", "nvke-site", 5*time.Millisecond,
 	)
 	if err == nil {
 		t.Fatal("TenantKubeconfig did not time out")

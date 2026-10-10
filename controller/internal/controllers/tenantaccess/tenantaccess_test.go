@@ -74,7 +74,7 @@ users:
 	testRBACManifest = `apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: nke-role
+  name: nvke-role
 rules: []
 `
 )
@@ -466,7 +466,7 @@ func TestController_ReconcileOIDC(t *testing.T) {
 
 	// RBAC-first: the ClusterRole is server-side-applied into the tenant cluster.
 	var role rbacv1.ClusterRole
-	require.NoError(t, tenantClient.Get(ctx, types.NamespacedName{Name: "nke-role"}, &role))
+	require.NoError(t, tenantClient.Get(ctx, types.NamespacedName{Name: "nvke-role"}, &role))
 
 	// kubeconfig Secret carries the SPIRE exec-auth kubeconfig (not verbatim admin.conf).
 	kcSecret := &corev1.Secret{}
@@ -573,7 +573,7 @@ func TestController_ReconcileMixed(t *testing.T) {
 	// OIDC cluster (same Reconcile pass): RBAC applied into the tenant, and the
 	// SPIRE exec-auth kubeconfig + trust-bundle Secrets published.
 	var role rbacv1.ClusterRole
-	require.NoError(t, tenantClient.Get(ctx, types.NamespacedName{Name: "nke-role"}, &role))
+	require.NoError(t, tenantClient.Get(ctx, types.NamespacedName{Name: "nvke-role"}, &role))
 
 	kcSecret := &corev1.Secret{}
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{

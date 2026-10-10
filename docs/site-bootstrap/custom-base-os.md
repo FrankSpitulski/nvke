@@ -56,7 +56,7 @@ autoinstall:
         owner: root:root
         permissions: '0640'
         content: |
-          clusterName: "nke-site"
+          clusterName: "nvke-site"
           cluster:
             nodes:
               - name: "ctrl-1"
@@ -109,7 +109,7 @@ autoinstall:
       # agents configured above; this is the development-only mode, not a
       # production path. The two images are named by flag because this host has
       # no local build to side-load; nvkectl pulls them with nerdctl.
-      - [sh, -c, "REGISTRY_API_KEY=<your-registry-api-key> nvkectl bootstrap site -f /etc/nvkectl/sitespec.yaml --controller-image <controller-image> --provisioned-provider-image <provisioned-provider-image> --disable-mtls --encryption-key-out /root/nke-site-etcd-encryption-key.json >> /var/log/nvkectl-bootstrap.log 2>&1"]
+      - [sh, -c, "REGISTRY_API_KEY=<your-registry-api-key> nvkectl bootstrap site -f /etc/nvkectl/sitespec.yaml --controller-image <controller-image> --provisioned-provider-image <provisioned-provider-image> --disable-mtls --encryption-key-out /root/nvke-site-etcd-encryption-key.json >> /var/log/nvkectl-bootstrap.log 2>&1"]
 ```
 
 The bootstrap writes the cluster's etcd encryption key to the path given by

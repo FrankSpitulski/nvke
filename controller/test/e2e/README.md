@@ -112,7 +112,7 @@ go run github.com/onsi/ginkgo/v2/ginkgo@v2.27.2 run -v --label-filter=health .
 
 Only `NKE_CONTROLLER_EXPECTED_VERSION` and `NKE_CONTROLLER_HEALTH_TIMEOUT` are specific to the health
 specs; the first four apply everywhere. The `NKE_E2E_*` group configures the
-credential `nke.NewClient` discovers and presents on every ordinary NVKE call,
+credential `nvke.NewClient` discovers and presents on every ordinary NVKE call,
 not the authentication specs, which build their own token per case.
 
 | Variable | Description | Default |
@@ -389,7 +389,7 @@ site is always born OIDC-on (`OIDCAuthEnabled` follows the CWE `NKE_OIDC_AUTH_EN
 create default), which would make `UpdateCluster{enableOidc}` a no-op — there is no
 supported way to create an OIDC-off cluster on such a site. So the brownfield entry
 creates its cluster with the CWE create-default flipped **off**
-(`nke.SetOIDCEnabled(false)` — a live env override on the CWE deployment, leaving the
+(`nvke.SetOIDCEnabled(false)` — a live env override on the CWE deployment, leaving the
 OIDC issuer/discovery/CA env intact), then flips it back **on** before enabling. This
 mirrors a real brownfield cluster: one created before its site turned OIDC on. The
 flag is restored in the entry's `AfterAll`; the CAPD suite runs serially so this does

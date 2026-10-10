@@ -258,7 +258,7 @@ func resolveWorkDir(t *testing.T, c config) string {
 		}
 		return abs
 	}
-	dir, err := os.MkdirTemp("", "nke-kubeadm-bringup-")
+	dir, err := os.MkdirTemp("", "nvke-kubeadm-bringup-")
 	if err != nil {
 		t.Fatalf("create temp work dir: %v", err)
 	}

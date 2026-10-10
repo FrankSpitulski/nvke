@@ -26,7 +26,7 @@ settings test that the ordinary unit lane runs, and reports success.
 
 ```bash
 export NKE_CONTROLLER_API_URL=http://<site-controller>:8080/api
-export CREATE_CLUSTER_REQUEST_PATH=~/nke-integration/create-cluster-request.json
-export CREATE_NODE_POOL_REQUEST_PATH=~/nke-integration/create-nodepool-request.json
+export CREATE_CLUSTER_REQUEST_PATH=~/nvke-integration/create-cluster-request.json
+export CREATE_NODE_POOL_REQUEST_PATH=~/nvke-integration/create-nodepool-request.json
 go test -tags integration_test -v -timeout=3h
 ```

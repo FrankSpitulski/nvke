@@ -1710,7 +1710,7 @@ func TestClusterService_UpdateCluster_EnableEtcdEncryption_StartsWorkflowForCAPI
 
 // TestClusterService_GetCluster_ExposesUpdateInProgress confirms the API
 // response includes the UpdateInProgress field so fleet dashboards and
-// nkecli can surface what operation is running and when it started.
+// nvkectl can surface what operation is running and when it started.
 func TestClusterService_GetCluster_ExposesUpdateInProgress(t *testing.T) {
 	clusterID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
 	started := time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)

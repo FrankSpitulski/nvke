@@ -797,7 +797,7 @@ For one-shot nico-vms integration tests, sync just this tree and run on the remo
 
 ```bash
 ./scripts/sync-to-remote.sh [--ssh|--tsh] hostname
-# syncs to ~/dev/nke/controller/nico-sim/ on the remote (override: NICO_SIM_REMOTE_DIR)
+# syncs to ~/dev/nvke/controller/nico-sim/ on the remote (override: NICO_SIM_REMOTE_DIR)
 ```
 
 ## Helper Scripts

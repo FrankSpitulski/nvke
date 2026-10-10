@@ -132,7 +132,7 @@ metadata:
 			wantErr:  "must set metadata.namespace",
 		},
 		{
-			name:     "ClusterRoleBinding roleRef name must use nke prefix",
+			name:     "ClusterRoleBinding roleRef name must use the nke: prefix",
 			manifest: clusterRoleBindingManifest(defaultNVKERBACName, rbacKindClusterRole, "other-name"),
 			wantErr:  `roleRef.name "other-name" is not allowed`,
 		},
@@ -171,7 +171,7 @@ metadata:
 			require.Error(t, err)
 			assert.Nil(t, resp)
 			assert.Equal(t, codes.InvalidArgument, status.Code(err))
-			require.ErrorContains(t, err, "update NKE RBAC: invalid manifest")
+			require.ErrorContains(t, err, "UpdateNKERBAC: invalid manifest")
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}

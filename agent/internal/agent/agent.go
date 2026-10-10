@@ -365,7 +365,7 @@ func NewNodeAgentServer(doMlx5Rescan bool, bundleServerURL, indexFileURL, cniIma
 	slog.Info("initializing node agent server")
 	// Ensure the directory exists
 	if err := os.MkdirAll(NVKEDir, 0o755); err != nil {
-		slog.Error("failed to create nke dir", "err", err)
+		slog.Error("failed to create the agent directory", "dir", NVKEDir, "err", err)
 	}
 
 	// Ensure the state file exists, but do NOT truncate if it's already there
@@ -1526,22 +1526,22 @@ func (s *NodeAgentServer) UpdateNKERBAC(
 	}
 	if !s.isControlPlaneRole() {
 		slog.Info("unable to fulfill UpdateNKERBAC from non-controlplane node", "NodeRole", role)
-		return nil, status.Errorf(codes.FailedPrecondition, "update NKE RBAC: control-plane node required, current role %q", role)
+		return nil, status.Errorf(codes.FailedPrecondition, "UpdateNKERBAC: control-plane node required, current role %q", role)
 	}
 
 	resources, err := parseAndValidateNVKERBACManifest(req.GetManifest())
 	if err != nil {
-		slog.Error("failed to validate nke rbac manifest", "err", err)
-		return nil, status.Errorf(codes.InvalidArgument, "update NKE RBAC: invalid manifest: %v", err)
+		slog.Error("failed to validate the NVKE RBAC manifest", "err", err)
+		return nil, status.Errorf(codes.InvalidArgument, "UpdateNKERBAC: invalid manifest: %v", err)
 	}
 
 	client, err := s.clientRegistry.DynamicClient()
 	if err != nil {
 		slog.Error("failed to initialize Kubernetes client for UpdateNKERBAC", "err", err)
 		if errors.As(err, &k8s.KubeconfigAccessError{}) {
-			return nil, status.Errorf(codes.FailedPrecondition, "update NKE RBAC: kubeconfig precondition failed: %v", err)
+			return nil, status.Errorf(codes.FailedPrecondition, "UpdateNKERBAC: kubeconfig precondition failed: %v", err)
 		}
-		return nil, status.Errorf(codes.Internal, "update NKE RBAC: initializing Kubernetes client: %v", err)
+		return nil, status.Errorf(codes.Internal, "UpdateNKERBAC: initializing Kubernetes client: %v", err)
 	}
 
 	return applyNVKERBACResources(ctx, client, resources), nil

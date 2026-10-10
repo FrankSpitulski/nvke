@@ -284,7 +284,7 @@ func ipxeScriptOf(t *testing.T, pool api.NodePoolCreateConfig) string {
 	return script
 }
 
-// nke_ControlPlane builds a single-pool control plane, keeping the table above
+// nvke_ControlPlane builds a single-pool control plane, keeping the table above
 // readable.
 func singlePoolControlPlane(pools ...NodePoolSpec) ControlPlane {
 	return ControlPlane{Pools: pools, ControlPlaneVIP: "10.0.0.1"}

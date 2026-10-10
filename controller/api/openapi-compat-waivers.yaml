@@ -47,7 +47,7 @@
 # it.
 waivers:
   # The one server entry is a placeholder example host, not an endpoint anyone
-  # is given; it follows the product rename from nke to nvke. A consumer sets
+  # is given; it follows the product rename to NVKE. A consumer sets
   # its own base URL and is not affected.
   - change: "object_removed"
     path: "$.servers"

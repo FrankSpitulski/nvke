@@ -59,8 +59,8 @@ func testSBOM() Stack {
 	return Stack{
 		Assets:     stackCheckout,
 		AssetPaths: []string{"deploy"},
-		Controller: Image{Repository: "nvcr.io/nke/cwe", Tag: "v1.2.3"},
-		Profiles:   Image{Repository: "nvcr.io/nke/profiles", Tag: "run-42"},
+		Controller: Image{Repository: "nvcr.io/nvke/cwe", Tag: "v1.2.3"},
+		Profiles:   Image{Repository: "nvcr.io/nvke/profiles", Tag: "run-42"},
 		Provider:   NewNico("https://forge.example", "org", "tok"),
 		Registry:   Registry{Server: "ghcr.io", Username: "u", Token: "r"},
 		Tenant:     Tenant{User: "admin", Password: "p"},
@@ -110,14 +110,14 @@ func TestSBOMRender(t *testing.T) {
 
 	controllerValues := decode(t, files["controller.yaml"])
 	for keys, want := range map[string]string{
-		"image.repository":                 "nvcr.io/nke/cwe",
+		"image.repository":                 "nvcr.io/nvke/cwe",
 		"image.tag":                        "v1.2.3",
 		"appDb.postgresPassword":           "db-secret",
 		"nkeOIDCAuth.discoveryURL":         "https://10.0.0.5:30443/.well-known/openid-configuration",
 		"spiffe.trustDomain":               "e2e-site.nke.local",
 		"spiffe.spire.serverAddress":       "10.0.0.5",
 		"nodeAgent.spireAttestationMethod": "tpm",
-		"profiles.image.repository":        "nvcr.io/nke/profiles",
+		"profiles.image.repository":        "nvcr.io/nvke/profiles",
 		"profiles.image.tag":               "run-42",
 	} {
 		if got := dig(t, controllerValues, strings.Split(keys, ".")...); got != want {

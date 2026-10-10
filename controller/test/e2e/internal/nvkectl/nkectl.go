@@ -3,7 +3,7 @@
 
 // Package nvkectl drives the nvkectl binary against the NVKE deployment the e2e
 // suite already has running. It is the command-line counterpart to
-// internal/nke, the REST client the rest of the suite uses; both build their
+// internal/nvke, the REST client the rest of the suite uses; both build their
 // create request through nvke.BuildCreateRequest, so the two differ only in
 // transport.
 //

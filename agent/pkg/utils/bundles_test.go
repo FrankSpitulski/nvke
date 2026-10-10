@@ -486,15 +486,15 @@ func TestParseBundleSourceURI(t *testing.T) {
 	}{
 		{
 			name:         "OCI registry with oci:// prefix",
-			uri:          "oci://registry.example.com/nke/bundles",
+			uri:          "oci://registry.example.com/nvke/bundles",
 			expectedType: BundleSourceOCI,
-			expectedURL:  "registry.example.com/nke/bundles",
+			expectedURL:  "registry.example.com/nvke/bundles",
 		},
 		{
 			name:         "OCI registry with trailing slash",
-			uri:          "oci://registry.example.com/nke/bundles/",
+			uri:          "oci://registry.example.com/nvke/bundles/",
 			expectedType: BundleSourceOCI,
-			expectedURL:  "registry.example.com/nke/bundles",
+			expectedURL:  "registry.example.com/nvke/bundles",
 		},
 		{
 			name:         "HTTPS URL",

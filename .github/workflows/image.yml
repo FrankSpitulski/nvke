@@ -150,13 +150,13 @@ jobs:
         run: |
           docker buildx build \
             --file controller/hack/capd-reboot-controller/Dockerfile \
-            --tag nke/capd-reboot-controller:ci \
+            --tag nvke/capd-reboot-controller:ci \
             --load \
             controller/hack/capd-reboot-controller
 
       - name: Show image
         shell: bash
-        run: docker image inspect nke/capd-reboot-controller:ci --format 'built {{.RepoTags}} {{.Size}} bytes'
+        run: docker image inspect nvke/capd-reboot-controller:ci --format 'built {{.RepoTags}} {{.Size}} bytes'
 
       # A real end-to-end controller image build: it compiles the controller
       # inside the build, resolving public Go modules without credentials. The context is the

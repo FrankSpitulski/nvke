@@ -1416,7 +1416,7 @@ func TestUpdateNKERBACPreconditions(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, resp)
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-		require.ErrorContains(t, err, "update NKE RBAC: control-plane node required")
+		require.ErrorContains(t, err, "UpdateNKERBAC: control-plane node required")
 		require.ErrorContains(t, err, `current role "worker"`)
 	})
 
@@ -1430,7 +1430,7 @@ func TestUpdateNKERBACPreconditions(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, resp)
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-		require.ErrorContains(t, err, "update NKE RBAC: control-plane node required")
+		require.ErrorContains(t, err, "UpdateNKERBAC: control-plane node required")
 	})
 
 	t.Run("missing kubeconfig is rejected", func(t *testing.T) {
@@ -1443,7 +1443,7 @@ func TestUpdateNKERBACPreconditions(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, resp)
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-		require.ErrorContains(t, err, "update NKE RBAC: kubeconfig precondition failed")
+		require.ErrorContains(t, err, "UpdateNKERBAC: kubeconfig precondition failed")
 	})
 
 	t.Run("unparseable kubeconfig is internal", func(t *testing.T) {
@@ -1458,7 +1458,7 @@ func TestUpdateNKERBACPreconditions(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, resp)
 		assert.Equal(t, codes.Internal, status.Code(err))
-		require.ErrorContains(t, err, "update NKE RBAC: initializing Kubernetes client")
+		require.ErrorContains(t, err, "UpdateNKERBAC: initializing Kubernetes client")
 	})
 }
 

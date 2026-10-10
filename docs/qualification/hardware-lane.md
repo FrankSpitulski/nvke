@@ -220,13 +220,13 @@ place is not covered.
 
 The architectural point worth stating plainly: **tenant clusters are created
 through the controller's API on the site controller machine, not through the Forge API.** The suite
-posts an `nke.ClusterSpec` with `Backend: BackendNicoForge` naming the org,
+posts an `nvke.ClusterSpec` with `Backend: BackendNicoForge` naming the org,
 site and VPC; CAPNico inside the cluster is what calls Forge. That keeps the
 lane on the product's own front door rather than a test-only path.
 
 ```mermaid
 flowchart LR
-    SUITE["the suite<br/>posts an nke.ClusterSpec with<br/>Backend: BackendNicoForge"] --> CTRL["the NVKE controller<br/>on the site controller machine"]
+    SUITE["the suite<br/>posts an nvke.ClusterSpec with<br/>Backend: BackendNicoForge"] --> CTRL["the NVKE controller<br/>on the site controller machine"]
     CTRL --> CAPN["CAPNico<br/>inside that cluster"]
     CAPN --> FORGE["the Forge API"]
     SUITE --x FORGE

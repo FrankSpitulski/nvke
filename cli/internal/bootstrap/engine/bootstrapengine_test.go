@@ -370,8 +370,8 @@ func TestRepoOfTaggedRef(t *testing.T) {
 	}{
 		{"ghcr.io/nvidia/nke/controller:v0.1.1-rc.2", "ghcr.io/nvidia/nke/controller", true},
 		{"cwe-profiles:local", "cwe-profiles", true},
-		{"localhost:5000/nke/controller:v1", "localhost:5000/nke/controller", true},
-		{"localhost:5000/nke/controller", "", false},
+		{"localhost:5000/nvke/controller:v1", "localhost:5000/nvke/controller", true},
+		{"localhost:5000/nvke/controller", "", false},
 		{"ghcr.io/nvidia/nke/controller", "", false},
 		{"ghcr.io/nvidia/nke/controller@" + hostManifestDigest, "", false},
 	}

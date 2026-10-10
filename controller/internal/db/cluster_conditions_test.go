@@ -65,7 +65,7 @@ func TestClusterConditions_UpdateFailed_RoundTrip(t *testing.T) {
 
 func TestOperationType_Values(t *testing.T) {
 	// Guard against accidental renaming — these string values are persisted
-	// in the clusters.conditions JSONB and consumed by the UI / nkecli.
+	// in the clusters.conditions JSONB and consumed by the UI / nvkectl.
 	assert.Equal(t, "etcd_encryption", string(db.OperationTypeEtcdEncryption))
 	assert.Equal(t, "k8s_upgrade", string(db.OperationTypeK8sUpgrade))
 	assert.Equal(t, "cp_nodes_recycling", string(db.OperationTypeCPNodesRecycling))

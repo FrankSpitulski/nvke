@@ -28,7 +28,7 @@ import (
 
 const (
 	ControllerGofailWorkerBinaryEnv = "NKE_CONTROLLER_GOFAIL_E2E_WORKER_BINARY"
-	// legacyWorkerBinaryEnv is a deprecated alias; nke#1399 removes it.
+	// legacyWorkerBinaryEnv is a deprecated alias; #1399 removes it.
 	legacyWorkerBinaryEnv           = "CWE_GOFAIL_E2E_WORKER_BINARY"
 	ControllerGofailFailpointName   = "CWERunbookWorkerCrash"
 	ControllerGofailWorkerCrashLine = "cwe-gofail-runbook-worker-crash"
