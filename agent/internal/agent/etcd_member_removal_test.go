@@ -29,6 +29,20 @@ type fakeEtcdMemberClient struct {
 	movedTo   uint64
 	movedFrom []string
 	removedID uint64
+
+	// Backend sizing reported by Status, used by the etcd status and
+	// defragmentation RPCs.
+	dbSize       int64
+	dbSizeInUse  int64
+	dbSizeQuota  int64
+	statusErrors []string
+
+	// statusFn, when set, replaces the canned Status response. It receives the
+	// 1-based call count so a test can model a member that is unreachable for
+	// the first few probes and then comes back, which is what a restart looks
+	// like to the health wait.
+	statusFn    func(call int) (*clientv3.StatusResponse, error)
+	statusCalls int
 }
 
 func (f *fakeEtcdMemberClient) MemberList(context.Context, ...clientv3.OpOption) (*clientv3.MemberListResponse, error) {
@@ -36,9 +50,17 @@ func (f *fakeEtcdMemberClient) MemberList(context.Context, ...clientv3.OpOption)
 }
 
 func (f *fakeEtcdMemberClient) Status(context.Context, string) (*clientv3.StatusResponse, error) {
+	f.statusCalls++
+	if f.statusFn != nil {
+		return f.statusFn(f.statusCalls)
+	}
 	return &clientv3.StatusResponse{
-		Header: &etcdserverpb.ResponseHeader{MemberId: f.localID},
-		Leader: f.leaderID,
+		Header:      &etcdserverpb.ResponseHeader{MemberId: f.localID},
+		Leader:      f.leaderID,
+		DbSize:      f.dbSize,
+		DbSizeInUse: f.dbSizeInUse,
+		DbSizeQuota: f.dbSizeQuota,
+		Errors:      f.statusErrors,
 	}, f.statusErr
 }
 
