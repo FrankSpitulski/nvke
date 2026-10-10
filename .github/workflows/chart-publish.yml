@@ -79,7 +79,7 @@ jobs:
     # ghcr.io/dsx-ai-factory/nke/nke-controller:v0.1.1-rc.0-2-g068156e, a tag promotion never
     # creates -- a chart naming an image that does not exist.
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
+      github.repository_id == '1323115536' &&
       startsWith(github.ref, 'refs/tags/controller/v')
     timeout-minutes: 10
     permissions:

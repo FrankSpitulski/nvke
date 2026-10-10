@@ -48,7 +48,7 @@ concurrency:
 
 jobs:
   build-efi:
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     name: Build qcow-imager.efi (${{ matrix.arch }})
     strategy:
       fail-fast: false

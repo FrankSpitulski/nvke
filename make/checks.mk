@@ -20,9 +20,19 @@ endef
 
 ##@ Checks
 
+# The repository guard compares the id, never the slug. A renamed or
+# transferred repository keeps its id, while a slug guard that has gone false
+# skips every job without a failure. See .github/workflows/README.md,
+# "Repository guards". `github.repository_id` and `github.repository_owner`
+# do not match the pattern, and neither does `x == github.repository`.
 lint-workflows: ## Lint the GitHub Actions workflows. (run by the merge gate)
 	@$(call require_tool,actionlint,$(ACTIONLINT_VERSION))
 	@actionlint -color
+	@if git grep -n -E 'github\.repository[[:space:]]*[!=]=' -- .github >/dev/null; then \
+		echo "ERROR: a workflow compares github.repository to a string. Guard on github.repository_id instead:"; \
+		git grep -n -E 'github\.repository[[:space:]]*[!=]=' -- .github; \
+		exit 1; \
+	 fi
 	@echo "  workflows: no findings"
 
 # --severity=error matches shellcheck.yml. The tree is clean at error and is not

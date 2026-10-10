@@ -95,7 +95,7 @@ jobs:
     name: nico-vms-e2e (${{ matrix.arch }}, KVM)
     runs-on: ${{ matrix.runner }}
     needs: changes
-    if: github.repository == 'dsx-ai-factory/nke' && needs.changes.outputs.run_e2e == 'true'
+    if: github.repository_id == '1323115536' && needs.changes.outputs.run_e2e == 'true'
     strategy:
       # One architecture failing must not hide the other's result.
       fail-fast: false

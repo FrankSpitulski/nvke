@@ -101,7 +101,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same as license.yml's discover-modules, which does the same work.
     timeout-minutes: 5
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     outputs:
       modules: ${{ steps.find.outputs.modules }}
     steps:

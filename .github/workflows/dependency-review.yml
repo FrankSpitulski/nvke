@@ -41,7 +41,7 @@ jobs:
   review:
     name: dependency-review
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     timeout-minutes: 10
     permissions:
       contents: read

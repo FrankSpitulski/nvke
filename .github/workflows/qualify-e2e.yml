@@ -209,7 +209,7 @@ jobs:
     # `qualify-e2e-dry-run` label for a dry run, from a branch in this
     # repository. The lanes need this job, so they are skipped with it.
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
+      github.repository_id == '1323115536' &&
       (github.event_name == 'workflow_dispatch' ||
        (github.event.pull_request.head.repo.full_name == github.repository &&
         contains(fromJSON('["qualify-e2e","qualify-e2e-dry-run"]'), github.event.label.name)))

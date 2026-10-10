@@ -78,7 +78,7 @@ jobs:
     # pool; pull requests reach it through the mirror branch. Neither leg needs
     # /dev/kvm.
     runs-on: ${{ matrix.runner }}
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     strategy:
       fail-fast: false
       matrix:

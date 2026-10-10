@@ -52,7 +52,7 @@ concurrency:
 jobs:
   publish:
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
+      github.repository_id == '1323115536' &&
       startsWith(github.ref, 'refs/tags/cli/v')
     name: Publish to S3
     runs-on: ubuntu-latest

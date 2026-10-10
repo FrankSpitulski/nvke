@@ -33,7 +33,7 @@ concurrency:
 jobs:
   pr-title:
     name: pr-title
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

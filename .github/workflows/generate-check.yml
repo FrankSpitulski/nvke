@@ -51,7 +51,7 @@ jobs:
   generate-check:
     name: Check generated API code is up to date
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     timeout-minutes: 20
     permissions:
       contents: read
@@ -96,7 +96,7 @@ jobs:
   provisioned-generate-check:
     name: Check generated provisioned provider code, CRDs, RBAC, and embedded manifest
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     timeout-minutes: 20
     permissions:
       contents: read
@@ -157,7 +157,7 @@ jobs:
   proto-generate-check:
     name: Check generated proto code is up to date
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     timeout-minutes: 20
     permissions:
       contents: read

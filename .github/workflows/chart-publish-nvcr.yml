@@ -68,7 +68,7 @@ jobs:
   publish:
     name: Publish chart (${{ matrix.destination }})
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     environment: nvcr
     timeout-minutes: 10
     permissions:

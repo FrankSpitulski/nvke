@@ -41,7 +41,7 @@ env:
 
 jobs:
   iso:
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     name: Cache the installer ISO (${{ matrix.arch }}, ubuntu ${{ matrix.ubuntu_release }})
     runs-on: ubuntu-latest
     # arm64's ISO comes from cdimage.ubuntu.com at a couple of MB/s.

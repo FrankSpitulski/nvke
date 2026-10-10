@@ -67,7 +67,7 @@ jobs:
             # was wrong.
             runner: arc-arm64-kvm-8c16g
     runs-on: ${{ matrix.runner }}
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     # Still sized for the emulated path, so a fall back to TCG cannot time out.
     timeout-minutes: 240
     permissions:

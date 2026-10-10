@@ -56,7 +56,7 @@ jobs:
   validate:
     name: install and validate on Kind
     runs-on: linux-amd64-cpu8
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     # The install alone is ~10 minutes on a hosted runner: the Operator, its
     # CRDs, seven Collectors and the LGTM image. The signal assertions then
     # retry for up to five minutes each.

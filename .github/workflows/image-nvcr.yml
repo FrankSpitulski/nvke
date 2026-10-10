@@ -63,7 +63,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     name: Build (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     environment: nvcr
@@ -165,7 +165,7 @@ jobs:
           retention-days: 1
 
   manifest:
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     name: Manifest
     runs-on: linux-amd64-cpu8
     needs: [build]
@@ -468,7 +468,7 @@ jobs:
 
   promote-dsx:
     name: Promote to DSX
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     runs-on: linux-amd64-cpu8
     needs: [manifest]
     environment: nvcr
@@ -623,7 +623,7 @@ jobs:
   # into an OCI index, which breaks the imagetools create in docker-manifest --
   # the same reason --provenance=false is already on docker-push-arch.
   sbom:
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     name: SBOM (${{ matrix.arch }})
     runs-on: linux-amd64-cpu8
     needs: [build, manifest]

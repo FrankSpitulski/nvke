@@ -29,7 +29,7 @@ jobs:
   preview:
     name: Post preview comment
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke' && github.event.workflow_run.conclusion == 'success'
+    if: github.repository_id == '1323115536' && github.event.workflow_run.conclusion == 'success'
     timeout-minutes: 15
     steps:
       - name: Download Fern sources and metadata

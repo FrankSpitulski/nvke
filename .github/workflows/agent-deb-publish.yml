@@ -68,7 +68,7 @@ jobs:
     # Tag-only: a branch workflow_dispatch must not produce packages that the
     # publish job (or a later re-enable) could upload into apt intake.
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
+      github.repository_id == '1323115536' &&
       (startsWith(inputs.ref || github.ref_name, 'agent/v') || inputs.ref != '')
     outputs:
       sha: ${{ steps.package.outputs.sha }}
@@ -201,7 +201,7 @@ jobs:
     name: Upload to apt intake
     needs: [build]
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
+      github.repository_id == '1323115536' &&
       startsWith(inputs.ref || github.ref_name, 'agent/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -279,7 +279,7 @@ jobs:
     name: Upload dev packages to S3
     needs: [build]
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
+      github.repository_id == '1323115536' &&
       github.ref == 'refs/heads/main' &&
       !startsWith(inputs.ref || github.ref_name, 'agent/v')
     runs-on: ubuntu-latest
@@ -335,7 +335,7 @@ jobs:
     name: Publish debs to GHCR
     needs: [build]
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
+      github.repository_id == '1323115536' &&
       startsWith(inputs.ref || github.ref_name, 'agent/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -439,7 +439,7 @@ jobs:
     name: Publish debs to NVCR
     needs: [build]
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
+      github.repository_id == '1323115536' &&
       startsWith(inputs.ref || github.ref_name, 'agent/v')
     runs-on: ubuntu-latest
     env:
@@ -552,7 +552,7 @@ jobs:
     name: Attach debs to GitHub Release
     needs: [build]
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
+      github.repository_id == '1323115536' &&
       startsWith(inputs.ref || github.ref_name, 'agent/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10

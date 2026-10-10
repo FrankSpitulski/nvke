@@ -71,7 +71,7 @@ jobs:
   gate:
     name: Check the repository is public
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     timeout-minutes: 5
     permissions:
       contents: read

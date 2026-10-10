@@ -48,7 +48,7 @@ jobs:
   api-compat:
     name: Check the OpenAPI spec is backward compatible
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     timeout-minutes: 15
     permissions:
       contents: read
