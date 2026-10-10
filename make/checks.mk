@@ -61,6 +61,18 @@ internal-config-check: ## Check the tree names no internal infrastructure. (run 
 	@python3 -B ./hack/test_internal_config_check.py
 	@./hack/internal-config-check.sh
 
+# A banned name, found as tokens rather than lines so that an English word or
+# a camel-case identifier does not hide the real token beside it. Report mode
+# summarises and exits 0, which is what the gate needs while the tree still
+# carries the name; fail mode lists every hit outside
+# hack/name-check-allowlist.txt and exits 1. Flip NAME_CHECK_MODE to fail once
+# the list is meant to be empty. A dead allowlist entry fails in either mode.
+NAME_CHECK_MODE ?= report
+name-check: ## Report tokens that carry a banned name outside the allowlist. (run by the merge gate)
+	@$(call require_command,python3)
+	@python3 -B ./hack/test_name_check.py
+	@python3 -B ./hack/name-check.py --mode $(NAME_CHECK_MODE)
+
 CHART_CRDS_KUSTOMIZE := controller/deploy/release-crds
 CHART_CRDS_FILE := $(CHART)/files/crds.yaml
 
@@ -304,6 +316,7 @@ gate: ## Run the merge-gate checks that work on a laptop.
 	@$(MAKE) --no-print-directory lint-shell
 	@$(MAKE) --no-print-directory docs-check
 	@$(MAKE) --no-print-directory internal-config-check
+	@$(MAKE) --no-print-directory name-check
 	@$(MAKE) --no-print-directory chart-check
 	@$(MAKE) --no-print-directory nktp-chart-check
 	@$(MAKE) --no-print-directory -C controller generate-check

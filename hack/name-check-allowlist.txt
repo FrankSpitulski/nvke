@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Hits of the banned name that hack/name-check.py accepts. One entry per line:
+# `path:<glob>`, where `*` also matches `/`, or `token:<regex>` in Python
+# syntax, searched anywhere in the token, so anchor it. Say why above each
+# entry. An entry that matches nothing is dead and fails the check, so remove
+# an entry together with the thing it covered.
+
+# Migration names are recorded in the database once applied, so this file
+# keeps its name whatever the product is called. Pinned to the file rather
+# than the token, because the same string anywhere else is not a migration.
+path:controller/internal/db/migrations/20260318120000_migrate_nodepools_to_nke_260318_22_04_amd64*
+
+# The record magic the agent writes at the start of every authentication
+# record is a framing constant with its own version byte. A new magic is a
+# protocol version bump, which a spelling does not justify.
+token:^NKEAuth$

@@ -190,6 +190,14 @@ jobs:
     permissions:
       contents: read
 
+  # Tokens that carry a banned name, outside hack/name-check-allowlist.txt.
+  # Report mode today, which summarises and exits 0; fail mode once the name is
+  # meant to be gone. See the header of name-check.yml.
+  name-check:
+    uses: ./.github/workflows/name-check.yml
+    permissions:
+      contents: read
+
   lint:
     uses: ./.github/workflows/lint.yml
     permissions:
@@ -248,6 +256,7 @@ jobs:
       - shellcheck
       - docs-check
       - internal-config-check
+      - name-check
       - lint
       - gofail
       - notices
