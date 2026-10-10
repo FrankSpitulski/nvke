@@ -818,7 +818,7 @@ jobs:
           done
 
           ( cd dist && oras push "${REPO}:${tags}" \
-              --artifact-type application/vnd.nvidia.nke.node.qcow2.v1 \
+              --artifact-type application/vnd.nvidia.nvke.node.qcow2.v1 \
               --artifact-platform "linux/${ARCH}" \
               --annotation "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
               --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \

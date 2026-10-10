@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 name: Feature Request
-description: Propose an NKE feature
+description: Propose an NVKE feature
 title: "[FEATURE]: "
 labels: ["feature"]
 
@@ -46,9 +46,9 @@ body:
       options:
         - Controller
         - Node agent or updater
-        - nkectl CLI
+        - nvkectl CLI
         - Cluster API provider (provisioned)
-        - Helm charts or deployment (nke-stack)
+        - Helm charts or deployment
         - nico-sim (development simulator)
         - OS image or image checker
         - NKTP telemetry pipeline

@@ -408,7 +408,7 @@ jobs:
             work="$(mktemp -d)"
             cp "$deb" "${work}/nke-agent.deb"
             ( cd "${work}" && oras push "${REPO}:${version}-${arch}" \
-                --artifact-type application/vnd.nvidia.nke.agent.deb.v1 \
+                --artifact-type application/vnd.nvidia.nvke.agent.deb.v1 \
                 --artifact-platform "linux/${arch}" \
                 --annotation "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
                 --annotation "org.opencontainers.image.revision=${SOURCE_SHA}" \
@@ -516,7 +516,7 @@ jobs:
             work="$(mktemp -d)"
             cp "$deb" "${work}/nke-agent.deb"
             ( cd "${work}" && oras push "${REPO}:${version}-${arch}" \
-                --artifact-type application/vnd.nvidia.nke.agent.deb.v1 \
+                --artifact-type application/vnd.nvidia.nvke.agent.deb.v1 \
                 --artifact-platform "linux/${arch}" \
                 --annotation "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
                 --annotation "org.opencontainers.image.revision=${SOURCE_SHA}" \

@@ -82,8 +82,8 @@ on:
           - provision
           - bootstrap
           - full
-      nke-version:
-        description: "The nke tag to qualify, e.g. v0.22.0-beta.1. It must be an existing tag. QUALIFY_E2E_NKE_VERSION supplies it when this is empty, and the plan takes the highest nke version when neither is set."
+      nvke-version:
+        description: "The nvke tag to qualify, e.g. v0.22.0-beta.1. It must be an existing tag. QUALIFY_E2E_NKE_VERSION supplies it when this is empty, and the plan takes the highest nke version when neither is set."
         type: string
         required: false
       scope:
@@ -222,11 +222,11 @@ jobs:
       # Whether this is a dry run, decided here once so every lane agrees.
       dry-run: ${{ steps.matrix.outputs.dry-run }}
       # What the plan resolved for the run as a whole.
-      nke-version: ${{ steps.matrix.outputs.nke-version }}
+      nvke-version: ${{ steps.matrix.outputs.nvke-version }}
       scope: ${{ steps.matrix.outputs.scope }}
     env:
       DRY_RUN: ${{ (inputs.dry-run == true || github.event.label.name == 'qualify-e2e-dry-run') && 'true' || 'false' }}
-      NKE_VERSION: ${{ inputs.nke-version || vars.QUALIFY_E2E_NKE_VERSION }}
+      NVKE_VERSION: ${{ inputs.nvke-version || vars.QUALIFY_E2E_NKE_VERSION }}
       SCOPE: ${{ inputs.scope || vars.QUALIFY_E2E_SCOPE || 'golden-path' }}
       # The names are the registry's, which are the keys the suite reads.
       OVERRIDE_CONTROLLER: ${{ inputs.controller-version || vars.QUALIFY_E2E_CONTROLLER_VERSION }}
@@ -281,11 +281,11 @@ jobs:
           add os-image-bootloader-amd64 "${OVERRIDE_OS_IMAGE_BOOTLOADER_AMD64}"
           add os-image-bootloader-arm64 "${OVERRIDE_OS_IMAGE_BOOTLOADER_ARM64}"
 
-          args=(plan --subject nke --scope "${SCOPE}" --output plan.json)
+          args=(plan --subject nvke --scope "${SCOPE}" --output plan.json)
           # Left off when unset, so the plan takes the highest nke version
           # rather than this workflow choosing a tag.
-          if [ -n "${NKE_VERSION}" ]; then
-            args+=(--version "${NKE_VERSION}")
+          if [ -n "${NVKE_VERSION}" ]; then
+            args+=(--version "${NVKE_VERSION}")
           fi
           if [ -n "${overrides}" ]; then
             args+=(--overrides "${overrides}")
@@ -378,7 +378,7 @@ jobs:
             ]}' plan.json)"
           {
             echo "matrix=${matrix}"
-            echo "nke-version=$(jq -r .version plan.json)"
+            echo "nvke-version=$(jq -r .version plan.json)"
             echo "scope=$(jq -r .scope plan.json)"
             echo "dry-run=${DRY_RUN}"
           } >> "${GITHUB_OUTPUT}"
@@ -1089,7 +1089,7 @@ jobs:
           IN_OS_IMAGE_AMD64: ${{ inputs.os-image-amd64 }}
           IN_OS_IMAGE_BOOTLOADER_ARM64: ${{ inputs.os-image-bootloader-arm64 }}
           IN_OS_IMAGE_ARM64: ${{ inputs.os-image-arm64 }}
-          IN_NKE_VERSION: ${{ inputs.nke-version }}
+          IN_NVKE_VERSION: ${{ inputs.nvke-version }}
           IN_SCOPE: ${{ inputs.scope }}
           IN_DRY_RUN: ${{ inputs.dry-run }}
           IN_KEEP_SITE: ${{ inputs.keep-site }}
@@ -1115,11 +1115,11 @@ jobs:
           VAR_OS_IMAGE_BOOTLOADER_ARM64: ${{ vars.QUALIFY_E2E_OS_IMAGE_BOOTLOADER_ARM64 }}
           VAR_OS_IMAGE_ARM64: ${{ vars.QUALIFY_E2E_OS_IMAGE_ARM64 }}
           VAR_NODE_USER: ${{ vars.QUALIFY_E2E_NODE_USER }}
-          VAR_NKE_VERSION: ${{ vars.QUALIFY_E2E_NKE_VERSION }}
+          VAR_NVKE_VERSION: ${{ vars.QUALIFY_E2E_NKE_VERSION }}
           VAR_SCOPE: ${{ vars.QUALIFY_E2E_SCOPE }}
           # What the plan resolved for the whole run. The lane's own values
           # come from its matrix entry, which is in the env above.
-          NKE_VERSION: ${{ needs.plan.outputs.nke-version }}
+          NVKE_VERSION: ${{ needs.plan.outputs.nvke-version }}
           SCOPE: ${{ needs.plan.outputs.scope }}
           STREAM: ${{ matrix.stream }}
           COMBINATION: ${{ matrix.combination }}
@@ -1167,7 +1167,7 @@ jobs:
             "node user|NODE_USER||VAR_NODE_USER|QUALIFY_E2E_NODE_USER"
             "stream|STREAM|||"
             "combination|COMBINATION|||"
-            "nke version|NKE_VERSION|IN_NKE_VERSION|VAR_NKE_VERSION|QUALIFY_E2E_NKE_VERSION"
+            "nvke version|NVKE_VERSION|IN_NVKE_VERSION|VAR_NVKE_VERSION|QUALIFY_E2E_NKE_VERSION"
             "scope|SCOPE|IN_SCOPE|VAR_SCOPE|QUALIFY_E2E_SCOPE"
             "cpu arch|ARCH|||"
             "gpu model|GPU|||"

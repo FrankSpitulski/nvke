@@ -165,7 +165,7 @@ jobs:
             done
 
             ( cd "bin/linux_${arch}" && oras push "${REPO}:${tags}" \
-                --artifact-type application/vnd.nvidia.nke.agent.v1 \
+                --artifact-type application/vnd.nvidia.nvke.agent.v1 \
                 --artifact-platform "linux/${arch}" \
                 --annotation "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
                 --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \

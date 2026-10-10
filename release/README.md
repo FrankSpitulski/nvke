@@ -15,22 +15,22 @@ qualification run would cover.
 repository root:
 
 ```console
-# The highest version of nke, over every stream
-$ go run ./release/cmd/qualify plan --subject nke
+# The highest version of nvke, over every stream
+$ go run ./release/cmd/qualify plan --subject nvke
 
 # A specific tag, narrowed to the golden-path scope
-$ go run ./release/cmd/qualify plan --subject nke --version v0.22.0-beta.1 --scope golden-path
+$ go run ./release/cmd/qualify plan --subject nvke --version v0.22.0-beta.1 --scope golden-path
 
 # Use a version you choose in place of what resolves
-$ go run ./release/cmd/qualify plan --subject nke --version v0.22.0-beta.1 --overrides controller=v0.1.1-rc.11,kube=1.36.3
+$ go run ./release/cmd/qualify plan --subject nvke --version v0.22.0-beta.1 --overrides controller=v0.1.1-rc.11,kube=1.36.3
 
 # Write the plan to a file instead of stdout
-$ go run ./release/cmd/qualify plan --subject nke --output plan.json
+$ go run ./release/cmd/qualify plan --subject nvke --output plan.json
 ```
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--subject` | required | What to qualify. `nke` is NKE as a whole |
+| `--subject` | required | What to qualify. `nvke` is NVKE as a whole |
 | `--version` | the highest version | The subject's version, which must be an existing tag |
 | `--overrides` | none | Values to use in place of what resolves, as `name=value` pairs separated by commas |
 | `--scope` | `full` | How much of the matrix to cover, a scope from `policy.yaml` |
@@ -54,9 +54,9 @@ confirm that an artifact exists and cannot say that it does not. The plan looks
 like this:
 
 ```console
-$ go run ./release/cmd/qualify plan --subject nke --scope full
+$ go run ./release/cmd/qualify plan --subject nvke --scope full
 {
-  "subject": "nke",
+  "subject": "nvke",
   "version": "v0.22.0-beta.1",
   "scope": "full",
   "combinations": [
@@ -124,7 +124,7 @@ $ go run ./release/cmd/qualify plan --subject nke --scope full
 `plan.json` is the input to a qualification run. In the
 [`qualify-e2e` workflow](../.github/workflows/qualify-e2e.yml):
 
-- The `plan` job runs `qualify plan --subject nke`. The dispatch inputs and
+- The `plan` job runs `qualify plan --subject nvke`. The dispatch inputs and
   `QUALIFY_E2E_*` repository variables that name a version are passed as
   `--overrides`, so the plan records them and a job never has to guess which of
   the two it was handed. The plan is uploaded as an artifact.
@@ -173,7 +173,7 @@ schema, and share the registry and the policy.
 
 `qualification.yaml` says what a qualification covers. It is written for a
 **subject**, the thing being qualified, and the subject's version is the plan's
-version. This file is for `nke`, which stands for NKE as a whole, so its version
+version. This file is for `nvke`, which stands for NVKE as a whole, so its version
 is a beta tag on `main`. A component qualified on its own would have a file of
 the same shape next to its code.
 
@@ -214,7 +214,7 @@ constraint becomes `1.4`.
 
 | Component | Where its version comes from |
 |---|---|
-| `nke`, `controller`, `cli`, `capi-provisioned`, `os-image` | Git tags, under each component's tag prefix |
+| `nvke`, `controller`, `cli`, `capi-provisioned`, `os-image` | Git tags, under each component's tag prefix |
 | `kube`, `cni-ovn` | The lock files the image's packages commit, read at the `os-image` tag the combination resolved. A node installs these from the image's own apt repository, so the lock files are the versions it can offer |
 | `os-image-amd64`, `os-image-arm64` | Built from the `os-image` tag, the architecture and the Ubuntu point release the stream's series picks from `releases` |
 | `os-image-bootloader-amd64`, `os-image-bootloader-arm64` | A path declared in `qualification.yaml` under the registry's `artifact-cdn` source, because nothing derives it |

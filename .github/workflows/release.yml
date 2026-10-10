@@ -322,6 +322,9 @@ jobs:
         id: release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
+          # A bare tag releases the product, so its title says so; a module
+          # tag keeps the tag as its title, as the module workflows do.
+          name: ${{ steps.component.outputs.dir == '' && format('NVKE {0}', steps.component.outputs.version) || github.ref_name }}
           body_path: /tmp/release-notes.md
           draft: true
           prerelease: ${{ contains(github.ref_name, '-rc.') }}
