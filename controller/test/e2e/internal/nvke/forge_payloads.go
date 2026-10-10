@@ -25,12 +25,12 @@ var (
 
 	// ubuntuReleaseInURL matches the Ubuntu release in an OS image filename,
 	// as in nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2. The point release is
-	// optional and ignored: NKE publishes a suite per Ubuntu release, not per
+	// optional and ignored: NVKE publishes a suite per Ubuntu release, not per
 	// point.
 	ubuntuReleaseInURL = regexp.MustCompile(`ubuntu-(\d+\.\d+)`)
 )
 
-// NodeInputs is everything building an NKE node from an image needs that a
+// NodeInputs is everything building an NVKE node from an image needs that a
 // qualification run decides rather than the site. None of these fields is
 // specific to a provider -- they describe any such node -- which is why the
 // type is not named for one. What is provider-specific is the rendering, and
@@ -56,7 +56,7 @@ type NodeInputs struct {
 	KubernetesVersion string
 	// CNIVersion selects the nke-cni-ovn-images package, e.g. "1.4.0".
 	CNIVersion string
-	// AptSuite is the NKE apt suite the node installs its packages from, one
+	// AptSuite is the NVKE apt suite the node installs its packages from, one
 	// per Ubuntu release. Empty derives it from ImageURL, which is where the
 	// answer already is: the suite has to match the release the image was
 	// built from, and a separately supplied one is just an opportunity for
@@ -152,7 +152,7 @@ func BuildForgeNodePayloads(inputs NodeInputs) (NodePayloads, error) {
 
 // ubuntuReleaseInURL matches the Ubuntu release in an OS image filename, as in
 // nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2. The point release is optional
-// and ignored: NKE publishes a suite per Ubuntu release, not per point.
+// and ignored: NVKE publishes a suite per Ubuntu release, not per point.
 
 // unameArch is the imager's spelling of an architecture, empty for one it does
 // not name.
@@ -198,7 +198,7 @@ func (i NodeInputs) checkArch() error {
 	return nil
 }
 
-// aptSuite is the NKE apt suite built for an Ubuntu release, and the list of
+// aptSuite is the NVKE apt suite built for an Ubuntu release, and the list of
 // releases that have one. Adding a release means publishing its suite first;
 // see agent/scripts/upload-s3-apt-intake.sh, whose default list is these two.
 func aptSuite(release string) (string, []string) {
@@ -224,7 +224,7 @@ func aptSuiteFor(imageURL string) (string, error) {
 	}
 	suite, known := aptSuite(match[1])
 	if suite == "" {
-		return "", fmt.Errorf("no NKE apt suite is known for Ubuntu %s (only %s); publish one and add it to aptSuite", match[1], strings.Join(known, ", "))
+		return "", fmt.Errorf("no NVKE apt suite is known for Ubuntu %s (only %s); publish one and add it to aptSuite", match[1], strings.Join(known, ", "))
 	}
 	return suite, nil
 }

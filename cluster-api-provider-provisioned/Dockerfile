@@ -22,7 +22,7 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG BUILD_VERSION=dev
 
-# The build context is the NKE repository root. All Go dependencies are public;
+# The build context is the NVKE repository root. All Go dependencies are public;
 # the builder downloads them as needed without source credentials.
 WORKDIR /workspace
 COPY . .

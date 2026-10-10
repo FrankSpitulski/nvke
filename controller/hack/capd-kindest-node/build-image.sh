@@ -5,7 +5,7 @@
 # Shared helper for building the custom kindest node image used by local CAPD
 # and NICo flows. The Dockerfile remains the source of truth for image-content
 # defaults like KINDEST_NODE_TAG and NODE_AGENT_VERSION. This helper selects the
-# image platform and matching NKE bundle architecture for the container runtime, and
+# image platform and matching NVKE bundle architecture for the container runtime, and
 # can package a sibling agent checkout into the image for local CAPD tests.
 
 set -euo pipefail

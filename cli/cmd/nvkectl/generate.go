@@ -19,7 +19,7 @@ import (
 func newGenerateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "generate",
-		Short: "Generate NKE configuration files",
+		Short: "Generate NVKE configuration files",
 	}
 	cmd.AddCommand(newGenerateSiteSpecCmd())
 	cmd.AddCommand(newGenerateOIDCKubeconfigCmd())

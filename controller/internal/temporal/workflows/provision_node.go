@@ -636,7 +636,7 @@ func joinNode(ctx workflow.Context, nodeID uuid.UUID, boundJoinAttempt bool) (bo
 // nothing, and etcd removal reports success when the name is not a member.
 //
 // It is unconditional rather than gated on a retry count because the
-// NKE controllers start a fresh JoinNode workflow (attempt resets to
+// NVKE controllers start a fresh JoinNode workflow (attempt resets to
 // 1) once a node exhausts its retry budget, so the workflow attempt number is
 // not a reliable "is this a retry" signal -- only node/cluster state is, and
 // unconditional cleanup sidesteps having to read it. Both steps are best-effort

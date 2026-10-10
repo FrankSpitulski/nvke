@@ -31,7 +31,7 @@ import (
 // afterwards, so it runs in the same lane as the enforcing specs rather than
 // needing a cluster of its own. Ordered, because that flip is container-wide
 // setup rather than per-spec.
-var _ = Describe("NKE API authentication in permissive mode", Ordered, Label("authn-permissive"), func() {
+var _ = Describe("NVKE API authentication in permissive mode", Ordered, Label("authn-permissive"), func() {
 	var (
 		restConfig *rest.Config
 		clientset  kubernetes.Interface
@@ -90,7 +90,7 @@ var _ = Describe("NKE API authentication in permissive mode", Ordered, Label("au
 
 		// The metrics listener is a second server on a second port, reachable
 		// only because the Service publishes `metrics` alongside `http`. The
-		// probe makes a missing port say so rather than read as a dead NKE.
+		// probe makes a missing port say so rather than read as a dead NVKE.
 		metrics, err = kube.SharedServiceForwarder(restConfig, controller.Namespace(), controller.Service(), nvkeControllerMetricsPort)
 		Expect(err).NotTo(HaveOccurred(), "build a port-forward to the metrics listener")
 
@@ -213,7 +213,7 @@ func sumWouldRejectCounter(exposition string) (int, error) {
 }
 
 // A parser that silently returned zero would make the delta assertion above
-// pass for an NKE that counted nothing.
+// pass for an NVKE that counted nothing.
 func TestSumWouldRejectCounter(t *testing.T) {
 	const exposition = `# HELP nvke_auth_requests_total Total API requests evaluated by authentication.
 # TYPE nvke_auth_requests_total counter

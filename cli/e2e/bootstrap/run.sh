@@ -109,7 +109,7 @@ BGP_RENDER_DIR="${SCRIPT_DIR}/.bgp"
 export NVKECTL_CONTROLLER_IMAGE
 
 # The Cluster API infrastructure provider for hosts that already exist, built
-# below from this checkout. Without it the CAPI objects the NKE controller writes have no
+# below from this checkout. Without it the CAPI objects the NVKE controller writes have no
 # reconciler and the cluster never leaves provisioning. nvkectl finds the
 # kustomize base by walking up to go.work, so only the image is named here.
 export NVKECTL_CAPI_PROVISIONED_IMAGE="${NVKECTL_CAPI_PROVISIONED_IMAGE:-cluster-api-provider-provisioned:latest}"

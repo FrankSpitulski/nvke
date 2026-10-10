@@ -56,7 +56,7 @@ func TestAuthEnvFields(t *testing.T) {
 			}
 
 			cfg, err := config.ParseConfigFromEnv()
-			require.NoError(t, err, "an unset AUTH_CONFIG_PATH must not stop NKE starting")
+			require.NoError(t, err, "an unset AUTH_CONFIG_PATH must not stop NVKE starting")
 			assert.Equal(t, tt.wantPath, cfg.AuthConfigPath)
 			assert.Equal(t, tt.wantPermissive, cfg.PermissiveMode)
 		})

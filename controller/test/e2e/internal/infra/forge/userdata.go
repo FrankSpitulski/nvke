@@ -24,7 +24,7 @@ const (
 )
 
 // HostTools are the programs `nvkectl bootstrap site` needs on the host it
-// runs on, which the NKE image deliberately does not ship. Each version is an
+// runs on, which the NVKE image deliberately does not ship. Each version is an
 // input because the repository pins it: KindVersion and ClusterctlVersion in
 // make/tool-versions.mk, NerdctlVersion in nvkectl-bootstrap-e2e.yml.
 type HostTools struct {
@@ -138,7 +138,7 @@ func renderUserData(in userDataInputs) (string, error) {
 	run = append(run, in.NodeCommands...)
 
 	run = append(run,
-		// The site node runs a kind cluster and then the whole NKE stack on
+		// The site node runs a kind cluster and then the whole NVKE stack on
 		// one machine, and Ubuntu's default of 128 inotify instances is not
 		// enough for that many controllers: the 2026-09-29 ytl bootstrap had
 		// to be raised to 1024 by hand before it would complete. Written as a
@@ -168,7 +168,7 @@ func renderUserData(in userDataInputs) (string, error) {
 		fmt.Sprintf("curl -fsSL -o /usr/local/bin/clusterctl https://github.com/kubernetes-sigs/cluster-api/releases/download/%s/clusterctl-linux-%s", in.Tools.ClusterctlVersion, in.Arch),
 		"chmod 0755 /usr/local/bin/clusterctl",
 
-		// kind's default network is dual-stack and the NKE image boots
+		// kind's default network is dual-stack and the NVKE image boots
 		// ipv6.disable=1, so the bridge CNI fails and no container starts.
 		// kind reuses a network that already exists.
 		"nerdctl network create kind --subnet 10.4.1.0/24 --gateway 10.4.1.1 || true",

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # nico-vms backend E2E: the only lane that runs the nico-vms specs, on real KVM
-# tenant nodes booted from the NKE FDE image. Body: controller/hack/ci/nico-vms-e2e.sh,
+# tenant nodes booted from the NVKE FDE image. Body: controller/hack/ci/nico-vms-e2e.sh,
 # host mode, because nico-vms needs libvirt, the host bridge and CAP_NET_ADMIN.
 # Advisory. A happy-path run takes 40 minutes on arm64 and 90 on amd64, so the
 # push paths are only the lane's own inputs, and a mirror-branch run is skipped

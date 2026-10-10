@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Create a sample NKE cluster on the local nico-vms backend (real KVM/libvirt VMs).
+# Create a sample NVKE cluster on the local nico-vms backend (real KVM/libvirt VMs).
 #
 # Defaults to 1 control-plane node + 1 worker node, using the nico-vms seed
 # resources (see nico-vms/internal/seed/default-seed.yaml) and native VPC-prefix
@@ -39,7 +39,7 @@ NKE_CONTROLLER_HTTP_PORT="${NKE_CONTROLLER_HTTP_PORT:-${CWE_HTTP_PORT:-8080}}"
 API_URL="${API_URL:-http://localhost:${NKE_CONTROLLER_HTTP_PORT}/api}"
 CLUSTERS_API_URL="${API_URL%/}/clusters"
 
-# /api/* is authenticated. hack/nvke-token.sh prints nothing when NKE is not, so
+# /api/* is authenticated. hack/nvke-token.sh prints nothing when NVKE is not, so
 # this works either way.
 TOKEN="$("${SCRIPT_DIR}/nvke-token.sh")"
 AUTH_HEADER=()

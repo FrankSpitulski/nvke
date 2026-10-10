@@ -15,7 +15,7 @@ import (
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra"
 )
 
-// Deployer installs the NKE stack onto a freshly bootstrapped cluster, over
+// Deployer installs the NVKE stack onto a freshly bootstrapped cluster, over
 // the same session bootstrap used. It is an interface because what "the
 // stack" is, and how it is installed, is decided outside this suite.
 type Deployer interface {
@@ -53,7 +53,7 @@ type Cluster struct {
 // `nvkectl bootstrap site`, and forwards the resulting admin kubeconfig back to
 // the runner.
 //
-// It stops there. Installing the NKE stack is a Deployer's job and checking
+// It stops there. Installing the NVKE stack is a Deployer's job and checking
 // the controller is ProbeController's, and a caller that wants neither simply does not call
 // them. That is what lets a run stop after Kubernetes without a do-nothing
 // deployer to express it.

@@ -9,7 +9,7 @@ below is on `main`; the steps the CLI does not cover are marked.
 | Command | What it does | Status |
 |---|---|---|
 | `nvkectl generate sitespec <name> --nodes hosts.csv` | Writes a site spec for `bootstrap site` from a node CSV. `--set path=value` fills in what the CSV does not carry. | Available |
-| `nvkectl bootstrap site -f sitespec.yaml` | Stands up an ephemeral Kind cluster running the NKE controller, has the controller create the site cluster on the spec's hosts through `nke-agent`, writes `<name>.kubeconfig` and `<name>-etcd-encryption-key.json`, tears the Kind cluster down on success. `--dry-run` validates the spec only. | Available |
+| `nvkectl bootstrap site -f sitespec.yaml` | Stands up an ephemeral Kind cluster running the NVKE controller, has the controller create the site cluster on the spec's hosts through `nke-agent`, writes `<name>.kubeconfig` and `<name>-etcd-encryption-key.json`, tears the Kind cluster down on success. `--dry-run` validates the spec only. | Available |
 | `nvkectl get bootstrap-manifest` | Prints the charts and images `bootstrap site` fetches, with version and digest. | Available |
 | Install an infrastructure provider on the new cluster | Install Cluster API and CAPNICo, before the site controller. See [Infrastructure Providers](../../docs/site-bootstrap/infrastructure-providers.md). No `nvkectl` command. | Not in the CLI |
 | Install the site controller on the new cluster | Deploy the controller Helm chart (`controller/deploy/charts/controller`). No `nvkectl` command yet. | Not in the CLI |
@@ -125,7 +125,7 @@ and the CLI sends no bearer token.
 
 The kubeconfig identity needs `create` on `serviceaccounts/token` for
 `nke-client`. See
-[Configuring NKE API Authentication](../../controller/docs/configuring-api-authentication.md).
+[Configuring NVKE API Authentication](../../controller/docs/configuring-api-authentication.md).
 
 ### 6. Check the infrastructure providers
 
@@ -246,7 +246,7 @@ Node pool names are unique within a cluster, so `--cluster` is what decides
 which pool is resolved. Deletion is asynchronous and the nodes are drained
 before removal; run `nvkectl get nodepools --cluster <cluster-name>` to check
 on it. On a site controller with the control-plane controller off, deleting a
-cluster's last joined control-plane node pool is rejected with the NKE controller's own
+cluster's last joined control-plane node pool is rejected with the NVKE controller's own
 message — delete the cluster instead.
 
 ### 14. Delete the tenant cluster

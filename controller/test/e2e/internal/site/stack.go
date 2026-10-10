@@ -158,7 +158,7 @@ type Tenant struct {
 	Password string `json:"Password"`
 }
 
-// Stack deploys the NKE stack with a deploy path from the Stack: it does what
+// Stack deploys the NVKE stack with a deploy path from the Stack: it does what
 // the deploy path's README says a driver does around the install, and renders
 // the values only a site knows.
 //
@@ -516,7 +516,7 @@ func (d Stack) render(t DeployTarget, spireOverlay []byte) (map[string][]byte, e
 		}
 		files[name] = data
 	}
-	// ClusterName is the name NKTP labels the site's telemetry with. NKE's
+	// ClusterName is the name NKTP labels the site's telemetry with. NVKE's
 	// kubeadm configuration names every cluster "kubernetes".
 	config, err := json.MarshalIndent(map[string]any{
 		d.Provider.ConfigKey(): d.Provider,

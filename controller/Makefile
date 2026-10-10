@@ -229,13 +229,13 @@ test-health: ## Run the health-labeled subset of the test/e2e suite against the 
 	$(MAKE) test-e2e E2E_TIMEOUT=10m ARGS='--label-filter=health'
 
 # The authentication specs. Both need deploy/k8s/nke-auth-dev.yaml applied and
-# an enforcing NKE; the chart binds the JWKS read permission.
+# an enforcing NVKE; the chart binds the JWKS read permission.
 #
 # The SPIRE spec carries both labels, so test-authn runs it too; it skips itself
 # with a message naming deploy/k8s/nke-spire-client.yaml when that scaffolding
 # is absent. test-authn-spire is the way to run only that one.
 #
-# The permissive specs have no target: they need an NKE deployed with
+# The permissive specs have no target: they need an NVKE deployed with
 # PERMISSIVE_MODE=true, which is a different deployment. Run them against one
 # with `make test-e2e ARGS='--label-filter=authn-permissive'`.
 .PHONY: test-authn
@@ -257,7 +257,7 @@ E2E_TIMEOUT ?= 2h
 ARGS ?=
 
 .PHONY: test-e2e
-test-e2e: ## Run all NKE e2e tests; optional ARGS forwards ginkgo flags Example: make test-e2e ARGS='--label-filter="nico-vms && happy-path"'
+test-e2e: ## Run all NVKE e2e tests; optional ARGS forwards ginkgo flags Example: make test-e2e ARGS='--label-filter="nico-vms && happy-path"'
 	cd $(E2E_DIR) && go run github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION) run -v --timeout=$(E2E_TIMEOUT) $(ARGS) .
 
 .PHONY: test-e2e-core-capd test-e2e-core-nico-containers test-e2e-happy-path

@@ -31,17 +31,17 @@ func ReadManifest(ctx context.Context, reader ctrlclient.Reader) ([]byte, error)
 	var cm corev1.ConfigMap
 	key := types.NamespacedName{Namespace: constants.NamespaceNVKESystem, Name: ConfigMapName}
 	if err := reader.Get(ctx, key, &cm); err != nil {
-		return nil, fmt.Errorf("getting NKE RBAC ConfigMap %s/%s: %w", key.Namespace, key.Name, err)
+		return nil, fmt.Errorf("getting NVKE RBAC ConfigMap %s/%s: %w", key.Namespace, key.Name, err)
 	}
 
 	manifest, ok := cm.Data[ConfigMapKey]
 	if !ok {
-		return nil, fmt.Errorf("NKE RBAC ConfigMap %s/%s missing required key %q", key.Namespace, key.Name, ConfigMapKey)
+		return nil, fmt.Errorf("NVKE RBAC ConfigMap %s/%s missing required key %q", key.Namespace, key.Name, ConfigMapKey)
 	}
 
 	result := bytes.TrimSpace([]byte(manifest))
 	if len(result) == 0 {
-		return nil, fmt.Errorf("NKE RBAC ConfigMap %s/%s key %q is empty", key.Namespace, key.Name, ConfigMapKey)
+		return nil, fmt.Errorf("NVKE RBAC ConfigMap %s/%s key %q is empty", key.Namespace, key.Name, ConfigMapKey)
 	}
 	return result, nil
 }
@@ -60,7 +60,7 @@ func UserSubjects(manifest []byte) ([]string, error) {
 			if errors.Is(err, io.EOF) {
 				return users, nil
 			}
-			return nil, fmt.Errorf("decoding NKE RBAC manifest: %w", err)
+			return nil, fmt.Errorf("decoding NVKE RBAC manifest: %w", err)
 		}
 		if doc.Kind != "RoleBinding" && doc.Kind != "ClusterRoleBinding" {
 			continue

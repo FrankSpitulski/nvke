@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package site turns a provisioned machine into a site controller: it
-// bootstraps vanilla Kubernetes on the machine with nvkectl, deploys the NKE
+// bootstraps vanilla Kubernetes on the machine with nvkectl, deploys the NVKE
 // stack onto it, and hands back a kubeconfig the runner can use.
 //
 // Everything that touches the cluster before the last step runs on the

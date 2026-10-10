@@ -22,7 +22,7 @@ else
 fi
 API_URL="${CLUSTERS_API_URL}"
 
-# /api/* is authenticated. hack/nvke-token.sh prints nothing when NKE is not, so
+# /api/* is authenticated. hack/nvke-token.sh prints nothing when NVKE is not, so
 # this works either way.
 TOKEN="$("${SCRIPT_DIR}/nvke-token.sh")"
 AUTH_HEADER=()

@@ -2,14 +2,14 @@
 SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: Apache-2.0
 
-The commands that turn a booted machine into an NKE node, run before kubeadm.
+The commands that turn a booted machine into an NVKE node, run before kubeadm.
 Rendered by BuildForgeNodePayloads, one command per non-blank line, and sent as
 NodePoolCreateConfig.infra.preKubeadmCommands.
 
 The package versions are inputs for the same reason the OS image is: a
 qualification run exists to pin them.
 
-The apt suite is one too. NKE publishes a suite per Ubuntu release, and a node
+The apt suite is one too. NVKE publishes a suite per Ubuntu release, and a node
 booted from a 26.04 image cannot install from the 24.04 one, so hardcoding
 either suite pins which OS images the lane can qualify. See
 docs/site-bootstrap/pre-provisioned-nodes.md and
@@ -34,7 +34,7 @@ the run saying so. Today dpkg keeps the baked build because a bake version
 sorts above a release tag, so the install was a no-op that would have stopped
 being one at the next publish.
 
-spire-agent is deliberately absent too. The NKE OS image pre-installs it, from a
+spire-agent is deliberately absent too. The NVKE OS image pre-installs it, from a
 .deb built at bake time by os-image/packages/spire-agent/ which also owns the
 systemd units, the first-boot renderer and the TPM plugin checksum that
 agent.conf resolves against (os-image/SPEC.md). Installing the apt repository's

@@ -146,7 +146,7 @@ func (r *Reconciler) applyDecision(ctx context.Context, decision csrDecision) er
 		Type:               certificatesv1.CertificateApproved,
 		Status:             corev1.ConditionTrue,
 		Reason:             approvalReason,
-		Message:            "kubelet-serving CSR matches the node identity recorded by NKE",
+		Message:            "kubelet-serving CSR matches the node identity recorded by NVKE",
 		LastUpdateTime:     now,
 		LastTransitionTime: now,
 	})

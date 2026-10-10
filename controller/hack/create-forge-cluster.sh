@@ -11,7 +11,7 @@ NKE_CONTROLLER_HTTP_PORT="${NKE_CONTROLLER_HTTP_PORT:-${CWE_HTTP_PORT:-8080}}"
 API_URL="${API_URL:-http://localhost:${NKE_CONTROLLER_HTTP_PORT}/api}"
 CLUSTERS_API_URL="${API_URL%/}/clusters"
 
-# /api/* is authenticated. hack/nvke-token.sh prints nothing when NKE is not, so
+# /api/* is authenticated. hack/nvke-token.sh prints nothing when NVKE is not, so
 # this works either way.
 TOKEN="$("${SCRIPT_DIR}/nvke-token.sh")"
 AUTH_HEADER=()

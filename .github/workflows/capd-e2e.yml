@@ -110,7 +110,7 @@ jobs:
       runner: ${{ matrix.runner }}
       # Mirror branches select only the bounded core entry and health probes.
       # Full runs select every CAPD entry plus `health` and the authn specs, both
-      # of which need a deployed, enforcing NKE. authn-spire is excluded (needs
+      # of which need a deployed, enforcing NVKE. authn-spire is excluded (needs
       # SPIRE pod attestation not wired in CAPD). Keep the full expression in
       # step with e2e_suite_filter in hack/backend-e2e-lib.sh.
       label-filter: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'pull-request/') && 'core-docker || health' || '(capd || health) || (authn && !authn-spire) || authn-permissive' }}

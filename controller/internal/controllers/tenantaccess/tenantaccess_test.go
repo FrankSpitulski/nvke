@@ -740,7 +740,7 @@ func testScheme(t *testing.T) *runtime.Scheme {
 }
 
 // tenantScheme registers the API types the OIDC path server-side-applies into a
-// tenant cluster (the NKE RBAC manifest).
+// tenant cluster (the NVKE RBAC manifest).
 func tenantScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	scheme := runtime.NewScheme()

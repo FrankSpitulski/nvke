@@ -37,7 +37,7 @@ const (
 )
 
 // installCAPI puts Cluster API and the provisioned infrastructure provider on
-// the bootstrap cluster, so that the CAPI objects the NKE controller writes for a tier-0
+// the bootstrap cluster, so that the CAPI objects the NVKE controller writes for a tier-0
 // cluster have controllers to act on them.
 //
 // This runs inside `nvkectl bootstrap site` rather than beside it because the

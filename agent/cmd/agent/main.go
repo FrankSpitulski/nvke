@@ -168,7 +168,7 @@ func GetVersionInfo() (string, error) {
 
 // callerPathPrefixes are the SPIFFE ID paths permitted to drive this agent, matched
 // as prefixes: "/nke-service/" does not admit "/nke-service-evil/". Both name the
-// same callers -- NKE is migrating its IDs onto the tenant grammar, and agents have
+// same callers -- NVKE is migrating its IDs onto the tenant grammar, and agents have
 // to accept the old form until the ClusterSPIFFEID template changes and the new one
 // after. Drop "/nke-service/" once nothing issues it.
 var callerPathPrefixes = []string{

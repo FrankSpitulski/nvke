@@ -28,7 +28,7 @@ const (
 )
 
 // cluster-api-provider-provisioned is deliberately not here. It adopts hosts
-// NKE provisioned for a site controller during `nvkectl bootstrap site`, takes
+// NVKE provisioned for a site controller during `nvkectl bootstrap site`, takes
 // no credentials, and is never a backend an operator chooses for a tenant
 // cluster. Listing it would imply it is an alternative to NICo or LaunchLayer.
 

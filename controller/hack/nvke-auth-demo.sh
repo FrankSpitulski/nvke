@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# The acceptance test for NKE API authentication: a handful of curls, one table.
+# The acceptance test for NVKE API authentication: a handful of curls, one table.
 # See usage() below, or run with --help.
 
 set -uo pipefail
@@ -13,7 +13,7 @@ usage() {
   cat <<'EOF'
 nvke-auth-demo.sh [--mode enforcing|permissive]
 
-Drives NKE's API with four credentials and prints the status code each one got.
+Drives NVKE's API with four credentials and prints the status code each one got.
 The three authentication states are documented on the internal/auth package and
 in the authentication section of README.md.
 
@@ -124,7 +124,7 @@ fi
 
 # nvke-token.sh picks nke-controller or cloud-workflow-engine when unset.
 NKE_DEPLOYMENT="$("${SCRIPT_DIR}/nvke-token.sh" --deployment)"
-[[ -n "${NKE_DEPLOYMENT}" ]] || die "could not resolve NKE's Deployment in ${NKE_CONTROLLER_NAMESPACE}"
+[[ -n "${NKE_DEPLOYMENT}" ]] || die "could not resolve NVKE's Deployment in ${NKE_CONTROLLER_NAMESPACE}"
 
 # The audience comes from the live deployment, via nvke-token.sh.
 AUDIENCE="$("${SCRIPT_DIR}/nvke-token.sh" --audience)"
@@ -188,7 +188,7 @@ if ! curl -s -o /dev/null --max-time 2 "${NKE_HTTP_URL}/api/version"; then
     "deploy/${NKE_DEPLOYMENT}" "${NKE_CONTROLLER_HTTP_PORT}:8080" >/dev/null 2>&1 &
   PF_PIDS+=("$!")
   wait_for_port "${NKE_HTTP_URL}/api/version" \
-    || die "could not reach NKE on ${NKE_HTTP_URL}"
+    || die "could not reach NVKE on ${NKE_HTTP_URL}"
 fi
 
 METRICS_URL="http://127.0.0.1:${NKE_METRICS_LOCAL_PORT}/metrics"
@@ -292,7 +292,7 @@ fi
 # --- report ---------------------------------------------------------------
 
 echo
-echo "NKE API authentication demo"
+echo "NVKE API authentication demo"
 echo "  context   ${KUBE_CONTEXT}"
 echo "  target    ${NKE_HTTP_URL}${PROBE_PATH}"
 echo "  mode      ${MODE}"

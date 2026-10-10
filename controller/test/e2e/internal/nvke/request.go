@@ -29,7 +29,7 @@ const (
 	// BackendNicoForge is CAPNico against real Forge infrastructure. It builds
 	// the same CAPI manifests as nico-containers, since CAPNico reconciles
 	// both, and differs in the identifiers it names and in the two payloads
-	// that turn a provisioned machine into an NKE node.
+	// that turn a provisioned machine into an NVKE node.
 	BackendNicoForge Backend = "nico-forge"
 
 	capiSpecKey          = "spec"
@@ -121,9 +121,9 @@ type ClusterSpec struct {
 	NodePayloads *RolePayloads
 }
 
-// NodePayloads are the two things that turn a bare machine into an NKE node:
+// NodePayloads are the two things that turn a bare machine into an NVKE node:
 // the iPXE script that boots the OS image, and the commands that install the
-// NKE packages before kubeadm runs.
+// NVKE packages before kubeadm runs.
 //
 // The simulator backends stub both, because a container boots no image and a
 // seeded emulator needs no packages. Real hardware needs both to be right, and

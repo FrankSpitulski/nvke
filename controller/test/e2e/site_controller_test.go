@@ -37,7 +37,7 @@ import (
 const (
 	siteStageProvision = "provision" // a Forge node, reachable, then released
 	siteStageBootstrap = "bootstrap" // plus vanilla Kubernetes from nvkectl
-	siteStageFull      = "full"      // plus the NKE stack, the controller, and a tenant
+	siteStageFull      = "full"      // plus the NVKE stack, the controller, and a tenant
 )
 
 // Secrets the site controller run reads from the environment. They are never written to
@@ -262,7 +262,7 @@ var _ = Describe("Site controller on Forge", Ordered, ContinueOnFailure, Label("
 			if err != nil {
 				collectSiteDiagnostics(ctx, session, secrets...)
 			}
-			Expect(err).NotTo(HaveOccurred(), "should install the NKE stack")
+			Expect(err).NotTo(HaveOccurred(), "should install the NVKE stack")
 			deployed = true
 		}, NodeTimeout(1*time.Hour))
 

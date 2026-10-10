@@ -125,14 +125,14 @@ func (s *clusterService) applyClusterDefaults(req *api.CreateClusterRequest, clu
 }
 
 // pinFleetOIDCProviders pins none before Kubernetes 1.34, which cannot read the
-// AuthenticationConfiguration NKE renders.
+// AuthenticationConfiguration NVKE renders.
 func (s *clusterService) pinFleetOIDCProviders(cluster *db.Cluster) {
 	if s.fleetOIDC == nil {
 		return
 	}
 	providers := s.fleetOIDC.Providers
 	if len(providers) > 0 && !kubeadmconfig.SupportsAuthenticationConfiguration(cluster.KubernetesVersion) {
-		s.logger.Warn("Creating cluster without the fleet-wide OIDC providers: its Kubernetes version cannot read the AuthenticationConfiguration NKE renders",
+		s.logger.Warn("Creating cluster without the fleet-wide OIDC providers: its Kubernetes version cannot read the AuthenticationConfiguration NVKE renders",
 			"cluster", cluster.Name, "kubernetesVersion", cluster.KubernetesVersion, "providers", len(providers))
 		providers = nil
 	}

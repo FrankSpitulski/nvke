@@ -95,7 +95,7 @@ func (c *Controller) Reconcile(ctx context.Context, key dbreconcile.Key) (reconc
 //   - Only applied if (desiredCount - availableCount) < recycleBudget.
 //
 // NVSentinel (the downstream consumer of NeedsRecycle conditions) may:
-// - Allow less recycle parallelism than recycleBudget at the NKE layer.
+// - Allow less recycle parallelism than recycleBudget at the NVKE layer.
 // - Consider additional factors, such as cordon state of other nodes.
 // - Enforce maintenance windows, leaving NeedsRecycle nodes in place until customer-specified windows.
 func (c *Controller) reconcileAutoMode(ctx context.Context, tx db.Tx, nodePool db.NodePool) error {
@@ -161,7 +161,7 @@ func (c *Controller) reconcileAutoMode(ctx context.Context, tx db.Tx, nodePool d
 				Type:               constants.NodeConditionTypeNeedsRecycle,
 				Status:             corev1.ConditionTrue,
 				Reason:             "Deprecated",
-				Message:            "NKE auto-mode recycling deprecated node",
+				Message:            "NVKE auto-mode recycling deprecated node",
 				LastTransitionTime: metav1.Now(),
 			},
 		})

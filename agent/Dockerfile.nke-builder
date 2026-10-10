@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # ============================================================
-# NKE Universal Builder Image
+# NVKE Universal Builder Image
 # For Go projects with proto, lint, test, and packaging stages
 # ============================================================
 

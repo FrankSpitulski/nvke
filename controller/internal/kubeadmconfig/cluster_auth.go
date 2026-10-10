@@ -86,7 +86,7 @@ func LoadOperatorJWTPolicy(ctx context.Context, reader client.Reader, trustDomai
 		return OperatorJWTPolicy{}, fmt.Errorf("reading the identities fleet-wide OIDC providers must not claim: %w", err)
 	}
 	if trustDomain == "" {
-		return OperatorJWTPolicy{}, errors.New("nke-rbac binds NKE identities, but the management SPIFFE trust domain is unknown")
+		return OperatorJWTPolicy{}, errors.New("nke-rbac binds NVKE identities, but the management SPIFFE trust domain is unknown")
 	}
 
 	policy.ReservedSubjects, err = nvkerbac.UserSubjects(manifest)

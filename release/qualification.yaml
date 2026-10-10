@@ -4,7 +4,7 @@
 # What is qualified when NVKE is qualified as a whole. The subject is nvke, and
 # its version, a beta tag on main, is the plan's version.
 #
-# components are the parts of NKE tested together. Each carries selectors that
+# components are the parts of NVKE tested together. Each carries selectors that
 # say which version to take, and the only selector is `latest`. One choice of
 # versions for all of them is a combination.
 #
@@ -28,7 +28,7 @@ apiVersion: nvke.nvidia.com/v1alpha1
 kind: Qualification
 metadata:
   name: nvke
-  description: How NKE as a whole is qualified.
+  description: How NVKE as a whole is qualified.
 spec:
   subject: nvke
 

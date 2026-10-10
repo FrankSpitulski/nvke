@@ -343,7 +343,7 @@ func TestBuildForgeNodePayloadsBootParametersFollowTheArch(t *testing.T) {
 }
 
 // TestBuildForgeNodePayloadsAptSuiteFollowsTheImage covers the other blocker:
-// NKE publishes a suite per Ubuntu release, so a 26.04 image installing from
+// NVKE publishes a suite per Ubuntu release, so a 26.04 image installing from
 // the 24.04 suite finds no packages.
 func TestBuildForgeNodePayloadsAptSuiteFollowsTheImage(t *testing.T) {
 	for _, tc := range []struct{ arch, url, want, wantAbsent string }{
@@ -375,7 +375,7 @@ func TestBuildForgeNodePayloadsAptSuiteFollowsTheImage(t *testing.T) {
 func TestBuildForgeNodePayloadsRejectsAnUnknownRelease(t *testing.T) {
 	for _, tc := range []struct{ name, url, want string }{
 		{"no release in the url", "https://cdn.invalid/nke-node.qcow2", "cannot tell which Ubuntu release"},
-		{"a release with no suite", "https://cdn.invalid/nke-node-ubuntu-22.04-amd64.qcow2", "no NKE apt suite is known for Ubuntu 22.04"},
+		{"a release with no suite", "https://cdn.invalid/nke-node-ubuntu-22.04-amd64.qcow2", "no NVKE apt suite is known for Ubuntu 22.04"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			inputs := completeForgeInputs()
@@ -552,7 +552,7 @@ func TestBuildForgeNodePayloadsDoesNotInstallNvkeAgent(t *testing.T) {
 	}
 }
 
-// The NKE OS image pre-installs spire-agent and owns its units, its first-boot
+// The NVKE OS image pre-installs spire-agent and owns its units, its first-boot
 // renderer and its TPM plugin checksum. Installing the apt repository's build
 // over that swaps an image-owned package for a generic one, so the pre-kubeadm
 // commands must not mention it at all.

@@ -23,7 +23,7 @@ const (
 	oidcEnabledEnvVar = "NKE_OIDC_AUTH_ENABLED"
 	enabledValue      = "true"
 
-	// permissiveModeEnvVar is what NKE reads to decide whether a failed check
+	// permissiveModeEnvVar is what NVKE reads to decide whether a failed check
 	// rejects the request or is only counted.
 	permissiveModeEnvVar = "PERMISSIVE_MODE"
 )
@@ -35,7 +35,7 @@ const (
 func OIDCEnabled(ctx context.Context, c client.Client) (bool, error) {
 	var deploy appsv1.Deployment
 	if err := c.Get(ctx, client.ObjectKey{Namespace: controller.Namespace(), Name: controller.Deployment()}, &deploy); err != nil {
-		return false, fmt.Errorf("getting NKE deployment %s/%s: %w", controller.Namespace(), controller.Deployment(), err)
+		return false, fmt.Errorf("getting NVKE deployment %s/%s: %w", controller.Namespace(), controller.Deployment(), err)
 	}
 	for _, container := range deploy.Spec.Template.Spec.Containers {
 		for _, env := range container.Env {
@@ -81,16 +81,16 @@ func SetOIDCEnabled(ctx context.Context, c client.Client, enabled bool) error {
 	return err
 }
 
-// SetPermissiveMode sets PERMISSIVE_MODE on the NKE container and waits for the
+// SetPermissiveMode sets PERMISSIVE_MODE on the NVKE container and waits for the
 // rollout, returning the value it replaced so a caller can put it back.
 //
 // An absent variable comes back as "", and restoring that sets it to the empty
-// string rather than removing it. NKE reads both as enforcing.
+// string rather than removing it. NVKE reads both as enforcing.
 func SetPermissiveMode(ctx context.Context, c client.Client, value string) (string, error) {
 	return setNVKEContainerEnv(ctx, c, permissiveModeEnvVar, value)
 }
 
-// setNVKEContainerEnv upserts an environment variable on the NKE container and
+// setNVKEContainerEnv upserts an environment variable on the NVKE container and
 // waits for the rollout. It returns the value it replaced.
 //
 // The container is found by name, with no fallback. Guessing container 0 writes
@@ -99,7 +99,7 @@ func SetPermissiveMode(ctx context.Context, c client.Client, value string) (stri
 func setNVKEContainerEnv(ctx context.Context, c client.Client, name, value string) (string, error) {
 	var deploy appsv1.Deployment
 	if err := c.Get(ctx, client.ObjectKey{Namespace: controller.Namespace(), Name: controller.Deployment()}, &deploy); err != nil {
-		return "", fmt.Errorf("getting NKE deployment %s/%s: %w", controller.Namespace(), controller.Deployment(), err)
+		return "", fmt.Errorf("getting NVKE deployment %s/%s: %w", controller.Namespace(), controller.Deployment(), err)
 	}
 
 	containers := deploy.Spec.Template.Spec.Containers
@@ -111,7 +111,7 @@ func setNVKEContainerEnv(ctx context.Context, c client.Client, name, value strin
 		}
 	}
 	if idx < 0 {
-		return "", fmt.Errorf("NKE deployment %s/%s has no container named %q",
+		return "", fmt.Errorf("NVKE deployment %s/%s has no container named %q",
 			controller.Namespace(), controller.Deployment(), controller.Deployment())
 	}
 
@@ -125,7 +125,7 @@ func setNVKEContainerEnv(ctx context.Context, c client.Client, name, value strin
 
 	setContainerEnv(&containers[idx], name, value)
 	if err := c.Update(ctx, &deploy); err != nil {
-		return "", fmt.Errorf("setting %s=%q on the NKE deployment: %w", name, value, err)
+		return "", fmt.Errorf("setting %s=%q on the NVKE deployment: %w", name, value, err)
 	}
 	if err := waitForDeploymentRollout(ctx, c, controller.Namespace(), controller.Deployment()); err != nil {
 		return "", err

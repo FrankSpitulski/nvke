@@ -52,9 +52,9 @@ type ServiceForwarder struct {
 
 const (
 	// coldStartBudget bounds the first connection, where failure means an
-	// undeployed NKE or the wrong kubeconfig.
+	// undeployed NVKE or the wrong kubeconfig.
 	coldStartBudget = 5 * time.Second
-	// reconnectBudget has to outlast a pod replacement, because an NKE rollout
+	// reconnectBudget has to outlast a pod replacement, because an NVKE rollout
 	// breaks these and the waiters in internal/nke abort on the first error.
 	reconnectBudget     = 90 * time.Second
 	retryBackoff        = time.Second
@@ -109,7 +109,7 @@ func NewServiceForwarder(restConfig *rest.Config, namespace, service, port strin
 // serviceBaseURL is the authority requests through the forward carry. It is
 // never resolved, and exists so requests carry a stable Host header as the
 // local port changes. The port is omitted unless numeric, because a named one
-// (the NKE Service publishes "metrics") fails url.Parse.
+// (the NVKE Service publishes "metrics") fails url.Parse.
 func serviceBaseURL(namespace, service, port string) string {
 	host := fmt.Sprintf("http://%s.%s.svc", service, namespace)
 	if _, err := strconv.Atoi(port); err != nil {
@@ -506,7 +506,7 @@ func podIsReady(pod *corev1.Pod) bool {
 }
 
 // resolveTargetPort maps a targetPort onto a container port number in pod. A
-// named one, which is what the NKE chart uses, is looked up in the pod's ports.
+// named one, which is what the NVKE chart uses, is looked up in the pod's ports.
 func resolveTargetPort(pod *corev1.Pod, servicePort *corev1.ServicePort) (int32, error) {
 	target := servicePort.TargetPort
 	if target.Type == intstr.Int {

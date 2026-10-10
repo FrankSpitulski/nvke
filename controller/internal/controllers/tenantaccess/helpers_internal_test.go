@@ -152,7 +152,7 @@ func TestReadRBACManifestAbsentConfigMap(t *testing.T) {
 	ctrl := &Controller{k8sClient: c}
 
 	_, err := ctrl.readRBACManifest(context.Background())
-	require.ErrorContains(t, err, "getting NKE RBAC ConfigMap")
+	require.ErrorContains(t, err, "getting NVKE RBAC ConfigMap")
 }
 
 func assertApplied(t *testing.T, c ctrlclient.Client, want []ctrlclient.Object) {

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # nico-vms E2E lane: the controller on kind, CAPNICo from source, nico-vms on the host,
-# tenant nodes as KVM guests booted from the NKE FDE image.
+# tenant nodes as KVM guests booted from the NVKE FDE image.
 #
 # Runs on the host, not in ci/backend-e2e.sh's container: nico-vms needs
 # libvirt, the host bridge and CAP_NET_ADMIN. Tilt runs in the background for

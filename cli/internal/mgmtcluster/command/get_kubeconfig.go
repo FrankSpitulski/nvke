@@ -46,7 +46,7 @@ func NewGetKubeconfigCmd(siteFn SiteFn, newMgmtClient MgmtClientFactory) *cobra.
 		Short: "Get the admin kubeconfig for a tenant cluster",
 		Long: `Get the admin kubeconfig for a tenant cluster from the management cluster.
 
-The kubeconfig is read from the Secret that the NKE tenantaccess controller
+The kubeconfig is read from the Secret that the NVKE tenantaccess controller
 publishes into the management cluster at:
 
   nke-system/<cluster-name>-admin-kubeconfig  (key: value)

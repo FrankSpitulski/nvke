@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Generate a kubeconfig for an NKE cluster running on nico-vms.
+# Generate a kubeconfig for an NVKE cluster running on nico-vms.
 #
 # Queries the CWE API for the cluster VIP and control plane node IPs,
 # SSHes into a CP node, extracts the cluster CA, signs a short-lived

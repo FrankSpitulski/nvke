@@ -26,7 +26,7 @@ name: CLI Artifact NVCR
 #
 # Published to both orgs, one matrix leg each. A DSX cluster holds an NGC
 # credential for its own org and none for the NKE org, so publishing only to
-# NKE leaves the binary unreachable to exactly the consumers this workflow was
+# NVKE leaves the binary unreachable to exactly the consumers this workflow was
 # added for.
 #
 # No GHCR pair beyond the separate cli-artifact.yml is missing here on
@@ -73,7 +73,7 @@ jobs:
       security-events: write  # the malware scan uploads SARIF
     # Both orgs get the same bytes. DSX clusters hold an NGC credential for
     # their own org and none for the NKE org, so an artifact published only to
-    # NKE is unreachable to them -- the reason this workflow exists in the
+    # NVKE is unreachable to them -- the reason this workflow exists in the
     # first place. Publishing twice rather than promoting matches
     # chart-publish-nvcr.yml: `oras push` is idempotent for identical content,
     # so a second destination costs one more push, not an OCI-layout

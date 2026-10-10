@@ -192,7 +192,7 @@ func (s *NodeAgentServer) installCalico(version *semver.Version, operatorManifes
 }
 
 // helmValuesFileArgs appends -f flags for standard value files present under chartDir.
-// Later files win, so the chart's defaults go first and NKE's override last.
+// Later files win, so the chart's defaults go first and NVKE's override last.
 func helmValuesFileArgs(chartDir string) []string {
 	var args []string
 	for _, name := range []string{"values.yaml", "values-images.yaml", "values-production.yaml", "values-single-node-zone.yaml", "values-nke.yaml"} {
@@ -462,7 +462,7 @@ func effectiveCniVariant(v pb.CniVariant) pb.CniVariant {
 	return v
 }
 
-// nvkeCniAptSpec builds an apt install spec for the discrete NKE CNI packages.
+// nvkeCniAptSpec builds an apt install spec for the discrete NVKE CNI packages.
 //
 // OVN Debian names include the Helm chart stream, e.g. nke-cni-ovn-images-1.4.0 and
 // nke-cni-ovn-charts-1.4.0. Request version (after stripping a leading "v") selects that

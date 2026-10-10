@@ -50,7 +50,7 @@ const (
 func newBootstrapCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "bootstrap",
-		Short: "Bootstrap NKE clusters from a declarative site spec",
+		Short: "Bootstrap NVKE clusters from a declarative site spec",
 	}
 	cmd.AddCommand(newBootstrapSiteCmd())
 	return cmd
@@ -136,7 +136,7 @@ func newBootstrapSiteCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   siteSubcommand,
-		Short: "Bootstrap a new NKE site controller from a site spec file",
+		Short: "Bootstrap a new NVKE site controller from a site spec file",
 		Long: `Bootstrap a vanilla Kubernetes cluster from a set of pre-provisioned nodes
 described by the site spec file passed with -f/--sitespec.
 

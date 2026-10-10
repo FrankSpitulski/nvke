@@ -29,15 +29,15 @@ const (
 	//
 	// "community" fetches upstream releases and an nke-agent .deb built from
 	// this checkout, so a run needs no NVIDIA network. It is the default
-	// because the NKE apt repository is behind a source-IP allow list that
+	// because the NVKE apt repository is behind a source-IP allow list that
 	// GitHub runners are outside of, which left this suite skipped rather than
-	// run. "apt" is the NKE apt repository path, for a host that can reach it.
+	// run. "apt" is the NVKE apt repository path, for a host that can reach it.
 	provisionCommunity = "community"
 	provisionApt       = "apt"
 
 	defaultProvisionScript = "scripts/install-k8s-community.sh"
 
-	// Published production NKE apt repo. Reachable anonymously over plain
+	// Published production NVKE apt repo. Reachable anonymously over plain
 	// HTTPS, which matters because CI runners have no route to NVIDIA's
 	// internal network.
 	defaultAptRepoURL = "https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-noble"
@@ -162,7 +162,7 @@ func loadConfig(t *testing.T) config {
 	// Only the nico-sim binary is required here. The kubeadm settings are
 	// validated separately by requireKubeadmConfig, because the smoke test
 	// needs none of them: it boots stock Ubuntu and installs nothing, which is
-	// exactly what lets it run when the NKE apt repo is unreachable.
+	// exactly what lets it run when the NVKE apt repo is unreachable.
 	if c.nicoVMSBin == "" {
 		t.Fatal("missing required configuration:\n" +
 			"  - NKE_BRINGUP_NICO_VMS_BIN (path to the nico-sim binary; build it with `CGO_ENABLED=1 make -C controller/nico-sim build-privileged`)")

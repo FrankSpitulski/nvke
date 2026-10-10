@@ -139,7 +139,7 @@ spire-server:
                 values:
                   - nke-controller
 
-        # The identity NKE's own services present. This was a loose manifest in
+        # The identity NVKE's own services present. This was a loose manifest in
         # controller/deploy/k8s, which the CAPD lane had to apply between two
         # install phases because a ClusterSPIFFEID needs a CRD the datastore
         # phase installs. Declared here it is rendered by the spire release

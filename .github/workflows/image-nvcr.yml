@@ -28,9 +28,9 @@ name: Image NVCR
 # safe smoke-test mode that never moves `edge`.
 #
 # The DSX promotion jobs use the same protected GitHub environment, but a
-# separate NGC token. The source NKE and target DSX repositories both live on
+# separate NGC token. The source NVKE and target DSX repositories both live on
 # nvcr.io, and docker auth stores one credential per registry host, so those jobs
-# pull the source index into an OCI layout with the NKE token and then push it
+# pull the source index into an OCI layout with the NVKE token and then push it
 # with the DSX token rather than depending on two simultaneous nvcr.io logins.
 on:
   push:

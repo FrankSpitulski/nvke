@@ -18,7 +18,7 @@
 #                  deploy the provider identically. Installing it here instead
 #                  would mean pulling the released chart and image from a
 #                  private registry, and no credential in this repository
-#                  reaches them: GITHUB_TOKEN sees only packages NKE itself
+#                  reaches them: GITHUB_TOKEN sees only packages NVKE itself
 #                  publishes, NKE_INTERNAL_RO_TOKEN is wired for git and never
 #                  for a registry, and NGC_API_KEY -- which the released path in
 #                  install-capnico.sh needs -- is set in no workflow at all.

@@ -1,13 +1,13 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package nvkectl drives the nvkectl binary against the NKE deployment the e2e
+// Package nvkectl drives the nvkectl binary against the NVKE deployment the e2e
 // suite already has running. It is the command-line counterpart to
 // internal/nke, the REST client the rest of the suite uses; both build their
 // create request through nvke.BuildCreateRequest, so the two differ only in
 // transport.
 //
-// A Runner owns a `kubectl port-forward` to the NKE Service and a throwaway
+// A Runner owns a `kubectl port-forward` to the NVKE Service and a throwaway
 // site config pointed at it. It cannot share the suite's forward:
 // kube.ServiceForwarder routes through a custom DialContext against a synthetic
 // .svc authority that never resolves, so no separate process can reach it.
@@ -119,7 +119,7 @@ type Runner struct {
 	createdNodePools []NodePoolRef
 }
 
-// New resolves the binary, starts a port-forward to the NKE Service and
+// New resolves the binary, starts a port-forward to the NVKE Service and
 // registers a site pointed at it. The returned Runner must be closed.
 //
 // ctx bounds only the setup; the port-forward outlives it and is torn down by
@@ -279,7 +279,7 @@ func (r *Runner) ensureForward(ctx context.Context) error {
 	return nil
 }
 
-// BaseURL is the forwarded NKE endpoint the registered site points at.
+// BaseURL is the forwarded NVKE endpoint the registered site points at.
 func (r *Runner) BaseURL() string { return r.baseURL }
 
 // Run invokes nvkectl with args and returns its combined output. The output is

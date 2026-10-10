@@ -81,7 +81,7 @@ COPY ./controller/THIRD_PARTY_NOTICES.md /licenses/THIRD_PARTY_NOTICES.md
 LABEL org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.title="controller" \
       org.opencontainers.image.source="https://github.com/dsx-ai-factory/nvke" \
-      org.opencontainers.image.description="NKE Cloud Workflow Engine"
+      org.opencontainers.image.description="NVKE Cloud Workflow Engine"
 
 EXPOSE 8080
 

@@ -123,7 +123,7 @@ func TestExitCodeAndOutputChannel(t *testing.T) {
 			name:       "no arguments prints help and succeeds",
 			args:       nil,
 			wantExit:   0,
-			wantStdout: "NKE control-plane CLI",
+			wantStdout: "NVKE control-plane CLI",
 			wantStderr: "",
 		},
 		{

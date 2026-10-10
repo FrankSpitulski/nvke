@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Local-development scaffolding for NKE API authentication. Development only. A
+# Local-development scaffolding for NVKE API authentication. Development only. A
 # real deployment needs just the JWKS discovery ClusterRoleBinding, which the
 # chart renders from apiAuth.clusterIssuerDiscovery.
 #

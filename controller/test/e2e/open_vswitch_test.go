@@ -26,7 +26,7 @@ func validateOpenVSwitchPostCreate(test *tenantTest) {
 		restConfig, err := kube.RESTConfig(test.mgmt.Kubeconfig, test.mgmt.Context)
 		Expect(err).NotTo(HaveOccurred(), "read management-cluster kubeconfig")
 		metrics, err := kube.SharedServiceForwarder(restConfig, controller.Namespace(), controller.Service(), nvkeControllerMetricsPort)
-		Expect(err).NotTo(HaveOccurred(), "build a port-forward to NKE controller metrics")
+		Expect(err).NotTo(HaveOccurred(), "build a port-forward to NVKE controller metrics")
 		expectedNodes := clusterNodeCount(test.spec)
 
 		// Node readiness above is the behavioral assertion: OVN cannot converge

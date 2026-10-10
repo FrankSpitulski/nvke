@@ -527,7 +527,7 @@ func TestPickReadyPod(t *testing.T) {
 	}
 }
 
-// TestServiceBaseURL: the NKE Service publishes its metrics listener under a
+// TestServiceBaseURL: the NVKE Service publishes its metrics listener under a
 // name, and a name in the authority makes every URL built from it unparseable.
 func TestServiceBaseURL(t *testing.T) {
 	tests := []struct {

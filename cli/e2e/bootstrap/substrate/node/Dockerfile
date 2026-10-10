@@ -5,7 +5,7 @@
 #
 # This is a deliberately thin derivation of the CAPD node image
 # (controller/hack/capd-kindest-node/Dockerfile, built by `make capd-image`),
-# which already provides everything a pre-provisioned NKE host needs:
+# which already provides everything a pre-provisioned NVKE host needs:
 #
 #   * nke-agent installed with its systemd unit, configured via
 #     /etc/default/nke-agent

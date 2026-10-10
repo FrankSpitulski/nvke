@@ -424,7 +424,7 @@ func TestProfileStruct(t *testing.T) {
 	profile := Profile{
 		Name:        "standard-profile",
 		Version:     "v1.0.0",
-		Summary:     "Standard NKE profile",
+		Summary:     "Standard NVKE profile",
 		Description: "Contains basic components for Kubernetes",
 		Bundles: []Bundle{
 			{Name: "kubeadm", Version: semver.MustParse("v1.28.0")},

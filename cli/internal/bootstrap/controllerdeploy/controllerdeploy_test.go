@@ -810,25 +810,25 @@ func TestTPMPluginChecksum(t *testing.T) {
 }
 
 // TestSpireAndCWEAgreeOnTheClassName is the guard for a mismatch neither side
-// reports. The NKE controller stamps its ClusterStaticEntry objects with its configured class
+// reports. The NVKE controller stamps its ClusterStaticEntry objects with its configured class
 // and the SPIRE controller manager only acts on objects carrying its own, so
-// two different strings mean the NKE controller writes entries nobody reads and a node never
+// two different strings mean the NVKE controller writes entries nobody reads and a node never
 // gets an identity -- with both components healthy and nothing logged.
 //
 // Neither default reaches the same string on its own: the chart derives
-// <namespace>-<release>, the NKE controller defaults to spire-mgmt-spire.
+// <namespace>-<release>, the NVKE controller defaults to spire-mgmt-spire.
 //
 // The expected class is spelled out rather than taken from the constant, for
 // the same reason the port test spells out its address: asserting the constant
 // against itself would survive any drift. This pins our value to the literal
-// the NKE controller's SPIRE_CLASS_NAME defaults to. It cannot catch the NKE controller changing that default
+// the NVKE controller's SPIRE_CLASS_NAME defaults to. It cannot catch the NVKE controller changing that default
 // -- that lives in another module -- but it does catch this side moving.
 func TestSpireAndCWEAgreeOnTheClassName(t *testing.T) {
 	const cweClassNameDefault = "spire-mgmt-spire"
 
 	if spireControllerManagerClass != cweClassNameDefault {
-		t.Errorf("the class is %q, but the NKE controller's SPIRE_CLASS_NAME defaults to %q; "+
-			"the NKE controller would write ClusterStaticEntry objects the controller manager ignores",
+		t.Errorf("the class is %q, but the NVKE controller's SPIRE_CLASS_NAME defaults to %q; "+
+			"the NVKE controller would write ClusterStaticEntry objects the controller manager ignores",
 			spireControllerManagerClass, cweClassNameDefault)
 	}
 

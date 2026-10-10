@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Builds an NKE site controller on real Forge hardware and runs a tenant
+# Builds an NVKE site controller on real Forge hardware and runs a tenant
 # against it: `site_controller_test.go`, label `site-controller`.
 #
 # Unlike every other e2e lane in this repository, nothing under test runs on
@@ -128,7 +128,7 @@ on:
         type: string
         required: false
       os-image-amd64:
-        description: Overrides the HTTPS URL of the amd64 NKE qcow2 the plan resolves.
+        description: Overrides the HTTPS URL of the amd64 NVKE qcow2 the plan resolves.
         type: string
         required: false
       os-image-bootloader-arm64:
@@ -136,7 +136,7 @@ on:
         type: string
         required: false
       os-image-arm64:
-        description: Overrides the HTTPS URL of the arm64 NKE qcow2 the plan resolves.
+        description: Overrides the HTTPS URL of the arm64 NVKE qcow2 the plan resolves.
         type: string
         required: false
       dry-run:

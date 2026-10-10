@@ -26,7 +26,7 @@
 #                  for CAPNICo, whose manifest names a remote image.
 #   a default StorageClass  a bare site ships none, so every PVC sits Pending.
 #                  Deliberately not an item: which provisioner is right is a
-#                  property of the hardware, not of NKE. That run installed
+#                  property of the hardware, not of NVKE. That run installed
 #                  rancher local-path because its instance type has a single
 #                  NVMe with root on it, which also means the documented
 #                  prerequisite of a spare unpartitioned device cannot be met

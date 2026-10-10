@@ -470,7 +470,7 @@ func (c *Controller) createTokenForNode(ctx context.Context, node db.Node, ekPub
 		},
 		Spec: &teleport.TPMConfig{
 			Allow: []teleport.TPMRule{{
-				Description:  fmt.Sprintf("NKE node %s", node.Name),
+				Description:  fmt.Sprintf("NVKE node %s", node.Name),
 				EKPublicHash: ekPubHash,
 			}},
 		},

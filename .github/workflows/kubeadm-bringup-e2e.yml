@@ -127,12 +127,12 @@ jobs:
 
       # ── Step A ──────────────────────────────────────────────────────────────
       # Boots two stock Ubuntu VMs and proves they can reach each other. Installs
-      # nothing, so it depends on no NKE infrastructure and answers "does
+      # nothing, so it depends on no NVKE infrastructure and answers "does
       # nico-vms work on this runner" on its own. -C controller because the suite
       # lives in that module, which keeps go.work and other modules' go.mod out
       # of this change. NICO_VMS_LIBVIRT_NETWORK is deliberately absent: setting
       # it at all selects libvirt-network mode, which is for shared hosts.
-      - name: Smoke test nico-vms (2 VMs, no NKE packages)
+      - name: Smoke test nico-vms (2 VMs, no NVKE packages)
         env:
           # Defaults are sized for hardware virtualisation; readiness is 15m.
           NICO_VMS_READINESS_TIMEOUT: 45m
@@ -148,7 +148,7 @@ jobs:
         run: go test -C controller -tags kubeadm_bringup -timeout 60m -v -run TestNicoVMSSmoke ./test/kubeadm/...
 
       # ── Step B gate ─────────────────────────────────────────────────────────
-      # The bring-up installs from community artifacts, so there is no NKE apt
+      # The bring-up installs from community artifacts, so there is no NVKE apt
       # repository to reach and nothing to probe. nke-agent is built here rather
       # than downloaded, which also makes the suite exercise the agent in the
       # pull request instead of a published one.

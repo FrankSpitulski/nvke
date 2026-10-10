@@ -134,7 +134,7 @@ func TestUnit_ReconcileMarksDeprecatedNodesWithinBudget(t *testing.T) {
 				input.NodeCondition.Type == constants.NodeConditionTypeNeedsRecycle &&
 				input.NodeCondition.Status == corev1.ConditionTrue &&
 				input.NodeCondition.Reason == "Deprecated" &&
-				input.NodeCondition.Message == "NKE auto-mode recycling deprecated node"
+				input.NodeCondition.Message == "NVKE auto-mode recycling deprecated node"
 		}),
 	).Return(db.WorkflowOutbox{}, nil)
 

@@ -954,7 +954,7 @@ func (s *NodeAgentServer) processKubeadmInit(args []string, req *pb.KubeadmInitR
 // the config from kubeadm, both at 0644, and kubeadm offers no configuration
 // for the mode of either, so the only way to hold them at 0600 is to re-apply.
 //
-// The kubeadm-distro package ships its units 0600 already, so on an NKE image
+// The kubeadm-distro package ships its units 0600 already, so on an NVKE image
 // this only has work to do on config.yaml. The units are still listed for nodes
 // built from other packages, such as the upstream pkgs.k8s.io ones.
 //
@@ -1010,7 +1010,7 @@ func (s *NodeAgentServer) hardenKubeletFileModes() error {
 
 // disableKubeletSelfRegistration sets registerNode: false in the kubelet config
 // on disk so that if the instance is later terminated and restarted outside of
-// NKE's control, the kubelet will not re-register the node (zombie prevention).
+// NVKE's control, the kubelet will not re-register the node (zombie prevention).
 // The running kubelet is unaffected -- it already registered the node and keeps
 // its in-memory config. The on-disk change only matters on next boot.
 func (s *NodeAgentServer) disableKubeletSelfRegistration() error {

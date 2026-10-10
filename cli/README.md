@@ -1,6 +1,6 @@
 # nvkectl
 
-NKE control-plane CLI. Bootstraps site controllers and manages tenant cluster lifecycle.
+NVKE control-plane CLI. Bootstraps site controllers and manages tenant cluster lifecycle.
 
 **Module:** `github.com/dsx-ai-factory/nvke/cli`  
 **Binary:** `nvkectl`  
@@ -127,7 +127,7 @@ The kubeconfig identity needs:
 
 A cluster-admin kubeconfig already has all of these. The token grant, and
 creating the service account on a real site, are in
-[Configuring NKE API Authentication](../controller/docs/configuring-api-authentication.md).
+[Configuring NVKE API Authentication](../controller/docs/configuring-api-authentication.md).
 
 The machine image and release commands do not use CWE or a token. Their
 kubeconfig identity needs `get`, `list`, `create` and `delete` on
@@ -328,5 +328,5 @@ in a patch release. Match on the exit code, not on error text.
 - [Compatibility and deprecation policy](docs/compatibility.md)
 - [Site Controller Bootstrap](../docs/site-bootstrap/overview.md)
 - [Architecture](../docs/architecture.md)
-- [Authenticating to the NKE API](../controller/docs/authenticating-to-the-api.md)
-- [Configuring NKE API Authentication](../controller/docs/configuring-api-authentication.md)
+- [Authenticating to the NVKE API](../controller/docs/authenticating-to-the-api.md)
+- [Configuring NVKE API Authentication](../controller/docs/configuring-api-authentication.md)

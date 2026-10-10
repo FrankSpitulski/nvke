@@ -90,16 +90,16 @@ const (
 	spireServerPort = "8081"
 
 	// spireControllerManagerClass is the class the SPIRE controller manager
-	// claims objects under, and the class the NKE controller stamps on the ClusterStaticEntry
+	// claims objects under, and the class the NVKE controller stamps on the ClusterStaticEntry
 	// objects it writes. The two have to be the same string: the controller
 	// manager ignores an entry whose class is not its own, so a mismatch means
-	// the NKE controller writes entries nobody acts on and a node never gets its identity.
+	// the NVKE controller writes entries nobody acts on and a node never gets its identity.
 	//
 	// Neither side's default gets there on its own. The chart derives
 	// <namespace>-<release> when className is empty, which here would be
-	// "spire-server-spire", while the NKE controller defaults to "spire-mgmt-spire". So both
+	// "spire-server-spire", while the NVKE controller defaults to "spire-mgmt-spire". So both
 	// are set explicitly, from this one constant, rather than left to agree by
-	// coincidence. The value is the NKE controller's default, which keeps it the same string
+	// coincidence. The value is the NVKE controller's default, which keeps it the same string
 	// a site controller already uses.
 	spireControllerManagerClass = "spire-mgmt-spire"
 
@@ -359,7 +359,7 @@ func (e *Engine) Deploy(ctx context.Context, kubeconfigPath string, cfg Config) 
 	}
 	if cfg.ProvisionedProviderImage == "" {
 		return errors.New("controllerdeploy: Config.ProvisionedProviderImage is required; the CAPI " +
-			"objects the NKE controller writes for a site cluster go unreconciled without it " +
+			"objects the NVKE controller writes for a site cluster go unreconciled without it " +
 			"(see Config.ProvisionedProviderImage)")
 	}
 

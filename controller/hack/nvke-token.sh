@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Print a bearer token for the NKE API, or nothing when NKE is not
+# Print a bearer token for the NVKE API, or nothing when NVKE is not
 # authenticating.
 #
 #   TOKEN="$(hack/nvke-token.sh)"
@@ -13,10 +13,10 @@
 #
 # Environment:
 #   KUBE_CONTEXT               kube context (default: kubeconfig current-context)
-#   NKE_CONTROLLER_NAMESPACE   NKE's namespace (default nke-controller when it
+#   NKE_CONTROLLER_NAMESPACE   NVKE's namespace (default nke-controller when it
 #                              holds nke-auth-config or Deployment nke-controller,
 #                              else cloud-workflow-engine)
-#   NKE_DEPLOYMENT             NKE's Deployment (default nke-controller when it
+#   NKE_DEPLOYMENT             NVKE's Deployment (default nke-controller when it
 #                              exists in NKE_CONTROLLER_NAMESPACE, else cloud-workflow-engine)
 #   NKE_TOKEN_NAMESPACE        service account namespace (default nke-clients)
 #   NKE_TOKEN_SERVICE_ACCOUNT  service account (default nke-client)
@@ -103,7 +103,7 @@ fi
 
 # --- deployment -------------------------------------------------------------
 
-# A greenfield site installs NKE as nke-controller; legacy sites still use
+# A greenfield site installs NVKE as nke-controller; legacy sites still use
 # cloud-workflow-engine. The container shares the Deployment's name
 # in both, which the AUTH_CONFIG_PATH lookup below relies on.
 # Only a confirmed absence falls back; any other lookup failure is fatal.
@@ -145,13 +145,13 @@ fi
 
 AUDIENCE="${NKE_AUDIENCE:-$(cwe_discover_audience)}"
 if [[ -z "${AUDIENCE}" ]]; then
-  die "NKE is authenticating (AUTH_CONFIG_PATH=${auth_config_path}) but no audience could be read
+  die "NVKE is authenticating (AUTH_CONFIG_PATH=${auth_config_path}) but no audience could be read
   from configmap ${NKE_CONTROLLER_NAMESPACE}/nke-auth-config. Set NKE_AUDIENCE to override."
 fi
 
 # --- mint -------------------------------------------------------------------
 
-# Uses TokenRequest: NKE accepts only audience-scoped tokens, and a legacy
+# Uses TokenRequest: NVKE accepts only audience-scoped tokens, and a legacy
 # Secret carries no audience. Needs `create` on serviceaccounts/token, granted
 # by deploy/k8s/nke-auth-dev.yaml.
 token="$(

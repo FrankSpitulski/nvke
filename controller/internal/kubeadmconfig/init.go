@@ -58,7 +58,7 @@ type InitConfig struct {
 	// SecondaryNodeEvictionRate sets the kube-controller-manager
 	// --secondary-node-eviction-rate flag, which controls the pod eviction
 	// rate when a zone is unhealthy (≥55% of nodes NotReady). Defaults to "0"
-	// to stop evictions during zone-wide events on single-zone NKE clusters.
+	// to stop evictions during zone-wide events on single-zone NVKE clusters.
 	SecondaryNodeEvictionRate string
 	// LargeClusterSizeThreshold sets the kube-controller-manager
 	// --large-cluster-size-threshold flag. Clusters at or below this size

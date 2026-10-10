@@ -40,9 +40,9 @@ name: Image Provisioned NVCR
 # version tag is a second immutable per-commit tag rather than a semver one.
 #
 # The DSX promotion job uses the same protected GitHub environment, but a
-# separate NGC token. The source NKE and target DSX repositories both live on
+# separate NGC token. The source NVKE and target DSX repositories both live on
 # nvcr.io, and docker auth stores one credential per registry host, so that job
-# pulls the source index into an OCI layout with the NKE token and then pushes
+# pulls the source index into an OCI layout with the NVKE token and then pushes
 # it with the DSX token rather than depending on two simultaneous nvcr.io
 # logins.
 on:

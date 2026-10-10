@@ -30,7 +30,7 @@ const (
 )
 
 func validateOIDCPostCreate(test *tenantTest) {
-	It("maps NKE's identities and authorizes them through OIDC on the tenant apiserver", func(ctx context.Context) {
+	It("maps NVKE's identities and authorizes them through OIDC on the tenant apiserver", func(ctx context.Context) {
 		skipIfNVKEOIDCDisabled(ctx, test.k8sClient)
 		if test.trustDomain == "" && os.Getenv(dsxIdentityExchangeEnv) != "true" {
 			Skip("SPIRE trust domain could not be derived from kubeconfig context")

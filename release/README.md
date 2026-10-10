@@ -160,7 +160,7 @@ publications; it does not replace them.
 |---|---|
 | [`registry.yaml`](registry.yaml) | How each component resolves to a version, and the named locations artifacts are published under. It holds the rule that finds a version, never a version |
 | [`policy.yaml`](policy.yaml) | The streams that exist and the scopes over them |
-| [`qualification.yaml`](qualification.yaml) | What is qualified when NKE is qualified as a whole: the components tested together, and the other versions a run needs |
+| [`qualification.yaml`](qualification.yaml) | What is qualified when NVKE is qualified as a whole: the components tested together, and the other versions a run needs |
 | [`cmd/qualify/`](cmd/qualify/) | The binary. `plan` is the only verb |
 | [`internal/qualification/`](internal/qualification/) | Reading and checking the three files, and turning them into a plan |
 | [`internal/resolve/`](internal/resolve/) | The resolution strategies. It imports nothing from this repository |
@@ -179,7 +179,7 @@ the same shape next to its code.
 
 The file lists two kinds of thing.
 
-`components` are the parts of NKE tested together: `controller`, `cli`,
+`components` are the parts of NVKE tested together: `controller`, `cli`,
 `os-image` and `capi-provisioned`. Each carries `selectors` that say which
 version to take, and today the only selector is `latest`, the highest version of
 any kind ordered by semver, so `v0.1.1` beats `v0.1.1-rc.8` and `v0.1.1-rc.1`

@@ -25,7 +25,7 @@ import (
 var nodeAssets embed.FS
 
 const (
-	// tpmPluginVersion pins get_tpm_pubhash to the spire-tpm-plugin release NKE
+	// tpmPluginVersion pins get_tpm_pubhash to the spire-tpm-plugin release NVKE
 	// already ships in its spire-agent bundle (pkg-builder/bundles_latest/
 	// spire-agent.yaml, TPM_PLUGIN_VERSION), so the fingerprint this tool
 	// prints is computed by the same code as the attestor that presents it.

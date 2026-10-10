@@ -83,7 +83,7 @@ type TLSJWTConfig struct {
 
 // NodeAgentConfig configures connections to and SPIRE attestation for managed node agents.
 type NodeAgentConfig struct {
-	// Port is the secure port that the NKE node agent listens on.
+	// Port is the secure port that the NVKE node agent listens on.
 	Port string `env:"PORT" default:"15005"`
 
 	// SpireAttestationMethod selects the SPIRE attestation method pinned to
@@ -348,7 +348,7 @@ type Config struct {
 	CNIImageRegistry string `env:"CNI_IMAGE_REGISTRY" default:""`
 
 	// NvkeOIDCAuth is the site-wide configuration for OIDC authentication from
-	// NKE management identities to tenant cluster kube-apiservers.
+	// NVKE management identities to tenant cluster kube-apiservers.
 	NvkeOIDCAuth NvkeOIDCAuth `envPrefix:"NKE_OIDC_AUTH_"`
 
 	// TenantAccessEnabled is the site Helm/env flag for the Nico consume
@@ -408,7 +408,7 @@ type TemporalTLSConfig struct {
 
 type NvkeOIDCAuth struct {
 	// Enabled controls whether new clusters receive an apiserver
-	// AuthenticationConfiguration for NKE OIDC identities.
+	// AuthenticationConfiguration for NVKE OIDC identities.
 	Enabled bool `env:"ENABLED" default:"false"`
 	// AutoMigrationEnabled is reserved for future migration of existing clusters.
 	AutoMigrationEnabled bool `env:"AUTO_MIGRATION_ENABLED" default:"false"`

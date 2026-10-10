@@ -75,7 +75,7 @@ type tenantTest struct {
 	cascadePoolID uuid.UUID
 }
 
-var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
+var _ = DescribeTableSubtree("NVKE with backend", withNicoVMSOSProfileEntries(
 	tenantSubtree(configuredManagement),
 	// The pull-request smoke lane uses a separate, minimal topology instead of
 	// filtering the full CAPD row below. The full row needs three control-plane
@@ -860,7 +860,7 @@ func configuredManagement() (managementCluster, error) {
 }
 
 // setupTenantTest builds the per-backend wiring (clients, trust domain, logger)
-// and preflights NKE reachability over the port-forward. It does not create a
+// and preflights NVKE reachability over the port-forward. It does not create a
 // cluster.
 func setupTenantTest(ctx context.Context, mgmt managementCluster, timeouts nvke.Options) (tenantTest, error) {
 	cfg, err := config.Load(cfgPath)
@@ -916,7 +916,7 @@ func setupTenantTest(ctx context.Context, mgmt managementCluster, timeouts nvke.
 	defer cancel()
 	resp, err := controllerClient.API().GetClusterWithResponse(pingCtx, uuid.New())
 	if err != nil {
-		return tenantTest{}, fmt.Errorf("reaching NKE over the port-forward: %w", err)
+		return tenantTest{}, fmt.Errorf("reaching NVKE over the port-forward: %w", err)
 	}
 	if resp.StatusCode() != 404 {
 		return tenantTest{}, fmt.Errorf("controller preflight: want 404 for a random cluster UUID, got %s: %s", resp.Status(), resp.Body)

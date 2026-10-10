@@ -348,7 +348,7 @@ func main() {
 	} else {
 		// Both controllers below watch NicoMachine, and either takes the manager
 		// down where CAPNICo is not installed. Read once: every deployment path
-		// installs the infrastructure providers before the NKE controller.
+		// installs the infrastructure providers before the NVKE controller.
 		nicoCRDInstalled, err := capi.NicoMachineCRDInstalled(k8sControllerManager.GetRESTMapper())
 		if err != nil {
 			logger.Error("Failed to look up the NicoMachine CRD", "error", err)
