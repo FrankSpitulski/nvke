@@ -1183,3 +1183,35 @@ func hasArgs(call string, args ...string) bool {
 	}
 	return false
 }
+
+func TestHelmRetriesChartDownloadServerErrors(t *testing.T) {
+	oldInterval := helmFetchRetryInterval
+	helmFetchRetryInterval = time.Millisecond
+	t.Cleanup(func() { helmFetchRetryInterval = oldInterval })
+
+	exit1 := errors.New("exit status 1")
+	fetch500 := "Error: failed to fetch https://github.com/spiffe/helm-charts-hardened/releases/download/spire-crds-0.6.1/spire-crds-0.6.1.tgz : 500 Internal Server Error"
+	cases := []struct {
+		name      string
+		outputs   []fakeOutput
+		wantCalls int
+		wantErr   bool
+	}{
+		{"a 500 on the download is retried", []fakeOutput{{output: fetch500, err: exit1}, {}}, 2, false},
+		{"a 500 on every attempt gives up after three", []fakeOutput{{output: fetch500, err: exit1}}, 3, true},
+		{"any other failure is not retried", []fakeOutput{{output: "Error: INSTALLATION FAILED: timed out waiting for the condition", err: exit1}}, 1, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := &fakeRunner{outputs: tc.outputs}
+			_, err := New(runner, nil).helm(context.Background(), "/tmp/kubeconfig",
+				"upgrade", "--install", spireCRDsReleaseName, "spire-crds", "--repo", "https://spiffe.github.io/helm-charts-hardened/")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("helm returned error %v, want error %v", err, tc.wantErr)
+			}
+			if len(runner.calls) != tc.wantCalls {
+				t.Errorf("helm made %d attempts, want %d", len(runner.calls), tc.wantCalls)
+			}
+		})
+	}
+}

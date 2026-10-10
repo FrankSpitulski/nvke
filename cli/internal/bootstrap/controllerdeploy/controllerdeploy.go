@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -158,6 +159,15 @@ var waitReadyPollInterval = 3 * time.Second
 // tenantKubeconfigPollInterval is the delay between attempts to read the
 // asynchronously published tenant kubeconfig Secret.
 var tenantKubeconfigPollInterval = 2 * time.Second
+
+// helmFetchAttempts bounds the retries of a chart download that failed with a server error.
+const helmFetchAttempts = 3
+
+// helmFetchRetryInterval is the delay between those attempts; a var so tests can shorten it.
+var helmFetchRetryInterval = 5 * time.Second
+
+// chartFetchServerError matches helm's report of a chart download that got a 5xx, the one failure a retry fixes.
+var chartFetchServerError = regexp.MustCompile(`failed to fetch .*: 5\d\d\b`)
 
 const defaultTenantKubeconfigTimeout = 2 * time.Minute
 
@@ -656,11 +666,22 @@ func (e *Engine) WaitReady(ctx context.Context, kubeconfigPath string, timeout t
 // helm runs the helm CLI with kubeconfigPath and args.
 func (e *Engine) helm(ctx context.Context, kubeconfigPath string, args ...string) (string, error) {
 	fullArgs := append([]string{"--kubeconfig", kubeconfigPath}, args...)
-	out, err := e.Runner.Run(ctx, "helm", fullArgs...)
-	if err != nil {
-		return out, fmt.Errorf("helm %s: %w\n%s", strings.Join(args, " "), err, out)
+	for attempt := 1; ; attempt++ {
+		out, err := e.Runner.Run(ctx, "helm", fullArgs...)
+		if err == nil {
+			return out, nil
+		}
+		// GitHub's release downloads answer 5xx now and then; nothing was installed yet, so the same command is safe to repeat.
+		if attempt == helmFetchAttempts || !chartFetchServerError.MatchString(out) {
+			return out, fmt.Errorf("helm %s: %w\n%s", strings.Join(args, " "), err, out)
+		}
+		e.log.Warn("helm chart download failed, retrying", "attempt", attempt, "err", err)
+		select {
+		case <-ctx.Done():
+			return out, fmt.Errorf("helm %s: %w\n%s", strings.Join(args, " "), ctx.Err(), out)
+		case <-time.After(helmFetchRetryInterval):
+		}
 	}
-	return out, nil
 }
 
 // writeEmbeddedFile copies an embedded values file to a temporary file on
