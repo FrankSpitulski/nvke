@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/controller"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
 )
 
 // The collector's whole value is that it separates "the controller is not ready" from

@@ -13,8 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	kjson "sigs.k8s.io/json"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/util"
-	enginev1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
+	"github.com/dsx-ai-factory/nvke/cli/internal/util"
+	enginev1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
 )
 
 // Decode reads a portable request document for the kind from YAML or JSON and

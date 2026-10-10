@@ -28,10 +28,10 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 
-	server "github.com/dsx-ai-factory/nke/agent/internal/agent"
-	"github.com/dsx-ai-factory/nke/agent/internal/externalmtls"
-	"github.com/dsx-ai-factory/nke/agent/internal/grpcserver"
-	"github.com/dsx-ai-factory/nke/agent/internal/tlsjwt"
+	server "github.com/dsx-ai-factory/nvke/agent/internal/agent"
+	"github.com/dsx-ai-factory/nvke/agent/internal/externalmtls"
+	"github.com/dsx-ai-factory/nvke/agent/internal/grpcserver"
+	"github.com/dsx-ai-factory/nvke/agent/internal/tlsjwt"
 )
 
 const (

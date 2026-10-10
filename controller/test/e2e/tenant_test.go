@@ -26,14 +26,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/controller"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra/forge"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nkectl"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/tenantauth"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/forge"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nkectl"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/tenantauth"
 )
 
 // clusterLifecycle creates a cluster, reads it back, and deletes it again.

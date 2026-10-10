@@ -15,8 +15,8 @@ import (
 	authenticationcel "k8s.io/apiserver/pkg/authentication/cel"
 	"k8s.io/apiserver/pkg/cel/lazy"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllerconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllerconfig"
 )
 
 func TestBuildOperatorJWTAuthenticator(t *testing.T) {

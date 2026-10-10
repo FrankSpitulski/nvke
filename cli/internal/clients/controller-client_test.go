@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/config"
-	api "github.com/dsx-ai-factory/nke/controller/api"
+	"github.com/dsx-ai-factory/nvke/cli/internal/config"
+	api "github.com/dsx-ai-factory/nvke/controller/api"
 )
 
 type fakeTokenSource struct {

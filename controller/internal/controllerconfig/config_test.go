@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/controllerconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllerconfig"
 )
 
 // baseConfig is every required key except nodeAgent, for tests that supply

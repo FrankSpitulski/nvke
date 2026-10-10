@@ -39,7 +39,7 @@ A Helm chart to deploy the NKE controller service
 | identity.managedByLabelValue | string | `"cloud-workflow-engine"` | Value written under the nke.nvidia.com/managed-by label on objects this controller owns, and the value the tenant Secret reconciler filters on. |
 | image.digest | string | `""` | Optional digest (sha256:...) for the nke-controller image. When set, the pod pulls by digest and the tag becomes informational only. Use this to pin an immutable image. |
 | image.pullPolicy | string | `"IfNotPresent"` | This sets the pull policy for images. |
-| image.repository | string | `"ghcr.io/dsx-ai-factory/nke/nke-controller"` | Repository, including registry, for the nke-controller image (the controller service) that this chart deploys. Override to pull it from a different registry (e.g. a private mirror); pair any change with a matching `imagePullSecrets` entry. Not to be confused with `profiles.image.repository` below, a separate optional content image. |
+| image.repository | string | `"ghcr.io/dsx-ai-factory/nvke/nke-controller"` | Repository, including registry, for the nke-controller image (the controller service) that this chart deploys. Override to pull it from a different registry (e.g. a private mirror); pair any change with a matching `imagePullSecrets` entry. Not to be confused with `profiles.image.repository` below, a separate optional content image. |
 | image.tag | string | `""` | Overrides the tag for the nke-controller image; default is the chart appVersion. |
 | imagePullSecrets | list | `[]` | Must match image.repository, which defaults to ghcr.io. The NVCR-published chart gets the NGC secret put back at package time. Supply your own for a private GHCR package. |
 | ingress.annotations | object | `{}` |  |

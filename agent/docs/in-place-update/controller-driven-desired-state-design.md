@@ -2,7 +2,7 @@
 
 > Status: selected design draft
 >
-> Tracks: [dsx-ai-factory/nke#205](https://github.com/dsx-ai-factory/nke/issues/205)
+> Tracks: [dsx-ai-factory/nvke#205](https://github.com/dsx-ai-factory/nvke/issues/205)
 >
 > This is the selected controller-driven approach. The earlier
 > [cluster-lock rollout design](in-place-rollout-design.md) is retained for

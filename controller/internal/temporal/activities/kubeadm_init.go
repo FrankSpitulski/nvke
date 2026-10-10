@@ -13,11 +13,11 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig"
-	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kubeadmconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
 )
 
 type KubeadmInitInput struct {

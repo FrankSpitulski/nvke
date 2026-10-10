@@ -36,8 +36,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/manifest"
-	"github.com/dsx-ai-factory/nke/controller/deploy/charts"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/manifest"
+	"github.com/dsx-ai-factory/nvke/controller/deploy/charts"
 )
 
 const (

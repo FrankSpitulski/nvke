@@ -19,12 +19,12 @@ import (
 	capiconditions "sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/clients"
-	"github.com/dsx-ai-factory/nke/controller/internal/clients/shared"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
-	"github.com/dsx-ai-factory/nke/controller/internal/spiffe"
+	"github.com/dsx-ai-factory/nvke/controller/internal/clients"
+	"github.com/dsx-ai-factory/nvke/controller/internal/clients/shared"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/spiffe"
 )
 
 type CreateCAPIInfraMachineForNodeInput struct {

@@ -17,14 +17,14 @@ import (
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/internal/capi"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllerconfig"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig"
-	"github.com/dsx-ai-factory/nke/controller/internal/naming"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/internal/capi"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllerconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kubeadmconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/naming"
 )
 
 const (

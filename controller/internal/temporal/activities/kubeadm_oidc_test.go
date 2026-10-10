@@ -14,16 +14,16 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllerconfig"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig"
-	"github.com/dsx-ai-factory/nke/controller/internal/nkerbac"
-	adapter "github.com/dsx-ai-factory/nke/controller/internal/rollout/adapters/controller"
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout/operations/oidc"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllerconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kubeadmconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nkerbac"
+	adapter "github.com/dsx-ai-factory/nvke/controller/internal/rollout/adapters/controller"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout/operations/oidc"
 )
 
 func TestBootstrapAuthenticationMatchesRollout(t *testing.T) {

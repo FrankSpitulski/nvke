@@ -16,7 +16,7 @@ body:
           required: true
         - label: I included reproduction steps or, for an intermittent failure, its observed frequency and conditions
           required: true
-        - label: This is not a security vulnerability. I will report vulnerabilities to NVIDIA PSIRT as described in the [security policy](https://github.com/dsx-ai-factory/nke/blob/main/SECURITY.md), not through a public issue or GitHub Security Advisory
+        - label: This is not a security vulnerability. I will report vulnerabilities to NVIDIA PSIRT as described in the [security policy](https://github.com/dsx-ai-factory/nvke/blob/main/SECURITY.md), not through a public issue or GitHub Security Advisory
           required: true
 
   - type: dropdown
@@ -104,5 +104,5 @@ body:
     attributes:
       label: Code of Conduct
       options:
-        - label: I agree to follow the project's [Code of Conduct](https://github.com/dsx-ai-factory/nke/blob/main/CODE_OF_CONDUCT.md)
+        - label: I agree to follow the project's [Code of Conduct](https://github.com/dsx-ai-factory/nvke/blob/main/CODE_OF_CONDUCT.md)
           required: true

@@ -25,7 +25,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/yaml"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/controller"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
 )
 
 // Where the authentication configuration lives, in controller.Namespace().

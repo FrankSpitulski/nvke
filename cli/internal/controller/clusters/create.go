@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/util"
-	api "github.com/dsx-ai-factory/nke/controller/api"
+	"github.com/dsx-ai-factory/nvke/cli/internal/util"
+	api "github.com/dsx-ai-factory/nvke/controller/api"
 )
 
 // NewCreateCmd returns the "nkectl create cluster" subcommand.

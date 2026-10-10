@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	api "github.com/dsx-ai-factory/nke/controller/api"
+	api "github.com/dsx-ai-factory/nvke/controller/api"
 )
 
 // writeSpec writes a spec file named name and returns its path.

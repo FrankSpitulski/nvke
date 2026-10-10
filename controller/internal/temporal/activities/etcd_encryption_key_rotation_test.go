@@ -13,13 +13,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/agent/agenttest"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/activities"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/agent/agenttest"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/activities"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 func TestBeginEtcdEncryptionKeyRotation_AcquiresClusterMutationLock(t *testing.T) {

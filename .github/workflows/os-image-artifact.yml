@@ -34,12 +34,12 @@ name: OS Image Artifact
 # (for the layer's declared platform metadata) rather than required to
 # disambiguate a pull:
 #
-#   ghcr.io/dsx-ai-factory/nke/os-image-fde:v0.1.0[-ubuntu24.04]-{amd64,arm64}
-#   ghcr.io/dsx-ai-factory/nke/os-image-non-fde:v0.1.0[-ubuntu24.04]-{amd64,arm64}
+#   ghcr.io/dsx-ai-factory/nvke/os-image-fde:v0.1.0[-ubuntu24.04]-{amd64,arm64}
+#   ghcr.io/dsx-ai-factory/nvke/os-image-non-fde:v0.1.0[-ubuntu24.04]-{amd64,arm64}
 #     `-- platform linux/{amd64,arm64}
 #         layer: nke-node-{fde,non-fde}-ubuntu-<version>-<arch>.qcow2
 #
-#   oras pull ghcr.io/dsx-ai-factory/nke/os-image-fde:v0.1.0-amd64 --platform linux/amd64
+#   oras pull ghcr.io/dsx-ai-factory/nvke/os-image-fde:v0.1.0-amd64 --platform linux/amd64
 #
 # The default flavor (26.04) carries no flavor segment, so its tags are exactly
 # what this workflow published before 24.04 was added and nothing downstream
@@ -112,8 +112,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/pull-request/') }}
 
 env:
-  REPO_FDE: ghcr.io/dsx-ai-factory/nke/os-image-fde
-  REPO_NON_FDE: ghcr.io/dsx-ai-factory/nke/os-image-non-fde
+  REPO_FDE: ghcr.io/dsx-ai-factory/nvke/os-image-fde
+  REPO_NON_FDE: ghcr.io/dsx-ai-factory/nvke/os-image-non-fde
   # The S3 build cache. The bucket and its two roles are repository variables;
   # this workflow only reads, and os-image-cache.yml, on main, is the only
   # writer.
@@ -1180,10 +1180,10 @@ jobs:
             Pull the qcow2s with oras (not docker):
 
             ```
-            oras pull ghcr.io/dsx-ai-factory/nke/os-image-fde:${{ steps.meta.outputs.version }}-amd64 --platform linux/amd64
-            oras pull ghcr.io/dsx-ai-factory/nke/os-image-fde:${{ steps.meta.outputs.version }}-arm64 --platform linux/arm64
-            oras pull ghcr.io/dsx-ai-factory/nke/os-image-non-fde:${{ steps.meta.outputs.version }}-amd64 --platform linux/amd64
-            oras pull ghcr.io/dsx-ai-factory/nke/os-image-non-fde:${{ steps.meta.outputs.version }}-arm64 --platform linux/arm64
+            oras pull ghcr.io/dsx-ai-factory/nvke/os-image-fde:${{ steps.meta.outputs.version }}-amd64 --platform linux/amd64
+            oras pull ghcr.io/dsx-ai-factory/nvke/os-image-fde:${{ steps.meta.outputs.version }}-arm64 --platform linux/arm64
+            oras pull ghcr.io/dsx-ai-factory/nvke/os-image-non-fde:${{ steps.meta.outputs.version }}-amd64 --platform linux/amd64
+            oras pull ghcr.io/dsx-ai-factory/nvke/os-image-non-fde:${{ steps.meta.outputs.version }}-arm64 --platform linux/arm64
             ```
 
             For the Ubuntu 24.04 flavor, insert `-ubuntu24.04` before the

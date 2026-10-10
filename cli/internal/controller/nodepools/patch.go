@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/util"
+	"github.com/dsx-ai-factory/nvke/cli/internal/util"
 )
 
 // NewPatchCmd returns the "nkectl patch nodepool <name>" subcommand.

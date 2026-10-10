@@ -15,9 +15,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/auth"
-	"github.com/dsx-ai-factory/nke/cli/internal/config"
-	api "github.com/dsx-ai-factory/nke/controller/api"
+	"github.com/dsx-ai-factory/nvke/cli/internal/auth"
+	"github.com/dsx-ai-factory/nvke/cli/internal/config"
+	api "github.com/dsx-ai-factory/nvke/controller/api"
 )
 
 // ControllerClient is a high-level client for the controller REST API.

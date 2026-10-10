@@ -29,7 +29,7 @@ cd os-image   && make notices
 
 ⚠️ **The controller, nkectl and os-image generators need the workspace on** (do
 not set `GOWORK=off`), because `os-image` requires
-`github.com/dsx-ai-factory/nke/agent`, which resolves only through the workspace's
+`github.com/dsx-ai-factory/nvke/agent`, which resolves only through the workspace's
 `use` directive; with the workspace off, `go-licenses` fails with
 `go.mod file not found` before it collects anything.
 
@@ -82,7 +82,7 @@ check enforced it.
 
 It was open for a long time with the reason *"`controller/go.mod` requires two
 modules that are not public"*. That stopped being true when
-[#76](https://github.com/dsx-ai-factory/nke/pull/76) removed them, leaving one
+[#76](https://github.com/dsx-ai-factory/nvke/pull/76) removed them, leaving one
 module that was internal at the time, `cluster-api-provider-nico`, and is public
 now. Two mechanical problems kept it open after that, and both are worth writing
 down because neither is obvious:

@@ -20,7 +20,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	clienttesting "k8s.io/client-go/testing"
 
-	enginev1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
+	enginev1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
 )
 
 // gvrs maps each plural resource to the list kind the fake client needs.

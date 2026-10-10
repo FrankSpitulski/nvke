@@ -492,10 +492,10 @@ The pulled file keeps the name Packer gave it, so it carries the Ubuntu point
 release and the architecture and two arches can share a directory:
 
 ```bash
-oras pull ghcr.io/dsx-ai-factory/nke/os-image-fde:vX.Y.Z-amd64 --platform linux/amd64
-oras pull ghcr.io/dsx-ai-factory/nke/os-image-fde:vX.Y.Z-arm64 --platform linux/arm64
-oras pull ghcr.io/dsx-ai-factory/nke/os-image-non-fde:vX.Y.Z-amd64 --platform linux/amd64
-oras pull ghcr.io/dsx-ai-factory/nke/os-image-non-fde:vX.Y.Z-arm64 --platform linux/arm64
+oras pull ghcr.io/dsx-ai-factory/nvke/os-image-fde:vX.Y.Z-amd64 --platform linux/amd64
+oras pull ghcr.io/dsx-ai-factory/nvke/os-image-fde:vX.Y.Z-arm64 --platform linux/arm64
+oras pull ghcr.io/dsx-ai-factory/nvke/os-image-non-fde:vX.Y.Z-amd64 --platform linux/amd64
+oras pull ghcr.io/dsx-ai-factory/nvke/os-image-non-fde:vX.Y.Z-arm64 --platform linux/arm64
 # -> nke-node-{fde,non-fde}-ubuntu-26.04.1-{amd64,arm64}.qcow2
 ```
 

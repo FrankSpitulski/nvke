@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/manifest"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/manifest"
 )
 
 // fakeCall records one CommandRunner.Run invocation.

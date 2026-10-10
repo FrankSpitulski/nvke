@@ -6,14 +6,14 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/controllerdeploy"
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/manifest"
-	"github.com/dsx-ai-factory/nke/cli/internal/controller/clusters"
-	"github.com/dsx-ai-factory/nke/cli/internal/controller/nodepools"
-	"github.com/dsx-ai-factory/nke/cli/internal/mgmtcluster"
-	mgmtcommand "github.com/dsx-ai-factory/nke/cli/internal/mgmtcluster/command"
-	operatorcmd "github.com/dsx-ai-factory/nke/cli/internal/operator/command"
-	providercmd "github.com/dsx-ai-factory/nke/cli/internal/providers/command"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/controllerdeploy"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/manifest"
+	"github.com/dsx-ai-factory/nvke/cli/internal/controller/clusters"
+	"github.com/dsx-ai-factory/nvke/cli/internal/controller/nodepools"
+	"github.com/dsx-ai-factory/nvke/cli/internal/mgmtcluster"
+	mgmtcommand "github.com/dsx-ai-factory/nvke/cli/internal/mgmtcluster/command"
+	operatorcmd "github.com/dsx-ai-factory/nvke/cli/internal/operator/command"
+	providercmd "github.com/dsx-ai-factory/nvke/cli/internal/providers/command"
 )
 
 func newGetCmd() *cobra.Command {

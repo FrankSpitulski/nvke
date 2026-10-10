@@ -12,7 +12,7 @@ The most common cause is incomplete node preparation. `nkectl bootstrap site` di
 - `nke-agent` is running on all nodes: `systemctl status nke-agent`
 - Port 15005 is reachable from the init node to each join node
 
-See [Pre-Provisioned Nodes](../site-bootstrap/pre-provisioned-nodes.md) for the complete node prep checklist. Use [`nke-os-image-check`](https://github.com/dsx-ai-factory/nke/tree/main/os-image#checker) to validate a node's image against the NKE spec before bootstrap.
+See [Pre-Provisioned Nodes](../site-bootstrap/pre-provisioned-nodes.md) for the complete node prep checklist. Use [`nke-os-image-check`](https://github.com/dsx-ai-factory/nvke/tree/main/os-image#checker) to validate a node's image against the NKE spec before bootstrap.
 
 ### Bootstrap fails with "bootstrap cluster … from an earlier run is still running"
 

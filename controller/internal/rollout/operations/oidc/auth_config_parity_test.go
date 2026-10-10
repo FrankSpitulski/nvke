@@ -16,9 +16,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig"
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kubeadmconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout"
 )
 
 // sharedAuthConfigGolden is the fixture the greenfield bootstrap path already

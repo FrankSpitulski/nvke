@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/otelx"
+	"github.com/dsx-ai-factory/nvke/controller/internal/otelx"
 )
 
 type WorkflowOutbox struct {

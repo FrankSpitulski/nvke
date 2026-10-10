@@ -11,10 +11,10 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/netutil"
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/state"
-	vmruntime "github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/netutil"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/state"
+	vmruntime "github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/vm"
 )
 
 // metadataHostname is the DNS name baked into NKE FDE qcow2 images as the

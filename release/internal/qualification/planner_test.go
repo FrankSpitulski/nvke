@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dsx-ai-factory/nke/release/internal/resolve"
+	"github.com/dsx-ai-factory/nvke/release/internal/resolve"
 )
 
 // fake is a resolver that answers from a function and remembers what it was

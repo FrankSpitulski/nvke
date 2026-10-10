@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
 )
 
 // setMinimumEnv sets only what Config.Validate() already required, so these cases

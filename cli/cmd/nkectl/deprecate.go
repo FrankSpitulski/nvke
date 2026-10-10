@@ -6,7 +6,7 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	operatorcmd "github.com/dsx-ai-factory/nke/cli/internal/operator/command"
+	operatorcmd "github.com/dsx-ai-factory/nvke/cli/internal/operator/command"
 )
 
 func newDeprecateCmd() *cobra.Command {

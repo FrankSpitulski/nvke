@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra/teleport"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/teleport"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
 )
 
 const (
@@ -299,7 +299,7 @@ func TestProvisionNodeReleasesOnFailure(t *testing.T) {
 				defer cancel()
 				// Cancel after creation returns an instance ID so the test exercises
 				// readiness cleanup rather than racing setup or instance creation.
-				// See https://github.com/dsx-ai-factory/nke/issues/1200.
+				// See https://github.com/dsx-ai-factory/nvke/issues/1200.
 				forge.onPoll = cancel
 			}
 			if _, _, err := p.ProvisionNode(ctx, testRequest()); err == nil {

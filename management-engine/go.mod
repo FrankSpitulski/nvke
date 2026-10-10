@@ -1,10 +1,10 @@
-module github.com/dsx-ai-factory/nke/management-engine
+module github.com/dsx-ai-factory/nvke/management-engine
 
 go 1.27.2
 
 require (
 	github.com/dsx-ai-factory/cluster-api-provider-nico v0.1.0-rc.2.0.20260929174319-72784d3eaafc
-	github.com/dsx-ai-factory/nke/controller/api v0.0.0-00010101000000-000000000000
+	github.com/dsx-ai-factory/nvke/controller/api v0.0.0-00010101000000-000000000000
 	github.com/google/uuid v1.6.0
 	github.com/onsi/ginkgo/v2 v2.33.0
 	github.com/onsi/gomega v1.43.1
@@ -120,4 +120,4 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
 
-replace github.com/dsx-ai-factory/nke/controller/api => ../controller/api
+replace github.com/dsx-ai-factory/nvke/controller/api => ../controller/api

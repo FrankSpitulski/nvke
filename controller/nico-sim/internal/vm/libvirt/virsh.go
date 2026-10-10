@@ -17,7 +17,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/vm"
 )
 
 // New returns a vm.Runtime backed by libvirt/virsh on Linux.

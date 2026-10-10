@@ -13,11 +13,11 @@ import (
 	"github.com/GehirnInc/crypt/sha512_crypt"
 	"github.com/google/uuid"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/clients/shared"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/teleport"
-	"github.com/dsx-ai-factory/nke/controller/internal/utils"
+	"github.com/dsx-ai-factory/nvke/controller/internal/clients/shared"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/teleport"
+	"github.com/dsx-ai-factory/nvke/controller/internal/utils"
 )
 
 // renderBootstrapUserData renders the template-less Forge/NICo node's

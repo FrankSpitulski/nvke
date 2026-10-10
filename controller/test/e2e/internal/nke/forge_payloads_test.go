@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/api"
 )
 
 // Synthetic identifiers. Nothing here reaches Forge -- these are carried

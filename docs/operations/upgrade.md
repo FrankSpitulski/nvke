@@ -12,4 +12,4 @@ This drives a rolling upgrade of the **control plane nodes** using kubeadm throu
 
 Site controller upgrade tooling is **not yet available**. The site controller does not currently manage itself. Upgrading the NKE components (controller Helm chart, operator versions) requires manual Helm operations and is not yet documented or supported through `nkectl`.
 
-This is a known gap. Track progress at https://github.com/dsx-ai-factory/nke/issues.
+This is a known gap. Track progress at https://github.com/dsx-ai-factory/nvke/issues.

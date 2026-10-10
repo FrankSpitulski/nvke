@@ -15,9 +15,9 @@ import (
 	. "github.com/onsi/gomega"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/environment"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/qualification"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/environment"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/qualification"
 )
 
 var (

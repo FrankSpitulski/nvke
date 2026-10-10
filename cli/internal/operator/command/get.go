@@ -11,8 +11,8 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/operator"
-	"github.com/dsx-ai-factory/nke/cli/internal/util"
+	"github.com/dsx-ai-factory/nvke/cli/internal/operator"
+	"github.com/dsx-ai-factory/nvke/cli/internal/util"
 )
 
 // NewGetCmds returns the "nkectl get machineimages|clusterreleases|

@@ -12,10 +12,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/clients"
-	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/clients"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
 )
 
 const (

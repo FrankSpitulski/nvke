@@ -22,15 +22,15 @@ import (
 
 	nicov1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/dbwrapper"
-	dbfilters "github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/filters"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/metrics"
-	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
-	"github.com/dsx-ai-factory/nke/controller/internal/teleport"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/dbwrapper"
+	dbfilters "github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/filters"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/metrics"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/teleport"
 )
 
 const (

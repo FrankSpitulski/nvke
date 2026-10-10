@@ -13,9 +13,9 @@ import (
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/controller"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/tenantauth"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/tenantauth"
 )
 
 var (

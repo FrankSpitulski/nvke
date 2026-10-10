@@ -103,7 +103,7 @@ autoinstall:
 
       # TODO: Replace with real release URL once the repo is public.
       # Download and install nkectl (bootstrap host only)
-      - [sh, -c, "curl -fsSL -o /usr/local/bin/nkectl https://github.com/dsx-ai-factory/nke/releases/latest/download/nkectl-linux-amd64 && chmod +x /usr/local/bin/nkectl"]
+      - [sh, -c, "curl -fsSL -o /usr/local/bin/nkectl https://github.com/dsx-ai-factory/nvke/releases/latest/download/nkectl-linux-amd64 && chmod +x /usr/local/bin/nkectl"]
 
       # Run bootstrap (bootstrap host only). --disable-mtls matches the plaintext
       # agents configured above; this is the development-only mode, not a

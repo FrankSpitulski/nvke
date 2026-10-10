@@ -6,8 +6,8 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/controller/clusters"
-	"github.com/dsx-ai-factory/nke/cli/internal/controller/nodepools"
+	"github.com/dsx-ai-factory/nvke/cli/internal/controller/clusters"
+	"github.com/dsx-ai-factory/nvke/cli/internal/controller/nodepools"
 )
 
 func newPatchCmd() *cobra.Command {

@@ -420,7 +420,7 @@ newest_os_image_tag() {
   local arch="$1" repo path org pkg tag sha
   # Keep this in step with image_repo below: both lanes booted an LVM image
   # before this, and -fde is a different boot path that has to unlock first.
-  repo="${NKE_E2E_OS_IMAGE_REPO:-ghcr.io/dsx-ai-factory/nke/os-image-non-fde}"
+  repo="${NKE_E2E_OS_IMAGE_REPO:-ghcr.io/dsx-ai-factory/nvke/os-image-non-fde}"
   path="${repo#ghcr.io/}"
   org="${path%%/*}"
   pkg="${path#*/}"
@@ -458,7 +458,7 @@ fi
 if [[ -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
   command -v oras >/dev/null 2>&1 ||
     fail "NKE_E2E_OS_IMAGE_TAG is set but oras is not on PATH"
-  image_repo="${NKE_E2E_OS_IMAGE_REPO:-ghcr.io/dsx-ai-factory/nke/os-image-non-fde}"
+  image_repo="${NKE_E2E_OS_IMAGE_REPO:-ghcr.io/dsx-ai-factory/nvke/os-image-non-fde}"
   image_ref="${image_repo}:${NKE_E2E_OS_IMAGE_TAG}-${host_arch}"
   image_dir="${STATE_DIR}/os-image"
   rm -rf "${image_dir}"

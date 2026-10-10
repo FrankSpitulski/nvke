@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dsx-ai-factory/nke/release/internal/resolve"
+	"github.com/dsx-ai-factory/nvke/release/internal/resolve"
 )
 
 var errNotLocked = errors.New("1.36.2 is not locked")

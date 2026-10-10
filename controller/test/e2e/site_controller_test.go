@@ -23,14 +23,14 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/discovery"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/environment"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra/forge"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra/teleport"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/site"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/environment"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/forge"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/teleport"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/site"
 )
 
 // The stages of the site controller run, each doing everything the one before it did.

@@ -253,8 +253,8 @@ A job that must not run in a fork starts with the repository guard:
     if: github.repository_id == '1323115536'
 ```
 
-`1323115536` is the id of `dsx-ai-factory/nke`, which
-`gh api repos/dsx-ai-factory/nke --jq .id` prints. The guard compares the id
+`1323115536` is the id of `dsx-ai-factory/nvke`, which
+`gh api repos/dsx-ai-factory/nvke --jq .id` prints. The guard compares the id
 and never the slug, because the id survives a rename or a transfer and the
 slug does not. When the guards compared the slug, moving the repository turned
 every one of them false, every gate member skipped, and `gate` passed with
@@ -304,7 +304,7 @@ git diff --check
 After pushing, inspect the PR rather than assuming green means complete:
 
 ```bash
-gh pr checks <number> --repo dsx-ai-factory/nke --json name,workflow,state,bucket
+gh pr checks <number> --repo dsx-ai-factory/nvke --json name,workflow,state,bucket
 ```
 
 For a required member, confirm it appears inside `Merge gate`, no standalone
@@ -313,4 +313,4 @@ For an advisory workflow, confirm its expected trigger actually produced a
 check; an absent advisory check does not look like a failure.
 
 What `main` requires of a pull request is a repository setting. Read it with
-`gh api repos/dsx-ai-factory/nke/rules/branches/main --jq '[.[].type]'`.
+`gh api repos/dsx-ai-factory/nvke/rules/branches/main --jq '[.[].type]'`.

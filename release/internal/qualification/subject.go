@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/dsx-ai-factory/nke/release/internal/resolve"
+	"github.com/dsx-ai-factory/nvke/release/internal/resolve"
 )
 
 // SubjectNKE is the subject that stands for the release as a whole. Its

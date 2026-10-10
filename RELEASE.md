@@ -80,7 +80,7 @@ git push upstream cli/v0.2.0
 ```
 
 The prefix is the module's directory because Go requires it: the module
-`github.com/dsx-ai-factory/nke/cli` can only be resolved by a tag named `cli/vX.Y.Z`.
+`github.com/dsx-ai-factory/nvke/cli` can only be resolved by a tag named `cli/vX.Y.Z`.
 `.github/workflows/release.yml` reads the directory back off the tag and checks
 it against `go.work`, so a prefix naming no module fails the run.
 
@@ -101,7 +101,7 @@ An `nktp/` tag releases the NKTP Helm chart. Its version is `version:` in
 `nktp/deploy/charts/nktp/Chart.yaml`, and the tag must equal it, so bump it in
 a pull request before tagging. For a release candidate, set
 `version: X.Y.Z-rc.1` and tag `nktp/vX.Y.Z-rc.1`. The workflow pushes
-`oci://ghcr.io/dsx-ai-factory/nke/charts/nktp:<version>` and writes the release
+`oci://ghcr.io/dsx-ai-factory/nvke/charts/nktp:<version>` and writes the release
 body itself, because git-cliff has no section for a component tag.
 
 A `controller/vX.Y.Z` tag goes through `release.yml` like any other component and
@@ -109,17 +109,17 @@ additionally publishes the controller image and Helm chart:
 
 | Workflow | What it publishes |
 |---|---|
-| `image-nvcr.yml` | multi-arch image to `nvcr.io/<org>/nke-controller`, promotes that released image to DSX as `nvcr.io/<dsx-org-team>/nke-controller`, and promotes release tags to `ghcr.io/dsx-ai-factory/nke/nke-controller` |
-| `chart-publish.yml` | chart to `ghcr.io/dsx-ai-factory/nke/charts/nke-controller` |
+| `image-nvcr.yml` | multi-arch image to `nvcr.io/<org>/nke-controller`, promotes that released image to DSX as `nvcr.io/<dsx-org-team>/nke-controller`, and promotes release tags to `ghcr.io/dsx-ai-factory/nvke/nke-controller` |
+| `chart-publish.yml` | chart to `ghcr.io/dsx-ai-factory/nvke/charts/nke-controller` |
 | `chart-publish-nvcr.yml` | chart to `nvcr.io/<org>/nke-controller-chart` and `nvcr.io/<dsx-org-team>/nke-controller-chart` |
 
 Every `main` commit already publishes the image and chart to NVCR. GHCR receives
 released versions only, which is why a chart built from a tag can safely point at
-`ghcr.io/dsx-ai-factory/nke/nke-controller:<version>` while a chart built from `main` could not.
+`ghcr.io/dsx-ai-factory/nvke/nke-controller:<version>` while a chart built from `main` could not.
 Releases before the repository moved to `dsx-ai-factory` on 2026-09-12 were promoted to
 `ghcr.io/nvidia/nke/controller` instead: `controller/v0.1.1-rc.1` to `rc.3` are there,
 `controller/v0.1.0` predates the promotion job, and the `rc.4` promotion failed, so that
-image exists nowhere. Later releases land under `ghcr.io/dsx-ai-factory/nke`.
+image exists nowhere. Later releases land under `ghcr.io/dsx-ai-factory/nvke`.
 
 DSX receives the controller image from `image-nvcr.yml`, after the NKE multi-arch
 manifest exists. It receives the controller chart from `chart-publish-nvcr.yml`.
@@ -161,9 +161,9 @@ body from `CHANGELOG.md`. Nothing is created by hand.
 After the tag push, confirm that any CI release pipelines complete
 successfully (node OS-image bake, chart publish, etc.). For `os-image/v*`, that is
 the **OS Image Artifact** check: Packer, boot-smoke, then `oras` to
-`ghcr.io/dsx-ai-factory/nke/os-image`. For `controller/v*`, confirm the **Image
+`ghcr.io/dsx-ai-factory/nvke/os-image`. For `controller/v*`, confirm the **Image
 NVCR** and **Chart Publish** checks, then that the promoted image is present at
-`ghcr.io/dsx-ai-factory/nke/nke-controller:<version>`. For `nktp/v*`, confirm the
+`ghcr.io/dsx-ai-factory/nvke/nke-controller:<version>`. For `nktp/v*`, confirm the
 **NKTP Chart Publish** check.
 
 ## Verifying a release
@@ -184,7 +184,7 @@ the ref and the commit that built them.
 ### Release assets
 
 ```bash
-gh attestation verify checksums.txt --repo dsx-ai-factory/nke
+gh attestation verify checksums.txt --repo dsx-ai-factory/nvke
 sha256sum -c checksums.txt
 ```
 
@@ -193,15 +193,15 @@ Offline, against the attached bundle, with no call to the GitHub API:
 ```bash
 gh attestation verify checksums.txt \
   --bundle checksums.txt.sigstore.json \
-  --repo dsx-ai-factory/nke
+  --repo dsx-ai-factory/nvke
 ```
 
 ### Published images
 
 ```bash
 gh attestation verify \
-  oci://ghcr.io/dsx-ai-factory/nke/nke-controller@sha256:<digest> \
-  --repo dsx-ai-factory/nke
+  oci://ghcr.io/dsx-ai-factory/nvke/nke-controller@sha256:<digest> \
+  --repo dsx-ai-factory/nvke
 ```
 
 ## Software bills of materials
@@ -240,13 +240,13 @@ The binary, `.deb` and node-image SBOMs are release assets, so `gh release
 download` fetches them by name:
 
 ```bash
-gh release download cli/v0.2.0 --repo dsx-ai-factory/nke \
+gh release download cli/v0.2.0 --repo dsx-ai-factory/nvke \
   --pattern 'nkectl-linux-amd64.spdx.json'
 
-gh release download agent/v0.2.0 --repo dsx-ai-factory/nke \
+gh release download agent/v0.2.0 --repo dsx-ai-factory/nvke \
   --pattern '*.spdx.json'
 
-gh release download os-image/v0.2.0 --repo dsx-ai-factory/nke \
+gh release download os-image/v0.2.0 --repo dsx-ai-factory/nvke \
   --pattern 'nke-node-fde-ubuntu-26.04.1-amd64.spdx.json'
 ```
 
@@ -255,7 +255,7 @@ build-provenance attestation, so the same two commands under "Verifying a
 release" above establish that an SBOM is the one this repository published:
 
 ```bash
-gh attestation verify checksums.txt --repo dsx-ai-factory/nke
+gh attestation verify checksums.txt --repo dsx-ai-factory/nvke
 sha256sum -c checksums.txt --ignore-missing
 ```
 
@@ -356,8 +356,8 @@ promotion gates above read, and it can be verified by hand the same way:
 ```bash
 gh attestation verify \
   oci://nvcr.io/<org>/nke-controller@sha256:<digest> \
-  --repo dsx-ai-factory/nke \
-  --signer-workflow dsx-ai-factory/nke/.github/workflows/image-nvcr.yml
+  --repo dsx-ai-factory/nvke \
+  --signer-workflow dsx-ai-factory/nvke/.github/workflows/image-nvcr.yml
 ```
 
 That needs network access to GitHub, so it is not a substitute for a bundle

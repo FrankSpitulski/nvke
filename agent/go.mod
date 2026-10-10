@@ -1,4 +1,4 @@
-module github.com/dsx-ai-factory/nke/agent
+module github.com/dsx-ai-factory/nvke/agent
 
 go 1.27.2
 

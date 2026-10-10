@@ -172,7 +172,7 @@ curl -fsSL "https://github.com/containernetworking/plugins/releases/download/${C
 > cross-compiles it to `agent/bin/linux_<arch>/nke-agent` and bundles it with
 > `agent/scripts/agent-installer.sh`, which lays down the binary, the systemd
 > unit and `/etc/default/nke-agent`.
-> [`controller/hack/capd-kindest-node/`](https://github.com/dsx-ai-factory/nke/tree/main/controller/hack/capd-kindest-node)
+> [`controller/hack/capd-kindest-node/`](https://github.com/dsx-ai-factory/nvke/tree/main/controller/hack/capd-kindest-node)
 > installs the agent that way for the bootstrap e2e's nodes and is the closest
 > worked example.
 > **TODO:** replace this note with the repository URL and GPG key location once

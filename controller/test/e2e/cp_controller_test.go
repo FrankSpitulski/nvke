@@ -15,7 +15,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
 )
 
 // validateControllerManagedControlPlane asserts a cluster provisioned from the

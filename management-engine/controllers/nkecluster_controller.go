@@ -19,8 +19,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	internalv1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	internalv1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
 )
 
 const (

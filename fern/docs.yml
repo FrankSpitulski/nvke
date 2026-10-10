@@ -21,7 +21,7 @@ logo:
 
 navbar-links:
   - type: github
-    value: https://github.com/dsx-ai-factory/nke
+    value: https://github.com/dsx-ai-factory/nvke
 
 check:
   rules:

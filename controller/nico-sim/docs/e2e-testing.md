@@ -100,7 +100,7 @@ steps and writes the sudoers rule for the user who runs it:
 
 ```bash
 ssh my-machine.example.com
-git clone https://github.com/dsx-ai-factory/nke.git ~/dev/nke   # skip if already cloned
+git clone https://github.com/dsx-ai-factory/nvke.git ~/dev/nke   # skip if already cloned
 bash ~/dev/nke/controller/nico-sim/scripts/setup-linux.sh
 ```
 

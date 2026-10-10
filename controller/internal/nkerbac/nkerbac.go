@@ -17,7 +17,7 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
 )
 
 const (

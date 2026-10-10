@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra"
 )
 
 // Deployer installs the NKE stack onto a freshly bootstrapped cluster, over

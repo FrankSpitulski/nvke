@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/clients"
-	"github.com/dsx-ai-factory/nke/cli/internal/config"
-	"github.com/dsx-ai-factory/nke/cli/internal/operator"
+	"github.com/dsx-ai-factory/nvke/cli/internal/clients"
+	"github.com/dsx-ai-factory/nvke/cli/internal/config"
+	"github.com/dsx-ai-factory/nvke/cli/internal/operator"
 )
 
 var (

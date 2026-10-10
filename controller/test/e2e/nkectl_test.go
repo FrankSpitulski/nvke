@@ -29,9 +29,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nkectl"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nkectl"
 )
 
 // useNkectl points the test's cluster lifecycle at the nkectl binary, and skips

@@ -18,9 +18,9 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/tenantaccess"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/tenantaccess"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 type clusterReader interface {

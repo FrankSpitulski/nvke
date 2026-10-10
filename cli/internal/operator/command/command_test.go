@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/operator"
+	"github.com/dsx-ai-factory/nvke/cli/internal/operator"
 )
 
 // fakeClient is an in-memory operator.Client that records the calls it gets.

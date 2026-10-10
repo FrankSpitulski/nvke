@@ -2,7 +2,7 @@
 
 > Status: draft for review
 >
-> Tracks: [dsx-ai-factory/nke#205](https://github.com/dsx-ai-factory/nke/issues/205)
+> Tracks: [dsx-ai-factory/nvke#205](https://github.com/dsx-ai-factory/nvke/issues/205)
 >
 > This is the cluster-lock design that was considered before selecting the
 > controller-driven desired-state approach.

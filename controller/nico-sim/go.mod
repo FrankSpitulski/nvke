@@ -1,4 +1,4 @@
-module github.com/dsx-ai-factory/nke/controller/nico-sim
+module github.com/dsx-ai-factory/nvke/controller/nico-sim
 
 go 1.27.2
 

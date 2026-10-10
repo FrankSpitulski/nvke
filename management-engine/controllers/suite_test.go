@@ -24,7 +24,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/pkg/test/fixture"
-	internalv1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
+	internalv1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
 	// +kubebuilder:scaffold:imports
 )
 

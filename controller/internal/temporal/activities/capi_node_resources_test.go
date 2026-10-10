@@ -23,12 +23,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	nicov1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
-	enginev1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
+	enginev1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 func TestFirstInfrastructureRefIPAddress_NicoMachine(t *testing.T) {

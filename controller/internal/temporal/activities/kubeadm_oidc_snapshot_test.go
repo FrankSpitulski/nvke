@@ -22,15 +22,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/yaml"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/agent/agenttest"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig"
-	"github.com/dsx-ai-factory/nke/controller/internal/nkerbac"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/agent/agenttest"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kubeadmconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nkerbac"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 const (

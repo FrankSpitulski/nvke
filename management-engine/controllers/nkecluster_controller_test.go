@@ -14,7 +14,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/pkg/test/fixture"
-	internalv1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
+	internalv1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
 )
 
 func waitForNKECluster(ctx ginkgo.SpecContext, tc *fixture.Case) {

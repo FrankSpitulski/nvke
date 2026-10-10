@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dsx-ai-factory/nke/cli/e2e/bootstrap/substrate"
+	"github.com/dsx-ai-factory/nvke/cli/e2e/bootstrap/substrate"
 )
 
 // attestTimeout bounds the wait for every host to attest. Credential activation

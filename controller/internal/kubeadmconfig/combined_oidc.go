@@ -8,8 +8,8 @@ import (
 
 	apiserverv1 "k8s.io/apiserver/pkg/apis/apiserver/v1"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllerconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllerconfig"
 )
 
 const (

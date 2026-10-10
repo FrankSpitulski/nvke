@@ -68,13 +68,13 @@ body:
     id: compatibility
     attributes:
       label: Compatibility and operational considerations
-      description: Note migrations, API compatibility, upgrades, security boundaries, or operational impact. Report suspected vulnerabilities to NVIDIA PSIRT through the [security policy](https://github.com/dsx-ai-factory/nke/blob/main/SECURITY.md), not in a public feature request.
+      description: Note migrations, API compatibility, upgrades, security boundaries, or operational impact. Report suspected vulnerabilities to NVIDIA PSIRT through the [security policy](https://github.com/dsx-ai-factory/nvke/blob/main/SECURITY.md), not in a public feature request.
 
   - type: dropdown
     id: contribute
     attributes:
       label: Are you willing to contribute?
-      description: See [CONTRIBUTING.md](https://github.com/dsx-ai-factory/nke/blob/main/CONTRIBUTING.md) for contribution guidance.
+      description: See [CONTRIBUTING.md](https://github.com/dsx-ai-factory/nvke/blob/main/CONTRIBUTING.md) for contribution guidance.
       options:
         - Yes, I can open a pull request
         - Maybe, with maintainer guidance
@@ -87,5 +87,5 @@ body:
     attributes:
       label: Code of Conduct
       options:
-        - label: I agree to follow the project's [Code of Conduct](https://github.com/dsx-ai-factory/nke/blob/main/CODE_OF_CONDUCT.md)
+        - label: I agree to follow the project's [Code of Conduct](https://github.com/dsx-ai-factory/nvke/blob/main/CODE_OF_CONDUCT.md)
           required: true

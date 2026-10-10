@@ -35,10 +35,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dsx-ai-factory/nke/controller/test/kubeadm/internal/cloudinit"
-	"github.com/dsx-ai-factory/nke/controller/test/kubeadm/internal/cluster"
-	"github.com/dsx-ai-factory/nke/controller/test/kubeadm/internal/nicovms"
-	"github.com/dsx-ai-factory/nke/controller/test/kubeadm/internal/verify"
+	"github.com/dsx-ai-factory/nvke/controller/test/kubeadm/internal/cloudinit"
+	"github.com/dsx-ai-factory/nvke/controller/test/kubeadm/internal/cluster"
+	"github.com/dsx-ai-factory/nvke/controller/test/kubeadm/internal/nicovms"
+	"github.com/dsx-ai-factory/nvke/controller/test/kubeadm/internal/verify"
 )
 
 const (

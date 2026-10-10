@@ -12,9 +12,9 @@ import (
 	"context"
 	"errors"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout"
 )
 
 // Dialer opens an agent gRPC client for node and returns a cleanup the

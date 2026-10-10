@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/workflow"
 
-	rolloutetcd "github.com/dsx-ai-factory/nke/controller/internal/rollout/operations/etcd"
-	rollouttemporal "github.com/dsx-ai-factory/nke/controller/internal/rollout/temporal"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/activities"
+	rolloutetcd "github.com/dsx-ai-factory/nvke/controller/internal/rollout/operations/etcd"
+	rollouttemporal "github.com/dsx-ai-factory/nvke/controller/internal/rollout/temporal"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/activities"
 )
 
 const (

@@ -6,9 +6,9 @@ name: nktp
 description: A scalable, OpenTelemetry pipeline for collecting, processing, and exporting Kubernetes metrics, logs, and traces.
 type: application
 version: 0.1.0
-home: https://github.com/dsx-ai-factory/nke/tree/main/nktp
+home: https://github.com/dsx-ai-factory/nvke/tree/main/nktp
 sources:
-  - https://github.com/dsx-ai-factory/nke
+  - https://github.com/dsx-ai-factory/nvke
 
 dependencies:
   - name: opentelemetry-kube-stack

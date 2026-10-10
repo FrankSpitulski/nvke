@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/sitespec"
-	"github.com/dsx-ai-factory/nke/cli/internal/oidckubeconfig"
-	"github.com/dsx-ai-factory/nke/cli/internal/util"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/sitespec"
+	"github.com/dsx-ai-factory/nvke/cli/internal/oidckubeconfig"
+	"github.com/dsx-ai-factory/nvke/cli/internal/util"
 )
 
 // newGenerateCmd is the "generate" command group.

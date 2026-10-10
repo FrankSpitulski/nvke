@@ -210,7 +210,7 @@ func (s *NodeAgentServer) reset(ctx context.Context) error {
 
 ```go
 // Preferred: FIXME with a tracking link. TODO: fails the linter in controller/.
-// FIXME: https://github.com/dsx-ai-factory/nke/issues/<N> — drop once the provider interface lands.
+// FIXME: https://github.com/dsx-ai-factory/nvke/issues/<N> — drop once the provider interface lands.
 
 // Deprecated: an unbounded TODO with no owner and no ticket.
 // TODO: clean this up later
@@ -333,13 +333,13 @@ of green ticks with the other checks simply missing. If you are reviewing, check
 that the checks you care about are *present*, not just passing:
 
 ```bash
-gh pr checks <number> --repo dsx-ai-factory/nke --json name,workflow
+gh pr checks <number> --repo dsx-ai-factory/nvke --json name,workflow
 ```
 
 Which checks block a merge is a repository setting, not a file. Read it live:
 
 ```bash
-gh api repos/dsx-ai-factory/nke/rules/branches/main --jq '[.[].type]'
+gh api repos/dsx-ai-factory/nvke/rules/branches/main --jq '[.[].type]'
 ```
 
 ## Skills

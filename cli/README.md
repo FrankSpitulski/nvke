@@ -2,7 +2,7 @@
 
 NKE control-plane CLI. Bootstraps site controllers and manages tenant cluster lifecycle.
 
-**Module:** `github.com/dsx-ai-factory/nke/cli`  
+**Module:** `github.com/dsx-ai-factory/nvke/cli`  
 **Binary:** `nkectl`  
 **Releases:** `cli/v*` tags
 
@@ -18,22 +18,22 @@ NKE control-plane CLI. Bootstraps site controllers and manages tenant cluster li
 ```bash
 # linux/amd64
 curl -fsSL -o nkectl \
-  https://github.com/dsx-ai-factory/nke/releases/latest/download/nkectl-linux-amd64
+  https://github.com/dsx-ai-factory/nvke/releases/latest/download/nkectl-linux-amd64
 chmod +x nkectl && sudo mv nkectl /usr/local/bin/
 
 # linux/arm64
 curl -fsSL -o nkectl \
-  https://github.com/dsx-ai-factory/nke/releases/latest/download/nkectl-linux-arm64
+  https://github.com/dsx-ai-factory/nvke/releases/latest/download/nkectl-linux-arm64
 chmod +x nkectl && sudo mv nkectl /usr/local/bin/
 
 # macOS (Apple Silicon)
 curl -fsSL -o nkectl \
-  https://github.com/dsx-ai-factory/nke/releases/latest/download/nkectl-darwin-arm64
+  https://github.com/dsx-ai-factory/nvke/releases/latest/download/nkectl-darwin-arm64
 chmod +x nkectl && sudo mv nkectl /usr/local/bin/
 
 # macOS (Intel)
 curl -fsSL -o nkectl \
-  https://github.com/dsx-ai-factory/nke/releases/latest/download/nkectl-darwin-amd64
+  https://github.com/dsx-ai-factory/nvke/releases/latest/download/nkectl-darwin-amd64
 chmod +x nkectl && sudo mv nkectl /usr/local/bin/
 ```
 

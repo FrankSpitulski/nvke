@@ -8,9 +8,9 @@ import (
 
 	"google.golang.org/grpc"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout"
 )
 
 // nodeAgentOIDCClient is the narrow slice of the agent gRPC surface the

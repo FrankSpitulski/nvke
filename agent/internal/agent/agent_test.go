@@ -26,9 +26,9 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/dsx-ai-factory/nke/agent/internal/k8s"
-	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
-	nkeutils "github.com/dsx-ai-factory/nke/agent/pkg/utils"
+	"github.com/dsx-ai-factory/nvke/agent/internal/k8s"
+	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
+	nkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
 )
 
 var initOutput = `Your Kubernetes control-plane has initialized successfully!

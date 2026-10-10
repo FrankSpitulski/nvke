@@ -745,7 +745,7 @@ jobs:
           # The image path, resolved here so every later step reads one value.
           # Same image names on both; only the prefix differs.
           case "${SITE_IMAGE_REGISTRY}" in
-            ghcr) images="ghcr.io/dsx-ai-factory/nke" ;;
+            ghcr) images="ghcr.io/dsx-ai-factory/nvke" ;;
             nvcr)
               if [ -z "${QUALIFY_E2E_NGC_ORG}" ] || [ -z "${NGC_TOKEN}" ]; then
                 echo "::error::image-registry nvcr needs the QUALIFY_E2E_NGC_ORG repository variable and the NGC_API_KEY secret"

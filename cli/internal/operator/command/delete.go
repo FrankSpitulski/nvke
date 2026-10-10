@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/operator"
+	"github.com/dsx-ai-factory/nvke/cli/internal/operator"
 )
 
 // NewDeleteCmds returns the "nkectl delete machineimage|clusterrelease|

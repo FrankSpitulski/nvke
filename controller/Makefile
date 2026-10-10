@@ -179,12 +179,12 @@ print-%:
 .PHONY: build
 # -buildvcs=false because the version comes from the -X ldflag below.
 build: ## Build controller into bin/.
-	CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-X github.com/dsx-ai-factory/nke/controller/internal/version.Version=${BUILD_VERSION} $(RELEASE_LDFLAGS)" -o ./bin/$(WORKER_BIN_NAME) ./cmd/worker/
+	CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-X github.com/dsx-ai-factory/nvke/controller/internal/version.Version=${BUILD_VERSION} $(RELEASE_LDFLAGS)" -o ./bin/$(WORKER_BIN_NAME) ./cmd/worker/
 
 .PHONY: fmt
 fmt: ## Format code (gofumpt + goimports; matches .golangci.yml formatters).
 	go run mvdan.cc/gofumpt@$(GOFUMPT_VERSION) -w -extra .
-	go run golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION) -w -local github.com/dsx-ai-factory/nke/controller .
+	go run golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION) -w -local github.com/dsx-ai-factory/nvke/controller .
 
 # GO_TEST_FLAGS lets CI add -race without the workflow having to restate the
 # test command, so `make test` stays the one definition of what "the tests" are.
@@ -488,7 +488,7 @@ license-policy-check: $(GO_LICENSES) ## Verify every third-party dependency uses
 	@# that genuinely need ignoring are named explicitly.
 	@GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO_LICENSES) check ./cmd/worker ../cluster-api-provider-provisioned/cmd/manager \
 		--allowed_licenses=$(ALLOWED_LICENSES) \
-		--ignore="$$(GOWORK=off go list -m),github.com/dsx-ai-factory/nke/agent,github.com/dsx-ai-factory/nke/management-engine,github.com/dsx-ai-factory/nke/cluster-api-provider-provisioned,github.com/dsx-ai-factory/cluster-api-provider-nico"
+		--ignore="$$(GOWORK=off go list -m),github.com/dsx-ai-factory/nvke/agent,github.com/dsx-ai-factory/nvke/management-engine,github.com/dsx-ai-factory/nvke/cluster-api-provider-provisioned,github.com/dsx-ai-factory/cluster-api-provider-nico"
 
 .PHONY: notices
 notices: $(GO_LICENSES) ## Regenerate THIRD_PARTY_NOTICES.md for the released worker and provider manager binaries.

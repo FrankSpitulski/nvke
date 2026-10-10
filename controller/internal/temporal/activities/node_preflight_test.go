@@ -15,11 +15,11 @@ import (
 	"github.com/stretchr/testify/require"
 	temporallog "go.temporal.io/sdk/log"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/agent/agenttest"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/agent/agenttest"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 func TestNodePreflight(t *testing.T) {

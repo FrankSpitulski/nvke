@@ -74,7 +74,7 @@ jobs:
           persist-credentials: false
 
       # A tag is <module-directory>/vX.Y.Z, because that is what Go requires of a
-      # submodule: github.com/dsx-ai-factory/nke/cli is tagged cli/vX.Y.Z. So the
+      # submodule: github.com/dsx-ai-factory/nvke/cli is tagged cli/vX.Y.Z. So the
       # directory is read back off the tag and nothing below needs to name a
       # component. Move a module and its tag prefix moves with it, because Go
       # makes them the same string; go.work then says whether the directory is
@@ -433,7 +433,7 @@ jobs:
 
             os-image/v*)
               echo "OS-image tag ${GITHUB_REF_NAME}:"
-              echo "  - qcow2  → OS Image Artifact (Packer + boot-smoke, then ghcr.io/dsx-ai-factory/nke/os-image)"
+              echo "  - qcow2  → OS Image Artifact (Packer + boot-smoke, then ghcr.io/dsx-ai-factory/nvke/os-image)"
               echo "  - check  → nke-os-image-check attached to the GitHub Release"
               ;;
 
@@ -444,7 +444,7 @@ jobs:
 
             cluster-api-provider-provisioned/v*)
               echo "Provisioned-provider tag ${GITHUB_REF_NAME}:"
-              echo "  - image → Image Provisioned NVCR (promote-ghcr → ghcr.io/dsx-ai-factory/nke/cluster-api-provider-provisioned)"
+              echo "  - image → Image Provisioned NVCR (promote-ghcr → ghcr.io/dsx-ai-factory/nvke/cluster-api-provider-provisioned)"
               ;;
 
             cli/v*)
@@ -454,7 +454,7 @@ jobs:
 
             controller/v*)
               echo "Controller tag ${GITHUB_REF_NAME}:"
-              echo "  - image → Image NVCR (nvcr.io source, promoted to ghcr.io/dsx-ai-factory/nke/nke-controller and DSX NVCR)"
+              echo "  - image → Image NVCR (nvcr.io source, promoted to ghcr.io/dsx-ai-factory/nvke/nke-controller and DSX NVCR)"
               echo "  - chart → Chart Publish / Chart Publish NVCR"
               ;;
 

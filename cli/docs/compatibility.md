@@ -119,7 +119,7 @@ when it does.
 ## Reporting a break
 
 If a release broke something on the contract list, that is a bug — open an issue
-on [the repository](https://github.com/dsx-ai-factory/nke/issues) with the
+on [the repository](https://github.com/dsx-ai-factory/nvke/issues) with the
 command, the version you moved from and to, and what changed. If it broke
 something on the "not contract" list, an issue is still useful: it says the line
 is in the wrong place.

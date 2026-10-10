@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/manifest"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/manifest"
 )
 
 func TestGetBootstrapManifest_Golden(t *testing.T) {

@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/api"
 )
 
 func TestUnit_CAPDRequestPublishesFailureDomains(t *testing.T) {

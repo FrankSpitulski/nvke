@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/api"
 )
 
 var (

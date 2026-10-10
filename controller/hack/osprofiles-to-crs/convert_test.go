@@ -15,7 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
-	enginev1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
+	enginev1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
 )
 
 const (

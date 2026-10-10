@@ -21,9 +21,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
 )
 
 const drainProbeLabel = "e2e.nvidia.com/drain-probe"

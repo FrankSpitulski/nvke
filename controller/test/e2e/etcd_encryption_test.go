@@ -29,9 +29,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/controller"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
 )
 
 func validateEtcdEncryption(test *tenantTest) {

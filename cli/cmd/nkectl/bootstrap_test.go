@@ -26,11 +26,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/controllerdeploy"
-	bootstrapengine "github.com/dsx-ai-factory/nke/cli/internal/bootstrap/engine"
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/manifest"
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/sitespec"
-	api "github.com/dsx-ai-factory/nke/controller/api"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/controllerdeploy"
+	bootstrapengine "github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/engine"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/manifest"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/sitespec"
+	api "github.com/dsx-ai-factory/nvke/controller/api"
 )
 
 // fakeCWERunner is a scripted controllerdeploy.CommandRunner: every helm call

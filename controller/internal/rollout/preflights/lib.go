@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout"
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout/nodeagent"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout/nodeagent"
 )
 
 // execScriptOnNode dials the agent and runs script via the raw

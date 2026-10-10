@@ -59,10 +59,10 @@
 #   # here.
 #   images:
 #     controller:
-#       repository: ghcr.io/dsx-ai-factory/nke/nke-controller   # or nvcr.io/<org>/nke-controller
+#       repository: ghcr.io/dsx-ai-factory/nvke/nke-controller   # or nvcr.io/<org>/nke-controller
 #       archive: ~/.cache/nke-e2e/site/controller.tar
 #     capi-provisioned:
-#       repository: ghcr.io/dsx-ai-factory/nke/cluster-api-provider-provisioned
+#       repository: ghcr.io/dsx-ai-factory/nvke/cluster-api-provider-provisioned
 #       archive: ~/.cache/nke-e2e/site/capi-provisioned.tar
 #     profiles:       # built from controller/test/fixtures, published nowhere
 #       repository: nke-e2e-profiles

@@ -15,9 +15,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
-	"github.com/dsx-ai-factory/nke/agent/pkg/agentupgrade"
-	nkeutils "github.com/dsx-ai-factory/nke/agent/pkg/utils"
+	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
+	"github.com/dsx-ai-factory/nvke/agent/pkg/agentupgrade"
+	nkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
 )
 
 var canonicalAgentVersionPattern = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)

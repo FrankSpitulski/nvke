@@ -6,7 +6,7 @@
 package clusters
 
 import (
-	"github.com/dsx-ai-factory/nke/cli/internal/clients"
+	"github.com/dsx-ai-factory/nvke/cli/internal/clients"
 )
 
 // ControllerClientFn is a factory that returns an authenticated controller API client.

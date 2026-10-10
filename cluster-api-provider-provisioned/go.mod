@@ -1,4 +1,4 @@
-module github.com/dsx-ai-factory/nke/cluster-api-provider-provisioned
+module github.com/dsx-ai-factory/nvke/cluster-api-provider-provisioned
 
 go 1.27.2
 

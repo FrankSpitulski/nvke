@@ -22,16 +22,16 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/controllerdeploy"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/controllerdeploy"
 	// Aliased: this file has a local variable named engine.
-	bootstrapengine "github.com/dsx-ai-factory/nke/cli/internal/bootstrap/engine"
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/etcdkey"
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/sitecluster"
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/sitespec"
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/spireentrydump"
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/untaint"
-	"github.com/dsx-ai-factory/nke/cli/internal/clients"
-	"github.com/dsx-ai-factory/nke/cli/internal/config"
+	bootstrapengine "github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/engine"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/etcdkey"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/sitecluster"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/sitespec"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/spireentrydump"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/untaint"
+	"github.com/dsx-ai-factory/nvke/cli/internal/clients"
+	"github.com/dsx-ai-factory/nvke/cli/internal/config"
 )
 
 const (

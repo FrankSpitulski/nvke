@@ -28,8 +28,8 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/controller"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
 )
 
 const (

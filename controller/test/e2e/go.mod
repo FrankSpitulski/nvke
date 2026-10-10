@@ -1,10 +1,10 @@
-module github.com/dsx-ai-factory/nke/controller/test/e2e
+module github.com/dsx-ai-factory/nvke/controller/test/e2e
 
 go 1.27.2
 
 require (
 	github.com/NVIDIA/ncx-infra-controller-rest v1.3.0
-	github.com/dsx-ai-factory/nke/controller/api v0.0.0-00010101000000-000000000000
+	github.com/dsx-ai-factory/nvke/controller/api v0.0.0-00010101000000-000000000000
 	github.com/go-logr/logr v1.4.4
 	github.com/google/uuid v1.6.0
 	github.com/oapi-codegen/runtime v1.7.0
@@ -88,4 +88,4 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
 
-replace github.com/dsx-ai-factory/nke/controller/api => ../../api
+replace github.com/dsx-ai-factory/nvke/controller/api => ../../api

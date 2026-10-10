@@ -48,7 +48,7 @@ command -v jq >/dev/null || {
 
 asset="nkectl-linux-${arch}"
 tag="cli/${version}"
-api="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-dsx-ai-factory/nke}"
+api="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-dsx-ai-factory/nvke}"
 mkdir -p "${dir}"
 # site.nkectl points at this path, so a binary that fails any check below
 # must not be left there for a later suite run to pick up.

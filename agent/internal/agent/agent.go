@@ -36,11 +36,11 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/dsx-ai-factory/nke/agent/internal/k8s"
-	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
-	"github.com/dsx-ai-factory/nke/agent/pkg/agentupgrade"
-	"github.com/dsx-ai-factory/nke/agent/pkg/deb"
-	nkeutils "github.com/dsx-ai-factory/nke/agent/pkg/utils"
+	"github.com/dsx-ai-factory/nvke/agent/internal/k8s"
+	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
+	"github.com/dsx-ai-factory/nvke/agent/pkg/agentupgrade"
+	"github.com/dsx-ai-factory/nvke/agent/pkg/deb"
+	nkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
 )
 
 var (

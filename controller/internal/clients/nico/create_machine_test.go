@@ -18,12 +18,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	nicov1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
-	enginev1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
+	enginev1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/clients/shared"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/clients/shared"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 func TestClient_CreateMachine_MissingRelease(t *testing.T) {

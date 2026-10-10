@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/config"
+	"github.com/dsx-ai-factory/nvke/cli/internal/config"
 )
 
 func newConfigCmd() *cobra.Command {

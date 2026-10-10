@@ -13,10 +13,10 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/metrics"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/activities"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/metrics"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/activities"
 )
 
 type HookType string
@@ -643,7 +643,7 @@ func joinNode(ctx workflow.Context, nodeID uuid.UUID, boundJoinAttempt bool) (bo
 // so a transient agent failure never fails an otherwise-healthy first
 // join; a genuinely dirty node is simply cleaned again on the next attempt.
 //
-// FIXME: https://github.com/dsx-ai-factory/nke/issues/936 - kubeadm reset belongs in
+// FIXME: https://github.com/dsx-ai-factory/nvke/issues/936 - kubeadm reset belongs in
 // the node-agent, run before every kubeadm join,
 // and is needed for workers too: a worker that partially joins then fails loops
 // on preflight leftovers, because the agent re-runs join without a reset and the

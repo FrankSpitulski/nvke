@@ -4,7 +4,7 @@
 package clients
 
 import (
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 // ProviderClient composes every settled per-provider capability client for a

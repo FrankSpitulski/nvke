@@ -6,7 +6,7 @@ package main
 import (
 	"testing"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/config"
+	"github.com/dsx-ai-factory/nvke/cli/internal/config"
 )
 
 func TestSetSiteRequiresKubeconfig(t *testing.T) {

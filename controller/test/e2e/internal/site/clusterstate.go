@@ -9,8 +9,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/controller"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra"
 )
 
 // sectionMarker prefixes each command's output so the sections stay legible

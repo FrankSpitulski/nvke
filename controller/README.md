@@ -69,7 +69,7 @@ The `api/` directory is a separate Go module that other projects (e.g. controlle
 To depend on a specific version:
 
 ```bash
-go get github.com/dsx-ai-factory/nke/controller/api@v0.0.1
+go get github.com/dsx-ai-factory/nvke/controller/api@v0.0.1
 ```
 
 Use the latest tagged version or a specific semver (e.g. `@v0.0.5`) as needed.

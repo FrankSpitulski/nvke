@@ -96,7 +96,7 @@ workflow, ref and commit that produced the artifact, and logged in a public
 transparency log. There is no signing key held by this project.
 
 [RELEASE.md](RELEASE.md) carries the verify commands and what each attestation
-covers. Always pass `--repo dsx-ai-factory/nke` — that is what binds an
+covers. Always pass `--repo dsx-ai-factory/nvke` — that is what binds an
 attestation to this repository rather than to any GitHub workflow anywhere.
 
 A checksum alone proves a download arrived intact, not who produced it: whoever

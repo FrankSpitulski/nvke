@@ -7,7 +7,7 @@ package metrics
 import (
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/auth"
+	"github.com/dsx-ai-factory/nvke/controller/internal/auth"
 )
 
 const (

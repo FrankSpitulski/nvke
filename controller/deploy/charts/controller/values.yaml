@@ -29,7 +29,7 @@ image:
   # registry (e.g. a private mirror); pair any change with a matching
   # `imagePullSecrets` entry. Not to be confused with
   # `profiles.image.repository` below, a separate optional content image.
-  repository: ghcr.io/dsx-ai-factory/nke/nke-controller
+  repository: ghcr.io/dsx-ai-factory/nvke/nke-controller
   # -- This sets the pull policy for images.
   pullPolicy: IfNotPresent
   # -- Overrides the tag for the nke-controller image; default is the chart

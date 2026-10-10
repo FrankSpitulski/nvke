@@ -35,15 +35,15 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/agent"
-	"github.com/dsx-ai-factory/nke/controller/internal/agent/agenttest"
-	"github.com/dsx-ai-factory/nke/controller/internal/capi"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/dbwrapper"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/kube"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/agent"
+	"github.com/dsx-ai-factory/nvke/controller/internal/agent/agenttest"
+	"github.com/dsx-ai-factory/nvke/controller/internal/capi"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/dbwrapper"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 const (

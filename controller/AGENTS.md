@@ -100,7 +100,7 @@ make debug        # Run with delve debugger on :12345
 
 ### Go Conventions
 - Use `go fmt` and `goimports` for formatting
-- Import grouping order: stdlib, then third-party, then local (`github.com/dsx-ai-factory/nke/controller`)
+- Import grouping order: stdlib, then third-party, then local (`github.com/dsx-ai-factory/nvke/controller`)
 - No `github.com/pkg/errors` - use stdlib `errors` and `fmt.Errorf` with `%w`
 - Cyclomatic complexity limit: 15
 - Function length limit: 500 lines (excluding comments)

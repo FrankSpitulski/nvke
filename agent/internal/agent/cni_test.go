@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
-	nkeutils "github.com/dsx-ai-factory/nke/agent/pkg/utils"
+	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
+	nkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

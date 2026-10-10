@@ -11,7 +11,7 @@
 # matches the new spec perfectly -- while breaking every existing client.
 #
 # The baseline is the tag, not the merge base, because the tag is what a
-# consumer pins: `go get github.com/dsx-ai-factory/nke/controller/api@v0.0.17`.
+# consumer pins: `go get github.com/dsx-ai-factory/nvke/controller/api@v0.0.17`.
 # That is what "backward compatible" has to be measured against.
 
 name: API Compatibility

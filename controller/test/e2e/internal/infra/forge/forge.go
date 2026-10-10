@@ -19,9 +19,9 @@ import (
 	"github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra/teleport"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/teleport"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
 )
 
 const (

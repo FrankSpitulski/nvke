@@ -33,10 +33,10 @@ SITE_INPUTS ?= $(HOME)/.cache/nke-e2e/site
 SITE_CONTROLLER_VERSION ?=
 SITE_PROVISIONED_VERSION ?= v0.1.0-rc.1
 # Where the published images are pulled from. Both registries carry them under
-# the same names: GHCR at ghcr.io/dsx-ai-factory/nke, NVCR at nvcr.io/<NGC org>
+# the same names: GHCR at ghcr.io/dsx-ai-factory/nvke, NVCR at nvcr.io/<NGC org>
 # (see image-nvcr.yml and image-provisioned-nvcr.yml). NVCR needs a docker
 # login with an NGC key; the username is the literal $oauthtoken.
-SITE_IMAGE_REGISTRY ?= ghcr.io/dsx-ai-factory/nke
+SITE_IMAGE_REGISTRY ?= ghcr.io/dsx-ai-factory/nvke
 SITE_CONTROLLER_IMAGE ?= $(SITE_IMAGE_REGISTRY)/nke-controller:$(SITE_CONTROLLER_VERSION)
 SITE_PROVISIONED_IMAGE ?= $(SITE_IMAGE_REGISTRY)/cluster-api-provider-provisioned:$(SITE_PROVISIONED_VERSION)
 SITE_PROFILES_IMAGE ?= nke-e2e-profiles:local

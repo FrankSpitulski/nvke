@@ -12,12 +12,12 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/agent"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout"
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout/nodeagent"
+	"github.com/dsx-ai-factory/nvke/controller/internal/agent"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout/nodeagent"
 )
 
 // ErrNodeNotFound reports that a rollout node is absent from controller inventory.

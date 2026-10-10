@@ -19,10 +19,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	enginev1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
+	enginev1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/machinerelease"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/machinerelease"
 )
 
 func discardLogger() *slog.Logger {

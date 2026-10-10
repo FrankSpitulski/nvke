@@ -23,9 +23,9 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/dsx-ai-factory/cluster-api-provider-nico/pkg/test/fixture"
-	"github.com/dsx-ai-factory/nke/controller/api"
-	internalv1 "github.com/dsx-ai-factory/nke/management-engine/apis/v1"
-	"github.com/dsx-ai-factory/nke/management-engine/internal/cwe"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	internalv1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
+	"github.com/dsx-ai-factory/nvke/management-engine/internal/cwe"
 )
 
 var fixtureRemoteID = uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
