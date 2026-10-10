@@ -72,6 +72,12 @@ var (
 	errNoLocalPort = errors.New("port-forward reported no local port")
 )
 
+// dialError marks a request that never reached the forward; retrying it would only repeat the dial.
+type dialError struct{ err error }
+
+func (e *dialError) Error() string { return e.err.Error() }
+func (e *dialError) Unwrap() error { return e.err }
+
 type forwardSession struct {
 	addr string
 	done <-chan struct{}
@@ -129,15 +135,35 @@ func newServiceForwarder(starter sessionStarter, baseURL string) *ServiceForward
 		maxRetryBackoff: maxRetryBackoff,
 	}
 	f.client = &http.Client{
-		Transport: &http.Transport{
+		Transport: &recoveringTransport{forwarder: f, next: &http.Transport{
 			DialContext: f.dialContext,
 			// A connection that went stale while the forward was down would
 			// fail the next request through it, and http.Transport only retries
 			// idempotent ones.
 			DisableKeepAlives: true,
-		},
+		}},
 	}
 	return f
+}
+
+// recoveringTransport drops the forward session behind a request that failed at the transport level and retries a GET or HEAD once on a fresh one.
+type recoveringTransport struct {
+	forwarder *ServiceForwarder
+	next      http.RoundTripper
+}
+
+func (t *recoveringTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.next.RoundTrip(req)
+	var dial *dialError
+	if err == nil || req.Context().Err() != nil || errors.As(err, &dial) {
+		return resp, err
+	}
+	// A wedged SPDY session still accepts the local dial and then resets every stream, so nothing but the request sees it die.
+	t.forwarder.Reset()
+	if req.Method != http.MethodGet && req.Method != http.MethodHead {
+		return nil, err
+	}
+	return t.next.RoundTrip(req)
 }
 
 // BaseURL is the scheme and authority to build request URLs against.
@@ -232,7 +258,7 @@ func (f *ServiceForwarder) dialContext(ctx context.Context, network, _ string) (
 		if err != nil {
 			cancel()
 			if errors.Is(err, errForwarderClosed) {
-				return nil, err
+				return nil, &dialError{err}
 			}
 			lastErr = err
 			continue
@@ -250,7 +276,7 @@ func (f *ServiceForwarder) dialContext(ctx context.Context, network, _ string) (
 		lastErr = err
 		f.discard(session)
 	}
-	return nil, fmt.Errorf("connecting to %s through a port-forward: %w", f.target, lastErr)
+	return nil, &dialError{fmt.Errorf("connecting to %s through a port-forward: %w", f.target, lastErr)}
 }
 
 func (f *ServiceForwarder) budget() time.Duration {
