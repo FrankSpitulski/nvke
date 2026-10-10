@@ -31,7 +31,7 @@
 # be substituted, and a Secret is not reachable by helm values.
 items:
   - {name: nvke-base-config, type: template}
-  - {name: nke-auth-dev, type: manifest}
+  - {name: nvke-auth-dev, type: manifest}
   - {name: spire-tpm-pubhashes, type: manifest}
   - {name: spire-server-nodeport, type: manifest}
   - {name: spire-oidc-provider-nodeport, type: manifest}

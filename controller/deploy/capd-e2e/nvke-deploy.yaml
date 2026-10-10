@@ -14,11 +14,11 @@
 # of a pinned release's CRDs, which is what a manifest item is.
 items:
   - {name: nvke-base-config, type: manifest}
-  - {name: nke-auth-dev, type: manifest}
+  - {name: nvke-auth-dev, type: manifest}
   - {name: spire-tpm-pubhashes, type: manifest}
   - {name: spire-server-nodeport, type: manifest}
   - {name: spire-oidc-provider-nodeport, type: manifest}
-  - {name: nke-spire-client, type: manifest}
+  - {name: nvke-spire-client, type: manifest}
   - {name: capnico-crds, type: manifest}
   - {name: capd-cwe-rbac, type: manifest}
   - {name: capd-reboot-controller, type: manifest}
