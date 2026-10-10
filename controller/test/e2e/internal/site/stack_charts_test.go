@@ -107,7 +107,7 @@ func runTool(t *testing.T, name string, args ...string) (string, error) {
 	return stdout.String(), nil
 }
 
-// helmInstalls maps each release to the argv nke-deploy.sh would run for
+// helmInstalls maps each release to the argv nvke-deploy.sh would run for
 // it, as the bash-quoted line --dry-run prints.
 func helmInstalls(t *testing.T, dryRun string) map[string]string {
 	t.Helper()
@@ -172,7 +172,7 @@ func TestSBOMAgainstDeployPath(t *testing.T) {
 	t.Setenv(controller.EnvNamespace, name)
 	t.Setenv(controller.EnvService, name)
 	values := renderValues(t, assets)
-	dryRun, err := runTool(t, "bash", filepath.Join(assets, "deploy", "nke-deploy.sh"), "install",
+	dryRun, err := runTool(t, "bash", filepath.Join(assets, "deploy", "nvke-deploy.sh"), "install",
 		"--deploy-path", filepath.Join(assets, "deploy", "nico"),
 		"--config", filepath.Join(values, "bootstrap-config.json"),
 		"--values-for", "controller="+filepath.Join(values, "controller.yaml"),
@@ -181,7 +181,7 @@ func TestSBOMAgainstDeployPath(t *testing.T) {
 		"--values-for", "temporal="+filepath.Join(values, "temporal.yaml"),
 		"--dry-run")
 	if err != nil {
-		t.Fatalf("nke-deploy.sh --dry-run: %v\n%s", err, dryRun)
+		t.Fatalf("nvke-deploy.sh --dry-run: %v\n%s", err, dryRun)
 	}
 	installs := helmInstalls(t, dryRun)
 	// A chart installed by path has to be among the exported assets, or the
@@ -348,7 +348,7 @@ func TestSBOMAgainstDeployPath(t *testing.T) {
 		out := t.TempDir()
 		if _, err := runTool(t, "python3", filepath.Join(assets, "deploy", "lib", "render-template.py"),
 			filepath.Join(values, "bootstrap-config.json"),
-			filepath.Join(assets, "deploy", "nico", "nke-base-config"), out); err != nil {
+			filepath.Join(assets, "deploy", "nico", "nvke-base-config"), out); err != nil {
 			t.Fatal(err)
 		}
 		rendered := map[string]string{}

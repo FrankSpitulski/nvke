@@ -21,7 +21,7 @@ func RegisterDefaults(
 	dialer nodeagent.Dialer,
 	checker nodeagent.MethodSupportChecker,
 	k8sClient client.Client,
-	oidc config.NkeOIDCAuth,
+	oidc config.NvkeOIDCAuth,
 	trustDomain string,
 ) {
 	oidcConfig := oidc

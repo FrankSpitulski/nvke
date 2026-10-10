@@ -21,7 +21,7 @@ import (
 
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/teleport"
-	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
 )
 
 const (
@@ -136,7 +136,7 @@ type Options struct {
 
 	// Node carries the package versions under qualification. Its image URLs
 	// are filled from Images, so any set here are ignored.
-	Node  nke.NodeInputs
+	Node  nvke.NodeInputs
 	Tools HostTools
 
 	// DisableMTLS runs the node agent without SPIFFE. nkectl bootstrap site
@@ -458,7 +458,7 @@ func (p *Provider) payloads(req infra.NodeRequest, instanceType InstanceType, au
 	if p.opts.DisableMTLS {
 		inputs.AgentArgs = "--secure-server-port 15005 --disable-mtls"
 	}
-	node, err := nke.BuildForgeNodePayloads(inputs)
+	node, err := nvke.BuildForgeNodePayloads(inputs)
 	if err != nil {
 		return "", "", fmt.Errorf("forge: %w", err)
 	}

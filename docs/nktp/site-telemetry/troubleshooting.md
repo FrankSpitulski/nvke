@@ -35,7 +35,7 @@ kubectl auth can-i update deployments.apps/nktp-operator --subresource=finalizer
   -n nktp --as=system:serviceaccount:nktp:opentelemetry-operator   # yes
 ```
 
-## The install stops at nke-base-config: "`{{ .ClusterName }}` has no value"
+## The install stops at nvke-base-config: "`{{ .ClusterName }}` has no value"
 
 **Cause:** the BootstrapConfig passed with `--config` has no `ClusterName`.
 The `nktp-cluster` ConfigMap is rendered from it, and the renderer refuses an
@@ -45,7 +45,7 @@ empty value rather than labeling every signal with nothing.
 
 ## The nktp item fails building chart dependencies
 
-**Cause:** `deploy/nke-deploy.sh` runs `helm dependency build` for the chart
+**Cause:** `deploy/nvke-deploy.sh` runs `helm dependency build` for the chart
 before installing it. That needs egress to `open-telemetry.github.io`,
 `prometheus-community.github.io` and `kubernetes-sigs.github.io`.
 

@@ -121,7 +121,7 @@ func (c *MachineSpireEntryController) applyClusterStaticEntry(ctx context.Contex
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
-				constants.LabelKeyNkeManagedBy: constants.FieldManagerMachineSpireEntry,
+				constants.LabelKeyNvkeManagedBy: constants.FieldManagerMachineSpireEntry,
 			},
 		},
 		Spec: spirev1alpha1.ClusterStaticEntrySpec{

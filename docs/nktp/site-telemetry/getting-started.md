@@ -71,14 +71,14 @@ plus:
   webhook certificate and the mTLS certificates between each Collector and
   its Target Allocator.
 - **`ClusterName` in the BootstrapConfig** passed with `--config`. It becomes
-  `k8s.cluster.name` on every signal. The install stops at the `nke-base-config`
+  `k8s.cluster.name` on every signal. The install stops at the `nvke-base-config`
   item if it is missing:
   ```json
   { "ClusterName": "<site-name>", "Nico": { "...": "..." } }
   ```
 - **Egress from the node running the install:**
   - to `open-telemetry.github.io`, `prometheus-community.github.io` and
-    `kubernetes-sigs.github.io`, because `deploy/nke-deploy.sh` builds the
+    `kubernetes-sigs.github.io`, because `deploy/nvke-deploy.sh` builds the
     chart's dependencies from its `Chart.lock` before installing
   - to `docker.io`, `ghcr.io`, `quay.io` and `registry.k8s.io`, for the images
 - **Room on the nodes.** The site values size NKTP for the smaller clusters a
@@ -98,7 +98,7 @@ site controller needs is in
 monitor:
 
 ```text
-nke-base-config -> spire-tpm-pubhashes -> spire-server-nodeport
+nvke-base-config -> spire-tpm-pubhashes -> spire-server-nodeport
   -> spire-oidc-provider-nodeport -> capnico -> nktp
   -> postgresql -> spire-crds -> temporal -> spire -> controller
 ```

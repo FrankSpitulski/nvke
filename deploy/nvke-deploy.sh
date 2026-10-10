@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Install a deploy path: walk its nke-deploy.yaml and apply the items in the
+# Install a deploy path: walk its nvke-deploy.yaml and apply the items in the
 # order listed. The list IS the order -- see
 # docs/site-bootstrap/deploy-repository.md, which this format follows.
 #
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ITEMS_PY="${SCRIPT_DIR}/lib/nke-deploy-items.py"
+ITEMS_PY="${SCRIPT_DIR}/lib/nvke-deploy-items.py"
 RENDER_PY="${SCRIPT_DIR}/lib/render-template.py"
 
 DRY_RUN=""
@@ -37,10 +37,10 @@ die() { printf 'nke-deploy: %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat >&2 <<'USAGE'
-usage: nke-deploy.sh install --deploy-path DIR [options] [-- helm args]
+usage: nvke-deploy.sh install --deploy-path DIR [options] [-- helm args]
 
   --deploy-path DIR   the deploy path to install: a directory holding
-                      nke-deploy.yaml and one directory per item, e.g.
+                      nvke-deploy.yaml and one directory per item, e.g.
                       deploy/nico or controller/deploy/capd-e2e
   --chart-override ITEM=PATH
                       where to find one item's chart, for a component this
@@ -128,7 +128,7 @@ wait_for_requires() {
         -n "${namespace}" get "${kind}" "${name}" >/dev/null 2>&1; then
       die "phase ${phase} requires ${kind}/${name} in namespace ${namespace}, which does not exist.
 It is not part of this chart -- an earlier item supplies it. In this repository
-that is the nke-base-config item, from controller/deploy/k8s/oidc-upstream-ca.yaml."
+that is the nvke-base-config item, from controller/deploy/k8s/oidc-upstream-ca.yaml."
     fi
     log "waiting for ${kind}/${name} condition=${condition}"
     kubectl_run -n "${namespace}" wait --for="condition=${condition}" \
@@ -235,8 +235,8 @@ not publish needs."
 
 install() {
   [[ -n "${DEPLOY_PATH}" ]] || die "--deploy-path is required"
-  [[ -f "${DEPLOY_PATH}/nke-deploy.yaml" ]] \
-    || die "no nke-deploy.yaml in ${DEPLOY_PATH}"
+  [[ -f "${DEPLOY_PATH}/nvke-deploy.yaml" ]] \
+    || die "no nvke-deploy.yaml in ${DEPLOY_PATH}"
 
   local name type
   while IFS=$'\t' read -r name type; do
@@ -251,7 +251,7 @@ install() {
       template) render_template_item "${dir}" "${name}" ;;
       *) die "item ${name} has unknown type ${type}" ;;
     esac
-  done < <(python3 "${ITEMS_PY}" items "${DEPLOY_PATH}/nke-deploy.yaml")
+  done < <(python3 "${ITEMS_PY}" items "${DEPLOY_PATH}/nvke-deploy.yaml")
 }
 
 [[ $# -gt 0 ]] || usage

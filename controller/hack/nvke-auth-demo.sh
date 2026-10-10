@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'EOF'
-nke-auth-demo.sh [--mode enforcing|permissive]
+nvke-auth-demo.sh [--mode enforcing|permissive]
 
 Drives NKE's API with four credentials and prints the status code each one got.
 The three authentication states are documented on the internal/auth package and
@@ -56,7 +56,7 @@ NKE_METRICS_LOCAL_PORT="${NKE_METRICS_LOCAL_PORT:-19090}"
 PROBE_PATH="${PROBE_PATH:-/api/clusters}"
 TOKEN_TTL="${TOKEN_TTL:-10m}"
 
-# Exported because nke-token.sh runs as a child process and reads them from the
+# Exported because nvke-token.sh runs as a child process and reads them from the
 # environment. Without this it would use the kubeconfig's current context while
 # this script targets KUBE_CONTEXT.
 export KUBE_CONTEXT NKE_CONTROLLER_NAMESPACE NKE_DEPLOYMENT
@@ -122,12 +122,12 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   exit 2
 fi
 
-# nke-token.sh picks nke-controller or cloud-workflow-engine when unset.
-NKE_DEPLOYMENT="$("${SCRIPT_DIR}/nke-token.sh" --deployment)"
+# nvke-token.sh picks nke-controller or cloud-workflow-engine when unset.
+NKE_DEPLOYMENT="$("${SCRIPT_DIR}/nvke-token.sh" --deployment)"
 [[ -n "${NKE_DEPLOYMENT}" ]] || die "could not resolve NKE's Deployment in ${NKE_CONTROLLER_NAMESPACE}"
 
-# The audience comes from the live deployment, via nke-token.sh.
-AUDIENCE="$("${SCRIPT_DIR}/nke-token.sh" --audience)"
+# The audience comes from the live deployment, via nvke-token.sh.
+AUDIENCE="$("${SCRIPT_DIR}/nvke-token.sh" --audience)"
 [[ -n "${AUDIENCE}" ]] || die "could not read the audience from configmap ${NKE_CONTROLLER_NAMESPACE}/nke-auth-config"
 
 # --- mode detection -------------------------------------------------------

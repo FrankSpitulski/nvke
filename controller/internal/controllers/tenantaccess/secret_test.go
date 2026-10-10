@@ -53,7 +53,7 @@ func TestUpsertOwnedSecretUpdatesMatchingTypeInPlace(t *testing.T) {
 	assert.Equal(t, types.UID("existing-uid"), got.UID)
 	assert.Equal(t, []byte("new"), got.Data[KubeconfigSecretKey])
 	assert.Equal(t, cluster.ID.String(), got.Labels["owner.nke.nvidia.com/cluster"])
-	assert.Equal(t, "cloud-workflow-engine", got.Labels[constants.LabelKeyNkeManagedBy])
+	assert.Equal(t, "cloud-workflow-engine", got.Labels[constants.LabelKeyNvkeManagedBy])
 	assert.Equal(t, cluster.ID.String(), got.Labels[constants.LabelKeyClusterID])
 	assert.Equal(t, cluster.Name, got.Labels[clusterv1.ClusterNameLabel])
 }
@@ -83,7 +83,7 @@ func TestUpsertOwnedSecretReplacesIncompatibleType(t *testing.T) {
 	assert.NotEqual(t, types.UID("existing-uid"), got.UID)
 	assert.Equal(t, corev1.SecretTypeOpaque, got.Type)
 	assert.Equal(t, []byte("new"), got.Data[KubeconfigSecretKey])
-	assert.Equal(t, "cloud-workflow-engine", got.Labels[constants.LabelKeyNkeManagedBy])
+	assert.Equal(t, "cloud-workflow-engine", got.Labels[constants.LabelKeyNvkeManagedBy])
 	assert.Equal(t, cluster.Name, got.Labels[clusterv1.ClusterNameLabel])
 }
 

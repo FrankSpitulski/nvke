@@ -5,7 +5,7 @@
 // Like a thin client over the NKE generated API, reached over a port-forward to
 // the NKE Service's backing pod. The client carries an NKE credential of its
 // own, separate from the kubeconfig credential authenticating the forward.
-package nke
+package nvke
 
 import (
 	"context"

@@ -8,7 +8,7 @@ docs/site-bootstrap/deploy-repository.md defines `type: template` items: the
 deploy tooling renders each .yaml.tmpl with Go text/template, passing the full
 BootstrapConfig as the context, and the item is then applied as a manifest.
 There is no BootstrapConfig type in this repository, only the documented
-shape, so deploy/nke-deploy.sh renders with this script.
+shape, so deploy/nvke-deploy.sh renders with this script.
 
 The context is JSON rather than YAML because PyYAML is not guaranteed on the
 e2e runners; the caller writes it, and its field names are BootstrapConfig's

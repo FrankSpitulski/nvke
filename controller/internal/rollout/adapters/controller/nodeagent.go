@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 
-	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
+	nvkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
 	"github.com/dsx-ai-factory/nvke/controller/internal/agent"
 	"github.com/dsx-ai-factory/nvke/controller/internal/db"
@@ -83,12 +83,12 @@ func NewSPIFFEDialer(transport *agent.Transport, resolve NodeResolver) (nodeagen
 	if resolve == nil {
 		return nil, errors.New("rollout controller NewSPIFFEDialer: resolve must be non-nil")
 	}
-	return func(ctx context.Context, rolloutNode rollout.Node) (nkeproto.NodeAgentClient, func(), error) {
+	return func(ctx context.Context, rolloutNode rollout.Node) (nvkeproto.NodeAgentClient, func(), error) {
 		conn, cleanup, err := dial(ctx, transport, resolve, rolloutNode)
 		if err != nil {
 			return nil, nil, err
 		}
-		return nkeproto.NewNodeAgentClient(conn), cleanup, nil
+		return nvkeproto.NewNodeAgentClient(conn), cleanup, nil
 	}, nil
 }
 

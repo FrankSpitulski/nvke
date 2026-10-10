@@ -61,7 +61,7 @@ func TestReadFailureDomains(t *testing.T) {
 		now := metav1.Now()
 		objects := []client.Object{
 			&clusterv1.Cluster{
-				ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: constants.NamespaceNKESystem},
+				ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: constants.NamespaceNVKESystem},
 				Status: clusterv1.ClusterStatus{
 					Initialization: clusterv1.ClusterInitializationStatus{InfrastructureProvisioned: new(true)},
 					FailureDomains: []clusterv1.FailureDomain{
@@ -99,7 +99,7 @@ func TestReadFailureDomains(t *testing.T) {
 
 		k8sClient := &listCountingClient{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 			&clusterv1.Cluster{
-				ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: constants.NamespaceNKESystem},
+				ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: constants.NamespaceNVKESystem},
 				Status: clusterv1.ClusterStatus{
 					Initialization: infrastructureProvisionedStatus(),
 				},
@@ -127,7 +127,7 @@ func TestReadFailureDomainsWithoutAPlacementView(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, clusterv1.AddToScheme(scheme))
 	readyCluster := &clusterv1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: constants.NamespaceNKESystem},
+		ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: constants.NamespaceNVKESystem},
 		Status: clusterv1.ClusterStatus{
 			Initialization: infrastructureProvisionedStatus(),
 			FailureDomains: []clusterv1.FailureDomain{{Name: "fd-a", ControlPlane: new(true)}},
@@ -236,7 +236,7 @@ func TestControllerReturnsErrorWhileClusterInfrastructureIsNotReady(t *testing.T
 	scheme := runtime.NewScheme()
 	require.NoError(t, clusterv1.AddToScheme(scheme))
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&clusterv1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{Name: cluster.Name, Namespace: constants.NamespaceNKESystem},
+		ObjectMeta: metav1.ObjectMeta{Name: cluster.Name, Namespace: constants.NamespaceNVKESystem},
 	}).Build()
 	controller := NewController(
 		config.Config{ProvisionControlPlaneWithControlPlaneController: true},
@@ -277,7 +277,7 @@ func failureDomainMachine(
 	return &clusterv1.Machine{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              name,
-			Namespace:         constants.NamespaceNKESystem,
+			Namespace:         constants.NamespaceNVKESystem,
 			Labels:            labels,
 			DeletionTimestamp: deletionTimestamp,
 			Finalizers:        []string{"test.finalizer"},
@@ -344,7 +344,7 @@ func TestReconcilePlacesTheNodesItCreatedInTheSamePass(t *testing.T) {
 		scheme := runtime.NewScheme()
 		require.NoError(t, clusterv1.AddToScheme(scheme))
 		k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&clusterv1.Cluster{
-			ObjectMeta: metav1.ObjectMeta{Name: cluster.Name, Namespace: constants.NamespaceNKESystem},
+			ObjectMeta: metav1.ObjectMeta{Name: cluster.Name, Namespace: constants.NamespaceNVKESystem},
 			Status: clusterv1.ClusterStatus{
 				Initialization: infrastructureProvisionedStatus(),
 				FailureDomains: []clusterv1.FailureDomain{

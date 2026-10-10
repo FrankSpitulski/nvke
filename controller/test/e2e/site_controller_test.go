@@ -29,7 +29,7 @@ import (
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/forge"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/teleport"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
-	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/site"
 )
 
@@ -640,13 +640,13 @@ func collectSiteClusterState(ctx context.Context, session infra.Session, secrets
 // --disable-mtls, which comes from the same constant: the two sides
 // negotiate with each other, and a mismatch surfaces as an opaque TLS
 // handshake error rather than as a configuration problem.
-func nodeInputs(kubernetesVersion, cniVersion string) nke.NodeInputs {
-	inputs := nke.NodeInputs{
+func nodeInputs(kubernetesVersion, cniVersion string) nvke.NodeInputs {
+	inputs := nvke.NodeInputs{
 		KubernetesVersion: kubernetesVersion,
 		CNIVersion:        cniVersion,
 	}
 	if siteDisableMTLS {
-		inputs.AgentArgs = nke.AgentArgsNoMTLS
+		inputs.AgentArgs = nvke.AgentArgsNoMTLS
 	}
 	return inputs
 }
@@ -835,7 +835,7 @@ func sweepSiteTenants(ctx context.Context, kubeconfig string) error {
 	if err != nil {
 		return err
 	}
-	client, err := nke.NewClient(ctx, restConfig, nke.Options{Delete: sweepDeleteBudget, Poll: 30 * time.Second})
+	client, err := nvke.NewClient(ctx, restConfig, nvke.Options{Delete: sweepDeleteBudget, Poll: 30 * time.Second})
 	if err != nil {
 		return err
 	}

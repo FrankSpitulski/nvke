@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Parse a generated deploy path into tab-separated lines a shell can read.
 
-  items   <nke-deploy.yaml>  -> "<name>\t<type>" per item, in listed order
+  items   <nvke-deploy.yaml>  -> "<name>\t<type>" per item, in listed order
   release <release.yaml>     -> "single\x1f<chart>\x1f<version>\x1f<repository>
                                 \x1f<path>\x1f<release>\x1f<namespace>
                                 \x1f<values>\x1f<requires>", one line.
@@ -20,7 +20,7 @@ understand turns a malformed artifact into a deploy that silently does less than
 it claims. phases reads one block out of a large hand-commented values.yaml, so
 it is strict only within that block.
 
-Used by deploy/nke-deploy.sh, which lives one directory up.
+Used by deploy/nvke-deploy.sh, which lives one directory up.
 """
 import re
 import sys
@@ -119,5 +119,5 @@ def release(path):
 
 
 if len(sys.argv) != 3 or sys.argv[1] not in ("items", "release"):
-    sys.exit("usage: nke-deploy-items.py [items|release] <file>")
+    sys.exit("usage: nvke-deploy-items.py [items|release] <file>")
 print("\n".join({"items": items, "release": release}[sys.argv[1]](sys.argv[2])))

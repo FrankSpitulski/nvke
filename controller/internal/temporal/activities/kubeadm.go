@@ -16,7 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
+	nvkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
 	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
 	"github.com/dsx-ai-factory/nvke/controller/internal/db"
@@ -44,10 +44,10 @@ func (a *Activities) kubeadmContainerMode(ctx context.Context, cluster db.Cluste
 	return isKubeadmContainerMode, nil
 }
 
-func toNodeAgentFiles(files []kubeadmconfig.File) []*nkeproto.File {
-	out := make([]*nkeproto.File, 0, len(files))
+func toNodeAgentFiles(files []kubeadmconfig.File) []*nvkeproto.File {
+	out := make([]*nvkeproto.File, 0, len(files))
 	for _, file := range files {
-		out = append(out, &nkeproto.File{
+		out = append(out, &nvkeproto.File{
 			Path:    file.Path,
 			Content: file.Content,
 			Mode:    file.Mode,
@@ -61,7 +61,7 @@ func toNodeAgentFiles(files []kubeadmconfig.File) []*nkeproto.File {
 func (a *Activities) clusterAuthentication(cluster db.Cluster) kubeadmconfig.ClusterAuthentication {
 	return kubeadmconfig.ClusterAuthentication{
 		ClusterName:   cluster.Name,
-		Shared:        a.cfg.NkeOIDCAuth,
+		Shared:        a.cfg.NvkeOIDCAuth,
 		SharedEnabled: cluster.OIDCAuthEnabled,
 		Providers:     db.ClusterOIDCProvidersToConfig(cluster.OIDCProviders),
 		TrustDomain:   a.trustDomain,

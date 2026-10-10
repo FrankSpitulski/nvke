@@ -61,7 +61,7 @@
 # SPIRE server alive is the one in the throwaway kind cluster -- and nothing
 # drives that node afterwards, so it does not constrain this path.
 items:
-  - {name: nke-base-config, type: template}
+  - {name: nvke-base-config, type: template}
   - {name: spire-tpm-pubhashes, type: manifest}
   - {name: spire-server-nodeport, type: manifest}
   - {name: spire-oidc-provider-nodeport, type: manifest}

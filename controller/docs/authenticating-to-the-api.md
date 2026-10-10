@@ -24,7 +24,7 @@ nkectl get clusters
 With `curl`, mint a token yourself:
 
 ```bash
-TOKEN="$(hack/nke-token.sh)"
+TOKEN="$(hack/nvke-token.sh)"
 curl -H "Authorization: Bearer ${TOKEN}" http://localhost:8080/api/clusters
 ```
 
@@ -85,7 +85,7 @@ all. Getting the audience right is the single most common thing to get wrong.
 Locally it's `https://nke.tilt.local`, but read it rather than assume it:
 
 ```bash
-hack/nke-token.sh --audience
+hack/nvke-token.sh --audience
 ```
 
 Or from the ConfigMap directly:
@@ -147,12 +147,12 @@ TOKEN="$(kubectl create token nke-client -n nke-clients \
 curl -H "Authorization: Bearer ${TOKEN}" http://localhost:8080/api/clusters
 ```
 
-`hack/nke-token.sh` wraps steps 1–3: it reads the audience off the running
+`hack/nvke-token.sh` wraps steps 1–3: it reads the audience off the running
 deployment and mints for `nke-clients/nke-client`, so you don't have to keep the
 audience in your head.
 
 ```bash
-TOKEN="$(hack/nke-token.sh)"
+TOKEN="$(hack/nvke-token.sh)"
 ```
 
 ## What actually happened
@@ -190,7 +190,7 @@ NKE does no authorization beyond that. Every admitted caller can do everything.
 | What you see | What went wrong | Fix |
 | --- | --- | --- |
 | `401` `"no bearer token was presented"` | The header didn't arrive. | Check for a typo in `Authorization`, or an empty `$TOKEN`: `kubectl create token` failing prints to stderr and leaves you with an empty variable. |
-| `401` and your token looks fine | Almost always the audience. | Re-read it with `hack/nke-token.sh --audience` and mint again. A wrong audience and no token at all are the same 401. |
+| `401` and your token looks fine | Almost always the audience. | Re-read it with `hack/nvke-token.sh --audience` and mint again. A wrong audience and no token at all are the same 401. |
 | `401` after it worked a minute ago | The token expired. | Mint another. They're short-lived by design. |
 | `403` | The token is valid; the subject isn't admitted. | You're minting for the wrong service account, or the `admit` rules don't list yours. A different token won't help. |
 | `200` for everything, even garbage tokens | Authentication is off, or NKE is permissive. | Check `AUTH_CONFIG_PATH` and `PERMISSIVE_MODE` on the deployment. |
@@ -216,7 +216,7 @@ A successful request logs nothing, so don't read silence as failure.
 Nothing about a JWT is secret except the signature, so you can just look:
 
 ```bash
-TOKEN="$(hack/nke-token.sh)"
+TOKEN="$(hack/nvke-token.sh)"
 echo "${TOKEN}" | cut -d. -f2 | python3 -c \
   'import sys,base64,json; s=sys.stdin.read().strip()
 print(json.dumps(json.loads(base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))), indent=2))'
@@ -249,7 +249,7 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 Or run all four cases at once:
 
 ```bash
-hack/nke-auth-demo.sh
+hack/nvke-auth-demo.sh
 ```
 
 ```
@@ -269,7 +269,7 @@ all 4 checks passed
 every controller API command mints the same identity this page uses (`nke-clients/nke-client`)
 with the audience from ConfigMap `nke-auth-config`, read from namespace
 `nke-controller`, or from `cloud-workflow-engine` when that is absent. There
-is no `NKECTL_DEV_TOKEN` and no `hack/nke-token.sh` step.
+is no `NKECTL_DEV_TOKEN` and no `hack/nvke-token.sh` step.
 
 Those names are fixed in the CLI. A cluster-admin kubeconfig (Tilt's kind
 cluster) can mint without extra RBAC. On a real site, grant the kubeconfig
@@ -290,11 +290,11 @@ whether authentication is on.
 
 ## In scripts
 
-`hack/nke-token.sh` prints nothing when authentication is off and exits 0, so one
+`hack/nvke-token.sh` prints nothing when authentication is off and exits 0, so one
 form works in both worlds:
 
 ```bash
-TOKEN="$(hack/nke-token.sh)"
+TOKEN="$(hack/nvke-token.sh)"
 curl ${TOKEN:+-H "Authorization: Bearer ${TOKEN}"} "${API_URL}/clusters"
 ```
 

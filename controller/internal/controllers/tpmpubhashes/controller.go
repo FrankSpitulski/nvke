@@ -90,7 +90,7 @@ func (c *Controller) reconcileTpmPubhashesCm(ctx context.Context) error {
 	// List ClusterStaticEntries managed by the controller's machine-spire-entry-controller.
 	clusterStaticEntries := &spirev1alpha1.ClusterStaticEntryList{}
 	err := c.k8sClient.List(ctx, clusterStaticEntries, client.MatchingLabels{
-		constants.LabelKeyNkeManagedBy: constants.FieldManagerMachineSpireEntry,
+		constants.LabelKeyNvkeManagedBy: constants.FieldManagerMachineSpireEntry,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to list cluster static entries: %w", err)
@@ -114,7 +114,7 @@ func (c *Controller) reconcileTpmPubhashesCm(ctx context.Context) error {
 	for pubHash := range desiredPubHashes {
 		// A data value is added for each pubhash, it is not currently used, but will allow more granular control in the future, if necessary.
 		// e.g. "<pubhash>": "nke.nvidia.com/managed-by=machine-spire-entry-controller"
-		value := fmt.Sprintf("%s=%s", constants.LabelKeyNkeManagedBy, constants.FieldManagerMachineSpireEntry)
+		value := fmt.Sprintf("%s=%s", constants.LabelKeyNvkeManagedBy, constants.FieldManagerMachineSpireEntry)
 		data[pubHash] = value
 	}
 

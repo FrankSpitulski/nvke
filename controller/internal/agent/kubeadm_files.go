@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
+	nvkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
 	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
@@ -91,8 +91,8 @@ func supportsKubeadmFiles(ctx context.Context, conn grpc.ClientConnInterface) (b
 
 func kubeadmFilesFieldSymbols() ([]string, error) {
 	messages := []protoreflect.MessageDescriptor{
-		(&nkeproto.KubeadmInitRequest{}).ProtoReflect().Descriptor(),
-		(&nkeproto.KubeadmJoinRequest{}).ProtoReflect().Descriptor(),
+		(&nvkeproto.KubeadmInitRequest{}).ProtoReflect().Descriptor(),
+		(&nvkeproto.KubeadmJoinRequest{}).ProtoReflect().Descriptor(),
 	}
 	symbols := make([]string, 0, len(messages))
 	for _, message := range messages {

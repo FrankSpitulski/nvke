@@ -28,7 +28,7 @@ import (
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/config"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
-	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
 )
 
 // The negative cases, and the only thing in the suite that would notice if NKE
@@ -339,9 +339,9 @@ func authnForwarder(restConfig *rest.Config) *kube.ServiceForwarder {
 }
 
 // authnClient builds an NKE API client carrying exactly the credential given.
-func authnClient(restConfig *rest.Config, tokens nke.TokenSource) *nke.Client {
+func authnClient(restConfig *rest.Config, tokens nvke.TokenSource) *nvke.Client {
 	GinkgoHelper()
-	client, err := nke.NewClientWithTokenSource(restConfig, nke.Options{}, tokens)
+	client, err := nvke.NewClientWithTokenSource(restConfig, nvke.Options{}, tokens)
 	Expect(err).NotTo(HaveOccurred(), "build an NKE API client")
 	return client
 }
@@ -361,7 +361,7 @@ func authnMint(ctx context.Context, source *authtoken.Source) string {
 
 // authnListClusters probes GET /api/clusters. It fails only on a transport
 // error, so every status is data.
-func authnListClusters(ctx context.Context, client *nke.Client) (int, []byte, http.Header) {
+func authnListClusters(ctx context.Context, client *nvke.Client) (int, []byte, http.Header) {
 	GinkgoHelper()
 	tctx, cancel := context.WithTimeout(ctx, authnTimeout)
 	defer cancel()

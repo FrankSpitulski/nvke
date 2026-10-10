@@ -56,7 +56,7 @@ const (
 
 	// tenantSecretsNamespace is where the controller publishes each cluster's kubeconfig
 	// and where it puts the cluster's CAPI objects. It matches
-	// controller/internal/constants.NamespaceNKESystem, which the chart creates
+	// controller/internal/constants.NamespaceNVKESystem, which the chart creates
 	// and scopes the controller's Secret grant to, so it is a constant on both sides.
 	tenantSecretsNamespace = "nke-system"
 
@@ -388,7 +388,7 @@ func (e *Engine) Deploy(ctx context.Context, kubeconfigPath string, cfg Config) 
 		return fmt.Errorf("controllerdeploy: creating a directory for the controller chart: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(chartPath) }()
-	if err := charts.Extract(charts.NKEController, chartPath); err != nil {
+	if err := charts.Extract(charts.NVKEController, chartPath); err != nil {
 		return fmt.Errorf("controllerdeploy: writing out the controller chart: %w", err)
 	}
 	postgresChartPath, err := os.MkdirTemp("", "nkectl-postgres-chart-*")

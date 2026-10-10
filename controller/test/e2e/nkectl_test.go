@@ -30,8 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/dsx-ai-factory/nvke/controller/api"
-	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nkectl"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
 )
 
 // useNkectl points the test's cluster lifecycle at the nkectl binary, and skips
@@ -41,7 +41,7 @@ import (
 // run CLI specs. A port-forward that will not start or a failing
 // `config set-site` is a regression, and skipping on those would hide one behind
 // a green run.
-func (t *tenantTest) useNkectl(ctx context.Context, timeouts nke.Options) {
+func (t *tenantTest) useNkectl(ctx context.Context, timeouts nvke.Options) {
 	GinkgoHelper()
 
 	runner, err := nkectl.New(ctx, nkectl.Options{

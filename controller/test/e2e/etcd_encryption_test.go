@@ -48,7 +48,7 @@ func validateBrownfieldEtcdEncryption(test *tenantTest) {
 			Should(Succeed(), "all desired nodes should be ready before enabling etcd encryption")
 
 		By("Enabling etcd encryption")
-		resp := expectSucceed(test.nke.UpdateEtcdEncryption(ctx, test.cluster.ID, true))
+		resp := expectSucceed(test.nvke.UpdateEtcdEncryption(ctx, test.cluster.ID, true))
 		Expect(resp.StatusCode()).To(Equal(200), string(resp.Body))
 		Expect(resp.JSON200).NotTo(BeNil())
 		cluster := resp.JSON200
@@ -57,7 +57,7 @@ func validateBrownfieldEtcdEncryption(test *tenantTest) {
 		Expect(cluster.Conditions.UpdateInProgress.Type).To(Equal(api.UpdateInProgressTypeEtcdEncryption))
 
 		By("Waiting for etcd encryption enablement to complete")
-		test.cluster = expectSucceed(test.nke.WaitForEtcdEncryptionEnabled(ctx, test.cluster.ID))
+		test.cluster = expectSucceed(test.nvke.WaitForEtcdEncryptionEnabled(ctx, test.cluster.ID))
 		Expect(test.cluster.EtcdEncrypted).To(BeTrue())
 	}, Label("lifecycle", "encryption"), NodeTimeout(15*time.Minute))
 
@@ -65,12 +65,12 @@ func validateBrownfieldEtcdEncryption(test *tenantTest) {
 
 	It("rejects disabling etcd encryption", func(ctx context.Context) {
 		By("Attempting to disable etcd encryption")
-		resp := expectSucceed(test.nke.UpdateEtcdEncryption(ctx, test.cluster.ID, false))
+		resp := expectSucceed(test.nvke.UpdateEtcdEncryption(ctx, test.cluster.ID, false))
 		Expect(resp.StatusCode()).To(Equal(400), string(resp.Body))
 		Expect(resp.JSON400).NotTo(BeNil())
 		Expect(resp.JSON400.Message).To(Equal("disabling etcd encryption is not supported"))
 
-		cluster := expectSucceed(test.nke.GetCluster(ctx, test.cluster.ID))
+		cluster := expectSucceed(test.nvke.GetCluster(ctx, test.cluster.ID))
 		Expect(cluster.EtcdEncrypted).To(BeTrue())
 	}, Label("lifecycle", "encryption"), NodeTimeout(5*time.Minute))
 }
@@ -106,7 +106,7 @@ func validateEtcdEncryptionKeyRotation(test *tenantTest) {
 		Expect(afterKey.activeSince).To(BeNumerically(">", beforeKey.activeSince), "active key timestamp should advance")
 		Expect(afterKey.pending).To(BeFalse(), "pending key should be removed after rotation")
 
-		cluster := expectSucceed(test.nke.GetCluster(ctx, test.cluster.ID))
+		cluster := expectSucceed(test.nvke.GetCluster(ctx, test.cluster.ID))
 		Expect(cluster.EtcdEncrypted).To(BeTrue())
 		Expect(cluster.Conditions.UpdateInProgress).To(BeNil())
 		Expect(cluster.Conditions.UpdateFailed).To(BeNil())

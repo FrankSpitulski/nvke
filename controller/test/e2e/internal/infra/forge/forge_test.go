@@ -17,7 +17,7 @@ import (
 
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/teleport"
-	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
 )
 
 const (
@@ -173,7 +173,7 @@ func newTestProvider(t *testing.T, forge *fakeForge, dialer Dialer) *Provider {
 		},
 		Dialer:   dialer,
 		JumpHost: testJumpHost,
-		Node: nke.NodeInputs{
+		Node: nvke.NodeInputs{
 			KubernetesVersion: "1.34.2",
 			CNIVersion:        "1.4.0",
 		},
@@ -378,7 +378,7 @@ func newSlowCreateProvider(t *testing.T, forge *fakeForge, dialer Dialer, perReq
 		},
 		Dialer:   dialer,
 		JumpHost: testJumpHost,
-		Node: nke.NodeInputs{
+		Node: nvke.NodeInputs{
 			KubernetesVersion: "1.34.2",
 			CNIVersion:        "1.4.0",
 		},

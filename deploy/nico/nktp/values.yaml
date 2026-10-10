@@ -78,7 +78,7 @@ opentelemetry-kube-stack:
 # name. The chart's transform/cluster processor reads it from K8S_CLUSTER_NAME,
 # and the chart sets that from global.clusterName only when the env list omits
 # it. A site takes the name from the nktp-cluster ConfigMap instead, which
-# nke-base-config renders from BootstrapConfig's ClusterName; the anchor below
+# nvke-base-config renders from BootstrapConfig's ClusterName; the anchor below
 # is defined once and reused by each gateway.
 watchdog:
   kubernetes:

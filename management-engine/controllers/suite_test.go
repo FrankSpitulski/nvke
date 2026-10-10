@@ -86,7 +86,7 @@ func setupWithManager(ctx SpecContext, tc *fixture.Case) {
 		Controller: config.Controller{SkipNameValidation: new(true)},
 	})
 	Expect(err).NotTo(HaveOccurred())
-	reconciler := &NKEClusterReconciler{Client: mgr.GetClient(), PollInterval: pollInterval}
+	reconciler := &NVKEClusterReconciler{Client: mgr.GetClient(), PollInterval: pollInterval}
 	setupCWEFixture(ctx, tc, reconciler)
 	Expect(reconciler.SetupWithManager(mgr)).To(Succeed())
 	tc.StartManager(ctx, mgr)

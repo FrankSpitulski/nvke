@@ -86,11 +86,11 @@ const (
 	// NKE label key for cluster static entries. The value is
 	// config.Config.ManagedByLabelValue, not a constant -- it is
 	// per-install configurable.
-	LabelKeyNkeManagedBy = "nke.nvidia.com/managed-by"
+	LabelKeyNvkeManagedBy = "nke.nvidia.com/managed-by"
 
-	// NamespaceNKESystem is the shared management-plane namespace for tenant-access
+	// NamespaceNVKESystem is the shared management-plane namespace for tenant-access
 	// Secrets and OIDC-mode CAPI objects. The Helm chart creates it unconditionally.
-	NamespaceNKESystem = "nke-system"
+	NamespaceNVKESystem = "nke-system"
 
 	// LabelKeyKubeconfigMode records whether a published kubeconfig Secret holds
 	// SPIRE exec-auth or a verbatim admin.conf. The mode is rewritten in place when

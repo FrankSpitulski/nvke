@@ -521,7 +521,7 @@ nkectl get clusters
 ```
 
 ```bash
-./hack/nke-auth-demo.sh    # four credentials, prints the status code for each
+./hack/nvke-auth-demo.sh    # four credentials, prints the status code for each
 ```
 
 Mint a token for `curl` yourself:
@@ -751,12 +751,12 @@ kubectl create clusterrolebinding nke-service-account-issuer-discovery \
 ### Calling the API from Scripts and CI
 
 Interactive use is `nkectl`: it mints the same identity from the site
-kubeconfig. `hack/nke-token.sh` is for `curl` and scripts. It prints a bearer
+kubeconfig. `hack/nvke-token.sh` is for `curl` and scripts. It prints a bearer
 token, or nothing when authentication is off, so the same call works either
 way:
 
 ```bash
-TOKEN="$(hack/nke-token.sh)"
+TOKEN="$(hack/nvke-token.sh)"
 curl ${TOKEN:+-H "Authorization: Bearer ${TOKEN}"} "${API_URL}/clusters"
 ```
 

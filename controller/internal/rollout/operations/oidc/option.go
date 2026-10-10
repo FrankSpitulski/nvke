@@ -37,7 +37,7 @@ func WithClient(k8sClient client.Client) Option {
 
 // WithOIDCConfig injects the site OIDC settings (issuer URL, CA-bundle secret ref)
 // the auth-config is rendered from.
-func WithOIDCConfig(oidc *config.NkeOIDCAuth) Option {
+func WithOIDCConfig(oidc *config.NvkeOIDCAuth) Option {
 	return func(op *EnableOIDCOperation) { op.oidcConfig = oidc }
 }
 

@@ -48,7 +48,7 @@ tenantAccess:
 #
 # The settings below are kept, not deleted: the SPIRE OIDC discovery provider
 # and its nodeport are still installed by this path, and the CA chain in
-# nke-base-config still publishes oidc-provider-upstream-ca -- the spire item
+# nvke-base-config still publishes oidc-provider-upstream-ca -- the spire item
 # waits on that Certificate regardless. So turning this true is a one-line
 # change once the SPIRE half is proven, with nothing else to reassemble.
 nkeOIDCAuth:
@@ -236,7 +236,7 @@ service:
   nodePort: 30080
 
 secrets:
-  # Names the Secret ../nke-base-config/35-dgxc-tenant-credentials.yaml.tmpl
+  # Names the Secret ../nvke-base-config/35-dgxc-tenant-credentials.yaml.tmpl
   # renders. Empty means the controller never receives DGXC_TENANT_USER and
   # DGXC_TENANT_PASSWORD, and every tenant create fails at user-data rendering
   # -- one of that run's eleven failures. The chart injects them only

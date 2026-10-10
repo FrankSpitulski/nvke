@@ -111,7 +111,7 @@ else
   NICO_PROVIDER_ENABLED=false
 fi
 
-# Which deploy path nke-deploy.sh installs, one per backend. The trees are not
+# Which deploy path nvke-deploy.sh installs, one per backend. The trees are not
 # interchangeable: capd-e2e carries the reboot test double, the controller's RBAC over
 # dockerclusters and nke-spire-client, while capnico-e2e carries the
 # nico-credentials Secret instead. deploy-stack.sh defaults to capd-e2e, so the
@@ -979,7 +979,7 @@ if [[ "${NKE_E2E_USE_STACK:-false}" == "true" ]]; then
   docker cp "${WORKSPACE_ROOT}/controller/hack/ci/deploy-stack.sh" \
     "${RUNNER_NAME}:/usr/local/bin/deploy-stack.sh"
   # The deploy paths and the charts they install from live under one root, so
-  # this is a single copy. deploy/nke-deploy.sh reads nke-deploy.yaml from
+  # this is a single copy. deploy/nvke-deploy.sh reads nvke-deploy.yaml from
   # here; controller/deploy/<target>/controller/release.yaml reaches its chart
   # as ../charts/controller, which resolves inside the same tree.
   runner_exec mkdir -p /workspace/nke-stack/controller
@@ -1135,9 +1135,9 @@ if [[ "${NKE_E2E_USE_STACK:-false}" == "true" ]]; then
   # Tilt's nico provider runs, so the two paths deploy the provider identically.
   #
   # Before the install, not after: the controller watches the NICo CRDs this chart brings,
-  # and the controller item is the last thing nke-deploy.sh installs.
+  # and the controller item is the last thing nvke-deploy.sh installs.
   # nico-credentials is the other way round -- the deploy path renders it as
-  # part of nke-base-config -- which is fine, because CAPNICo reads that Secret
+  # part of nvke-base-config -- which is fine, because CAPNICo reads that Secret
   # when it reconciles rather than at startup.
   if [[ "${NICO_PROVIDER_ENABLED}" == true ]]; then
     log "installing CAPNICo from ${CAPNICO_SOURCE_CONTAINER_DIR}"

@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
-	nkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
+	nvkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -240,7 +240,7 @@ func TestCheckHostOpenVSwitchReady(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		r := &MockRunner{
 			Runners: []runner{
-				runForCommand("ovs-vsctl", []string{"--version"}, func(string, []string, *nkeutils.CommandOptions) ([]byte, error) {
+				runForCommand("ovs-vsctl", []string{"--version"}, func(string, []string, *nvkeutils.CommandOptions) ([]byte, error) {
 					return []byte("ovs-vsctl (Open vSwitch) 3.3.0\n"), nil
 				}),
 			},
@@ -281,32 +281,32 @@ func TestChartsDebPresenceFailsWhenAbsent(t *testing.T) {
 	assert.True(t, errors.Is(err, errCNIChartsDebNotInstalled), "got %v", err)
 }
 
-func TestNkeCniAptSpec(t *testing.T) {
-	spec, err := nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_OVN, pb.CniAptRole_CNI_APT_ROLE_CHARTS, "v2.1.0")
+func TestNvkeCniAptSpec(t *testing.T) {
+	spec, err := nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_OVN, pb.CniAptRole_CNI_APT_ROLE_CHARTS, "v2.1.0")
 	assert.NoError(t, err)
 	assert.Equal(t, "nke-cni-ovn-charts-2.1.0=2.1.0", spec)
 
-	spec, err = nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_OVN, pb.CniAptRole_CNI_APT_ROLE_IMAGES, "1")
+	spec, err = nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_OVN, pb.CniAptRole_CNI_APT_ROLE_IMAGES, "1")
 	assert.NoError(t, err)
 	assert.Equal(t, "nke-cni-ovn-images-1=1", spec)
 
-	spec, err = nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_CALICO, pb.CniAptRole_CNI_APT_ROLE_CHARTS, "3.0")
+	spec, err = nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_CALICO, pb.CniAptRole_CNI_APT_ROLE_CHARTS, "3.0")
 	assert.NoError(t, err)
 	assert.Equal(t, "nke-cni-calico-manifests-3.0=3.0", spec)
 
-	spec, err = nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_UNSPECIFIED, pb.CniAptRole_CNI_APT_ROLE_IMAGES, "1")
+	spec, err = nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_UNSPECIFIED, pb.CniAptRole_CNI_APT_ROLE_IMAGES, "1")
 	assert.NoError(t, err)
 	assert.Equal(t, "nke-cni-ovn-images-1=1", spec)
 
-	spec, err = nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_UNSPECIFIED, pb.CniAptRole_CNI_APT_ROLE_CHARTS, "")
+	spec, err = nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_UNSPECIFIED, pb.CniAptRole_CNI_APT_ROLE_CHARTS, "")
 	assert.NoError(t, err)
 	assert.Equal(t, "nke-cni-ovn-charts-1.4.0", spec)
 
-	spec, err = nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_CALICO, pb.CniAptRole_CNI_APT_ROLE_IMAGES, "")
+	spec, err = nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_CALICO, pb.CniAptRole_CNI_APT_ROLE_IMAGES, "")
 	assert.NoError(t, err)
 	assert.Equal(t, "nke-cni-calico-images-3.30.1", spec)
 
-	_, err = nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_CALICO, pb.CniAptRole_CNI_APT_ROLE_UNSPECIFIED, "1")
+	_, err = nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_CALICO, pb.CniAptRole_CNI_APT_ROLE_UNSPECIFIED, "1")
 	assert.Error(t, err)
 }
 
@@ -796,19 +796,19 @@ type recordingRunner struct {
 	args []string
 }
 
-func (r *recordingRunner) Run(name string, args []string, _ *nkeutils.CommandOptions) ([]byte, error) {
+func (r *recordingRunner) Run(name string, args []string, _ *nvkeutils.CommandOptions) ([]byte, error) {
 	r.name = name
 	r.args = args
 	return nil, nil
 }
 
-func (r *recordingRunner) RunSplitOutput(name string, args []string, _ *nkeutils.CommandOptions) (nkeutils.CommandOutput, error) {
+func (r *recordingRunner) RunSplitOutput(name string, args []string, _ *nvkeutils.CommandOptions) (nvkeutils.CommandOutput, error) {
 	r.name = name
 	r.args = args
-	return nkeutils.CommandOutput{}, nil
+	return nvkeutils.CommandOutput{}, nil
 }
 
-func (r *recordingRunner) RunDetached(name string, args []string, _ *nkeutils.CommandOptions) error {
+func (r *recordingRunner) RunDetached(name string, args []string, _ *nvkeutils.CommandOptions) error {
 	r.name = name
 	r.args = args
 	return nil
@@ -842,7 +842,7 @@ type calicoApplyRunner struct {
 	failAt int
 }
 
-func (r *calicoApplyRunner) Run(name string, args []string, opts *nkeutils.CommandOptions) ([]byte, error) {
+func (r *calicoApplyRunner) Run(name string, args []string, opts *nvkeutils.CommandOptions) ([]byte, error) {
 	r.calls = append(r.calls, append([]string{name}, args...))
 	if len(r.calls) == r.failAt {
 		return nil, errors.New("simulated kubectl failure")

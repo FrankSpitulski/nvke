@@ -21,7 +21,7 @@ import (
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/authtoken"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
-	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
 )
 
 // Permissive mode answers 200 to everything, so the counter is the only evidence
@@ -65,7 +65,7 @@ var _ = Describe("NKE API authentication in permissive mode", Ordered, Label("au
 
 		rolloutCtx, rolloutCancel := context.WithTimeout(ctx, permissiveRolloutTimeout)
 		defer rolloutCancel()
-		previous, err := nke.SetPermissiveMode(rolloutCtx, runtimeClient, "true")
+		previous, err := nvke.SetPermissiveMode(rolloutCtx, runtimeClient, "true")
 		Expect(err).NotTo(HaveOccurred(), "put Deployment %s/%s into permissive mode",
 			controller.Namespace(), controller.Deployment())
 
@@ -73,7 +73,7 @@ var _ = Describe("NKE API authentication in permissive mode", Ordered, Label("au
 			restoreCtx, restoreCancel := context.WithTimeout(ctx, permissiveRolloutTimeout)
 			defer restoreCancel()
 
-			_, restoreErr := nke.SetPermissiveMode(restoreCtx, runtimeClient, previous)
+			_, restoreErr := nvke.SetPermissiveMode(restoreCtx, runtimeClient, previous)
 			Expect(restoreErr).NotTo(HaveOccurred(), "restore %s=%q", authnPermissiveEnv, previous)
 
 			// Checked, not assumed. The enforcing specs skip themselves while the
@@ -91,13 +91,13 @@ var _ = Describe("NKE API authentication in permissive mode", Ordered, Label("au
 		// The metrics listener is a second server on a second port, reachable
 		// only because the Service publishes `metrics` alongside `http`. The
 		// probe makes a missing port say so rather than read as a dead NKE.
-		metrics, err = kube.SharedServiceForwarder(restConfig, controller.Namespace(), controller.Service(), nkeControllerMetricsPort)
+		metrics, err = kube.SharedServiceForwarder(restConfig, controller.Namespace(), controller.Service(), nvkeControllerMetricsPort)
 		Expect(err).NotTo(HaveOccurred(), "build a port-forward to the metrics listener")
 
 		_, _, err = metrics.Get(tctx, metricsPath)
 		Expect(err).NotTo(HaveOccurred(),
 			"could not reach %s on the %q port of Service %s/%s; the chart publishes it from .Values.metrics.port and a Service without it makes the permissive counter unassertable",
-			metricsPath, nkeControllerMetricsPort, controller.Namespace(), controller.Service())
+			metricsPath, nvkeControllerMetricsPort, controller.Namespace(), controller.Service())
 	})
 
 	It("serves the three rejection cases and counts them as would_reject", func(ctx SpecContext) {
@@ -116,7 +116,7 @@ var _ = Describe("NKE API authentication in permissive mode", Ordered, Label("au
 
 		for _, probe := range []struct {
 			name   string
-			client *nke.Client
+			client *nvke.Client
 		}{
 			{"no token", authnClient(restConfig, nil)},
 			{"wrong audience", authnClient(restConfig, wrongAudience)},
@@ -150,9 +150,9 @@ var _ = Describe("NKE API authentication in permissive mode", Ordered, Label("au
 	})
 })
 
-// nkeControllerMetricsPort is the port name the metrics listener is published on. A name
+// nvkeControllerMetricsPort is the port name the metrics listener is published on. A name
 // and not 9090, because the chart renders the number from .Values.metrics.port.
-const nkeControllerMetricsPort = "metrics"
+const nvkeControllerMetricsPort = "metrics"
 
 const metricsPath = "/metrics"
 

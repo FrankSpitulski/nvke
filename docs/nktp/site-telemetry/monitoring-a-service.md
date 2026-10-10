@@ -52,7 +52,7 @@ spec:
 
 **Ordering.** The monitoring CRDs come with NKTP. On a site controller, the
 `nktp` item installs them before every item that follows it in
-`deploy/nico/nke-deploy.yaml`, so a chart installed later in
+`deploy/nico/nvke-deploy.yaml`, so a chart installed later in
 the path can create its monitor. A component installed before NKTP, or outside
 the path (cert-manager and CAPI through `clusterctl init`, OVN and CoreDNS
 through bootstrap), has to add its monitor after NKTP is up.

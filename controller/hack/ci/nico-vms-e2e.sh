@@ -250,7 +250,7 @@ collect_diagnostics() {
     capture tilt-engine.json tilt_cmd dump engine
     tilt_cmd snapshot create "${STATE_DIR}/tilt-snapshot.json" >/dev/null 2>&1 || true
     # Through the port-forward Tilt still holds open.
-    if token="$(hack/nke-token.sh 2>/dev/null)"; then
+    if token="$(hack/nvke-token.sh 2>/dev/null)"; then
       curl -fsS --max-time 10 ${token:+-H "Authorization: Bearer ${token}"} \
         http://localhost:8080/api/clusters >"${STATE_DIR}/cwe-clusters.json" 2>&1 || true
     fi

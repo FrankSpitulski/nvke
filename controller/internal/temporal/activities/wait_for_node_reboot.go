@@ -74,7 +74,7 @@ func (a *Activities) waitForNodeReboot(ctx context.Context, input WaitForNodeReb
 			return WaitForNodeRebootResult{}, fmt.Errorf("failed to get node: %w", err)
 		}
 
-		machineNamespace = constants.NamespaceNKESystem
+		machineNamespace = constants.NamespaceNVKESystem
 		machineName = node.Name
 	}
 

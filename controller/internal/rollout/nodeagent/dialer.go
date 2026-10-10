@@ -12,7 +12,7 @@ import (
 	"context"
 	"errors"
 
-	nkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
+	nvkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
 	"github.com/dsx-ai-factory/nvke/controller/internal/rollout"
 )
@@ -21,7 +21,7 @@ import (
 // caller must invoke. The node identity is part of the contract because the controller's
 // SPIFFE authorization uses the node UUID; an IP address alone is not unique
 // when clusters use overlapping private networks.
-type Dialer func(ctx context.Context, node rollout.Node) (client nkeproto.NodeAgentClient, cleanup func(), err error)
+type Dialer func(ctx context.Context, node rollout.Node) (client nvkeproto.NodeAgentClient, cleanup func(), err error)
 
 // ErrMethodUnsupported reports that an agent cannot prove it implements a
 // requested RPC — it is too old, or does not serve gRPC reflection.
@@ -32,7 +32,7 @@ var ErrMethodUnsupported = errors.New("agent method unsupported")
 
 // MethodSupportChecker reports whether node's agent implements
 // fullMethod — a generated proto _FullMethodName such as
-// nkeproto.NodeAgent_EnableAPIServerAuthenticationConfig_FullMethodName —
+// nvkeproto.NodeAgent_EnableAPIServerAuthenticationConfig_FullMethodName —
 // typically via gRPC reflection. It returns nil when supported, an
 // ErrMethodUnsupported-wrapped error when support cannot be proven, or a plain
 // error on a transport failure. It is the reusable capability primitive a

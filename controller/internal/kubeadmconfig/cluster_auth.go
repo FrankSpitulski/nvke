@@ -13,7 +13,7 @@ import (
 
 	"github.com/dsx-ai-factory/nvke/controller/internal/config"
 	"github.com/dsx-ai-factory/nvke/controller/internal/controllerconfig"
-	"github.com/dsx-ai-factory/nvke/controller/internal/nkerbac"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nvkerbac"
 )
 
 // SupportsAuthenticationConfiguration reports whether kube-apiserver at
@@ -26,7 +26,7 @@ func SupportsAuthenticationConfiguration(kubernetesVersion string) bool {
 // ClusterAuthentication is what a cluster's AuthenticationConfiguration is built from.
 type ClusterAuthentication struct {
 	ClusterName   string
-	Shared        config.NkeOIDCAuth
+	Shared        config.NvkeOIDCAuth
 	SharedEnabled bool
 	Providers     []controllerconfig.OIDCProvider
 	TrustDomain   string
@@ -78,7 +78,7 @@ func LoadOperatorJWTPolicy(ctx context.Context, reader client.Reader, trustDomai
 	}
 	policy := OperatorJWTPolicy{ManagementJWTTrustDomain: trustDomain}
 
-	manifest, err := nkerbac.ReadManifest(ctx, reader)
+	manifest, err := nvkerbac.ReadManifest(ctx, reader)
 	if apierrors.IsNotFound(err) {
 		return policy, nil
 	}
@@ -89,7 +89,7 @@ func LoadOperatorJWTPolicy(ctx context.Context, reader client.Reader, trustDomai
 		return OperatorJWTPolicy{}, errors.New("nke-rbac binds NKE identities, but the management SPIFFE trust domain is unknown")
 	}
 
-	policy.ReservedSubjects, err = nkerbac.UserSubjects(manifest)
+	policy.ReservedSubjects, err = nvkerbac.UserSubjects(manifest)
 	if err != nil {
 		return OperatorJWTPolicy{}, err
 	}

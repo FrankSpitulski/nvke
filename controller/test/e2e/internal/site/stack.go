@@ -434,7 +434,7 @@ func (d Stack) commands(t DeployTarget, valuesDir string) []step {
 		{"clusterctl init", env + "clusterctl init --wait-providers"},
 		{"default storage class", env + "kubectl apply -f " + shellQuote(d.StorageClassManifest) +
 			" && " + env + "kubectl patch storageclass " + shellQuote(d.StorageClassName) + " -p " + shellQuote(defaultClass)},
-		{"install " + d.DeployPath, env + "bash " + shellQuote(path.Join(assetsDir, scriptsDir, "nke-deploy.sh")) + " install" +
+		{"install " + d.DeployPath, env + "bash " + shellQuote(path.Join(assetsDir, scriptsDir, "nvke-deploy.sh")) + " install" +
 			" --deploy-path " + shellQuote(path.Join(assetsDir, d.DeployPath)) +
 			" --config " + shellQuote(path.Join(valuesDir, "bootstrap-config.json")) +
 			" " + values(releaseController) +

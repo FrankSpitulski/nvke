@@ -80,7 +80,7 @@ func envOrDefault(key, def string) string {
 	return def
 }
 
-// These specs talk to the forwarder directly rather than through nke.Client, so
+// These specs talk to the forwarder directly rather than through nvke.Client, so
 // they carry no NKE credential and need none: all three paths are on the
 // anonymous surface in internal/auth/routes.go. If /api/version ever stops
 // being anonymous, this file goes red before anything else does.

@@ -992,7 +992,7 @@ _cwe_oidc_enabled = os.getenv(
 #
 # The config file comes from the nke-auth-config ConfigMap in
 # deploy/k8s/nke-auth-dev.yaml, and the chart mounts it from the apiAuth values
-# set below. To drive it by hand, use hack/nke-token.sh for the bearer token.
+# set below. To drive it by hand, use hack/nvke-token.sh for the bearer token.
 #
 #   NKE_AUTH_ENABLED=false tilt up     -> AUTH_CONFIG_PATH unset, authn off
 #   NKE_PERMISSIVE_MODE=true tilt up   -> evaluate and count, never reject

@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
-	nkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
+	nvkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
 )
 
 func TestExecuteNodePreflight(t *testing.T) {
@@ -349,7 +349,7 @@ func cloudInitStatusServerCounted(t *testing.T, output []byte, runErr error) (*N
 		RootPath: t.TempDir(),
 		Runner: &MockRunner{
 			Runners: []runner{
-				func(name string, args []string, _ *nkeutils.CommandOptions) (bool, []byte, error) {
+				func(name string, args []string, _ *nvkeutils.CommandOptions) (bool, []byte, error) {
 					if name == "cloud-init" && len(args) == 1 && args[0] == "status" {
 						calls++
 						return true, output, runErr

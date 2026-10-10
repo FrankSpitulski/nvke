@@ -162,10 +162,10 @@ directly; a real site uses `nico` and CWE builds them. See
 [Control plane configuration](#control-plane-configuration); full schema at
 `/api/docs`.
 
-For `curl`, mint a token with `hack/nke-token.sh` after the stack is up:
+For `curl`, mint a token with `hack/nvke-token.sh` after the stack is up:
 
 ```bash
-TOKEN="$(controller/hack/nke-token.sh)"
+TOKEN="$(controller/hack/nvke-token.sh)"
 curl -H "Authorization: Bearer ${TOKEN}" http://localhost:8080/api/clusters
 ```
 

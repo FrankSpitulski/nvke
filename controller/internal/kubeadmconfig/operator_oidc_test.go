@@ -462,7 +462,7 @@ func TestBuildOIDCAuthenticationConfigSharedProviderUnchanged(t *testing.T) {
 		ManagementJWTTrustDomain: "example.org",
 	})
 
-	got, err := BuildOIDCAuthenticationConfig("tenant-42", config.NkeOIDCAuth{
+	got, err := BuildOIDCAuthenticationConfig("tenant-42", config.NvkeOIDCAuth{
 		IssuerURL:    "https://shared.example.com",
 		DiscoveryURL: "https://discovery.example.com/.well-known/openid-configuration",
 	}, caBundle)

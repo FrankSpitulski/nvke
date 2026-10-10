@@ -19,7 +19,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/dsx-ai-factory/nvke/controller/api"
-	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
 )
 
 var (
@@ -37,8 +37,8 @@ var (
 //
 // The new cluster's identity is recorded before that read, so a cluster the controller
 // created but this could not then look up is still removable by CleanupCreated.
-func (r *Runner) CreateCluster(ctx context.Context, spec nke.ClusterSpec) (*api.Cluster, error) {
-	req, err := nke.BuildCreateRequest(spec)
+func (r *Runner) CreateCluster(ctx context.Context, spec nvke.ClusterSpec) (*api.Cluster, error) {
+	req, err := nvke.BuildCreateRequest(spec)
 	if err != nil {
 		return nil, err
 	}

@@ -170,7 +170,7 @@ make test-authn
 make test-authn-spire
 ```
 
-`hack/nke-auth-demo.sh` drives the same four credentials with `curl` and needs
+`hack/nvke-auth-demo.sh` drives the same four credentials with `curl` and needs
 no Go at all.
 
 ## Useful Ginkgo CLI Commands

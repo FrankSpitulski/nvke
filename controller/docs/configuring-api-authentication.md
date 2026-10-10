@@ -92,7 +92,7 @@ that ConfigMap from namespace `nke-controller`, or from `cloud-workflow-engine`
 when `nke-controller` has none. Any other error reading it, such as a
 permission denial, stops the command. In any other namespace, `nkectl` finds
 no ConfigMap and sends no token.
-Other names work for `curl` and `hack/nke-token.sh` if you override
+Other names work for `curl` and `hack/nvke-token.sh` if you override
 them; they will not work for `nkectl`. One account per caller is still easier
 to revoke when those callers are not the CLI.
 

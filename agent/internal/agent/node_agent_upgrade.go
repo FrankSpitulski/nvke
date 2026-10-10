@@ -17,7 +17,7 @@ import (
 
 	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 	"github.com/dsx-ai-factory/nvke/agent/pkg/agentupgrade"
-	nkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
+	nvkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
 )
 
 var canonicalAgentVersionPattern = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
@@ -27,7 +27,7 @@ type agentUpgradeLauncher interface {
 }
 
 type systemdAgentUpgradeLauncher struct {
-	runner nkeutils.CommandRunner
+	runner nvkeutils.CommandRunner
 }
 
 func (l systemdAgentUpgradeLauncher) Start(operationID string) error {
@@ -112,7 +112,7 @@ func (s *NodeAgentServer) StartNodeAgentUpgrade(
 		if !s.BundleSource.IsHTTP() && !s.BundleSource.IsFile() {
 			return nil, status.Error(codes.FailedPrecondition, "node-agent self-upgrade supports HTTP and file bundles")
 		}
-		bundle, resolveErr := nkeutils.FetchBundleFromIndex(
+		bundle, resolveErr := nvkeutils.FetchBundleFromIndex(
 			ctx,
 			s.BundleServerURL,
 			s.BundleIndexFile,

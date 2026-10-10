@@ -62,7 +62,7 @@ func nicoMachineTeleportConfig(cfg config.Config, node db.Node, cluster db.Clust
 		TokenName:    teleport.TPMTokenName(cfg.Teleport.TokenNamePrefix, node.ID),
 		ProxyAddress: cfg.Teleport.ProxyAddress,
 		JoinMethod:   string(teleport.JoinMethodTPM),
-		Labels:       buildTeleportLabels(node, cluster, nicoProvider, nodePoolID, isControlPlaneRole, cfg.NKESiteControllerName, cfg.Teleport.Environment, cfg.Teleport.ManagedByLabelValue),
+		Labels:       buildTeleportLabels(node, cluster, nicoProvider, nodePoolID, isControlPlaneRole, cfg.NVKESiteControllerName, cfg.Teleport.Environment, cfg.Teleport.ManagedByLabelValue),
 	}, nil
 }
 
@@ -228,7 +228,7 @@ func cniImagePackageName(plugin db.CniPlugin, version string) (string, error) {
 // directory out of that package's own file list. The images package carries no charts, so a node
 // that installs only that one fails before helm runs.
 //
-// These names must match the CHARTS role of nkeCniAptSpec in agent/internal/agent/cni.go, which is
+// These names must match the CHARTS role of nvkeCniAptSpec in agent/internal/agent/cni.go, which is
 // what the agent looks up. Note Calico's package is named "manifests" and OVN's is named "charts".
 func cniChartsPackageName(plugin db.CniPlugin, version string) (string, error) {
 	switch plugin {
@@ -245,16 +245,16 @@ func cniChartsPackageName(plugin db.CniPlugin, version string) (string, error) {
 // Output is "key: value" per line (no leading indent); the template applies indentation.
 func buildTeleportLabels(node db.Node, cluster db.Cluster, nicoProvider db.NicoClusterProvider, nodePoolID uuid.UUID, controlPlane bool, siteName, environment, managedByLabelValue string) string {
 	labels := map[string]string{
-		teleport.LabelNodeID:                node.ID.String(),
-		teleport.LabelNodeName:              node.Name,
-		teleport.LabelNodeRole:              teleport.NodeRoleLabel(controlPlane),
-		teleport.LabelSite:                  nicoProvider.SiteID.String(),
-		teleport.LabelNKESiteControllerName: siteName,
-		teleport.LabelCluster:               cluster.ID.String(),
-		teleport.LabelClusterName:           cluster.Name,
-		teleport.LabelResourceGroup:         teleport.LabelResourceGroupNKEValue,
-		teleport.LabelManagedBy:             managedByLabelValue,
-		teleport.LabelEnvironment:           environment,
+		teleport.LabelNodeID:                 node.ID.String(),
+		teleport.LabelNodeName:               node.Name,
+		teleport.LabelNodeRole:               teleport.NodeRoleLabel(controlPlane),
+		teleport.LabelSite:                   nicoProvider.SiteID.String(),
+		teleport.LabelNVKESiteControllerName: siteName,
+		teleport.LabelCluster:                cluster.ID.String(),
+		teleport.LabelClusterName:            cluster.Name,
+		teleport.LabelResourceGroup:          teleport.LabelResourceGroupNVKEValue,
+		teleport.LabelManagedBy:              managedByLabelValue,
+		teleport.LabelEnvironment:            environment,
 	}
 	if nodePoolID != uuid.Nil {
 		labels[teleport.LabelNodePool] = nodePoolID.String()

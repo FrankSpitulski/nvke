@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package nkerbac_test
+package nvkerbac_test
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nvke/controller/internal/nkerbac"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nvkerbac"
 )
 
 func TestReadManifest(t *testing.T) {
@@ -25,7 +25,7 @@ func TestReadManifest(t *testing.T) {
 
 	t.Run("absent ConfigMap is NotFound", func(t *testing.T) {
 		t.Parallel()
-		_, err := nkerbac.ReadManifest(ctx, fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).Build())
+		_, err := nvkerbac.ReadManifest(ctx, fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).Build())
 		require.Error(t, err)
 		assert.True(t, apierrors.IsNotFound(err))
 	})
@@ -33,10 +33,10 @@ func TestReadManifest(t *testing.T) {
 	t.Run("returns the trimmed manifest", func(t *testing.T) {
 		t.Parallel()
 		cm := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Namespace: constants.NamespaceNKESystem, Name: nkerbac.ConfigMapName},
-			Data:       map[string]string{nkerbac.ConfigMapKey: "\nkind: ClusterRole\n\n"},
+			ObjectMeta: metav1.ObjectMeta{Namespace: constants.NamespaceNVKESystem, Name: nvkerbac.ConfigMapName},
+			Data:       map[string]string{nvkerbac.ConfigMapKey: "\nkind: ClusterRole\n\n"},
 		}
-		got, err := nkerbac.ReadManifest(ctx, fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).WithObjects(cm).Build())
+		got, err := nvkerbac.ReadManifest(ctx, fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).WithObjects(cm).Build())
 		require.NoError(t, err)
 		assert.Equal(t, "kind: ClusterRole", string(got))
 	})
@@ -85,7 +85,7 @@ subjects:
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := nkerbac.UserSubjects([]byte(tt.manifest))
+			got, err := nvkerbac.UserSubjects([]byte(tt.manifest))
 			if tt.wantErr {
 				require.Error(t, err)
 				return

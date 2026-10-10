@@ -103,7 +103,7 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 
 func clusterIDForKubeconfigSecret(secret *corev1.Secret, managedByLabelValue string) (uuid.UUID, bool) {
 	if secret.Namespace != tenantaccess.SecretsNamespace ||
-		secret.Labels[constants.LabelKeyNkeManagedBy] != managedByLabelValue ||
+		secret.Labels[constants.LabelKeyNvkeManagedBy] != managedByLabelValue ||
 		!tenantaccess.IsControllerKubeconfigSecretName(secret.Name) {
 		return uuid.Nil, false
 	}

@@ -28,6 +28,6 @@ values:
   - overlay.yaml
 # Preconditions this item needs and does not own. helm --wait only waits on
 # workloads, and a Certificate is not one, so --wait would return before the CA
-# is issued. nke-base-config applies it; this blocks until cert-manager has.
+# is issued. nvke-base-config applies it; this blocks until cert-manager has.
 requires:
   - {kind: certificate, name: oidc-provider-upstream-ca, namespace: spire-server, condition: Ready}

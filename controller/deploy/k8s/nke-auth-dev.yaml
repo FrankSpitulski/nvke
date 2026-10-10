@@ -19,7 +19,7 @@
 # operator. A cluster-admin kubeconfig, including Tilt's kind user, can mint
 # without them.
 #
-# See hack/nke-auth-demo.sh.
+# See hack/nvke-auth-demo.sh.
 ---
 # Tilt owns the release namespace rather than Helm's --create-namespace: this
 # file is applied before the release runs. Same as nke-system-namespace.yaml.

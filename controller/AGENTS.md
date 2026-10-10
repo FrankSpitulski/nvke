@@ -244,16 +244,16 @@ nkectl get clusters
 For `curl`, get a token:
 
 ```bash
-TOKEN="$(hack/nke-token.sh)"
+TOKEN="$(hack/nvke-token.sh)"
 curl -H "Authorization: Bearer ${TOKEN}" http://localhost:8080/api/clusters
 ```
 
-`hack/nke-token.sh` prints nothing when authentication is off and exits 0, so one
+`hack/nvke-token.sh` prints nothing when authentication is off and exits 0, so one
 form works on both paths — the `${TOKEN:+...}` expansion drops the header
 entirely rather than sending an empty one:
 
 ```bash
-TOKEN="$(hack/nke-token.sh)"
+TOKEN="$(hack/nvke-token.sh)"
 curl ${TOKEN:+-H "Authorization: Bearer ${TOKEN}"} http://localhost:8080/api/clusters
 ```
 

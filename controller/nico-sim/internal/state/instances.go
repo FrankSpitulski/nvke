@@ -915,7 +915,7 @@ func ownerLabel(labels map[string]string) string {
 	if v := labels["nke.nvidia.com/node-id"]; v != "" {
 		return v
 	}
-	if v := labels["nke.node-id"]; v != "" {
+	if v := labels["nvke.node-id"]; v != "" {
 		return v
 	}
 	return ""

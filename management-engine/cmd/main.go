@@ -141,7 +141,7 @@ func main() {
 	}
 	ctx := ctrl.SetupSignalHandler()
 
-	if err := (&controllers.NKEClusterReconciler{
+	if err := (&controllers.NVKEClusterReconciler{
 		Client:   mgr.GetClient(),
 		CWE:      cweClient,
 		Bindings: bindings,

@@ -130,12 +130,12 @@ func TestClient_CreateMachine_ResolvesByRole(t *testing.T) {
 			require.NoError(t, err)
 
 			nicoMachines := &nicov1.NicoMachineList{}
-			require.NoError(t, k8sClient.List(ctx, nicoMachines, ctrlclient.InNamespace(constants.NamespaceNKESystem)))
+			require.NoError(t, k8sClient.List(ctx, nicoMachines, ctrlclient.InNamespace(constants.NamespaceNVKESystem)))
 			require.Len(t, nicoMachines.Items, 1)
 			assert.Contains(t, nicoMachines.Items[0].Spec.IpxeScript, tt.wantIPXE)
 
 			secrets := &corev1.SecretList{}
-			require.NoError(t, k8sClient.List(ctx, secrets, ctrlclient.InNamespace(constants.NamespaceNKESystem)))
+			require.NoError(t, k8sClient.List(ctx, secrets, ctrlclient.InNamespace(constants.NamespaceNVKESystem)))
 			require.Len(t, secrets.Items, 1)
 			assert.Contains(t, string(secrets.Items[0].Data["value"]), tt.wantUserData)
 		})
@@ -166,7 +166,7 @@ func testMachineCreateDeps(k8sClient ctrlclient.Client) shared.MachineCreateDeps
 	return shared.MachineCreateDeps{
 		K8sClient:        k8sClient,
 		FieldManagerName: "cloud-workflow-engine",
-		Namespace:        constants.NamespaceNKESystem,
+		Namespace:        constants.NamespaceNVKESystem,
 		Config:           cfg,
 		NodeAgentBootstrapFiles: func(db.Node) ([]db.CloudInitFile, error) {
 			return nil, nil

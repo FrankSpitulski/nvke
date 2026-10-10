@@ -4,7 +4,7 @@
 // Package nkectl drives the nkectl binary against the NKE deployment the e2e
 // suite already has running. It is the command-line counterpart to
 // internal/nke, the REST client the rest of the suite uses; both build their
-// create request through nke.BuildCreateRequest, so the two differ only in
+// create request through nvke.BuildCreateRequest, so the two differ only in
 // transport.
 //
 // A Runner owns a `kubectl port-forward` to the NKE Service and a throwaway
@@ -29,7 +29,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
-	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
 )
 
 const (
@@ -84,7 +84,7 @@ type Options struct {
 
 	// Timeouts bound the CLI-driven waits. The zero value gets the same
 	// defaults the REST client applies.
-	Timeouts nke.Options
+	Timeouts nvke.Options
 
 	// Logf receives progress lines. Optional.
 	Logf func(format string, args ...any)
@@ -97,7 +97,7 @@ type Runner struct {
 	kubeconfig string
 	configHome string
 	baseURL    string
-	timeouts   nke.Options
+	timeouts   nvke.Options
 	logf       func(format string, args ...any)
 
 	forward       *exec.Cmd
@@ -153,7 +153,7 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 		binary:       binary,
 		kubeconfig:   kubeconfig,
 		configHome:   configHome,
-		timeouts:     nke.WithDefaults(opts.Timeouts),
+		timeouts:     nvke.WithDefaults(opts.Timeouts),
 		logf:         logf,
 		clusterNames: map[openapi_types.UUID]string{},
 	}

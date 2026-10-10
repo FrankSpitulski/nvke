@@ -55,7 +55,7 @@ func (a *Activities) DeleteCAPIClusterResources(ctx context.Context, input Delet
 		return nil
 	}
 
-	namespace := constants.NamespaceNKESystem
+	namespace := constants.NamespaceNVKESystem
 
 	infraCluster, err := capi.ParseManifest(manifest)
 	if err != nil {

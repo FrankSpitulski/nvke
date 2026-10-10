@@ -16,7 +16,7 @@ Four steps, three owners:
 |---|---|---|
 | 1. create and image the instance | **not NKE** -- the NICo API, iPXE and cloud-init | a booted host running `nke-agent` |
 | 2. `nkectl bootstrap site` | nkectl, on the instance | a **vanilla** Kubernetes cluster |
-| 3. this deploy path | `deploy/nke-deploy.sh`, on the node | the management plane |
+| 3. this deploy path | `deploy/nvke-deploy.sh`, on the node | the management plane |
 | 4. `nkectl create cluster` | the site controller itself | tenant clusters |
 
 Step 2 leaves bare Kubernetes on purpose. `bootstrap site` stands up a
@@ -48,7 +48,7 @@ What the node needs, all present on the reference instance type:
 
 ## Before this runs
 
-`deploy/nke-deploy.sh` installs the items below and nothing else. Five things must
+`deploy/nvke-deploy.sh` installs the items below and nothing else. Five things must
 already be true, all of them outside the deploy path:
 
 1. **The control plane is untainted.** A bootstrap cluster is all
@@ -187,7 +187,7 @@ components: each component ships its own, and one that does not is not scraped.
 
 Everything NKTP exports carries `k8s.cluster.name`, the site's name. Nothing
 in the cluster knows it -- NKE's kubeadm configuration names every cluster
-`kubernetes` -- so `nke-base-config` renders it from BootstrapConfig's
+`kubernetes` -- so `nvke-base-config` renders it from BootstrapConfig's
 `ClusterName` into the `nktp-cluster` ConfigMap, and the watchdog and the three
 gateways, which are what export to the backend, read it from there. A config
 without `ClusterName` stops the install at that template.

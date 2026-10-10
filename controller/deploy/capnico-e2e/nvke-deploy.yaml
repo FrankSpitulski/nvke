@@ -25,12 +25,12 @@
 #                  The nico-credentials Secret it reads IS here, because that is
 #                  site configuration a real deploy repository carries.
 #
-# nke-base-config is a template item because nico-credentials carries the
+# nvke-base-config is a template item because nico-credentials carries the
 # simulator's endpoint, which is computed per run. Nothing in it is secret on
 # this lane -- the token is nico-simctl-token -- but the endpoint still has to
 # be substituted, and a Secret is not reachable by helm values.
 items:
-  - {name: nke-base-config, type: template}
+  - {name: nvke-base-config, type: template}
   - {name: nke-auth-dev, type: manifest}
   - {name: spire-tpm-pubhashes, type: manifest}
   - {name: spire-server-nodeport, type: manifest}

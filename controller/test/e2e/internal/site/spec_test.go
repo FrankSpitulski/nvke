@@ -345,8 +345,8 @@ func TestSiteValidation(t *testing.T) {
 
 func TestArchiveAssets(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "deploy", "nke-deploy.sh"), "script")
-	writeFile(t, filepath.Join(root, "deploy", "._nke-deploy.sh"), "appledouble")
+	writeFile(t, filepath.Join(root, "deploy", "nvke-deploy.sh"), "script")
+	writeFile(t, filepath.Join(root, "deploy", "._nvke-deploy.sh"), "appledouble")
 	writeFile(t, filepath.Join(root, "deploy", "nico", "release.yaml"), "items")
 	writeFile(t, filepath.Join(root, "controller", "deploy", ".git", "HEAD"), "ref")
 	writeFile(t, filepath.Join(root, "controller", "deploy", ".DS_Store"), "junk")
@@ -378,7 +378,7 @@ func TestArchiveAssets(t *testing.T) {
 		}
 	}
 	sort.Strings(files)
-	want := []string{"deploy/nico/release.yaml", "deploy/nke-deploy.sh"}
+	want := []string{"deploy/nico/release.yaml", "deploy/nvke-deploy.sh"}
 	if strings.Join(files, ",") != strings.Join(want, ",") {
 		t.Errorf("archived %v, want %v", files, want)
 	}

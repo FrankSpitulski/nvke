@@ -43,7 +43,7 @@ var stackCheckout = func() string {
 	if err != nil {
 		panic(err)
 	}
-	for _, rel := range []string{"deploy/nke-deploy.sh", "deploy/nico/release.yaml"} {
+	for _, rel := range []string{"deploy/nvke-deploy.sh", "deploy/nico/release.yaml"} {
 		path := filepath.Join(dir, rel)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			panic(err)
@@ -224,7 +224,7 @@ func TestSBOMDeploy(t *testing.T) {
 		"node-role.kubernetes.io/control-plane-",
 		"clusterctl init",
 		"local-path-storage.yaml",
-		"nke-deploy.sh",
+		"nvke-deploy.sh",
 		"apply-capi-spiffe-exec-auth.sh",
 	}
 	last := -1
@@ -241,7 +241,7 @@ func TestSBOMDeploy(t *testing.T) {
 	if final := s.runs[len(s.runs)-1]; !strings.Contains(final, valuesDir) || !strings.Contains(final, "rm -rf") {
 		t.Errorf("last command should remove the values directory, got %s", final)
 	}
-	install := s.cmd(t, "nke-deploy.sh")
+	install := s.cmd(t, "nvke-deploy.sh")
 	for _, want := range []string{
 		"--deploy-path /var/lib/nke-e2e/assets/deploy/nico",
 		"--config",
@@ -263,7 +263,7 @@ func TestSBOMDeploy(t *testing.T) {
 func TestSBOMDeployCleansUpOnFailure(t *testing.T) {
 	s := sbomSession()
 	s.fail = func(cmd string) (string, error) {
-		if strings.Contains(cmd, "nke-deploy.sh") {
+		if strings.Contains(cmd, "nvke-deploy.sh") {
 			return "helm: release temporal failed", errors.New("exit status 1")
 		}
 		return "", nil

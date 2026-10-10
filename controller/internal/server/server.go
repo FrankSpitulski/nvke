@@ -228,7 +228,7 @@ func NewServerImpl(
 		database,
 		nodePoolService,
 		cfg.Teleport,
-		cfg.NkeOIDCAuth.Enabled,
+		cfg.NvkeOIDCAuth.Enabled,
 		cfg.SupportedInfraProviders,
 		cfg.UseControlPlaneControllerForControlPlane(),
 	)

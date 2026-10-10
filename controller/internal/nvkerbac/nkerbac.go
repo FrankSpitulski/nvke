@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package nkerbac reads the operator-managed nke-rbac manifest.
-package nkerbac
+// Package nvkerbac reads the operator-managed nke-rbac manifest.
+package nvkerbac
 
 import (
 	"bytes"
@@ -29,7 +29,7 @@ const (
 // apierrors.IsNotFound error.
 func ReadManifest(ctx context.Context, reader ctrlclient.Reader) ([]byte, error) {
 	var cm corev1.ConfigMap
-	key := types.NamespacedName{Namespace: constants.NamespaceNKESystem, Name: ConfigMapName}
+	key := types.NamespacedName{Namespace: constants.NamespaceNVKESystem, Name: ConfigMapName}
 	if err := reader.Get(ctx, key, &cm); err != nil {
 		return nil, fmt.Errorf("getting NKE RBAC ConfigMap %s/%s: %w", key.Namespace, key.Name, err)
 	}

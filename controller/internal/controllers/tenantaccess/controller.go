@@ -46,7 +46,7 @@ const (
 	// exported because the teardown activity deletes those Secrets on cluster
 	// removal. The chart creates the namespace and scopes the controller's Secret grant to
 	// it, so this is a constant rather than a config knob.
-	SecretsNamespace = constants.NamespaceNKESystem
+	SecretsNamespace = constants.NamespaceNVKESystem
 )
 
 // KubeconfigSecretName returns the Secret name that holds the per-cluster

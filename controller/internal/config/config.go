@@ -214,8 +214,8 @@ type Config struct {
 	// CertRenewalThresholdDays is passed to the certificate-renewal runbook.
 	CertRenewalThresholdDays int `env:"CERT_RENEWAL_THRESHOLD_DAYS" default:"30"`
 
-	// NKESiteControllerName is the name of the site controller
-	NKESiteControllerName string `env:"NKE_SITE_CONTROLLER_NAME"`
+	// NVKESiteControllerName is the name of the site controller
+	NVKESiteControllerName string `env:"NKE_SITE_CONTROLLER_NAME"`
 
 	// FieldManagerName is the Server-Side-Apply field manager this controller
 	// uses for its own CAPI/NICo patches. Defaults to today's literal so an
@@ -347,9 +347,9 @@ type Config struct {
 	// Set CNI_IMAGE_REGISTRY to redirect CNI image pulls to a local mirror.
 	CNIImageRegistry string `env:"CNI_IMAGE_REGISTRY" default:""`
 
-	// NkeOIDCAuth is the site-wide configuration for OIDC authentication from
+	// NvkeOIDCAuth is the site-wide configuration for OIDC authentication from
 	// NKE management identities to tenant cluster kube-apiservers.
-	NkeOIDCAuth NkeOIDCAuth `envPrefix:"NKE_OIDC_AUTH_"`
+	NvkeOIDCAuth NvkeOIDCAuth `envPrefix:"NKE_OIDC_AUTH_"`
 
 	// TenantAccessEnabled is the site Helm/env flag for the Nico consume
 	// fallback. CAPI clients always read the published nke-system Secret.
@@ -406,7 +406,7 @@ type TemporalTLSConfig struct {
 	ServerName string `env:"SERVER_NAME"`
 }
 
-type NkeOIDCAuth struct {
+type NvkeOIDCAuth struct {
 	// Enabled controls whether new clusters receive an apiserver
 	// AuthenticationConfiguration for NKE OIDC identities.
 	Enabled bool `env:"ENABLED" default:"false"`

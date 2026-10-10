@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package nke
+package nvke
 
 import (
 	"strings"
@@ -535,7 +535,7 @@ func TestBuildForgeNodePayloadsGuardsAgainstAFailedStep(t *testing.T) {
 // Asserted rather than left to dpkg. A bake version sorts above a release tag
 // today, so apt declines the swap, which makes the bug invisible until the
 // repository publishes something that sorts higher.
-func TestBuildForgeNodePayloadsDoesNotInstallNkeAgent(t *testing.T) {
+func TestBuildForgeNodePayloadsDoesNotInstallNvkeAgent(t *testing.T) {
 	payloads, err := BuildForgeNodePayloads(completeForgeInputs())
 	if err != nil {
 		t.Fatalf("building payloads: %v", err)

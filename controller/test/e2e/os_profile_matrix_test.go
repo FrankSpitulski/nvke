@@ -18,7 +18,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/config"
-	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
 )
 
 // errOSProfileMetadataUnavailable is returned when fleet OS profile metadata
@@ -126,8 +126,8 @@ func nicoVMSOSProfileTestSpec(profile nicoVMSOSProfileEntry, index int) testSpec
 			// The profile under test is the worker's. The control plane takes the
 			// nico-vms default instance, which leaves room for the controller's kubelet
 			// reservation (see nicoVMSSpec).
-			controlPlanePools: []nke.NodePoolSpec{{DesiredNodeCount: 1}},
-			workerPools: []nke.NodePoolSpec{{
+			controlPlanePools: []nvke.NodePoolSpec{{DesiredNodeCount: 1}},
+			workerPools: []nvke.NodePoolSpec{{
 				Name:             fmt.Sprintf("worker-profile-%02d", index+1),
 				NodeNamePrefix:   fmt.Sprintf("wp%02d", index+1),
 				DesiredNodeCount: 1,
@@ -135,7 +135,7 @@ func nicoVMSOSProfileTestSpec(profile nicoVMSOSProfileEntry, index int) testSpec
 				InstanceTypeID:   nicoVMSInstanceTypeID,
 			}},
 		},
-		options: nke.Options{
+		options: nvke.Options{
 			Provision: 2 * time.Hour,
 			Delete:    10 * time.Minute,
 			Poll:      10 * time.Second,

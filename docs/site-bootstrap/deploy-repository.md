@@ -6,7 +6,7 @@ A deploy repository contains the ArgoCD Application manifests, secrets, and Kube
 
 ## Reference Repository
 
-A complete, ready-to-fork reference repository is available at `github.com/dsx-ai-factory/nvke` under `deploy/reference/`. It includes the `nke-base-config` templates for secrets and namespaces, storage manifests, and ArgoCD Application manifests for all required NKE components.
+A complete, ready-to-fork reference repository is available at `github.com/dsx-ai-factory/nvke` under `deploy/reference/`. It includes the `nvke-base-config` templates for secrets and namespaces, storage manifests, and ArgoCD Application manifests for all required NKE components.
 
 > **Important:** The deploy repository must be accessible from the machine running the post-bootstrap deployment tooling. Ensure the repository is hosted on a git service reachable from your provisioned nodes (public GitHub, GitLab.com, or another externally accessible host).
 
@@ -33,8 +33,8 @@ A deploy repository has one or more **deploy paths** — directories that the po
 ```text
 my-deploy-repo/
 ├── deploy/                              # <-- deployPath
-│   ├── nke-deploy.yaml                  # declares item order and types
-│   ├── nke-base-config/                 # template: namespaces, secrets
+│   ├── nvke-deploy.yaml                  # declares item order and types
+│   ├── nvke-base-config/                 # template: namespaces, secrets
 │   │   ├── 00-namespaces.yaml
 │   │   ├── 10-image-pull-secret.yaml.tmpl
 │   │   ├── 20-argocd-repo-secrets.yaml.tmpl
@@ -52,15 +52,15 @@ my-deploy-repo/
 │   └── ...
 ```
 
-Flat files at the deploy path root (other than `nke-deploy.yaml`) are ignored — only subdirectories are processed.
+Flat files at the deploy path root (other than `nvke-deploy.yaml`) are ignored — only subdirectories are processed.
 
-## The `nke-deploy.yaml` File
+## The `nvke-deploy.yaml` File
 
-Place an `nke-deploy.yaml` at the root of each deploy path to declare item order and types explicitly:
+Place an `nvke-deploy.yaml` at the root of each deploy path to declare item order and types explicitly:
 
 ```yaml
 items:
-  - name: nke-base-config
+  - name: nvke-base-config
     type: template
   - name: nke-storage
     type: manifest
@@ -84,7 +84,7 @@ items:
 
 Names must be unique across all repos — duplicates are skipped with a warning.
 
-If `nke-deploy.yaml` is absent, the post-bootstrap deployment tooling falls back to **auto-detection**: subdirectories are processed in sorted order; those containing `application.yaml` are treated as ArgoCD apps, everything else as plain manifests.
+If `nvke-deploy.yaml` is absent, the post-bootstrap deployment tooling falls back to **auto-detection**: subdirectories are processed in sorted order; those containing `application.yaml` are treated as ArgoCD apps, everything else as plain manifests.
 
 ## Deploy Item Types
 
@@ -172,7 +172,7 @@ spec:
 
 ```mermaid
 flowchart TD
-    A["Go binary: clone repo"] --> B["Parse nke-deploy.yaml"]
+    A["Go binary: clone repo"] --> B["Parse nvke-deploy.yaml"]
     B --> C{"Has template items?"}
     C -- Yes --> D["Render .yaml.tmpl files"]
     D --> E["Replace .tmpl with .yaml in-place"]
@@ -190,7 +190,7 @@ flowchart TD
 For each repo with `deployPaths`, the post-bootstrap deployment tooling:
 
 1. Clones the repository locally (shallow, `--depth 1 --single-branch`)
-2. Parses `nke-deploy.yaml` in each deploy path (if present)
+2. Parses `nvke-deploy.yaml` in each deploy path (if present)
 3. Renders `type: template` items using the `BootstrapConfig`
 4. Archives the processed repo and uploads it to the init node
 5. The shell script processes items in declared order
@@ -379,9 +379,9 @@ stringData:
   password: "{{ .Database.SuperuserPassword }}"
 ```
 
-## Built-in `nke-base-config` Templates
+## Built-in `nvke-base-config` Templates
 
-The reference repository includes an `nke-base-config` template item that creates all the base resources needed before ArgoCD applications are deployed. It must be the first item in the deploy sequence.
+The reference repository includes an `nvke-base-config` template item that creates all the base resources needed before ArgoCD applications are deployed. It must be the first item in the deploy sequence.
 
 | File | Resources Created |
 |------|-------------------|
@@ -395,7 +395,7 @@ The reference repository includes an `nke-base-config` template item that create
 
 Repos that omit `deployPaths` are "secret-only." the post-bootstrap deployment tooling does not clone them; they exist solely so that ArgoCD can fetch from them at runtime.
 
-> **Important:** the post-bootstrap deployment tooling does **not** automatically create ArgoCD repo secrets. Your deploy repository must include a template that creates them. The reference repo's `20-argocd-repo-secrets.yaml.tmpl` handles this by iterating over `.ArgoCD.Repos`. If you build a bespoke deploy repository without `nke-base-config`, you must create these secrets yourself or ArgoCD will fail to fetch from your repos.
+> **Important:** the post-bootstrap deployment tooling does **not** automatically create ArgoCD repo secrets. Your deploy repository must include a template that creates them. The reference repo's `20-argocd-repo-secrets.yaml.tmpl` handles this by iterating over `.ArgoCD.Repos`. If you build a bespoke deploy repository without `nvke-base-config`, you must create these secrets yourself or ArgoCD will fail to fetch from your repos.
 
 ```yaml
 argocd:
@@ -421,11 +421,11 @@ After all deploy items are processed, the post-bootstrap deployment tooling moni
 
 1. Create a new directory under your deploy path (e.g., `deploy/my-app`)
 2. Add the appropriate files (see item types above)
-3. Add an entry to `nke-deploy.yaml` at the desired position:
+3. Add an entry to `nvke-deploy.yaml` at the desired position:
 
 ```yaml
 items:
-  - name: nke-base-config
+  - name: nvke-base-config
     type: template
   - name: my-app              # <-- new item
     type: manifest

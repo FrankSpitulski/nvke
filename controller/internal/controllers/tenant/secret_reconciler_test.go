@@ -182,8 +182,8 @@ func tenantAccessSecret(clusterID uuid.UUID, clusterName, uid, resourceVersion s
 			UID:             types.UID(uid),
 			ResourceVersion: resourceVersion,
 			Labels: map[string]string{
-				constants.LabelKeyNkeManagedBy: "cloud-workflow-engine",
-				constants.LabelKeyClusterID:    clusterID.String(),
+				constants.LabelKeyNvkeManagedBy: "cloud-workflow-engine",
+				constants.LabelKeyClusterID:     clusterID.String(),
 			},
 		},
 		Data: map[string][]byte{tenantaccess.KubeconfigSecretKey: kubeconfig},

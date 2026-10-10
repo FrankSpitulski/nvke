@@ -39,7 +39,7 @@ func SetSecretOwnership(secret *corev1.Secret, cluster db.Cluster, mode, managed
 	if secret.Labels == nil {
 		secret.Labels = map[string]string{}
 	}
-	secret.Labels[constants.LabelKeyNkeManagedBy] = managedByLabelValue
+	secret.Labels[constants.LabelKeyNvkeManagedBy] = managedByLabelValue
 	secret.Labels[constants.LabelKeyClusterID] = cluster.ID.String()
 	secret.Labels[constants.LabelKeyKubeconfigMode] = mode
 }

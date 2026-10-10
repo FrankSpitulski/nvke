@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package nke
+package nvke
 
 import (
 	"context"
@@ -77,7 +77,7 @@ func OIDCEnabled(ctx context.Context, c client.Client) (bool, error) {
 // an OIDC-enabled site is always born OIDC-on, so the spec creates its cluster with
 // the flag off, then flips it back on before enabling.
 func SetOIDCEnabled(ctx context.Context, c client.Client, enabled bool) error {
-	_, err := setNKEContainerEnv(ctx, c, oidcEnabledEnvVar, strconv.FormatBool(enabled))
+	_, err := setNVKEContainerEnv(ctx, c, oidcEnabledEnvVar, strconv.FormatBool(enabled))
 	return err
 }
 
@@ -87,16 +87,16 @@ func SetOIDCEnabled(ctx context.Context, c client.Client, enabled bool) error {
 // An absent variable comes back as "", and restoring that sets it to the empty
 // string rather than removing it. NKE reads both as enforcing.
 func SetPermissiveMode(ctx context.Context, c client.Client, value string) (string, error) {
-	return setNKEContainerEnv(ctx, c, permissiveModeEnvVar, value)
+	return setNVKEContainerEnv(ctx, c, permissiveModeEnvVar, value)
 }
 
-// setNKEContainerEnv upserts an environment variable on the NKE container and
+// setNVKEContainerEnv upserts an environment variable on the NKE container and
 // waits for the rollout. It returns the value it replaced.
 //
 // The container is found by name, with no fallback. Guessing container 0 writes
 // the variable onto whichever sidecar happens to be first, then waits out a
 // rollout that changed nothing.
-func setNKEContainerEnv(ctx context.Context, c client.Client, name, value string) (string, error) {
+func setNVKEContainerEnv(ctx context.Context, c client.Client, name, value string) (string, error) {
 	var deploy appsv1.Deployment
 	if err := c.Get(ctx, client.ObjectKey{Namespace: controller.Namespace(), Name: controller.Deployment()}, &deploy); err != nil {
 		return "", fmt.Errorf("getting NKE deployment %s/%s: %w", controller.Namespace(), controller.Deployment(), err)

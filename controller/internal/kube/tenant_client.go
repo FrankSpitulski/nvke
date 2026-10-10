@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	tenantAccessKubeconfigNamespace = constants.NamespaceNKESystem
+	tenantAccessKubeconfigNamespace = constants.NamespaceNVKESystem
 	tenantAccessKubeconfigKey       = "value"
 	tenantAPIServerProbeTimeout     = 5 * time.Second
 )

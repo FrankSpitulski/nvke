@@ -45,7 +45,7 @@ func BuildCombinedAuthenticationConfig(
 		JWT: make([]apiserverv1.JWTAuthenticator, 0, providerCount),
 	}
 	if managementOIDC.Enabled {
-		shared, err := BuildOIDCAuthenticationConfig(clusterName, config.NkeOIDCAuth{
+		shared, err := BuildOIDCAuthenticationConfig(clusterName, config.NvkeOIDCAuth{
 			Enabled:      true,
 			IssuerURL:    managementOIDC.IssuerURL,
 			DiscoveryURL: managementOIDC.DiscoveryURL,

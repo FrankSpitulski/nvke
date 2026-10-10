@@ -52,7 +52,7 @@ on:
       use-nke-stack:
         description: >-
           Deploy the management plane from controller/deploy/capnico-e2e with
-          deploy/nke-deploy.sh. This is the default on every trigger, as on the CAPD
+          deploy/nvke-deploy.sh. This is the default on every trigger, as on the CAPD
           lane; set false here to fall back to Tilt.
         required: false
         type: boolean

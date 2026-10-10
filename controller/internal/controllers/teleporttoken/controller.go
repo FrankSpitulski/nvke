@@ -295,7 +295,7 @@ func isNodeIneligible(node db.Node) bool {
 func (c *Controller) getPubHashFromNicoMachine(ctx context.Context, node db.Node) (string, error) {
 	nicoMachine := &nicov1.NicoMachine{}
 	if err := c.k8sClient.Get(ctx, client.ObjectKey{
-		Namespace: constants.NamespaceNKESystem,
+		Namespace: constants.NamespaceNVKESystem,
 		Name:      node.Name,
 	}, nicoMachine); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -458,15 +458,15 @@ func (c *Controller) createTokenForNode(ctx context.Context, node db.Node, ekPub
 		Expiry:     expiresAt,
 		JoinMethod: teleport.JoinMethodTPM,
 		Labels: map[string]string{
-			teleport.LabelSite:                  nicoProvider.SiteID.String(),
-			teleport.LabelNKESiteControllerName: c.cfg.NKESiteControllerName,
-			teleport.LabelCluster:               cluster.ID.String(),
-			teleport.LabelClusterName:           cluster.Name,
-			teleport.LabelNodeID:                node.ID.String(),
-			teleport.LabelNodePool:              nodePool.ID.String(),
-			teleport.LabelNodeName:              node.Name,
-			teleport.LabelResourceGroup:         teleport.LabelResourceGroupNKEValue,
-			teleport.LabelEnvironment:           c.cfg.Teleport.Environment,
+			teleport.LabelSite:                   nicoProvider.SiteID.String(),
+			teleport.LabelNVKESiteControllerName: c.cfg.NVKESiteControllerName,
+			teleport.LabelCluster:                cluster.ID.String(),
+			teleport.LabelClusterName:            cluster.Name,
+			teleport.LabelNodeID:                 node.ID.String(),
+			teleport.LabelNodePool:               nodePool.ID.String(),
+			teleport.LabelNodeName:               node.Name,
+			teleport.LabelResourceGroup:          teleport.LabelResourceGroupNVKEValue,
+			teleport.LabelEnvironment:            c.cfg.Teleport.Environment,
 		},
 		Spec: &teleport.TPMConfig{
 			Allow: []teleport.TPMRule{{

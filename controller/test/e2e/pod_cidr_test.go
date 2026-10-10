@@ -60,7 +60,7 @@ func validatePodCIDRPostCreate(test *tenantTest) {
 
 		By("Asserting the controller reports the requested network contract")
 		Eventually(func(ctx context.Context) error {
-			resp, err := test.nke.API().GetClusterWithResponse(ctx, test.cluster.ID)
+			resp, err := test.nvke.API().GetClusterWithResponse(ctx, test.cluster.ID)
 			if err != nil {
 				return fmt.Errorf("getting cluster %s: %w", test.cluster.ID, err)
 			}

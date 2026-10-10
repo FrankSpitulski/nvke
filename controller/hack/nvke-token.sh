@@ -5,7 +5,7 @@
 # Print a bearer token for the NKE API, or nothing when NKE is not
 # authenticating.
 #
-#   TOKEN="$(hack/nke-token.sh)"
+#   TOKEN="$(hack/nvke-token.sh)"
 #   curl ${TOKEN:+-H "Authorization: Bearer ${TOKEN}"} "${API_URL}/clusters"
 #
 # Empty output means authentication is off and a bare request is correct. Real
@@ -41,7 +41,7 @@ if [[ -n "${NKE_AUTH_TOKEN:-}" && -z "${1:-}" ]]; then
   exit 0
 fi
 
-die() { echo "nke-token.sh: $*" >&2; exit 1; }
+die() { echo "nvke-token.sh: $*" >&2; exit 1; }
 
 command -v kubectl >/dev/null 2>&1 || die "kubectl not found on PATH"
 KUBECTL=(kubectl)

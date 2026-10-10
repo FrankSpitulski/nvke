@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
-	nkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
+	nvkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
 )
 
 func TestReconcileKubeVipValidatesRequest(t *testing.T) {
@@ -156,13 +156,13 @@ func TestReconcileKubeVipConvergesManifest(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var fetchCalls int
 			runner := &MockRunner{Runners: []runner{
-				runForCommand("ip", []string{"-j", "addr"}, func(string, []string, *nkeutils.CommandOptions) ([]byte, error) {
+				runForCommand("ip", []string{"-j", "addr"}, func(string, []string, *nvkeutils.CommandOptions) ([]byte, error) {
 					return []byte(addressJSON), nil
 				}),
-				runForCommand("ip", []string{"-j", "route"}, func(string, []string, *nkeutils.CommandOptions) ([]byte, error) {
+				runForCommand("ip", []string{"-j", "route"}, func(string, []string, *nvkeutils.CommandOptions) ([]byte, error) {
 					return []byte(routeJSON), nil
 				}),
-				runForCommand("ip", []string{"addr", "del", vip + "/32", "dev", "eth1"}, func(string, []string, *nkeutils.CommandOptions) ([]byte, error) {
+				runForCommand("ip", []string{"addr", "del", vip + "/32", "dev", "eth1"}, func(string, []string, *nvkeutils.CommandOptions) ([]byte, error) {
 					return nil, nil
 				}),
 			}}
