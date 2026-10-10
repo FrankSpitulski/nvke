@@ -318,12 +318,12 @@ so the log will undercount them:
 
 ```bash
 kubectl -n "$NS" exec deploy/nke-controller -- \
-  curl -s http://127.0.0.1:9090/metrics | grep '^nke_auth_requests_total'
+  curl -s http://127.0.0.1:9090/metrics | grep '^nvke_auth_requests_total'
 ```
 
 ```
-nke_auth_requests_total{issuer="local-kubernetes",outcome="authenticated"} 42
-nke_auth_requests_total{issuer="unknown",outcome="would_reject",reason="no_token"} 7
+nvke_auth_requests_total{issuer="local-kubernetes",outcome="authenticated"} 42
+nvke_auth_requests_total{issuer="unknown",outcome="would_reject",reason="no_token"} 7
 ```
 
 Every `would_reject` series is a caller that enforcing would break. The `reason`

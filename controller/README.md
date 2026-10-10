@@ -571,7 +571,7 @@ A deployment that never sets `AUTH_CONFIG_PATH` stays disabled across upgrades.
 
 Permissive is a migration tool, not a setting to leave on. Use it to see who would
 be rejected before anyone actually is: watch
-`nke_auth_requests_total{outcome="would_reject"}` until it stays at zero, then
+`nvke_auth_requests_total{outcome="would_reject"}` until it stays at zero, then
 turn it off. The `reason` and `issuer` labels say what was wrong and whose token
 it was. It suppresses the 403 as well as the 401, so no caller is rejected.
 

@@ -26,7 +26,7 @@ Enforcing (the default deployment):
 
 Permissive (NKE_PERMISSIVE_MODE=true tilt up):
 
-  all four return 200, and nke_auth_requests_total{outcome="would_reject"}
+  all four return 200, and nvke_auth_requests_total{outcome="would_reject"}
   advances by 3 across the run, which is the only evidence permissive mode
   produces. That counter check is the extra case in a permissive run.
 
@@ -202,14 +202,14 @@ else
   echo "WARNING: no metrics listener on ${METRICS_URL}"
 fi
 
-# Sum nke_auth_requests_total across every label set matching outcome=<arg>.
+# Sum nvke_auth_requests_total across every label set matching outcome=<arg>.
 auth_counter() {
   local outcome="$1"
   (( metrics_available )) || { echo ""; return; }
   curl -s --max-time 5 "${METRICS_URL}" \
     | awk -v want="outcome=\"${outcome}\"" '
         # $(NF-1) would be wrong too; the value is the field right after "}".
-        /^nke_auth_requests_total\{/ && index($0, want) {
+        /^nvke_auth_requests_total\{/ && index($0, want) {
           split(substr($0, index($0, "}") + 1), f, " ")
           total += f[1]; found = 1
         }

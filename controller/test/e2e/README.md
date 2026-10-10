@@ -143,7 +143,7 @@ Three labels, which do not all run against the same deployment.
 |---|---|---|
 | `authn` | The negative cases: no token -> 401, wrong audience -> 401, an unadmitted identity -> 403, and the anonymous routes `internal/auth/routes.go` exempts staying reachable with no credential. Also selects `authn-spire`. | Enforcing (`AUTH_CONFIG_PATH` set, `PERMISSIVE_MODE` unset or false) |
 | `authn-spire` | A SPIRE JWT-SVID end to end: a pod the spec creates fetches an SVID over the Workload API and calls NKE with it, and with one that differs only in `aud`. | Enforcing, plus SPIFFE enabled on the NKE pod |
-| `authn-permissive` | That permissive mode counts what it would have rejected: all cases return 200 and `nke_auth_requests_total{outcome="would_reject"}` advances. It flips the deployment itself and puts it back. | Enforcing; it arranges permissive mode for its own duration |
+| `authn-permissive` | That permissive mode counts what it would have rejected: all cases return 200 and `nvke_auth_requests_total{outcome="would_reject"}` advances. It flips the deployment itself and puts it back. | Enforcing; it arranges permissive mode for its own duration |
 
 Each skips itself, with the reason, when the deployment is not in the state it
 needs, reading `AUTH_CONFIG_PATH` and `PERMISSIVE_MODE` off the live NKE

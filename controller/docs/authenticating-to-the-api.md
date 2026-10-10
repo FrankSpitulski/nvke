@@ -318,7 +318,7 @@ NKE_PERMISSIVE_MODE=true tilt up
 Every request is evaluated, logged and counted, then served anyway. Watch:
 
 ```
-nke_auth_requests_total{outcome="would_reject"}
+nvke_auth_requests_total{outcome="would_reject"}
 ```
 
 The `reason` and `issuer` labels tell you what was wrong and whose token it was.

@@ -185,8 +185,8 @@ podAnnotations: {}
 # For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
 podLabels:
   app: cloud-workflow-engine
-  project: nke
-  team: nke
+  project: nvke
+  team: nvke
 
 podSecurityContext:
   runAsNonRoot: true
@@ -437,7 +437,7 @@ apiAuth:
   # -- Enable NKE API authentication.
   enabled: false
   # -- Count what enforcement would have refused but serve the request anyway.
-  # Watch nke_auth_requests_total{outcome="would_reject"} before enforcing.
+  # Watch nvke_auth_requests_total{outcome="would_reject"} before enforcing.
   permissive: false
   configMap:
     # -- Render `apiAuth.config` into the ConfigMap named below, rather than

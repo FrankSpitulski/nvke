@@ -133,7 +133,7 @@ var _ = Describe("NKE API authentication in permissive mode", Ordered, Label("au
 		Eventually(func() int {
 			return authWouldRejectCount(ctx, metrics) - before
 		}).WithTimeout(30*time.Second).WithPolling(2*time.Second).Should(Equal(3),
-			"three requests that enforcement would have refused must advance nke_auth_requests_total{outcome=\"would_reject\"} by three")
+			"three requests that enforcement would have refused must advance nvke_auth_requests_total{outcome=\"would_reject\"} by three")
 
 		// The admitted caller must not be counted, or a middleware that counted
 		// every request would pass everything above.
@@ -163,7 +163,7 @@ const permissiveRolloutTimeout = 6 * time.Minute
 // The counter permissive mode's behavior lands in, and the label separating it
 // from authenticated and from enforced rejections.
 const (
-	authMetricName   = "nke_auth_requests_total"
+	authMetricName   = "nvke_auth_requests_total"
 	wouldRejectLabel = `outcome="would_reject"`
 )
 
@@ -181,7 +181,7 @@ func authWouldRejectCount(ctx context.Context, metrics *kube.ServiceForwarder) i
 	return total
 }
 
-// sumWouldRejectCounter adds up every sample of nke_auth_requests_total carrying
+// sumWouldRejectCounter adds up every sample of nvke_auth_requests_total carrying
 // wouldRejectLabel. A sum, because the counter is also labeled by reason and
 // issuer, so the spec's three cases land in three series. Substring, because
 // client_golang sorts label pairs and outcome lands between issuer and reason.
@@ -215,13 +215,13 @@ func sumWouldRejectCounter(exposition string) (int, error) {
 // A parser that silently returned zero would make the delta assertion above
 // pass for an NKE that counted nothing.
 func TestSumWouldRejectCounter(t *testing.T) {
-	const exposition = `# HELP nke_auth_requests_total Total API requests evaluated by authentication.
-# TYPE nke_auth_requests_total counter
-nke_auth_requests_total{issuer="local-kubernetes",outcome="authenticated",reason=""} 7
-nke_auth_requests_total{issuer="local-kubernetes",outcome="would_reject",reason="not_admitted"} 1
-nke_auth_requests_total{issuer="local-kubernetes",outcome="would_reject",reason="audience_mismatch"} 1
-nke_auth_requests_total{issuer="unknown",outcome="would_reject",reason="no_token"} 1
-nke_auth_requests_total{issuer="unknown",outcome="rejected",reason="no_token"} 4
+	const exposition = `# HELP nvke_auth_requests_total Total API requests evaluated by authentication.
+# TYPE nvke_auth_requests_total counter
+nvke_auth_requests_total{issuer="local-kubernetes",outcome="authenticated",reason=""} 7
+nvke_auth_requests_total{issuer="local-kubernetes",outcome="would_reject",reason="not_admitted"} 1
+nvke_auth_requests_total{issuer="local-kubernetes",outcome="would_reject",reason="audience_mismatch"} 1
+nvke_auth_requests_total{issuer="unknown",outcome="would_reject",reason="no_token"} 1
+nvke_auth_requests_total{issuer="unknown",outcome="rejected",reason="no_token"} 4
 `
 
 	// Returning 3 from an exposition whose samples total 14 is also what proves

@@ -16,7 +16,7 @@ A Helm chart to deploy the NKE controller service
 | apiAuth.configMap.extraFiles | object | `{}` | Extra files to place beside `auth.yaml`, keyed by filename. Only used when configMap.create=true. The whole ConfigMap is mounted, so each one lands in the same directory and can be named by a `jwks.caBundlePath` as /etc/nke/auth/<filename> -- which is how an issuer behind a private CA gets its bundle. A CA bundle is a public certificate, not a secret. The render fails if `caBundlePath` names a file in that directory that is not listed here, rather than leaving NKE to crash-loop on a missing file.  extraFiles:   spire-ca.crt: \|     -----BEGIN CERTIFICATE-----     ...     -----END CERTIFICATE----- |
 | apiAuth.configMap.name | string | `"nke-auth-config"` | ConfigMap holding the authentication configuration, keyed `auth.yaml`. Required when apiAuth.enabled=true; an empty name fails the render. Created by the chart when configMap.create=true, mounted either way. |
 | apiAuth.enabled | bool | `false` | Enable NKE API authentication. |
-| apiAuth.permissive | bool | `false` | Count what enforcement would have refused but serve the request anyway. Watch nke_auth_requests_total{outcome="would_reject"} before enforcing. |
+| apiAuth.permissive | bool | `false` | Count what enforcement would have refused but serve the request anyway. Watch nvke_auth_requests_total{outcome="would_reject"} before enforcing. |
 | appDb.dbName | string | `"cloud-workflow"` |  |
 | appDb.postgresPassword | string | `""` |  |
 | appDb.postgresUser | string | `""` |  |
@@ -87,8 +87,8 @@ A Helm chart to deploy the NKE controller service
 | oidc.providers | list | `[]` | Fleet-wide OIDC providers that clusters trust alongside nkeOIDCAuth; a cluster keeps the list it was created with, and one created on a Kubernetes version earlier than 1.34 gets none. At most five, each with name, issuerURL, audiences, usernameClaim, usernamePrefix and caBundle (inline PEM), and optionally groupsClaim, groupsPrefix and requiredClaims (claim name to required value). |
 | podAnnotations | object | `{}` |  |
 | podLabels.app | string | `"cloud-workflow-engine"` |  |
-| podLabels.project | string | `"nke"` |  |
-| podLabels.team | string | `"nke"` |  |
+| podLabels.project | string | `"nvke"` |  |
+| podLabels.team | string | `"nvke"` |  |
 | podSecurityContext.runAsNonRoot | bool | `true` |  |
 | profiles.image.digest | string | `""` | Digest pin for the profiles content image (preferred; e.g. `sha256:…`) |
 | profiles.image.enabled | bool | `false` | Copy `/profiles` from a content image into profiles.path |

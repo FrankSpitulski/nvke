@@ -179,7 +179,7 @@ serviceMonitor:
   name: nke-controller-metrics
 tracing:
   enabled: true
-  serviceName: nke-controller
+  serviceName: nvke-controller
   endpoint: nktp-daemonset-collector.nktp.svc.cluster.local:4317
   insecure: true
 

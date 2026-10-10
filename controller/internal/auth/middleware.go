@@ -24,7 +24,7 @@ const (
 	ModePermissive Mode = "permissive"
 )
 
-// Outcome is the nke_auth_requests_total{outcome} label value, a closed set.
+// Outcome is the nvke_auth_requests_total{outcome} label value, a closed set.
 type Outcome string
 
 const (
