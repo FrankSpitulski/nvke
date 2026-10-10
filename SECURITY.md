@@ -59,7 +59,7 @@ reporting channel and must not be published.
 
 ## Supported versions
 
-nke has no stable release. Every product line is still on pre-releases
+NVKE has no stable release. Every product line is still on pre-releases
 (`*-rc.N`), except the `controller/api` Go module, which publishes `v0.0.x` so
 consumers can pin. Until a stable release exists, `main` is the only branch
 that receives security fixes.
@@ -116,7 +116,7 @@ These generally do not qualify as vulnerabilities in nke:
 
 - Vulnerabilities in upstream components — Kubernetes, kubeadm, containerd,
   Temporal, PostgreSQL, SPIRE, Cluster API. Report those to the owning project.
-  If nke's use of one of them makes an upstream issue exploitable in a way it
+  If NVKE's use of one of them makes an upstream issue exploitable in a way it
   otherwise would not be, that **is** in scope.
 - Findings that require existing root on a managed node, or cluster-admin on
   the management cluster, to exploit.
@@ -145,7 +145,7 @@ If you deploy or operate nke:
 - **Updates.** Apply security releases promptly and read the release notes for
   the supported-version policy in force at the time.
 - **Dependencies.** Review Dependabot alerts and keep pinned versions current.
-- **Pod Security Admission.** NKE labels its own system namespaces
+- **Pod Security Admission.** NVKE labels its own system namespaces
   `privileged` — kube-proxy, the CNI, and node-local-dns all need host
   access, which is standard practice for these namespaces. Applying Pod
   Security Admission to your own namespaces is your responsibility.

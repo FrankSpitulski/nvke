@@ -26,6 +26,6 @@ submit a pull request.
 
 ## NVIDIA enterprise support
 
-For users running nke as part of a supported NVIDIA product, contact your
+For users running NVKE as part of a supported NVIDIA product, contact your
 NVIDIA support representative or visit the
 [NVIDIA Support Portal](https://www.nvidia.com/en-us/support/).

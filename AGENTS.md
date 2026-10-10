@@ -1,4 +1,4 @@
-# Agent guide — NVIDIA Kubernetes Engine (nke)
+# Agent guide — NVIDIA Kubernetes Engine (NVKE)
 
 Guidance for AI coding agents (Claude Code, Codex, Copilot Workspace, Cursor)
 working in this repository. Humans should read [CONTRIBUTING.md](CONTRIBUTING.md);
@@ -11,13 +11,13 @@ instructions.
 
 ## Always read
 
-- [README.md](README.md) — what NKE is and how the pieces fit together
+- [README.md](README.md) — what NVKE is and how the pieces fit together
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branch naming, commit format, review flow
 - **The `AGENTS.md` of the module you are editing.** This is a monorepo and each
   module has its own toolchain:
   - [controller/AGENTS.md](controller/AGENTS.md) — Flox, code generation, database, Temporal
   - [agent/AGENTS.md](agent/AGENTS.md) — proto generation, packaging, gRPC conventions
-  - [cli/AGENTS.md](cli/AGENTS.md) — nkectl, verification, doc-comment conventions
+  - [cli/AGENTS.md](cli/AGENTS.md) — nvkectl, verification, doc-comment conventions
   - [os-image/AGENTS.md](os-image/AGENTS.md) — reference node OS image spec, Packer, connectivity checker
   - [nktp/AGENTS.md](nktp/AGENTS.md) — NKTP Helm chart: versioning, dependency pins
   - [controller/nico-sim/AGENTS.md](controller/nico-sim/AGENTS.md) — local NICo simulator with VM and container backends
@@ -31,7 +31,7 @@ instructions.
 
 ## What this project is
 
-NKE is a management plane for GPU Kubernetes on bare metal. A seed cluster
+NVKE is a management plane for GPU Kubernetes on bare metal. A seed cluster
 stands up a highly available control plane, which then creates GPU tenant
 clusters on demand. The main components are:
 
@@ -42,7 +42,7 @@ clusters on demand. The main components are:
   every node. Drives `kubeadm`, installs packages and bundles, and authenticates
   through SPIFFE/SPIRE mTLS.
 - **`cluster-api-provider-provisioned/`** — the Cluster API infrastructure
-  provider for hosts that NKE provisions before CAPI bootstraps them.
+  provider for hosts that NVKE provisions before CAPI bootstraps them.
 
 ## Read this before you try to build
 
@@ -75,7 +75,7 @@ checkout, and do not stub a dependency to make the build pass.
 | Path | Contents | Edit? |
 |---|---|---|
 | `agent/cmd/`, `agent/internal/`, `agent/pkg/` | Node agent implementation | Yes |
-| `cli/` | nkectl CLI implementation and e2e fixtures | Yes |
+| `cli/` | nvkectl CLI implementation and e2e fixtures | Yes |
 | `cluster-api-provider-provisioned/` | Provisioned Cluster API infrastructure provider | Yes |
 | `controller/internal/` | CWE server, controllers, Temporal workflows and activities, database layer | Yes |
 | `controller/api/openapi.yaml` | OpenAPI 3.0 spec — **the source of truth for the REST API** | Yes |

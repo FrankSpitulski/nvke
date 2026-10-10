@@ -1,6 +1,6 @@
-# Contributing to nke
+# Contributing to NVKE
 
-If you are interested in contributing to nke, your contributions will fall
+If you are interested in contributing to NVKE, your contributions will fall
 into three categories:
 1. You want to report a bug, feature request, or documentation issue
     - File an [issue](https://github.com/dsx-ai-factory/nvke/issues/new/choose)
@@ -47,13 +47,13 @@ into three categories:
 
 ```bash
 git clone https://github.com/dsx-ai-factory/nvke.git
-cd nke
+cd nvke
 ```
 
 **Everything that builds publicly, in one command:**
 
 ```bash
-make build   # builds agent, controller, nkectl, and helper binaries
+make build   # builds agent, controller, nvkectl, and helper binaries
 ```
 
 The repository is a Go workspace, and `go.work` ties **every module** together.
@@ -151,7 +151,7 @@ Remember, if you are unsure about anything, don't hesitate to comment on issues 
 
 Each PR must mark whether it is a breaking change. This is used to highlight changes that users should know about when upgrading.
 
-For nke, a "breaking" change is one that modifies the public API in a non-backward-compatible way.
+For NVKE, a "breaking" change is one that modifies the public API in a non-backward-compatible way.
 Backward-compatible changes (such as adding a new optional parameter) are not breaking.
 Mark a breaking change with `!` after the type in the PR title or a `BREAKING CHANGE:` footer (see [Commit message format](#commit-message-format)); there is no label for it.
 
@@ -191,7 +191,7 @@ Example: `feat/add-retry-logic`, `fix/null-pointer-in-parser`
 
 ### Commit message format
 
-nke uses [Conventional Commits](https://www.conventionalcommits.org/):
+NVKE uses [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
 <type>(<scope>): <short description>

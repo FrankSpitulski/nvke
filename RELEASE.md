@@ -1,10 +1,10 @@
 # Release process
 
-This document describes how nke releases are created and published.
+This document describes how NVKE releases are created and published.
 
 ## Versioning
 
-nke uses [Semantic Versioning](https://semver.org/):
+NVKE uses [Semantic Versioning](https://semver.org/):
 
 ```
 v<MAJOR>.<MINOR>.<PATCH>
@@ -17,7 +17,7 @@ v<MAJOR>.<MINOR>.<PATCH>
 | `MAJOR` | Breaking API or behavioral changes |
 
 What counts as breaking differs per component, so each states its own surface.
-For `nkectl` that is [the CLI compatibility policy](cli/docs/compatibility.md),
+For `nvkectl` that is [the CLI compatibility policy](cli/docs/compatibility.md),
 which lists the commands, flags, exit codes and output formats these increments
 apply to, and the deprecation sequence a removal has to go through first.
 
@@ -121,20 +121,20 @@ Releases before the repository moved to `dsx-ai-factory` on 2026-09-12 were prom
 `controller/v0.1.0` predates the promotion job, and the `rc.4` promotion failed, so that
 image exists nowhere. Later releases land under `ghcr.io/dsx-ai-factory/nvke`.
 
-DSX receives the controller image from `image-nvcr.yml`, after the NKE multi-arch
+DSX receives the controller image from `image-nvcr.yml`, after the NVKE multi-arch
 manifest exists. It receives the controller chart from `chart-publish-nvcr.yml`.
 Both use separate credentials from the same protected GitHub environment:
 
 | Name | Type | Purpose |
 |---|---|---|
 | `NKE_NGC_ORG` | variable | Source NGC org for `nvcr.io/<org>/nke-controller` |
-| `NGC_REGISTRY_TOKEN_NKE` | secret | Read/write token for the source NKE NGC org |
+| `NGC_REGISTRY_TOKEN_NKE` | secret | Read/write token for the source NVKE NGC org |
 | `DSX_NGC_ORG_TEAM` | variable | Destination NGC org/team, for example `<org>/components-dev` |
 | `NGC_REGISTRY_TOKEN_DSX` | secret | Write token for the DSX NGC org/team |
 
 The source and destination both live on `nvcr.io`, but they may require different
 NGC tokens. Docker auth stores one credential per registry host, so the DSX
-promotion pulls the source image into a local OCI layout with the NKE token, then
+promotion pulls the source image into a local OCI layout with the NVKE token, then
 logs in with the DSX token and pushes that same index to
 `nvcr.io/<dsx-org-team>/nke-controller`. Immutable tags
 (`sha-<commit>` and the git-described version) are treated as idempotent only
@@ -142,7 +142,7 @@ when an existing destination digest matches the source digest; a mismatch fails
 the run. The `edge` tag is mutable and moves only on `main`.
 
 The DSX chart is packaged from the controller chart as `nke-controller-chart`,
-the same chart artifact name used for the NKE NVCR chart, and pushed to
+the same chart artifact name used for the NVKE NVCR chart, and pushed to
 `oci://nvcr.io/<dsx-org-team>`. Its chart version is the controller git describe
 string without the leading `v`, while `appVersion` keeps the leading `v` so the
 rendered Deployment pulls the same image tag promoted by `image-nvcr.yml`.
@@ -215,7 +215,7 @@ what a build of this commit ought to select.
 
 | Artifact | Document | Subject granularity | Where |
 |---|---|---|---|
-| `nkectl-<os>-<arch>` | `nkectl-<os>-<arch>.spdx.json` | Go modules, from the binary's embedded build info | GitHub Release asset |
+| `nvkectl-<os>-<arch>` | `nvkectl-<os>-<arch>.spdx.json` | Go modules, from the binary's embedded build info | GitHub Release asset |
 | `nke-agent_<version>_<arch>.deb` | `nke-agent_<version>_<arch>.spdx.json` | Go modules, from the binary inside the package | GitHub Release asset |
 | `nke-node-{fde,non-fde}-ubuntu-<rel>-<arch>.qcow2` | `nke-node-…-<arch>.spdx.json` | dpkg packages, from the image's own package database | GitHub Release asset |
 | `nke-controller` image | `controller-sbom-linux-<arch>.spdx.json` | image contents, scanned from the pushed image | workflow artifact on the **Image NVCR** run |
@@ -241,7 +241,7 @@ download` fetches them by name:
 
 ```bash
 gh release download cli/v0.2.0 --repo dsx-ai-factory/nvke \
-  --pattern 'nkectl-linux-amd64.spdx.json'
+  --pattern 'nvkectl-linux-amd64.spdx.json'
 
 gh release download agent/v0.2.0 --repo dsx-ai-factory/nvke \
   --pattern '*.spdx.json'
@@ -286,7 +286,7 @@ the artifact was built by some GitHub workflow somewhere. Use
 
 | Artifact | Attested subject | Where the attestation lives |
 |---|---|---|
-| Release assets (`nkectl`, agent `.deb`s, `nke-os-image-check`, the NKTP chart archive) | `checksums.txt`, which names each by digest | GitHub, plus the attached bundle |
+| Release assets (`nvkectl`, agent `.deb`s, `nke-os-image-check`, the NKTP chart archive) | `checksums.txt`, which names each by digest | GitHub, plus the attached bundle |
 | `os-image` qcow2 OCI artifacts | the same `checksums.txt` | GitHub, plus the attached bundle |
 | `nke-controller`, `cluster-api-provider-provisioned` on GHCR | the multi-arch index digest | attached to the image in GHCR as an OCI referrer |
 | the same two images on NVCR | the same index digest | GitHub's attestation store only |
@@ -367,7 +367,7 @@ all — it shares the index digest, so the command above covers it, but only
 because the digests match. Closing this properly needs either referrers support
 from NGC or a second mechanism for those registries.
 
-The other artifacts nke publishes to GHCR — the Helm charts, the `agent` and
+The other artifacts NVKE publishes to GHCR — the Helm charts, the `agent` and
 `cli` OCI artifacts, `agent-deb`, and the `os-image-*` repositories — are not
 attested individually yet. The `os-image` disks and the NKTP chart are covered
 transitively through `checksums.txt`, which names the chart archive whose

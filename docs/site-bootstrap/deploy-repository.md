@@ -1,12 +1,12 @@
 # Deploy Repository
 
-> **Note:** The deploy repository is a **post-bootstrap concern**. `nkectl bootstrap site` brings up the Kubernetes cluster; deploying NKE's services (CWE, Temporal, CNPG) onto that cluster via ArgoCD is a separate subsequent step. This page describes that second step.
+> **Note:** The deploy repository is a **post-bootstrap concern**. `nvkectl bootstrap site` brings up the Kubernetes cluster; deploying NVKE's services (CWE, Temporal, CNPG) onto that cluster via ArgoCD is a separate subsequent step. This page describes that second step.
 
-A deploy repository contains the ArgoCD Application manifests, secrets, and Kubernetes manifests that deploy the NKE services stack onto a freshly bootstrapped site controller cluster.
+A deploy repository contains the ArgoCD Application manifests, secrets, and Kubernetes manifests that deploy the NVKE services stack onto a freshly bootstrapped site controller cluster.
 
 ## Reference Repository
 
-A complete, ready-to-fork reference repository is available at `github.com/dsx-ai-factory/nvke` under `deploy/reference/`. It includes the `nvke-base-config` templates for secrets and namespaces, storage manifests, and ArgoCD Application manifests for all required NKE components.
+A complete, ready-to-fork reference repository is available at `github.com/dsx-ai-factory/nvke` under `deploy/reference/`. It includes the `nvke-base-config` templates for secrets and namespaces, storage manifests, and ArgoCD Application manifests for all required NVKE components.
 
 > **Important:** The deploy repository must be accessible from the machine running the post-bootstrap deployment tooling. Ensure the repository is hosted on a git service reachable from your provisioned nodes (public GitHub, GitLab.com, or another externally accessible host).
 

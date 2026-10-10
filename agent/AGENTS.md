@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-The **NKE agent** lives at `agent/` in the [dsx-ai-factory/nvke](https://github.com/dsx-ai-factory/nvke) monorepo.
+The **NVKE agent** lives at `agent/` in the [dsx-ai-factory/nvke](https://github.com/dsx-ai-factory/nvke) monorepo.
 It is a Go-based gRPC server (systemd service) that runs on Kubernetes nodes and provides remote management for Kubeadm and software package/bundle installation.
 
 **Primary use cases:**
@@ -259,7 +259,7 @@ grpcurl -plaintext localhost:15005 list proto.NodeAgent
 grpcurl -plaintext localhost:15005 list
 ```
 
-Orchestrators (the NKE controller) probe for RPC availability via reflection before calling
+Orchestrators (the NVKE controller) probe for RPC availability via reflection before calling
 apt or InstallCNI workflows. Semver in `GetKubeadmStatus` remains useful for logging only.
 
 ## Security Notes

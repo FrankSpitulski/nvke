@@ -17,7 +17,7 @@ global-theme: nvidia
 
 logo:
   href: /nke
-  right-text: NKE
+  right-text: NVKE
 
 navbar-links:
   - type: github

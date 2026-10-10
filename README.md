@@ -1,9 +1,9 @@
-# NKE — NVIDIA Kubernetes Engine
+# NVKE — NVIDIA Kubernetes Engine
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8.svg)](https://go.dev/dl/)
 
-**A management plane for running GPU Kubernetes clusters on bare metal.** NKE
+**A management plane for running GPU Kubernetes clusters on bare metal.** NVKE
 provisions and operates isolated Kubernetes clusters on NVIDIA infrastructure,
 so platform teams can offer managed Kubernetes to their tenants without building
 and running a control plane themselves.
@@ -18,7 +18,7 @@ engineers integrating against that control plane.
 
 ## Overview
 
-NKE is not a Kubernetes distribution and not a Cluster API flavour. It is a
+NVKE is not a Kubernetes distribution and not a Cluster API flavour. It is a
 **self-hosting factory for Kubernetes clusters**: a throwaway seed cluster
 stands up a highly available, self-managing control plane, and that control
 plane then provisions and lifecycle-manages many isolated tenant clusters on
@@ -49,7 +49,7 @@ What distinguishes it from a generic CAPI distribution:
 | Directory | What it is |
 |---|---|
 | `controller/` | The control plane. REST API and UI, durable Temporal workflows, cluster and node inventory, and the infrastructure provider integrations. |
-| `cluster-api-provider-provisioned/` | Cluster API infrastructure provider for hosts that NKE provisions before CAPI bootstraps them. |
+| `cluster-api-provider-provisioned/` | Cluster API infrastructure provider for hosts that NVKE provisions before CAPI bootstraps them. |
 | `agent/` | The on-node daemon. Exposes a gRPC API the controller drives to run `kubeadm`, install a CNI, and configure disk and etcd encryption. |
 | `cli/` | `nvkectl`, the command-line interface. Validates a site spec and drives bootstrap. |
 | `controller/nico-sim/` | `nico-sim`, the NICo-compatible VM and Docker-container simulator used by development and tests. |
@@ -68,7 +68,7 @@ What each binary is, and where it ends up running:
 
 | Binary | Module | What it does | Runs on |
 |---|---|---|---|
-| `management-engine` | `management-engine/` | Controller management engine for NKE resources, communicating directly with the management Kubernetes API | An operator-owned management cluster, or a development host with kubeconfig |
+| `management-engine` | `management-engine/` | Controller management engine for NVKE resources, communicating directly with the management Kubernetes API | An operator-owned management cluster, or a development host with kubeconfig |
 | `controller` | `controller/` | The control plane: REST API, Temporal workflows, and the Kubernetes reconcilers | The site controller cluster |
 | `agent` | `agent/` | gRPC server the control plane drives to run `kubeadm`, install a CNI, and configure encryption | Every managed node |
 | `updater` | `agent/` | Independent helper that replaces the node agent without depending on the agent process | Every managed node |
@@ -103,7 +103,7 @@ Flox is offered, not required. Every target runs from whatever is on your `PATH`
 
 ```bash
 git clone https://github.com/dsx-ai-factory/nvke.git
-cd nke
+cd nvke
 ```
 
 Build the repository from a clean checkout with access to public Go modules:
@@ -161,8 +161,8 @@ which requests a cluster.
 | GNU Make | 4.0+ |
 | Flox | optional, for a reproducible repository toolchain |
 
-Running NKE against real infrastructure additionally requires hosts already
-booted on an NKE-compatible OS image with the agent installed. NKE does not
+Running NVKE against real infrastructure additionally requires hosts already
+booted on an NVKE-compatible OS image with the agent installed. NVKE does not
 publish OS images; it publishes the recipes for building them.
 
 ## Documentation
@@ -185,7 +185,7 @@ be agreed before you write code.
 Development quickstart:
 
 ```bash
-git clone https://github.com/dsx-ai-factory/nvke.git && cd nke
+git clone https://github.com/dsx-ai-factory/nvke.git && cd nvke
 (cd agent && make build test)
 (cd controller && make build test)
 ```

@@ -1,6 +1,6 @@
 # Custom Base OS
 
-If you need to bootstrap a tier-0 cluster on a **vanilla Ubuntu image** (rather than a pre-built NKE node image), you can add the necessary installation steps to your cloud-init configuration.
+If you need to bootstrap a tier-0 cluster on a **vanilla Ubuntu image** (rather than a pre-built NVKE node image), you can add the necessary installation steps to your cloud-init configuration.
 
 Before proceeding, write your [site spec file](configuration.md) so it can be placed on the init node by cloud-init.
 
@@ -21,7 +21,7 @@ Below is a complete cloud-init configuration for bootstrapping a tier-0 cluster 
 users:
   - default
   - name: nke-admin
-    gecos: NKE Admin User
+    gecos: NVKE Admin User
     sudo: ALL=(ALL) NOPASSWD:ALL
     groups: root
     lock_passwd: true
@@ -89,7 +89,7 @@ autoinstall:
       - [sh, -c, "apt-mark hold kubelet kubeadm kubectl"]
 
       # TODO: Replace apt repo URL with confirmed public URL before publishing.
-      # Install nke-agent from the NKE apt repository
+      # Install nke-agent from the NVKE apt repository
       - [sh, -c, "curl -fsSL -o /etc/apt/keyrings/nke.asc https://packages.nvidia.com/nke/nke-apt-public.key"]
       - [sh, -c, "echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://packages.nvidia.com/nke/apt nke-noble main' | tee /etc/apt/sources.list.d/nke-apt.list"]
       - [sh, -c, "apt-get update"]
@@ -121,7 +121,7 @@ finished and delete it from the host. See
 ## Key Components
 
 - **Kubernetes Installation**: Adds the Kubernetes apt repository and installs kubelet, kubeadm, and kubectl. Marks packages held to prevent automatic upgrades.
-- **nke-agent**: Installed from the NKE apt repository; configured with `--disable-mtls` and `--secure-server-port 15005` for pre-provisioned node bootstrap.
+- **nke-agent**: Installed from the NVKE apt repository; configured with `--disable-mtls` and `--secure-server-port 15005` for pre-provisioned node bootstrap.
 - **nvkectl**: Install it only on the **bootstrap host**, together with its container runtime and CLI dependencies. It is run with `--disable-mtls` to match the agents, and with the two image flags set. Omit the nvkectl download and bootstrap commands on other nodes.
 
 > **Plaintext mode is development only.** With `--disable-mtls` on both sides there is no SPIRE and no attestation. For the attested path — `spire-agent` on every node, a TPM EK thumbprint per host, a SPIRE CA in the site spec — follow [Your First Cluster, Real Site](../first-cluster.md#real-site).
@@ -142,7 +142,7 @@ On other nodes, omit the `write_files` section and the last two `runcmd` lines
 ## Customizing
 
 - Update `cluster.nodes` with your actual node names and IPs
-- Set `registry.bootstrapRepo` and `registry.bootstrapChart` to your NKE controller registry path
+- Set `registry.bootstrapRepo` and `registry.bootstrapChart` to your NVKE controller registry path
 - Supply `REGISTRY_API_KEY` via your secrets management (not hardcoded in cloud-init)
 - Log the bootstrap host in to your image registry (`nerdctl login nvcr.io`) the same way; `nvkectl` pulls the two images with nerdctl
 - Update the Kubernetes repository minor version to match `cluster.k8sVersion` in the site spec

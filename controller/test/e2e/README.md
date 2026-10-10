@@ -1,6 +1,6 @@
-# NKE End-to-End Tests
+# NVKE End-to-End Tests
 
-This directory contains the end-to-end (E2E) tests for NKE.
+This directory contains the end-to-end (E2E) tests for NVKE.
 
 ## Test Structure
 
@@ -49,16 +49,16 @@ If your feature requires a specific cluster configuration (e.g., custom node poo
 2. Define your own cluster spec.
 3. Implement the flow that fits your use case. The most common one is create -> validate -> delete.
 
-## How the tests reach NKE
+## How the tests reach NVKE
 
-Every NKE call travels over a port-forward to a pod backing the
+Every NVKE call travels over a port-forward to a pod backing the
 `nke-controller` Service, built by `internal/kube.ServiceForwarder`. It
 runs over the API server's own `pods/portforward` subresource, so it needs
 nothing the previous Service-proxy transport did: no ingress, no NodePort, no
 direct pod or Service IP reachability.
 
 What it buys is header control. Through the Service proxy one `Authorization`
-header had to satisfy two hops and the API server stripped it, so no NKE
+header had to satisfy two hops and the API server stripped it, so no NVKE
 credential survived. Over a port-forward the kubeconfig credential
 authenticates the tunnel and the request inside it is entirely the caller's.
 
@@ -94,8 +94,8 @@ deployment. They verify that:
 - `/readyz` responds, and
 - the reported version optionally matches the expected version.
 
-All HTTP GETs reach NKE over the port-forward described in [How the tests reach
-NKE](#how-the-tests-reach-nke); no direct NKE URL is required.
+All HTTP GETs reach NVKE over the port-forward described in [How the tests reach
+NVKE](#how-the-tests-reach-nvke); no direct NVKE URL is required.
 
 Run them from the repository root:
 
@@ -112,7 +112,7 @@ go run github.com/onsi/ginkgo/v2/ginkgo@v2.27.2 run -v --label-filter=health .
 
 Only `NKE_CONTROLLER_EXPECTED_VERSION` and `NKE_CONTROLLER_HEALTH_TIMEOUT` are specific to the health
 specs; the first four apply everywhere. The `NKE_E2E_*` group configures the
-credential `nke.NewClient` discovers and presents on every ordinary NKE call,
+credential `nke.NewClient` discovers and presents on every ordinary NVKE call,
 not the authentication specs, which build their own token per case.
 
 | Variable | Description | Default |
@@ -123,14 +123,14 @@ not the authentication specs, which build their own token per case.
 | `NKE_CONTROLLER_SERVICE_PORT` | Controller Service port, by name or number; the pod-side port is resolved from its `targetPort`. The old name `CWE_SERVICE_PORT` is deprecated and still read when this is unset. | `8080` |
 | `NKE_CONTROLLER_EXPECTED_VERSION` | Required controller version; when unset, the version spec is skipped. The old name `CWE_EXPECTED_VERSION` is deprecated and still read when this is unset. | Unset |
 | `NKE_CONTROLLER_HEALTH_TIMEOUT` | Per-spec context timeout. The old name `CWE_HEALTH_TIMEOUT` is deprecated and still read when this is unset. | `60s` |
-| `NKE_E2E_AUTH_DISABLE` | Turns the token source off, so the suite sends no `Authorization` header. Against an enforcing NKE every spec then fails with 401. | Unset |
+| `NKE_E2E_AUTH_DISABLE` | Turns the token source off, so the suite sends no `Authorization` header. Against an enforcing NVKE every spec then fails with 401. | Unset |
 | `NKE_E2E_AUDIENCE` | Overrides the audience the suite mints for. Normally discovered from the `nke-auth-config` ConfigMap in `NKE_CONTROLLER_NAMESPACE`. | Discovered |
 | `NKE_E2E_TOKEN_NAMESPACE` | Namespace of the service account the suite presents. | `nke-clients` |
 | `NKE_E2E_TOKEN_SERVICE_ACCOUNT` | Service account the suite presents. Point this pair at `nke-outsiders`/`nke-outsider` for the 403 case. | `nke-client` |
 | `NKE_E2E_TOKEN_TTL` | Minted token lifetime. The apiserver rejects anything under 10m. | `15m` |
 
 When the `nke-auth-config` ConfigMap does not exist, the suite sends no token,
-so an unauthenticated NKE needs no configuration here.
+so an unauthenticated NVKE needs no configuration here.
 
 Unfiltered runs, including `make test-e2e`, include the health specs. To exclude
 them, pass `--label-filter='!health'`.
@@ -142,11 +142,11 @@ Three labels, which do not all run against the same deployment.
 | Label | What it covers | Deployment it needs |
 |---|---|---|
 | `authn` | The negative cases: no token -> 401, wrong audience -> 401, an unadmitted identity -> 403, and the anonymous routes `internal/auth/routes.go` exempts staying reachable with no credential. Also selects `authn-spire`. | Enforcing (`AUTH_CONFIG_PATH` set, `PERMISSIVE_MODE` unset or false) |
-| `authn-spire` | A SPIRE JWT-SVID end to end: a pod the spec creates fetches an SVID over the Workload API and calls NKE with it, and with one that differs only in `aud`. | Enforcing, plus SPIFFE enabled on the NKE pod |
+| `authn-spire` | A SPIRE JWT-SVID end to end: a pod the spec creates fetches an SVID over the Workload API and calls NVKE with it, and with one that differs only in `aud`. | Enforcing, plus SPIFFE enabled on the NVKE pod |
 | `authn-permissive` | That permissive mode counts what it would have rejected: all cases return 200 and `nvke_auth_requests_total{outcome="would_reject"}` advances. It flips the deployment itself and puts it back. | Enforcing; it arranges permissive mode for its own duration |
 
 Each skips itself, with the reason, when the deployment is not in the state it
-needs, reading `AUTH_CONFIG_PATH` and `PERMISSIVE_MODE` off the live NKE
+needs, reading `AUTH_CONFIG_PATH` and `PERMISSIVE_MODE` off the live NVKE
 Deployment. Set `NKE_E2E_REQUIRE_AUTHN=true` (as the CAPD lane does) to turn
 "authentication is not deployed" from a skip into a failure; without it a
 cluster with authentication off produces `SUCCESS! -- 0 Passed | 0 Failed | N
@@ -154,7 +154,7 @@ Skipped`, indistinguishable in a CI log from a suite that never had these specs.
 
 **Prerequisites.** `tilt up` applies `deploy/k8s/nke-auth-dev.yaml` (client
 namespaces, service accounts, token-minter RBAC and the `nke-auth-config`
-ConfigMap) and, for `authn-spire`, `deploy/k8s/nke-spire-client.yaml`. NKE's
+ConfigMap) and, for `authn-spire`, `deploy/k8s/nke-spire-client.yaml`. NVKE's
 permission to read the cluster JWKS comes from the chart
 (`apiAuth.clusterIssuerDiscovery`).
 

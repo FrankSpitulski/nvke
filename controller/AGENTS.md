@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Cloud Workflow Engine (CWE) orchestrates NKE (NVIDIA Kubernetes Engine) cluster creation and lifecycle operations. The system uses Temporal for workflow orchestration and provides a REST API for cluster management operations.
+Cloud Workflow Engine (CWE) orchestrates NVKE (NVIDIA Kubernetes Engine) cluster creation and lifecycle operations. The system uses Temporal for workflow orchestration and provides a REST API for cluster management operations.
 
 ### Key Technologies
 - **Language**: Go — the floor is the `go` directive in the root `go.work`, not
@@ -231,14 +231,14 @@ The two local paths differ, and that is the usual source of confusion:
 | `make run` / `go run ./cmd/worker/main.go` | **off** — `AUTH_CONFIG_PATH` is unset, every request is served |
 | `tilt up` | **enforcing** — `/api/*` needs a bearer token |
 
-So a bare `curl` that works host-local returns 401 under Tilt. `nkectl` mints
+So a bare `curl` that works host-local returns 401 under Tilt. `nvkectl` mints
 from the kind kubeconfig and does not need a token environment variable:
 
 ```bash
-nkectl config set-site --name local \
+nvkectl config set-site --name local \
   --url http://localhost:8080 \
   --kubeconfig ~/.kube/config
-nkectl get clusters
+nvkectl get clusters
 ```
 
 For `curl`, get a token:

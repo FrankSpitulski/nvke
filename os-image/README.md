@@ -229,7 +229,7 @@ packer build \
 ```
 
 The existing Make targets run `packer init` before validation or build, so the
-developer and NKE CI workflow retain their current plugin-installation path.
+developer and NVKE CI workflow retain their current plugin-installation path.
 Hermetic external runners instead provide the exact Packer executable and the
 QEMU plugin version pinned by `packer/versions.pkr.hcl`, expose the authenticated
 plugin tree through `PACKER_PLUGIN_PATH`, and run `packer validate` followed by

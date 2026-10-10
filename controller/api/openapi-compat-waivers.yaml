@@ -45,4 +45,14 @@
 # and the check is running against a later release tag, it reports as expired
 # instead of failing, so branches that rebase past the tag are not blocked by
 # it.
-waivers: []
+waivers:
+  # The one server entry is a placeholder example host, not an endpoint anyone
+  # is given; it follows the product rename from nke to nvke. A consumer sets
+  # its own base URL and is not affected.
+  - change: "object_removed"
+    path: "$.servers"
+    property: "servers"
+    reason: "The servers entry is a placeholder example host (nke.acme.example became nvke.acme.example with the product rename), not an endpoint consumers are given; every consumer configures its own base URL."
+    owner: "dsrinivas"
+    review: "2026-11-30"
+    baseline: "controller/api/v0.0.33"

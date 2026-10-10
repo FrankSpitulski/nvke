@@ -38,7 +38,7 @@ The deploy path also wires the rest of the management plane into it:
 
 | Component | Signal | How |
 |---|---|---|
-| NKE controller | metrics, logs, traces | ServiceMonitor, pod logs, OTLP traces to the node Collector; its metrics NetworkPolicy admits `nktp` |
+| NVKE controller | metrics, logs, traces | ServiceMonitor, pod logs, OTLP traces to the node Collector; its metrics NetworkPolicy admits `nktp` |
 | Temporal | metrics | a ServiceMonitor per server role, from Temporal's own chart |
 | SPIRE server and agent | metrics | PodMonitors, from SPIRE's own chart |
 | API server, etcd, CoreDNS | metrics | the chart's control-plane monitors |
@@ -55,7 +55,7 @@ Everything exported carries `k8s.cluster.name` set to the site's name.
 - **CAPI core and the kubeadm providers,** which serve metrics only to a
   caller with a bearer token.
 - **The scheduler and controller manager,** which listen on `127.0.0.1` on
-  NKE clusters.
+  NVKE clusters.
 - **Postgres,** which runs no metrics exporter.
 
 The state of all their Pods still arrives through kube-state-metrics.
@@ -131,9 +131,9 @@ If you are working through a jump host, forward that port over SSH rather than
 binding it on the site network. The **NKTP Health** dashboard shows whether the
 pipeline itself is healthy.
 
-### NKE reference dashboards
+### NVKE reference dashboards
 
-NKE also ships [reference Grafana dashboards](../../../controller/deploy/dashboards/README.md)
+NVKE also ships [reference Grafana dashboards](../../../controller/deploy/dashboards/README.md)
 as JSON files. These are starting points for investigating a site, not a
 complete monitoring or alerting setup. Review their **Requirements and scope**
 panels, check that your backend collects the required metrics, and adapt the

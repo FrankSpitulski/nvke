@@ -1,4 +1,4 @@
-# NKE workflow design guide
+# NVKE workflow design guide
 
 This directory has two kinds of CI workflow: required pull-request checks and
 advisory or release workflows. Keep their event ownership separate. Most CI

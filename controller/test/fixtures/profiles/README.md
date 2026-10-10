@@ -16,7 +16,7 @@ Two kinds of entry live here, and the difference matters:
 | Profile | URLs | Boots |
 |---|---|---|
 | `test-fixture-amd64`, `nke-local-dev-kindest-arm64` | `example.test`, synthetic | nothing; they exercise CWE's rendering and the CAPD and gofail lanes |
-| `nke-nico-vms-24.04-amd64-fde`, `nke-nico-vms-24.04-arm64-fde` | unreachable placeholders | the NKE node image on the `nico-vms` backend |
+| `nke-nico-vms-24.04-amd64-fde`, `nke-nico-vms-24.04-arm64-fde` | unreachable placeholders | the NVKE node image on the `nico-vms` backend |
 
 **No file in this tree names a CDN host.** These profiles used to point
 `image-url` at CloudFront and pass `--bundle-server-url` for a CloudFront

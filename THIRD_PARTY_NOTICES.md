@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-nke is a monorepo of independently built and independently released components.
+NVKE is a monorepo of independently built and independently released components.
 Each one links a different set of third-party Go modules, so the notices are
 generated **per component** rather than merged into a single file. Merging them
 would attach every module's attribution to every artifact, which misstates what
@@ -15,7 +15,7 @@ where those notices are, and which do not yet — and why.
 |---|---|---|---|
 | `agent/` — the node agent | [agent/THIRD_PARTY_NOTICES.md](agent/THIRD_PARTY_NOTICES.md) | the import closure of `./cmd/...` for `linux/amd64` and `linux/arm64` | the `Third-Party Notices` workflow, on every push |
 | `controller/` — the Cloud Workflow Engine | [controller/THIRD_PARTY_NOTICES.md](controller/THIRD_PARTY_NOTICES.md) — **151 modules** | the import closures of `./cmd/worker` and the provider's `./cmd/manager` for `linux/amd64` | the `Third-Party Notices` workflow, on every push |
-| `cli/` — the `nkectl` CLI | [cli/THIRD_PARTY_NOTICES.md](cli/THIRD_PARTY_NOTICES.md) — **24 modules** | the import closure of `./cmd/nkectl` for `linux/amd64` | the `Third-Party Notices` workflow, on every push |
+| `cli/` — the `nvkectl` CLI | [cli/THIRD_PARTY_NOTICES.md](cli/THIRD_PARTY_NOTICES.md) — **24 modules** | the import closure of `./cmd/nvkectl` for `linux/amd64` | the `Third-Party Notices` workflow, on every push |
 | `os-image/` — the `nke-os-image-check` binary | [os-image/THIRD_PARTY_NOTICES.md](os-image/THIRD_PARTY_NOTICES.md) — **9 modules** | the import closure of `./cmd/nke-os-image-check` for `linux/amd64` | the `Third-Party Notices` workflow, on every push |
 
 Regenerate with:
@@ -27,7 +27,7 @@ cd cli        && make notices
 cd os-image   && make notices
 ```
 
-⚠️ **The controller, nkectl and os-image generators need the workspace on** (do
+⚠️ **The controller, nvkectl and os-image generators need the workspace on** (do
 not set `GOWORK=off`), because `os-image` requires
 `github.com/dsx-ai-factory/nvke/agent`, which resolves only through the workspace's
 `use` directive; with the workspace off, `go-licenses` fails with
@@ -73,7 +73,7 @@ a `notices` target of its own.
 
 ⚠️ **This section listed two open gaps until 2026-08-16**, describing a
 `controller/THIRD_PARTY_NOTICES.md` that existed but was unverified, and a
-missing one for `nkectl`. Both are closed below. **A partial or wrong file
+missing one for `nvkectl`. Both are closed below. **A partial or wrong file
 would be worse than none** — it asserts a completeness it does not have — so
 the rows stayed open until each closure could be walked end to end *and* a
 check enforced it.
