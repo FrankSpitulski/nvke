@@ -13,8 +13,8 @@ name: CLI Artifact NVCR
 # environment, so no registry identifier lands in a tracked file of a
 # repository that is released publicly:
 #
-#   NKE_NGC_ORG             variable  NGC org that owns the artifact
-#   NGC_REGISTRY_TOKEN_NKE  secret    NGC API key with write access on that org
+#   NVKE_NGC_ORG             variable  NGC org that owns the artifact
+#   NGC_REGISTRY_TOKEN_NVKE  secret    NGC API key with write access on that org
 #   DSX_NGC_ORG_TEAM        variable  DSX NGC org/team path
 #   NGC_REGISTRY_TOKEN_DSX  secret    NGC API key with write access on DSX
 #
@@ -47,7 +47,7 @@ on:
         required: false
         default: ""
     secrets:
-      NGC_REGISTRY_TOKEN_NKE:
+      NGC_REGISTRY_TOKEN_NVKE:
         description: NGC API key with write access on the NKE org, for the nvcr push.
         required: true
       NGC_REGISTRY_TOKEN_DSX:
@@ -83,8 +83,8 @@ jobs:
       matrix:
         include:
           - destination: nke
-            org_var: NKE_NGC_ORG
-            token_secret_var_name: NGC_REGISTRY_TOKEN_NKE
+            org_var: NVKE_NGC_ORG
+            token_secret_var_name: NGC_REGISTRY_TOKEN_NVKE
           - destination: dsx
             org_var: DSX_NGC_ORG_TEAM
             token_secret_var_name: NGC_REGISTRY_TOKEN_DSX

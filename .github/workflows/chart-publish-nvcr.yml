@@ -10,8 +10,8 @@ name: Chart Publish NVCR
 # The destination orgs are not written here. They come from the `nvcr`
 # environment:
 #
-#   NKE_NGC_ORG              variable  NGC org id
-#   NGC_REGISTRY_TOKEN_NKE   secret    NGC API key with write access on the org
+#   NVKE_NGC_ORG              variable  NGC org id
+#   NGC_REGISTRY_TOKEN_NVKE   secret    NGC API key with write access on the org
 #   DSX_NGC_ORG_TEAM         variable  DSX NGC org/team path
 #   NGC_REGISTRY_TOKEN_DSX   secret    NGC API key with write access on DSX
 #
@@ -28,9 +28,9 @@ name: Chart Publish NVCR
 # does not exist, and the push dies before it reaches the registry:
 
 # Through controller/v0.1.1-rc.1 the chart was named cloud-workflow-engine and
-# published at nvcr.io/<NKE_NGC_ORG>/cloud-workflow-engine; through the last
+# published at nvcr.io/<NVKE_NGC_ORG>/cloud-workflow-engine; through the last
 # release before this rename it was named controller-chart and published at
-# nvcr.io/<NKE_NGC_ORG>/controller-chart. Both stay where they are.
+# nvcr.io/<NVKE_NGC_ORG>/controller-chart. Both stay where they are.
 
 on:
   push:
@@ -78,8 +78,8 @@ jobs:
       matrix:
         include:
           - destination: nke
-            org_var: NKE_NGC_ORG
-            token_secret_var_name: NGC_REGISTRY_TOKEN_NKE
+            org_var: NVKE_NGC_ORG
+            token_secret_var_name: NGC_REGISTRY_TOKEN_NVKE
             pull_secret: svc-nke-ngc-imagepull
           - destination: dsx
             org_var: DSX_NGC_ORG_TEAM

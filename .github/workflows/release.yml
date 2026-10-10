@@ -390,7 +390,7 @@ jobs:
       contents: read
       security-events: write
     secrets:
-      NGC_REGISTRY_TOKEN_NKE: ${{ secrets.NGC_REGISTRY_TOKEN_NKE }}
+      NGC_REGISTRY_TOKEN_NVKE: ${{ secrets.NGC_REGISTRY_TOKEN_NVKE || secrets.NGC_REGISTRY_TOKEN_NKE }}
       NGC_REGISTRY_TOKEN_DSX: ${{ secrets.NGC_REGISTRY_TOKEN_DSX }}
     with:
       dist_artifact: ${{ needs.release.outputs.dist_artifact }}

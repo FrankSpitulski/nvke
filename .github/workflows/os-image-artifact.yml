@@ -561,11 +561,11 @@ jobs:
       # a cache of public ISOs, which is why that is acceptable.
       - name: Configure AWS credentials for the build cache
         id: cache_aws
-        if: vars.NKE_GHA_CACHE_READ_ROLE_ARN != ''
+        if: vars.NVKE_GHA_CACHE_READ_ROLE_ARN != ''
         continue-on-error: true
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.NKE_GHA_CACHE_READ_ROLE_ARN }}
+          role-to-assume: ${{ vars.NVKE_GHA_CACHE_READ_ROLE_ARN }}
           aws-region: ${{ env.BUILD_CACHE_REGION }}
           output-credentials: true
           output-env-credentials: false
@@ -602,7 +602,7 @@ jobs:
         # A stalled transfer would otherwise eat the whole job budget.
         timeout-minutes: 15
         env:
-          BUCKET: ${{ vars.NKE_GHA_CACHE_BUCKET }}
+          BUCKET: ${{ vars.NVKE_GHA_CACHE_BUCKET }}
           AWS_REGION: ${{ env.BUILD_CACHE_REGION }}
           AWS_ACCESS_KEY_ID: ${{ steps.cache_aws.outputs.aws-access-key-id }}
           AWS_SECRET_ACCESS_KEY: ${{ steps.cache_aws.outputs.aws-secret-access-key }}
@@ -919,11 +919,11 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
           SUFFIX: ${{ matrix.tag_suffix }}
-          NKE_NGC_ORG: ${{ vars.NKE_NGC_ORG }}
+          NVKE_NGC_ORG: ${{ vars.NVKE_NGC_ORG }}
         run: |
           set -euo pipefail
-          if [[ -z "${NKE_NGC_ORG}" ]]; then
-            echo "::error::NKE_NGC_ORG is not set in the nvcr environment"
+          if [[ -z "${NVKE_NGC_ORG}" ]]; then
+            echo "::error::NVKE_NGC_ORG is not set in the nvcr environment"
             exit 1
           fi
           tag="sha-${GITHUB_SHA}${SUFFIX}-${ARCH}"
@@ -932,14 +932,14 @@ jobs:
           fi
           {
             echo "tag=${tag}"
-            echo "nvcr_repo=nvcr.io/${NKE_NGC_ORG}/nke-os-image-${{ matrix.variant }}"
+            echo "nvcr_repo=nvcr.io/${NVKE_NGC_ORG}/nke-os-image-${{ matrix.variant }}"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Log in to GHCR (pull) and NVCR (push)
         shell: bash
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NGC_TOKEN: ${{ secrets.NGC_REGISTRY_TOKEN_NKE }}
+          NGC_TOKEN: ${{ secrets.NGC_REGISTRY_TOKEN_NVKE || secrets.NGC_REGISTRY_TOKEN_NKE }}
         run: |
           set -euo pipefail
           echo "${GHCR_TOKEN}" | oras login ghcr.io \

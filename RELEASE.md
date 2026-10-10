@@ -127,8 +127,8 @@ Both use separate credentials from the same protected GitHub environment:
 
 | Name | Type | Purpose |
 |---|---|---|
-| `NKE_NGC_ORG` | variable | Source NGC org for `nvcr.io/<org>/nke-controller` |
-| `NGC_REGISTRY_TOKEN_NKE` | secret | Read/write token for the source NVKE NGC org |
+| `NVKE_NGC_ORG` | variable | Source NGC org for `nvcr.io/<org>/nke-controller` |
+| `NGC_REGISTRY_TOKEN_NVKE` | secret | Read/write token for the source NVKE NGC org |
 | `DSX_NGC_ORG_TEAM` | variable | Destination NGC org/team, for example `<org>/components-dev` |
 | `NGC_REGISTRY_TOKEN_DSX` | secret | Write token for the DSX NGC org/team |
 

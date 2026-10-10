@@ -478,19 +478,19 @@ jobs:
       - name: Resolve repo
         id: meta
         env:
-          NKE_NGC_ORG: ${{ vars.NKE_NGC_ORG }}
+          NVKE_NGC_ORG: ${{ vars.NVKE_NGC_ORG }}
         run: |
           set -euo pipefail
-          if [[ -z "${NKE_NGC_ORG}" ]]; then
-            echo "::error::NKE_NGC_ORG is not set in the nvcr environment"
+          if [[ -z "${NVKE_NGC_ORG}" ]]; then
+            echo "::error::NVKE_NGC_ORG is not set in the nvcr environment"
             exit 1
           fi
-          echo "repo=nvcr.io/${NKE_NGC_ORG}/nke-agent-deb" >> "${GITHUB_OUTPUT}"
+          echo "repo=nvcr.io/${NVKE_NGC_ORG}/nke-agent-deb" >> "${GITHUB_OUTPUT}"
 
       # `$oauthtoken` is NGC's literal username, not a shell variable.
       - name: Log in to NVCR
         env:
-          NGC_TOKEN: ${{ secrets.NGC_REGISTRY_TOKEN_NKE }}
+          NGC_TOKEN: ${{ secrets.NGC_REGISTRY_TOKEN_NVKE || secrets.NGC_REGISTRY_TOKEN_NKE }}
         run: |
           set -euo pipefail
           # shellcheck disable=SC2016

@@ -83,7 +83,7 @@ on:
           - bootstrap
           - full
       nvke-version:
-        description: "The nvke tag to qualify, e.g. v0.22.0-beta.1. It must be an existing tag. QUALIFY_E2E_NKE_VERSION supplies it when this is empty, and the plan takes the highest nke version when neither is set."
+        description: "The nvke tag to qualify, e.g. v0.22.0-beta.1. It must be an existing tag. QUALIFY_E2E_NVKE_VERSION supplies it when this is empty, and the plan takes the highest nke version when neither is set."
         type: string
         required: false
       scope:
@@ -226,7 +226,7 @@ jobs:
       scope: ${{ steps.matrix.outputs.scope }}
     env:
       DRY_RUN: ${{ (inputs.dry-run == true || github.event.label.name == 'qualify-e2e-dry-run') && 'true' || 'false' }}
-      NVKE_VERSION: ${{ inputs.nvke-version || vars.QUALIFY_E2E_NKE_VERSION }}
+      NVKE_VERSION: ${{ inputs.nvke-version || vars.QUALIFY_E2E_NVKE_VERSION }}
       SCOPE: ${{ inputs.scope || vars.QUALIFY_E2E_SCOPE || 'golden-path' }}
       # The names are the registry's, which are the keys the suite reads.
       OVERRIDE_CONTROLLER: ${{ inputs.controller-version || vars.QUALIFY_E2E_CONTROLLER_VERSION }}
@@ -481,8 +481,8 @@ jobs:
       #
       # The cwe-name input and the CWE_NAMESPACE and CWE_SERVICE variables are
       # deprecated aliases, read after the new names; nke#1399 removes them.
-      NKE_CONTROLLER_NAMESPACE: ${{ inputs.controller-name || inputs.cwe-name || vars.NKE_CONTROLLER_NAMESPACE || vars.CWE_NAMESPACE }}
-      NKE_CONTROLLER_SERVICE: ${{ inputs.controller-name || inputs.cwe-name || vars.NKE_CONTROLLER_SERVICE || vars.CWE_SERVICE }}
+      NKE_CONTROLLER_NAMESPACE: ${{ inputs.controller-name || inputs.cwe-name || vars.NVKE_CONTROLLER_NAMESPACE || vars.CWE_NAMESPACE }}
+      NKE_CONTROLLER_SERVICE: ${{ inputs.controller-name || inputs.cwe-name || vars.NVKE_CONTROLLER_SERVICE || vars.CWE_SERVICE }}
       # One pair per architecture. A run boots as many as its shapes need: a
       # GB200 tenant is arm64 workers behind a control plane of whatever
       # `arch` asked for, so it needs both pairs, while a single-architecture
@@ -532,7 +532,7 @@ jobs:
       #
       CAPI_PROVISIONED_VERSION: ${{ matrix.capi_provisioned }}
       # The NGC org the NVCR images are published under. A repository
-      # variable, not the nvcr environment's NKE_NGC_ORG: that environment
+      # variable, not the nvcr environment's NVKE_NGC_ORG: that environment
       # gates the publish jobs, and this job has no business entering it.
       QUALIFY_E2E_NGC_ORG: ${{ vars.QUALIFY_E2E_NGC_ORG }}
       # Where `make site-inputs` writes nvkectl and the three image archives.
@@ -1103,8 +1103,8 @@ jobs:
           VAR_CAPI_PROVISIONED_VERSION: ${{ vars.QUALIFY_E2E_CAPI_PROVISIONED_VERSION }}
           VAR_KUBERNETES_VERSION: ${{ vars.QUALIFY_E2E_KUBERNETES_VERSION }}
           VAR_CNI_OVN_VERSION: ${{ vars.QUALIFY_E2E_CNI_OVN_VERSION }}
-          VAR_CONTROLLER_NAMESPACE: ${{ vars.NKE_CONTROLLER_NAMESPACE }}
-          VAR_CONTROLLER_SERVICE: ${{ vars.NKE_CONTROLLER_SERVICE }}
+          VAR_CONTROLLER_NAMESPACE: ${{ vars.NVKE_CONTROLLER_NAMESPACE }}
+          VAR_CONTROLLER_SERVICE: ${{ vars.NVKE_CONTROLLER_SERVICE }}
           # The names those two replaced, read separately so the summary can
           # say a deprecated one answered instead of hiding it behind the
           # value it supplied. nke#1399 removes them.
@@ -1115,7 +1115,7 @@ jobs:
           VAR_OS_IMAGE_BOOTLOADER_ARM64: ${{ vars.QUALIFY_E2E_OS_IMAGE_BOOTLOADER_ARM64 }}
           VAR_OS_IMAGE_ARM64: ${{ vars.QUALIFY_E2E_OS_IMAGE_ARM64 }}
           VAR_NODE_USER: ${{ vars.QUALIFY_E2E_NODE_USER }}
-          VAR_NVKE_VERSION: ${{ vars.QUALIFY_E2E_NKE_VERSION }}
+          VAR_NVKE_VERSION: ${{ vars.QUALIFY_E2E_NVKE_VERSION }}
           VAR_SCOPE: ${{ vars.QUALIFY_E2E_SCOPE }}
           # What the plan resolved for the whole run. The lane's own values
           # come from its matrix entry, which is in the env above.
@@ -1167,7 +1167,7 @@ jobs:
             "node user|NODE_USER||VAR_NODE_USER|QUALIFY_E2E_NODE_USER"
             "stream|STREAM|||"
             "combination|COMBINATION|||"
-            "nvke version|NVKE_VERSION|IN_NVKE_VERSION|VAR_NVKE_VERSION|QUALIFY_E2E_NKE_VERSION"
+            "nvke version|NVKE_VERSION|IN_NVKE_VERSION|VAR_NVKE_VERSION|QUALIFY_E2E_NVKE_VERSION"
             "scope|SCOPE|IN_SCOPE|VAR_SCOPE|QUALIFY_E2E_SCOPE"
             "cpu arch|ARCH|||"
             "gpu model|GPU|||"
