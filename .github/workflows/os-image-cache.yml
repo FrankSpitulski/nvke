@@ -37,7 +37,7 @@ env:
   # Keep in step with os-image-artifact.yml. The bucket and the write role are
   # repository variables.
   BUILD_CACHE_REGION: us-east-1
-  BUILD_CACHE_ISO_PREFIX: nke/os-image/iso
+  BUILD_CACHE_ISO_PREFIX: nvke/os-image/iso
 
 jobs:
   iso:

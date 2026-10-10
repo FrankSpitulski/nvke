@@ -118,7 +118,7 @@ env:
   # this workflow only reads, and os-image-cache.yml, on main, is the only
   # writer.
   BUILD_CACHE_REGION: us-east-1
-  BUILD_CACHE_ISO_PREFIX: nke/os-image/iso
+  BUILD_CACHE_ISO_PREFIX: nvke/os-image/iso
 
 jobs:
   # A mirror-branch push carries base-branch commits, so the paths above fire
