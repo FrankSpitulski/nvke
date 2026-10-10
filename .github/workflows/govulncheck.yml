@@ -95,6 +95,9 @@ concurrency:
   group: govulncheck-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+env:
+  GOPROXY: https://proxy.golang.org|direct
+
 jobs:
   discover-modules:
     name: Discover workspace modules

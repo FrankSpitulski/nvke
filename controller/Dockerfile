@@ -21,6 +21,7 @@ FROM ghcr.io/spiffe/k8s-spiffe-workload-jwt-exec-auth:0.3.0@sha256:6402624276b66
 
 # Set up golang build container
 FROM ${GOLANG_IMAGE} AS builder
+ENV GOPROXY=https://proxy.golang.org|direct
 ARG TARGETOS
 ARG TARGETARCH
 

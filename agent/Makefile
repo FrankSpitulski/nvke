@@ -316,7 +316,7 @@ package: package-all ## Default package = all arches
 nfpm: $(NFPM_BIN) ## Build the pinned Debian packaging tool.
 
 $(NFPM_BIN):
-	@GOBIN=$(abspath $(dir $(NFPM_BIN))) go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v$(NFPM_VERSION)
+	@GOBIN=$(abspath $(dir $(NFPM_BIN))) GOPROXY='https://proxy.golang.org|direct' go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v$(NFPM_VERSION)
 
 # Usage: $(call build_deb,amd64)
 define build_deb
