@@ -290,13 +290,13 @@ exclusion entry.
 
 `nicoVMSOSProfileExclusions` holds the profiles no runner can boot:
 
-- the arm64 `nke-local-dev-kindest` placeholder, because it is not a tenant OS
+- the arm64 `nvke-local-dev-kindest` placeholder, because it is not a tenant OS
   profile; and
 - legacy autoinstall profiles whose iPXE scripts boot a kernel, initrd, and ISO
   directly. nico-vms currently requires a `chain` to `qcow-imager.efi` with an
   `image_url` pointing to a qcow2 artifact.
 
-Use the `nke-nico-vms-*` profiles for the emulator's normal control-plane and
+Use the `nvke-nico-vms-*` profiles for the emulator's normal control-plane and
 worker defaults, or for an emulator-specific compatibility scenario such as
 the old node-agent profile. Use production `nke-*` profiles as explicit worker
 profiles when validating the real image, iPXE, cloud-init, or node-agent

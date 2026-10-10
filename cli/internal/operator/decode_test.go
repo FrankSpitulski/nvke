@@ -12,7 +12,7 @@ import (
 
 const machineImageDoc = `
 metadata:
-  name: nke-nico-vms-24-04-amd64-fde
+  name: nvke-nico-vms-24-04-amd64-fde
 spec:
   operatingSystem:
     family: ubuntu
@@ -55,7 +55,7 @@ func TestDecode(t *testing.T) {
 			kind: KindMachineImage,
 			doc:  machineImageDoc,
 			check: func(t *testing.T, r Resource) {
-				assert.Equal(t, "nke-nico-vms-24-04-amd64-fde", r.Metadata.Name)
+				assert.Equal(t, "nvke-nico-vms-24-04-amd64-fde", r.Metadata.Name)
 				assert.Equal(t, "amd64", r.Spec["architecture"])
 			},
 		},

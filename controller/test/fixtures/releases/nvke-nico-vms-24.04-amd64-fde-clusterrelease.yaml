@@ -5,13 +5,13 @@
 apiVersion: internal.nke.nvidia.com/v1
 kind: ClusterRelease
 metadata:
-  name: nke-nico-vms-24.04-arm64-fde
+  name: nvke-nico-vms-24.04-amd64-fde
   annotations:
     internal.nke.nvidia.com/machine-init-kubernetes-version: ""
     internal.nke.nvidia.com/machine-init-kubernetes-version-injected: "true"
 spec:
   machineImageRef:
-    name: nke-nico-vms-24.04-arm64-fde
+    name: nvke-nico-vms-24.04-amd64-fde
   machineInit:
     userDataTemplate: |
       #cloud-config

@@ -159,7 +159,7 @@ func generateSSHKey(t *testing.T, workDir string) string {
 	_ = os.Remove(keyPath)
 	_ = os.Remove(keyPath + ".pub")
 	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-q",
-		"-C", "nke-nico-vms-smoke", "-f", keyPath)
+		"-C", "nvke-nico-vms-smoke", "-f", keyPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("ssh-keygen: %v\n%s", err, out)
 	}

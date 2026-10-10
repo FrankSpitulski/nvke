@@ -600,7 +600,7 @@ mkdir -p ../controller/nico-sim/var/files/agent
 cp bin/linux_amd64/nke-agent ../controller/nico-sim/var/files/agent/nke-agent
 ```
 
-The cloud-init pickup command used by `nke-nico-vms-24.04-amd64-fde` is:
+The cloud-init pickup command used by `nvke-nico-vms-24.04-amd64-fde` is:
 
 ```bash
 sh -c 'u=http://carbide-pxe.forge:18080/files/agent/nke-agent; if curl -fsSL "$u" -o /tmp/nke-agent; then install -m 0755 /tmp/nke-agent /usr/local/bin/nke-agent && echo "downloaded local nke-agent" && /usr/local/bin/nke-agent -version; else echo "local nke-agent not available at $u; using image agent"; fi'

@@ -80,7 +80,7 @@ var nicoVMSOSProfileExclusions = map[string]osProfileExclusion{
 	"nke-260511-22.04-amd64": {
 		reason: legacyAutoinstallExclusionReason,
 	},
-	"nke-local-dev-kindest-arm64": {
+	"nvke-local-dev-kindest-arm64": {
 		reason: "local kindest profile is an arm64 development placeholder, not a tenant OS profile",
 	},
 }

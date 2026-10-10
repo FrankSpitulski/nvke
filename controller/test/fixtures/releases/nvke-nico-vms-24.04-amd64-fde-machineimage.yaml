@@ -5,12 +5,12 @@
 apiVersion: internal.nke.nvidia.com/v1
 kind: MachineImage
 metadata:
-  name: nke-nico-vms-24.04-arm64-fde
+  name: nvke-nico-vms-24.04-amd64-fde
 spec:
   operatingSystem:
     family: ubuntu
     version: "24.04"
-  architecture: arm64
+  architecture: amd64
   buildDate: "2026-03-23"
   nico:
     ipxeScript: |
@@ -25,14 +25,9 @@ spec:
       set image-url http://127.0.0.1/nke-node.qcow2
       set disk-strategy {{ .DiskSelectionStrategy }}
 
-      # You probably don't need to change these.
-      # Not a copy of the amd64 line. A virt machine's only UART is a PL011, and
-      # adaptConsoleForVM rewrites ttyS1 to ttyS0, which does not exist here.
-      set console-config console=tty0 console=ttyAMA0,115200
-      # Not a copy of the amd64 line. pci=realloc and reboot=pci are x86-only, and
-      # intel_iommu=on names a controller no ARM machine has. iommu.passthrough=1 is
-      # the architecture-neutral spelling of iommu=pt.
-      set kernel-params loglevel=1 iommu.passthrough=1
+      # You probably don't need to change these
+      set console-config console=tty0 console=ttyS1,115200
+      set kernel-params pci=realloc=off reboot=pci loglevel=1 iommu=pt intel_iommu=on
       set luks-key luks.key=changeit
       set cloud-init-ds ds=nocloud-net;s=${cloudinit-url}
 

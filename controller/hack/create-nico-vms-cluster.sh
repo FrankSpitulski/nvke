@@ -73,7 +73,7 @@ case "$(uname -m)" in
     exit 1
     ;;
 esac
-OS_PROFILE="${OS_PROFILE:-nke-nico-vms-24.04-${PROFILE_ARCH}-fde}"
+OS_PROFILE="${OS_PROFILE:-nvke-nico-vms-24.04-${PROFILE_ARCH}-fde}"
 CP_CONFIG_PROFILE="${CP_CONFIG_PROFILE:-nico-vms-cp}"
 WORKER_CONFIG_PROFILE="${WORKER_CONFIG_PROFILE:-nico-vms-worker}"
 SYSTEM_RESERVED_MEMORY="${SYSTEM_RESERVED_MEMORY:-1Gi}"

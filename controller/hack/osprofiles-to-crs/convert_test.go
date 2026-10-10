@@ -206,7 +206,7 @@ func TestConvertRejectsBadInput(t *testing.T) {
 		}
 	})
 	t.Run("dots in a name are valid", func(t *testing.T) {
-		name := "nke-nico-vms-24.04-amd64-fde"
+		name := "nvke-nico-vms-24.04-amd64-fde"
 		root := writeTree(t, strings.ReplaceAll(activeMetadata(), activeName, name), "", map[string][2]string{name: {testIPXE, testUser}})
 		docs := mustConvert(t, root)
 		assert.Equal(t, name, decodeImage(t, docs[manifestName(name, "MachineImage")]).Name)

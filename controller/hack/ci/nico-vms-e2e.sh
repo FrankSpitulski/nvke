@@ -392,7 +392,7 @@ export NICO_SIM_FILES_DIR="${NICO_SIM_DIR}/var/files"
 # nico-sim boots guests of the host's architecture, so the specs use the
 # matching release. Keep this name in step with nicoVMSOSProfile in
 # test/e2e/tenant_test.go.
-NODEPOOL_RELEASE="nke-nico-vms-24.04-${host_arch}-fde"
+NODEPOOL_RELEASE="nvke-nico-vms-24.04-${host_arch}-fde"
 AGENT_URL_PATH="$(grep -oE 'files/[a-z-]+/nke-agent' "${NKE_CONTROLLER_RELEASES_DIR}/${NODEPOOL_RELEASE}-nodepoolrelease.yaml" | head -1)"
 [[ -n "${AGENT_URL_PATH}" ]] || fail "${NODEPOOL_RELEASE} no longer downloads nke-agent from /files/"
 log "building nke-agent from ${WORKSPACE_ROOT}/agent"

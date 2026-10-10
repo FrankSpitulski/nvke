@@ -61,7 +61,7 @@ func TestTypedResourcesRoundTrip(t *testing.T) {
 		{
 			resource: "machineimages", kind: "MachineImage",
 			object: &MachineImage{
-				Name: "nke-nico-vms-24.04-amd64-fde",
+				Name: "nvke-nico-vms-24.04-amd64-fde",
 				Spec: MachineImageSpec{
 					OperatingSystem: OperatingSystem{Family: "ubuntu", Version: "24.04"},
 					Architecture:    "amd64",
@@ -74,9 +74,9 @@ func TestTypedResourcesRoundTrip(t *testing.T) {
 		{
 			resource: "clusterreleases", kind: "ClusterRelease",
 			object: &ClusterRelease{
-				Name: "nke-nico-vms-24.04-amd64-fde",
+				Name: "nvke-nico-vms-24.04-amd64-fde",
 				Spec: ClusterReleaseSpec{
-					MachineImageRef: MachineImageReference{Name: "nke-nico-vms-24.04-amd64-fde"},
+					MachineImageRef: MachineImageReference{Name: "nvke-nico-vms-24.04-amd64-fde"},
 					MachineInit:     testMachineInit(),
 				},
 			},
@@ -84,9 +84,9 @@ func TestTypedResourcesRoundTrip(t *testing.T) {
 		{
 			resource: "nodepoolreleases", kind: "NodePoolRelease",
 			object: &NodePoolRelease{
-				Name: "nke-nico-vms-24.04-amd64-fde",
+				Name: "nvke-nico-vms-24.04-amd64-fde",
 				Spec: NodePoolReleaseSpec{
-					MachineImageRef: MachineImageReference{Name: "nke-nico-vms-24.04-amd64-fde"},
+					MachineImageRef: MachineImageReference{Name: "nvke-nico-vms-24.04-amd64-fde"},
 					MachineInit:     testMachineInit(),
 				},
 			},

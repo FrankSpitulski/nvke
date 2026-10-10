@@ -5,7 +5,7 @@
 apiVersion: internal.nke.nvidia.com/v1
 kind: MachineImage
 metadata:
-  name: nke-local-dev-kindest-arm64
+  name: nvke-local-dev-kindest-arm64
 spec:
   operatingSystem:
     family: ubuntu
