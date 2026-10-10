@@ -23,17 +23,17 @@ const (
 	defaultNodeUser = "ubuntu"
 )
 
-// HostTools are the programs `nkectl bootstrap site` needs on the host it
+// HostTools are the programs `nvkectl bootstrap site` needs on the host it
 // runs on, which the NKE image deliberately does not ship. Each version is an
 // input because the repository pins it: KindVersion and ClusterctlVersion in
-// make/tool-versions.mk, NerdctlVersion in nkectl-bootstrap-e2e.yml.
+// make/tool-versions.mk, NerdctlVersion in nvkectl-bootstrap-e2e.yml.
 type HostTools struct {
-	// NerdctlVersion is nerdctl-full without the leading v. nkectl drives kind
+	// NerdctlVersion is nerdctl-full without the leading v. nvkectl drives kind
 	// through nerdctl; Docker is not supported.
 	NerdctlVersion string
 	// KindVersion carries the leading v, as kind's release URLs do.
 	KindVersion string
-	// ClusterctlVersion must match the CAPI version nkectl was built with.
+	// ClusterctlVersion must match the CAPI version nvkectl was built with.
 	// bootstrap site shells out to it, and nothing documents that it must be
 	// present: without it the run dies with "clusterctl: executable file not
 	// found".
@@ -87,7 +87,7 @@ type cloudConfig struct {
 	RunCmd           []string    `json:"runcmd"`
 }
 
-// renderUserData builds the cloud-init for a node `nkectl bootstrap site`
+// renderUserData builds the cloud-init for a node `nvkectl bootstrap site`
 // runs on. It is marshaled rather than templated: its commands are shell,
 // full of quotes and redirections, and YAML written by hand around them is
 // how a boot payload ends up subtly different from what was reviewed.

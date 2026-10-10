@@ -48,7 +48,7 @@ func isNotConfigured(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "no site configured")
 }
 
-// fakeCWE is an httptest server answering the cluster endpoints nkectl calls,
+// fakeCWE is an httptest server answering the cluster endpoints nvkectl calls,
 // backed by an in-memory slice.
 //
 // It exists so a test can run the real path end to end: cobra flags, the real

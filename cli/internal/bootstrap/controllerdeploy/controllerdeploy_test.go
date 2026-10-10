@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/manifest"
+	"github.com/dsx-ai-factory/nvke/cli/internal/envalias"
 )
 
 // fakeCall records one CommandRunner.Run invocation.
@@ -260,7 +261,7 @@ func TestCWEEnvArgs(t *testing.T) {
 }
 
 func TestDefaultConfig_CWEPort(t *testing.T) {
-	t.Setenv("NKECTL_CONTROLLER_PORT", "30181")
+	t.Setenv("NVKECTL_CONTROLLER_PORT", "30181")
 
 	cfg := DefaultConfig()
 	if cfg.CWEPort != 30181 {
@@ -469,7 +470,7 @@ func TestDeploy_InstallsPostgresTemporalSPIREThenCWEInOrder(t *testing.T) {
 	if !strings.Contains(cwe, "image.repository=nvcr.io/org/controller") || !strings.Contains(cwe, "image.tag=edge") {
 		t.Errorf("controller call = %q, want the image split into repository/tag", cwe)
 	}
-	// PROFILES_DIR only. nkectl deploys no profiles content, so the chart's
+	// PROFILES_DIR only. nvkectl deploys no profiles content, so the chart's
 	// profiles.image stays disabled and nothing should turn it on.
 	if !strings.Contains(cwe, "profiles.path="+profilesPath) {
 		t.Errorf("controller call = %q, want PROFILES_DIR pointed at %s", cwe, profilesPath)
@@ -710,7 +711,7 @@ func TestDumpDiagnostics_SurvivesAFailingCluster(t *testing.T) {
 	}
 }
 
-// TestSpireInstallArgs pins what nkectl computes rather than what the values
+// TestSpireInstallArgs pins what nvkectl computes rather than what the values
 // file carries: the chart it resolves, and the depth the computed values are
 // set at. A value set at the wrong depth is silently ignored by helm rather
 // than rejected, so nothing else would catch it.
@@ -863,7 +864,7 @@ func TestSpireAndCWEAgreeOnTheClassName(t *testing.T) {
 }
 
 // TestSpireServesThePortCWEExpects covers the other silent mismatch: the controller reads
-// SPIRE_SERVER_API_ADDRESS for join-token calls and nkectl never sets it, so
+// SPIRE_SERVER_API_ADDRESS for join-token calls and nvkectl never sets it, so
 // the Service has to listen where that default already points. The literal is
 // spelled out rather than built from spireServerPort, because the thing under
 // test is that our constant still matches the controller's default -- writing both sides
@@ -1002,9 +1003,9 @@ func TestDeploy_PullsTemporalAndSPIREChartsFromTheConfiguredRef(t *testing.T) {
 // TestDefaultConfig_ImagesDefaultToTheManifest: with neither variable set the
 // two built images are the manifest's refs; a set variable wins.
 func TestDefaultConfig_ImagesDefaultToTheManifest(t *testing.T) {
+	t.Setenv("NVKECTL_CONTROLLER_IMAGE", "")
 	t.Setenv("NKECTL_CONTROLLER_IMAGE", "")
-	t.Setenv("NKECTL_CWE_IMAGE", "")
-	t.Setenv("NKECTL_CAPI_PROVISIONED_IMAGE", "")
+	t.Setenv("NVKECTL_CAPI_PROVISIONED_IMAGE", "")
 	cfg := DefaultConfig()
 	m := manifest.Load()
 	if want := m.Components[manifest.ComponentController].Images[manifest.ImageController].Ref; cfg.CWEImage != want || want == "" {
@@ -1014,8 +1015,8 @@ func TestDefaultConfig_ImagesDefaultToTheManifest(t *testing.T) {
 		t.Errorf("ProvisionedProviderImage = %q, want the manifest's %q", cfg.ProvisionedProviderImage, want)
 	}
 
-	t.Setenv("NKECTL_CONTROLLER_IMAGE", "nvcr.io/org/nke-controller:edge")
-	t.Setenv("NKECTL_CAPI_PROVISIONED_IMAGE", "nvcr.io/org/provisioned:edge")
+	t.Setenv("NVKECTL_CONTROLLER_IMAGE", "nvcr.io/org/nke-controller:edge")
+	t.Setenv("NVKECTL_CAPI_PROVISIONED_IMAGE", "nvcr.io/org/provisioned:edge")
 	cfg = DefaultConfig()
 	if cfg.CWEImage != "nvcr.io/org/nke-controller:edge" || cfg.ProvisionedProviderImage != "nvcr.io/org/provisioned:edge" {
 		t.Errorf("environment did not win: %+v", cfg)
@@ -1023,9 +1024,9 @@ func TestDefaultConfig_ImagesDefaultToTheManifest(t *testing.T) {
 }
 
 func TestDefaultConfig_ChartRefs(t *testing.T) {
-	t.Setenv("NKECTL_CONTROLLER_TEMPORAL_CHART", "/srv/charts/temporal-0.74.0.tgz")
-	t.Setenv("NKECTL_CONTROLLER_SPIRE_CHART", "oci://mirror.example.com/spiffe/spire")
-	t.Setenv("NKECTL_CONTROLLER_SPIRE_CRDS_CHART", "oci://mirror.example.com/spiffe/spire-crds")
+	t.Setenv("NVKECTL_CONTROLLER_TEMPORAL_CHART", "/srv/charts/temporal-0.74.0.tgz")
+	t.Setenv("NVKECTL_CONTROLLER_SPIRE_CHART", "oci://mirror.example.com/spiffe/spire")
+	t.Setenv("NVKECTL_CONTROLLER_SPIRE_CRDS_CHART", "oci://mirror.example.com/spiffe/spire-crds")
 
 	cfg := DefaultConfig()
 	for _, tt := range []struct{ field, got, want string }{
@@ -1039,29 +1040,31 @@ func TestDefaultConfig_ChartRefs(t *testing.T) {
 	}
 }
 
-// renamedSettingCases is every setting that took the controller's name, with
-// two values it accepts and the Config field that carries it.
+// renamedSettingCases is every setting this package reads, with its previous
+// NKECTL_* name, two values it accepts and the Config field that carries it.
 var renamedSettingCases = []struct {
 	name, old  string
 	oldV, newV string
 	got        func(Config) string
 }{
-	{"NKECTL_CONTROLLER_IMAGE", "NKECTL_CWE_IMAGE", "nvcr.io/org/old:1", "nvcr.io/org/new:1", func(c Config) string { return c.CWEImage }},
-	{"NKECTL_CONTROLLER_PORT", "NKECTL_CWE_PORT", "30181", "30182", func(c Config) string { return strconv.Itoa(int(c.CWEPort)) }},
-	{"NKECTL_CONTROLLER_HELM_TIMEOUT", "NKECTL_CWE_HELM_TIMEOUT", "1m0s", "2m0s", func(c Config) string { return c.HelmTimeout.String() }},
-	{"NKECTL_CONTROLLER_READY_TIMEOUT", "NKECTL_CWE_READY_TIMEOUT", "3m0s", "4m0s", func(c Config) string { return c.ReadyTimeout.String() }},
-	{"NKECTL_CONTROLLER_TEMPORAL_CHART", "NKECTL_CWE_TEMPORAL_CHART", "/srv/old/temporal.tgz", "/srv/new/temporal.tgz", func(c Config) string { return c.TemporalChartRef }},
-	{"NKECTL_CONTROLLER_SPIRE_CHART", "NKECTL_CWE_SPIRE_CHART", "oci://old.example.com/spire", "oci://new.example.com/spire", func(c Config) string { return c.SPIREChartRef }},
-	{"NKECTL_CONTROLLER_SPIRE_CRDS_CHART", "NKECTL_CWE_SPIRE_CRDS_CHART", "oci://old.example.com/spire-crds", "oci://new.example.com/spire-crds", func(c Config) string { return c.SPIRECRDsChartRef }},
+	{"NVKECTL_CONTROLLER_IMAGE", "NKECTL_CONTROLLER_IMAGE", "nvcr.io/org/old:1", "nvcr.io/org/new:1", func(c Config) string { return c.CWEImage }},
+	{"NVKECTL_CONTROLLER_PORT", "NKECTL_CONTROLLER_PORT", "30181", "30182", func(c Config) string { return strconv.Itoa(int(c.CWEPort)) }},
+	{"NVKECTL_CONTROLLER_HELM_TIMEOUT", "NKECTL_CONTROLLER_HELM_TIMEOUT", "1m0s", "2m0s", func(c Config) string { return c.HelmTimeout.String() }},
+	{"NVKECTL_CONTROLLER_READY_TIMEOUT", "NKECTL_CONTROLLER_READY_TIMEOUT", "3m0s", "4m0s", func(c Config) string { return c.ReadyTimeout.String() }},
+	{"NVKECTL_CONTROLLER_TEMPORAL_CHART", "NKECTL_CONTROLLER_TEMPORAL_CHART", "/srv/old/temporal.tgz", "/srv/new/temporal.tgz", func(c Config) string { return c.TemporalChartRef }},
+	{"NVKECTL_CONTROLLER_SPIRE_CHART", "NKECTL_CONTROLLER_SPIRE_CHART", "oci://old.example.com/spire", "oci://new.example.com/spire", func(c Config) string { return c.SPIREChartRef }},
+	{"NVKECTL_CONTROLLER_SPIRE_CRDS_CHART", "NKECTL_CONTROLLER_SPIRE_CRDS_CHART", "oci://old.example.com/spire-crds", "oci://new.example.com/spire-crds", func(c Config) string { return c.SPIRECRDsChartRef }},
+	{"NVKECTL_CAPI_PROVISIONED_IMAGE", "NKECTL_CAPI_PROVISIONED_IMAGE", "nvcr.io/org/old-provisioned:1", "nvcr.io/org/new-provisioned:1", func(c Config) string { return c.ProvisionedProviderImage }},
+	{"NVKECTL_SPIFFE_TRUST_DOMAIN", "NKECTL_SPIFFE_TRUST_DOMAIN", "old.example", "new.example", func(c Config) string { return c.SPIFFETrustDomain }},
 }
 
-// TestDefaultConfig_RenamedSettings: each NKECTL_CONTROLLER_* setting is
-// read; its old NKECTL_CWE_* name is read when the new one is unset and is
+// TestDefaultConfig_RenamedSettings: each NVKECTL_CONTROLLER_* setting is
+// read; its old NVKECTL_CWE_* name is read when the new one is unset and is
 // then reported as deprecated; with both set the new one wins and nothing is
 // reported.
 func TestDefaultConfig_RenamedSettings(t *testing.T) {
-	if len(renamedSettingCases) != len(renamedSettings) {
-		t.Fatalf("%d cases for %d renamed settings", len(renamedSettingCases), len(renamedSettings))
+	if len(renamedSettingCases) != len(Settings) {
+		t.Fatalf("%d cases for %d settings", len(renamedSettingCases), len(Settings))
 	}
 	for _, tc := range renamedSettingCases {
 		for _, set := range []struct {
@@ -1084,9 +1087,9 @@ func TestDefaultConfig_RenamedSettings(t *testing.T) {
 				if got := tc.got(DefaultConfig()); got != set.want {
 					t.Errorf("DefaultConfig read %q, want %q", got, set.want)
 				}
-				var want []RenamedSetting
+				var want []envalias.Renamed
 				if set.deprecated {
-					want = []RenamedSetting{{Old: tc.old, New: tc.name}}
+					want = []envalias.Renamed{{Old: tc.old, New: tc.name}}
 				}
 				if got := DeprecatedSettings(); !slices.Equal(got, want) {
 					t.Errorf("DeprecatedSettings = %v, want %v", got, want)
@@ -1103,14 +1106,14 @@ func TestDeprecatedSettings_SortedByOldName(t *testing.T) {
 		t.Setenv(c.name, "")
 		t.Setenv(c.old, "")
 	}
-	t.Setenv("NKECTL_CWE_SPIRE_CHART", "oci://old.example.com/spire")
-	t.Setenv("NKECTL_CWE_IMAGE", "nvcr.io/org/old:1")
-	t.Setenv("NKECTL_CWE_PORT", "30181")
+	t.Setenv("NKECTL_CONTROLLER_SPIRE_CHART", "oci://old.example.com/spire")
+	t.Setenv("NKECTL_CONTROLLER_IMAGE", "nvcr.io/org/old:1")
+	t.Setenv("NKECTL_CONTROLLER_PORT", "30181")
 
-	want := []RenamedSetting{
-		{Old: "NKECTL_CWE_IMAGE", New: "NKECTL_CONTROLLER_IMAGE"},
-		{Old: "NKECTL_CWE_PORT", New: "NKECTL_CONTROLLER_PORT"},
-		{Old: "NKECTL_CWE_SPIRE_CHART", New: "NKECTL_CONTROLLER_SPIRE_CHART"},
+	want := []envalias.Renamed{
+		{Old: "NKECTL_CONTROLLER_IMAGE", New: "NVKECTL_CONTROLLER_IMAGE"},
+		{Old: "NKECTL_CONTROLLER_PORT", New: "NVKECTL_CONTROLLER_PORT"},
+		{Old: "NKECTL_CONTROLLER_SPIRE_CHART", New: "NVKECTL_CONTROLLER_SPIRE_CHART"},
 	}
 	if got := DeprecatedSettings(); !slices.Equal(got, want) {
 		t.Errorf("DeprecatedSettings = %v, want %v", got, want)

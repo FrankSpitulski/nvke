@@ -24,7 +24,7 @@ var (
 
 func newRootCmd(ver, commit, treeState, date string) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "nkectl",
+		Use:   "nvkectl",
 		Short: "NKE control-plane CLI",
 		// Errors reach the operator from main, which maps them to an exit code
 		// at the same time. Leaving cobra to print as well would double every

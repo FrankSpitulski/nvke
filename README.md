@@ -51,7 +51,7 @@ What distinguishes it from a generic CAPI distribution:
 | `controller/` | The control plane. REST API and UI, durable Temporal workflows, cluster and node inventory, and the infrastructure provider integrations. |
 | `cluster-api-provider-provisioned/` | Cluster API infrastructure provider for hosts that NKE provisions before CAPI bootstraps them. |
 | `agent/` | The on-node daemon. Exposes a gRPC API the controller drives to run `kubeadm`, install a CNI, and configure disk and etcd encryption. |
-| `cli/` | `nkectl`, the command-line interface. Validates a site spec and drives bootstrap. |
+| `cli/` | `nvkectl`, the command-line interface. Validates a site spec and drives bootstrap. |
 | `controller/nico-sim/` | `nico-sim`, the NICo-compatible VM and Docker-container simulator used by development and tests. |
 | `build/` | Build and publish scripts per component. |
 | `docs/` | Architecture, getting started, and admin guides. |
@@ -60,7 +60,7 @@ What distinguishes it from a generic CAPI distribution:
 
 **Twelve Go modules**, tied together by a workspace at the repository root, each
 independently buildable. `make build` links seven binaries: `agent`, `updater`,
-`controller`, `nkectl`, `capd-reboot-controller`, `nke-os-image-check` and
+`controller`, `nvkectl`, `capd-reboot-controller`, `nke-os-image-check` and
 `management-engine`.
 See [docs/go-workspace.md](docs/go-workspace.md) for workspace and dependency setup.
 
@@ -72,7 +72,7 @@ What each binary is, and where it ends up running:
 | `controller` | `controller/` | The control plane: REST API, Temporal workflows, and the Kubernetes reconcilers | The site controller cluster |
 | `agent` | `agent/` | gRPC server the control plane drives to run `kubeadm`, install a CNI, and configure encryption | Every managed node |
 | `updater` | `agent/` | Independent helper that replaces the node agent without depending on the agent process | Every managed node |
-| `nkectl` | `cli/` | Validates a site spec and drives bootstrap | Your machine |
+| `nvkectl` | `cli/` | Validates a site spec and drives bootstrap | Your machine |
 | `nke-os-image-check` | `os-image/` | Checks a node image against the contract in `os-image/SPEC.md` | Your machine, or an image build |
 | `capd-reboot-controller` | `controller/hack/capd-reboot-controller/` | Test helper that reboots CAPD machines | Test clusters |
 
@@ -147,7 +147,7 @@ wider local setup, see **[docs/getting-started.md](docs/getting-started.md)**.
 [docs/README.md](docs/README.md) indexes everything else.
 
 The controller has its own guide in
-[controller/README.md](controller/README.md). For a worked `nkectl` input, see
+[controller/README.md](controller/README.md). For a worked `nvkectl` input, see
 [cli/examples/sitespec.yaml](cli/examples/sitespec.yaml), which describes a
 site, and [cli/examples/capd-cluster.yaml](cli/examples/capd-cluster.yaml),
 which requests a cluster.
@@ -169,7 +169,7 @@ publish OS images; it publishes the recipes for building them.
 
 | Document | Contents |
 |---|---|
-| [docs/first-cluster.md](docs/first-cluster.md) | Three paths to a running cluster, driven by `nkectl` |
+| [docs/first-cluster.md](docs/first-cluster.md) | Three paths to a running cluster, driven by `nvkectl` |
 | [docs/architecture.md](docs/architecture.md) | System overview — modules, data flows, deployment model |
 | [docs/getting-started.md](docs/getting-started.md) | Local development setup for the controller and the agent |
 

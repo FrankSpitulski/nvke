@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package nkectl
+package nvkectl
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	// nodePoolCreatedRe matches the line `nkectl create nodepool` prints on
+	// nodePoolCreatedRe matches the line `nvkectl create nodepool` prints on
 	// success:
 	//
 	//	Node pool "gpu-workers" created (id: 0f8f...)
@@ -29,7 +29,7 @@ var (
 	errNodePoolNotFound = errors.New("node pool not found")
 )
 
-// NodePoolRef names a node pool the way nkectl addresses one: by pool name
+// NodePoolRef names a node pool the way nvkectl addresses one: by pool name
 // within a cluster name. The CLI has no --nodepool flag and no lookup by id, so
 // every call below is keyed on this pair.
 type NodePoolRef struct {
@@ -50,7 +50,7 @@ func nodePoolNotFoundIn(out string, ref NodePoolRef) bool {
 }
 
 // CreateNodePool writes req to a file, creates it with
-// `nkectl create nodepool -f`, and returns the pool read back by name.
+// `nvkectl create nodepool -f`, and returns the pool read back by name.
 //
 // The pool's identity is recorded before that read, so a pool the controller created but
 // this could not then look up is still removable by CleanupCreatedNodePools.
@@ -60,13 +60,13 @@ func (r *Runner) CreateNodePool(ctx context.Context, clusterName string, req api
 		return nil, fmt.Errorf("marshaling the create request for node pool %q: %w", req.Name, err)
 	}
 
-	dir, err := os.MkdirTemp("", "nkectl-e2e-nodepool-")
+	dir, err := os.MkdirTemp("", "nvkectl-e2e-nodepool-")
 	if err != nil {
 		return nil, fmt.Errorf("creating a spec directory: %w", err)
 	}
 	defer os.RemoveAll(dir)
 
-	// JSON in a .yaml file: nkectl parses -f as YAML, which is a superset.
+	// JSON in a .yaml file: nvkectl parses -f as YAML, which is a superset.
 	path := filepath.Join(dir, "nodepool.yaml")
 	if writeErr := os.WriteFile(path, body, 0o600); writeErr != nil {
 		return nil, fmt.Errorf("writing the spec for node pool %q: %w", req.Name, writeErr)
@@ -85,9 +85,9 @@ func (r *Runner) CreateNodePool(ctx context.Context, clusterName string, req api
 	// Assert the success line, not just the exit status.
 	match := nodePoolCreatedRe.FindStringSubmatch(out)
 	if match == nil {
-		return nil, fmt.Errorf("nkectl create nodepool %q reported no id: %s", req.Name, strings.TrimSpace(out))
+		return nil, fmt.Errorf("nvkectl create nodepool %q reported no id: %s", req.Name, strings.TrimSpace(out))
 	}
-	r.logf("nkectl e2e: %s", strings.TrimSpace(out))
+	r.logf("nvkectl e2e: %s", strings.TrimSpace(out))
 
 	ref.Pool = match[1]
 	r.trackCreatedNodePool(ref) // a no-op unless the controller named it something else
@@ -133,7 +133,7 @@ func (r *Runner) ListNodePools(ctx context.Context, clusterName string) ([]api.N
 }
 
 // ScaleNodePool sets the pool's desired node count through
-// `nkectl patch nodepool --patch`, and returns the pool as the CLI reports it
+// `nvkectl patch nodepool --patch`, and returns the pool as the CLI reports it
 // afterwards. desiredNodeCount is the only field that command can set.
 //
 // Scaling up provisions nodes; scaling down does not remove running ones.
@@ -150,9 +150,9 @@ func (r *Runner) ScaleNodePool(ctx context.Context, ref NodePoolRef, desired int
 		return nil, err
 	}
 	if !strings.Contains(out, "patched (id: ") {
-		return nil, fmt.Errorf("nkectl patch nodepool %q did not report the patch: %s", ref.Pool, strings.TrimSpace(out))
+		return nil, fmt.Errorf("nvkectl patch nodepool %q did not report the patch: %s", ref.Pool, strings.TrimSpace(out))
 	}
-	r.logf("nkectl e2e: %s", strings.TrimSpace(out))
+	r.logf("nvkectl e2e: %s", strings.TrimSpace(out))
 
 	return r.GetNodePoolByName(ctx, ref)
 }
@@ -182,7 +182,7 @@ func (r *Runner) WaitForNodePoolProvisioned(ctx context.Context, ref NodePoolRef
 				// WaitForClusterReady gives: the API is reached through a
 				// forward that reconnects, and the deadline above is the bound
 				// that matters.
-				r.logf("nkectl e2e: polling node pool %s: %v", ref.Pool, err)
+				r.logf("nvkectl e2e: polling node pool %s: %v", ref.Pool, err)
 				continue
 			}
 			if pool.Conditions.Provisioned.Status == api.ConditionStatusTrue {
@@ -214,7 +214,7 @@ func (r *Runner) WaitForNodePoolDesiredCount(ctx context.Context, ref NodePoolRe
 		case <-ticker.C:
 			pool, err := r.GetNodePoolByName(ctx, ref)
 			if err != nil {
-				r.logf("nkectl e2e: polling node pool %s: %v", ref.Pool, err)
+				r.logf("nvkectl e2e: polling node pool %s: %v", ref.Pool, err)
 				continue
 			}
 			if pool.DesiredNodeCount == desired {
@@ -235,9 +235,9 @@ func (r *Runner) DeleteNodePool(ctx context.Context, ref NodePoolRef) error {
 		return err
 	}
 	if !strings.Contains(out, "deletion started") {
-		return fmt.Errorf("nkectl delete nodepool %q did not report deletion: %s", ref.Pool, strings.TrimSpace(out))
+		return fmt.Errorf("nvkectl delete nodepool %q did not report deletion: %s", ref.Pool, strings.TrimSpace(out))
 	}
-	r.logf("nkectl e2e: %s", strings.TrimSpace(out))
+	r.logf("nvkectl e2e: %s", strings.TrimSpace(out))
 	return nil
 }
 
@@ -261,7 +261,7 @@ func (r *Runner) WaitForNodePoolDeleted(ctx context.Context, ref NodePoolRef) er
 				return nil
 			}
 			if err != nil {
-				r.logf("nkectl e2e: polling for node pool %s to go away: %v", ref.Pool, err)
+				r.logf("nvkectl e2e: polling for node pool %s to go away: %v", ref.Pool, err)
 			}
 		}
 	}
@@ -280,12 +280,12 @@ func (r *Runner) CleanupCreatedNodePools(ctx context.Context) {
 		case err != nil:
 			// Not knowing is not the same as gone: say so, rather than leave a
 			// pool running with nothing in the log to explain it.
-			r.logf("nkectl e2e: could not tell whether node pool %s is still there: %v", ref.Pool, err)
+			r.logf("nvkectl e2e: could not tell whether node pool %s is still there: %v", ref.Pool, err)
 			continue
 		}
-		r.logf("nkectl e2e: removing leftover node pool %s in cluster %s", ref.Pool, ref.Cluster)
+		r.logf("nvkectl e2e: removing leftover node pool %s in cluster %s", ref.Pool, ref.Cluster)
 		if err := r.DeleteNodePool(ctx, ref); err != nil {
-			r.logf("nkectl e2e: could not remove leftover node pool %s: %v", ref.Pool, err)
+			r.logf("nvkectl e2e: could not remove leftover node pool %s: %v", ref.Pool, err)
 		}
 	}
 	r.createdNodePools = nil

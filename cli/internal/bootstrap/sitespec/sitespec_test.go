@@ -430,7 +430,7 @@ func TestLoadEnvFillsField(t *testing.T) {
 }
 
 func TestLoadTrustDomainFromEnvironment(t *testing.T) {
-	t.Setenv("NKECTL_SPIFFE_TRUST_DOMAIN", "site.example.com")
+	t.Setenv("NVKECTL_SPIFFE_TRUST_DOMAIN", "site.example.com")
 
 	inv, err := Load(writeTemp(t, validYAML))
 	if err != nil {
@@ -442,7 +442,7 @@ func TestLoadTrustDomainFromEnvironment(t *testing.T) {
 }
 
 func TestLoadNodesFromEnv(t *testing.T) {
-	t.Setenv("NKECTL_CLUSTER_NODES", "node1:10.0.0.1,node2:10.0.0.2,node3:10.0.0.3")
+	t.Setenv("NVKECTL_CLUSTER_NODES", "node1:10.0.0.1,node2:10.0.0.2,node3:10.0.0.3")
 	t.Setenv("CLUSTER_CONTROL_PLANE_VIP", "10.0.0.100")
 
 	inv, err := Load(writeTemp(t, noNodesYAML))
@@ -459,10 +459,10 @@ func TestLoadNodesFromEnv(t *testing.T) {
 
 func TestLoadNodesEnvMalformedFails(t *testing.T) {
 	// A malformed node entry must fail loudly, not be silently discarded.
-	t.Setenv("NKECTL_CLUSTER_NODES", "node2:10.0.0.2,bogus")
+	t.Setenv("NVKECTL_CLUSTER_NODES", "node2:10.0.0.2,bogus")
 
 	if _, err := Load(writeTemp(t, noNodesYAML)); err == nil {
-		t.Fatal("Load accepted a malformed NKECTL_CLUSTER_NODES entry; want error")
+		t.Fatal("Load accepted a malformed NVKECTL_CLUSTER_NODES entry; want error")
 	}
 }
 

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package nkectl drives the nkectl binary against the NKE deployment the e2e
+// Package nvkectl drives the nvkectl binary against the NKE deployment the e2e
 // suite already has running. It is the command-line counterpart to
 // internal/nke, the REST client the rest of the suite uses; both build their
 // create request through nvke.BuildCreateRequest, so the two differ only in
@@ -11,7 +11,7 @@
 // site config pointed at it. It cannot share the suite's forward:
 // kube.ServiceForwarder routes through a custom DialContext against a synthetic
 // .svc authority that never resolves, so no separate process can reach it.
-package nkectl
+package nvkectl
 
 import (
 	"bufio"
@@ -33,23 +33,23 @@ import (
 )
 
 const (
-	// BinaryEnv overrides which nkectl is driven. Set by CI, where the binary is
+	// BinaryEnv overrides which nvkectl is driven. Set by CI, where the binary is
 	// staged into the runner rather than installed.
-	BinaryEnv = "NKECTL_BIN"
+	BinaryEnv = "NVKECTL_BIN"
 
 	// kubectlBinary carries the port-forward, and is the only command besides
-	// nkectl that a Runner needs.
+	// nvkectl that a Runner needs.
 	kubectlBinary = "kubectl"
 
 	// siteName is the site this package registers. Its own name, in its own
 	// config home, so nothing here can disturb a developer's real sites.
-	siteName = "e2e-nkectl"
+	siteName = "e2e-nvkectl"
 
 	// forwardReadyTimeout bounds how long kubectl may take to print the line
 	// naming the local port it bound.
 	forwardReadyTimeout = 30 * time.Second
 
-	// commandTimeout bounds a single nkectl invocation. Every call is bounded
+	// commandTimeout bounds a single nvkectl invocation. Every call is bounded
 	// because a hung CLI would otherwise stall the spec until Ginkgo's node
 	// timeout, long after the useful diagnostics have scrolled past.
 	commandTimeout = 2 * time.Minute
@@ -61,7 +61,7 @@ var (
 	//	Forwarding from 127.0.0.1:54321 -> 8080
 	forwardingRe = regexp.MustCompile(`Forwarding from 127\.0\.0\.1:(\d+)`)
 
-	// ErrBinaryNotFound reports that a binary a Runner needs -- nkectl, or the
+	// ErrBinaryNotFound reports that a binary a Runner needs -- nvkectl, or the
 	// kubectl carrying its port-forward -- is not installed. New wraps it, so a
 	// caller that tolerates an environment without them should test for it with
 	// errors.Is and treat every other error from New as a failure.
@@ -70,10 +70,10 @@ var (
 
 // Options configures a Runner.
 type Options struct {
-	// Binary is the nkectl to drive. Empty resolves $NKECTL_BIN, then PATH.
+	// Binary is the nvkectl to drive. Empty resolves $NVKECTL_BIN, then PATH.
 	Binary string
 
-	// Kubeconfig is the management cluster kubeconfig. nkectl mints its API
+	// Kubeconfig is the management cluster kubeconfig. nvkectl mints its API
 	// token from it and reads tenant kubeconfig Secrets through it. Empty
 	// resolves $KUBECONFIG, then ~/.kube/config.
 	Kubeconfig string
@@ -90,7 +90,7 @@ type Options struct {
 	Logf func(format string, args ...any)
 }
 
-// Runner drives nkectl against a site it registers itself, over a port-forward
+// Runner drives nvkectl against a site it registers itself, over a port-forward
 // it owns. Close releases both. Not safe for concurrent use.
 type Runner struct {
 	binary     string
@@ -107,7 +107,7 @@ type Runner struct {
 	// this is what makes a dead forward visible to ensureForward.
 	forwardDone chan struct{}
 
-	// clusterNames maps id to name. nkectl addresses clusters by name and the
+	// clusterNames maps id to name. nvkectl addresses clusters by name and the
 	// suite's seam passes ids, so the two have to be reconciled somewhere.
 	clusterNames map[openapi_types.UUID]string
 	// createdClusters names every cluster CreateCluster may have brought into
@@ -115,7 +115,7 @@ type Runner struct {
 	// is all CleanupCreated needs and all that is known before the reply.
 	createdClusters []string
 	// createdNodePools names every node pool CreateNodePool may have brought
-	// into being, keyed the way nkectl addresses one.
+	// into being, keyed the way nvkectl addresses one.
 	createdNodePools []NodePoolRef
 }
 
@@ -130,7 +130,7 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 		return nil, err
 	}
 	// Checked up front so a host without kubectl reports ErrBinaryNotFound like
-	// one without nkectl. Neither is a regression in the CLI under test.
+	// one without nvkectl. Neither is a regression in the CLI under test.
 	if _, lookErr := exec.LookPath(kubectlBinary); lookErr != nil {
 		return nil, fmt.Errorf("%w: %s carries the port-forward: %w", ErrBinaryNotFound, kubectlBinary, lookErr)
 	}
@@ -144,9 +144,9 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 		logf = func(string, ...any) {}
 	}
 
-	configHome, err := os.MkdirTemp("", "nkectl-e2e-config-")
+	configHome, err := os.MkdirTemp("", "nvkectl-e2e-config-")
 	if err != nil {
-		return nil, fmt.Errorf("creating nkectl config home: %w", err)
+		return nil, fmt.Errorf("creating nvkectl config home: %w", err)
 	}
 
 	r := &Runner{
@@ -159,7 +159,7 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 	}
 
 	// A requested context has to be baked into the file, not passed per
-	// command: nkectl takes a kubeconfig path and no context flag, so it would
+	// command: nvkectl takes a kubeconfig path and no context flag, so it would
 	// otherwise mint tokens and read tenant Secrets through the file's
 	// current-context while the forward pointed at the requested one.
 	if opts.Context != "" {
@@ -184,7 +184,7 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 
 // flattenToContext writes a kubeconfig holding only the requested context, with
 // its credentials embedded, and returns its path. Everything downstream then
-// agrees on one cluster without needing to thread a context flag that nkectl
+// agrees on one cluster without needing to thread a context flag that nvkectl
 // does not accept.
 func (r *Runner) flattenToContext(ctx context.Context, kubeContext string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
@@ -212,7 +212,7 @@ func (r *Runner) flattenToContext(ctx context.Context, kubeContext string) (stri
 	if err := os.WriteFile(path, out, 0o600); err != nil {
 		return "", fmt.Errorf("writing the flattened kubeconfig: %w", err)
 	}
-	r.logf("nkectl e2e: flattened kubeconfig to context %q", kubeContext)
+	r.logf("nvkectl e2e: flattened kubeconfig to context %q", kubeContext)
 	return path, nil
 }
 
@@ -259,7 +259,7 @@ func (r *Runner) ensureForward(ctx context.Context) error {
 	if r.forwardDone != nil {
 		select {
 		case <-r.forwardDone:
-			r.logf("nkectl e2e: the port-forward exited; restarting it")
+			r.logf("nvkectl e2e: the port-forward exited; restarting it")
 		default:
 			return nil // still up
 		}
@@ -270,7 +270,7 @@ func (r *Runner) ensureForward(ctx context.Context) error {
 		return fmt.Errorf("starting the port-forward: %w", err)
 	}
 	if err := r.setSite(ctx); err != nil {
-		// Drop it: nkectl reads its URL from the site config on disk, so a live
+		// Drop it: nvkectl reads its URL from the site config on disk, so a live
 		// forward that config does not name would pass the check above while
 		// every command went to the previous URL. The next call starts over.
 		r.stopForward()
@@ -282,8 +282,8 @@ func (r *Runner) ensureForward(ctx context.Context) error {
 // BaseURL is the forwarded NKE endpoint the registered site points at.
 func (r *Runner) BaseURL() string { return r.baseURL }
 
-// Run invokes nkectl with args and returns its combined output. The output is
-// returned on failure too, because nkectl reports the reason there.
+// Run invokes nvkectl with args and returns its combined output. The output is
+// returned on failure too, because nvkectl reports the reason there.
 func (r *Runner) Run(ctx context.Context, args ...string) (string, error) {
 	if err := r.ensureForward(ctx); err != nil {
 		return "", err
@@ -300,7 +300,7 @@ func (r *Runner) Run(ctx context.Context, args ...string) (string, error) {
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(out), fmt.Errorf("nkectl %s: %w: %s",
+		return string(out), fmt.Errorf("nvkectl %s: %w: %s",
 			strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
@@ -358,7 +358,7 @@ func (r *Runner) startForward(ctx context.Context) error {
 	r.forward = cmd
 	r.forwardDone = done
 	r.baseURL = fmt.Sprintf("http://127.0.0.1:%s", port)
-	r.logf("nkectl e2e: port-forward to %s/%s ready at %s", controller.Namespace(), controller.Service(), r.baseURL)
+	r.logf("nvkectl e2e: port-forward to %s/%s ready at %s", controller.Namespace(), controller.Service(), r.baseURL)
 	return nil
 }
 
@@ -402,8 +402,8 @@ func awaitForwardPort(stdout io.ReadCloser, done chan struct{}) (string, error) 
 // goes through `config set-site` rather than writing config.yaml directly, so
 // that command is covered too.
 func (r *Runner) setSite(ctx context.Context) error {
-	if err := os.MkdirAll(filepath.Join(r.configHome, "nkectl"), 0o755); err != nil {
-		return fmt.Errorf("creating nkectl config dir: %w", err)
+	if err := os.MkdirAll(filepath.Join(r.configHome, "nvkectl"), 0o755); err != nil {
+		return fmt.Errorf("creating nvkectl config dir: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
@@ -416,13 +416,13 @@ func (r *Runner) setSite(ctx context.Context) error {
 	)
 	cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+r.configHome)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("nkectl config set-site: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("nvkectl config set-site: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
 
-// resolveBinary returns the nkectl to drive, preferring explicit, then
-// $NKECTL_BIN, then PATH. A binary found in none of them wraps
+// resolveBinary returns the nvkectl to drive, preferring explicit, then
+// $NVKECTL_BIN, then PATH. A binary found in none of them wraps
 // ErrBinaryNotFound.
 func resolveBinary(explicit string) (string, error) {
 	for _, candidate := range []string{explicit, os.Getenv(BinaryEnv)} {
@@ -432,13 +432,13 @@ func resolveBinary(explicit string) (string, error) {
 		// #nosec G703 -- candidate is an operator-supplied path to the binary
 		// under test; resolving it is the point, and it is only stat'd here.
 		if _, err := os.Stat(candidate); err != nil {
-			return "", fmt.Errorf("nkectl binary %q: %w", candidate, err)
+			return "", fmt.Errorf("nvkectl binary %q: %w", candidate, err)
 		}
 		return candidate, nil
 	}
-	path, err := exec.LookPath("nkectl")
+	path, err := exec.LookPath("nvkectl")
 	if err != nil {
-		return "", fmt.Errorf("%w: pass Options.Binary, set %s, or put nkectl on PATH: %w", ErrBinaryNotFound, BinaryEnv, err)
+		return "", fmt.Errorf("%w: pass Options.Binary, set %s, or put nvkectl on PATH: %w", ErrBinaryNotFound, BinaryEnv, err)
 	}
 	return path, nil
 }
@@ -450,7 +450,7 @@ func resolveKubeconfig(explicit string) (string, error) {
 		return explicit, nil
 	}
 	if env := os.Getenv("KUBECONFIG"); env != "" {
-		// KUBECONFIG may list several files; nkectl takes one, so the first wins.
+		// KUBECONFIG may list several files; nvkectl takes one, so the first wins.
 		first := strings.Split(env, string(os.PathListSeparator))[0]
 		if first != "" {
 			return first, nil

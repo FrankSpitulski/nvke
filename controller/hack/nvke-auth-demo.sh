@@ -92,7 +92,7 @@ need kubectl
 need curl
 
 if [[ -z "${NKE_CONTROLLER_NAMESPACE}" ]]; then
-  # Same order nkectl uses: the greenfield namespace if it holds the auth
+  # Same order nvkectl uses: the greenfield namespace if it holds the auth
   # ConfigMap, else the legacy one. Only a confirmed absence falls back.
   found="$(
     "${KUBECTL[@]}" get configmap nke-auth-config -n nke-controller \

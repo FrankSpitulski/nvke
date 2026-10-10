@@ -32,7 +32,7 @@ func run(t *testing.T, cmd *cobra.Command, args ...string) (string, error) {
 	return out.String(), err
 }
 
-// fakeCWE is an httptest server answering the node pool endpoints nkectl
+// fakeCWE is an httptest server answering the node pool endpoints nvkectl
 // calls, backed by an in-memory slice.
 //
 // It exists so a test can run the real path end to end: cobra flags, the real

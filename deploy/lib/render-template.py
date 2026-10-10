@@ -60,7 +60,7 @@ def render(text, ctx, where):
         if not action.startswith("."):
             die("%s: unsupported template action {{ %s }}.\n"
                 "This renderer handles field lookups only; range, if, with and "
-                "functions need nkectl's implementation." % (where, action))
+                "functions need nvkectl's implementation." % (where, action))
     return FIELD.sub(lambda m: lookup(ctx, m.group(1), where), text)
 
 

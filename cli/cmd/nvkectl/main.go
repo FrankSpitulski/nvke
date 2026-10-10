@@ -22,13 +22,13 @@ var (
 	buildDate    = "unknown" //nolint:gochecknoglobals // set by ldflags at build time
 )
 
-// The exit codes nkectl promises its callers. They are part of the CLI's
+// The exit codes nvkectl promises its callers. They are part of the CLI's
 // compatibility surface, which cli/docs/compatibility.md states and
-// cmd/nkectl/contract_test.go enforces.
+// cmd/nvkectl/contract_test.go enforces.
 const (
 	// exitError is returned for every failure that is not a cancellation:
 	// invalid input, a usage error, and an API or infrastructure failure alike.
-	// nkectl does not distinguish them by code.
+	// nvkectl does not distinguish them by code.
 	exitError = 1
 	// exitSIGINT and exitSIGTERM are returned when that signal cut the command
 	// short, following the shell convention of 128 plus the signal number.
@@ -74,7 +74,7 @@ func reportFailure(w io.Writer, err error, canceled bool, sig syscall.Signal) in
 		fmt.Fprintln(w, "Error:", err)
 		return exitError
 	}
-	fmt.Fprintln(w, "nkectl: canceled")
+	fmt.Fprintln(w, "nvkectl: canceled")
 	var recovery *recoveryError
 	if errors.As(err, &recovery) {
 		fmt.Fprintln(w, "Error:", err)

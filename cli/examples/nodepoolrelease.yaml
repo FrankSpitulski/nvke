@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# A worker release for `nkectl create nodepoolrelease -f nodepoolrelease.yaml`.
+# A worker release for `nvkectl create nodepoolrelease -f nodepoolrelease.yaml`.
 #
 # machineImageRef and machineInit are immutable once published. To change
 # either, publish a new name. The only thing that changes in place is
-# lifecycle, through `nkectl deprecate nodepoolrelease <name>`.
+# lifecycle, through `nvkectl deprecate nodepoolrelease <name>`.
 metadata:
   name: example-ubuntu-24.04-amd64
   annotations:

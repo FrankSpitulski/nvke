@@ -50,7 +50,7 @@ nodeTaints:
 	if !strings.Contains(out, `Node pool "gpu-workers" created`) {
 		t.Errorf("output missing the created line: %q", out)
 	}
-	if !strings.Contains(out, "nkectl get nodepools --cluster") {
+	if !strings.Contains(out, "nvkectl get nodepools --cluster") {
 		t.Errorf("output missing the status hint: %q", out)
 	}
 

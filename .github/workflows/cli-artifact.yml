@@ -3,13 +3,13 @@
 
 name: CLI Artifact GHCR
 
-# Publishes nkectl binaries to GHCR as OCI artifacts, alongside the existing
+# Publishes nvkectl binaries to GHCR as OCI artifacts, alongside the existing
 # GitHub Release. Tags are OS/ARCH-suffixed only (e.g. v0.1.0-linux-amd64),
 # same as os-image -- no `oras manifest index create` step, so unlike
 # agent-artifact.yml there is no bare `:version` tag a consumer can pull with
 # `--platform` to auto-select. Pull the suffixed tag directly.
 #
-# nkectl also ships darwin builds -- every existing `--artifact-platform`
+# nvkectl also ships darwin builds -- every existing `--artifact-platform`
 # use in this repo is linux-only, so this is the first time that flag sees a
 # `darwin/*` value. Watch the first real run.
 
@@ -136,7 +136,7 @@ jobs:
           for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             os="${platform%/*}"
             arch="${platform#*/}"
-            bin="nkectl-${os}-${arch}"
+            bin="nvkectl-${os}-${arch}"
 
             tags=""
             for alias in "${aliases[@]}"; do
@@ -150,7 +150,7 @@ jobs:
                 --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
                 --annotation "org.opencontainers.image.version=${VERSION}" \
                 --annotation "org.opencontainers.image.licenses=Apache-2.0" \
-                --annotation "org.opencontainers.image.title=nkectl" \
+                --annotation "org.opencontainers.image.title=nvkectl" \
                 "${bin}:application/octet-stream" )
           done
 
@@ -174,4 +174,4 @@ jobs:
             ${{ steps.meta.outputs.repo }}:sha-${{ github.sha }}-linux-arm64
             ${{ steps.meta.outputs.repo }}:sha-${{ github.sha }}-darwin-amd64
             ${{ steps.meta.outputs.repo }}:sha-${{ github.sha }}-darwin-arm64
-          component: nkectl
+          component: nvkectl

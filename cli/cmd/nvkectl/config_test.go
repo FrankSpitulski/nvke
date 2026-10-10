@@ -27,8 +27,8 @@ func TestSetSitePersistsConnectionDetailsAndCurrentSite(t *testing.T) {
 		"config", "set-site",
 		"--url", "http://localhost:8080",
 		"--kubeconfig", "/home/op/.kube/dev-mgmt.yaml",
-		"--proxy-client-cert", "/home/op/.config/nkectl/client.crt",
-		"--proxy-client-key", "/home/op/.config/nkectl/client.key",
+		"--proxy-client-cert", "/home/op/.config/nvkectl/client.crt",
+		"--proxy-client-key", "/home/op/.config/nvkectl/client.key",
 		"--name", "dev",
 	})
 	if err := root.Execute(); err != nil {
@@ -49,10 +49,10 @@ func TestSetSitePersistsConnectionDetailsAndCurrentSite(t *testing.T) {
 	if site.Kubeconfig != "/home/op/.kube/dev-mgmt.yaml" {
 		t.Errorf("Kubeconfig = %q, want %q", site.Kubeconfig, "/home/op/.kube/dev-mgmt.yaml")
 	}
-	if site.ProxyClientCertFile != "/home/op/.config/nkectl/client.crt" {
+	if site.ProxyClientCertFile != "/home/op/.config/nvkectl/client.crt" {
 		t.Errorf("ProxyClientCertFile = %q, want proxy client certificate path", site.ProxyClientCertFile)
 	}
-	if site.ProxyClientKeyFile != "/home/op/.config/nkectl/client.key" {
+	if site.ProxyClientKeyFile != "/home/op/.config/nvkectl/client.key" {
 		t.Errorf("ProxyClientKeyFile = %q, want proxy client key path", site.ProxyClientKeyFile)
 	}
 }

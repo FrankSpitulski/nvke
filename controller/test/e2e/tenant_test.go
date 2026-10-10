@@ -31,16 +31,16 @@ import (
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/forge"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
-	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nkectl"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvkectl"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/tenantauth"
 )
 
 // clusterLifecycle creates a cluster, reads it back, and deletes it again.
-// *nvke.Client satisfies it and is every entry's default; the nkectl entry
+// *nvke.Client satisfies it and is every entry's default; the nvkectl entry
 // substitutes a CLI-backed implementation.
 //
-// It stays narrow because nkectl has no node-level commands: the post-create
+// It stays narrow because nvkectl has no node-level commands: the post-create
 // validations keep using t.nvke directly rather than widening this into
 // something the CLI cannot implement.
 type clusterLifecycle interface {
@@ -60,16 +60,16 @@ type tenantTest struct {
 	k8sClient     client.Client
 	tenantClients *kube.TenantClientFactory
 	nvke          *nvke.Client
-	// lifecycle creates and deletes the cluster. Defaults to nke; the nkectl
+	// lifecycle creates and deletes the cluster. Defaults to nke; the nvkectl
 	// entry swaps it so that row drives both ends through the CLI.
 	lifecycle clusterLifecycle
-	// nkectlRunner is set only by the nkectl entry, for the CLI-only
+	// nvkectlRunner is set only by the nvkectl entry, for the CLI-only
 	// validations that follow the create. Nil everywhere else.
-	nkectlRunner *nkectl.Runner
-	timeouts     nvke.Options
-	trustDomain  string
-	spec         nvke.ClusterSpec
-	cluster      *api.Cluster
+	nvkectlRunner *nvkectl.Runner
+	timeouts      nvke.Options
+	trustDomain   string
+	spec          nvke.ClusterSpec
+	cluster       *api.Cluster
 	// cascadePoolID is set by the node-pool cascade post-create spec and read by
 	// its post-delete counterpart to prove cluster deletion removed the pool.
 	cascadePoolID uuid.UUID
@@ -110,10 +110,10 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 		},
 	}),
 	// The CLI row: the same CAPD lifecycle as the rows above, driven through the
-	// nkectl binary instead of the generated API client. It is the only coverage
+	// nvkectl binary instead of the generated API client. It is the only coverage
 	// of provisioning through the command line, and so the only place
 	// `get kubeconfig` succeeds and a patch lands on a cluster that came up --
-	// hack/ci/nkectl-smoke.sh sets autoProvisionDisabled, so its cluster never
+	// hack/ci/nvkectl-smoke.sh sets autoProvisionDisabled, so its cluster never
 	// provisions and the Secret that command reads never appears.
 	//
 	// One control-plane node, no workers, and provisioningOnly: what this row
@@ -122,25 +122,25 @@ var _ = DescribeTableSubtree("NKE with backend", withNicoVMSOSProfileEntries(
 	// The "capd" label puts it in the full CAPD run on main, scheduled and manual
 	// runs, on the substrate that run already builds. The bounded
 	// pull-request lane selects only "core-docker" and has no room for a second
-	// cluster. "nkectl" selects this row alone.
-	Entry("CAPD via nkectl", Ordered, ContinueOnFailure, Label("capd", "nkectl"), testSpec{
+	// cluster. "nvkectl" selects this row alone.
+	Entry("CAPD via nvkectl", Ordered, ContinueOnFailure, Label("capd", "nvkectl"), testSpec{
 		buildSpec: capdSpec,
 		shape: clusterShape{
 			controlPlanePools: []nvke.NodePoolSpec{{DesiredNodeCount: 1}},
 		},
 		options:   nvke.Options{Provision: 10 * time.Minute, Delete: 5 * time.Minute, Poll: 5 * time.Second},
-		createVia: clientNkectl,
+		createVia: clientNvkectl,
 		validate:  validations{provisioningOnly: true},
 	}),
 	// Mirrors the CAPD row above so the node pool lifecycle is covered on the
 	// NICo substrate too; the CLI creates the worker pool this row cares about.
-	Entry("nico-containers via nkectl", Ordered, ContinueOnFailure, Label("nico-containers", "nkectl"), testSpec{
+	Entry("nico-containers via nvkectl", Ordered, ContinueOnFailure, Label("nico-containers", "nvkectl"), testSpec{
 		buildSpec: nicoSpec,
 		shape: clusterShape{
 			controlPlanePools: []nvke.NodePoolSpec{{DesiredNodeCount: 1}},
 		},
 		options:   nvke.Options{Provision: 15 * time.Minute, Delete: 10 * time.Minute, Poll: 5 * time.Second},
-		createVia: clientNkectl,
+		createVia: clientNvkectl,
 		validate:  validations{provisioningOnly: true},
 	}),
 	// This row is selected only by the dedicated identity-exchange lane. Keeping
@@ -432,7 +432,7 @@ func nicoForgeTenant() testSpec {
 			// default, and the controller chart does not set the variable, so
 			// that default is what a site controller runs with.
 			//
-			// Not nkectl, despite it forcing the same flag on: that one
+			// Not nvkectl, despite it forcing the same flag on: that one
 			// reaches only the ephemeral Kind bootstrap controller, which builds the
 			// site cluster. The tenant is created against the site's controller,
 			// which controllerdeploy never touches.
@@ -490,11 +490,11 @@ func tenantSubtree(resolve managementResolver) func(spec testSpec) {
 
 		It("creates the cluster", func(ctx context.Context) {
 			test = expectSucceed(setupTenantTest(ctx, expectSucceed(resolve()), spec.options))
-			if spec.createVia == clientNkectl {
+			if spec.createVia == clientNvkectl {
 				// Torn down in AfterAll. A DeferCleanup registered here would run
 				// when this spec ends, taking the port-forward away from every
 				// spec that follows.
-				test.useNkectl(ctx, spec.options)
+				test.useNvkectl(ctx, spec.options)
 			}
 			if spec.validate.brownfieldOIDC {
 				// A cluster on an OIDC-enabled site is always born OIDC-on, but
@@ -595,9 +595,9 @@ func tenantSubtree(resolve managementResolver) func(spec testSpec) {
 			if spec.validate.nodePoolCascade {
 				validateNodePoolCascadePostCreate(&test)
 			}
-			if spec.createVia == clientNkectl {
-				validateNkectlPostCreate(&test)
-				validateNkectlNodePoolLifecycle(&test)
+			if spec.createVia == clientNvkectl {
+				validateNvkectlPostCreate(&test)
+				validateNvkectlNodePoolLifecycle(&test)
 			}
 		})
 
@@ -636,7 +636,7 @@ func tenantSubtree(resolve managementResolver) func(spec testSpec) {
 		})
 
 		AfterAll(func(ctx context.Context) {
-			// Named once so the delete below and the nkectl sweep cannot disagree
+			// Named once so the delete below and the nvkectl sweep cannot disagree
 			// about when the cluster should outlive the run.
 			keepCluster := test.cfg.Lifecycle.ReuseCluster != "" ||
 				test.cfg.Lifecycle.SkipDelete ||
@@ -646,12 +646,12 @@ func tenantSubtree(resolve managementResolver) func(spec testSpec) {
 			// panicking, and a delete that does not complete would otherwise leave
 			// the forward and its credential directory behind and skip the sweep.
 			// Ordered so the sweep, which needs the forward, runs first.
-			defer test.closeNkectl()
+			defer test.closeNvkectl()
 			defer func() {
 				if !keepCluster {
-					// Catches what the switch below cannot see: a cluster nkectl
+					// Catches what the switch below cannot see: a cluster nvkectl
 					// created that never reached test.cluster.
-					test.cleanupNkectlCreated(ctx)
+					test.cleanupNvkectlCreated(ctx)
 				}
 			}()
 
@@ -726,9 +726,9 @@ type testSpec struct {
 type clusterClient int
 
 const (
-	// clientNkectl shells out to the nkectl binary instead of using the REST
+	// clientNvkectl shells out to the nvkectl binary instead of using the REST
 	// client.
-	clientNkectl clusterClient = iota + 1
+	clientNvkectl clusterClient = iota + 1
 )
 
 type clusterShape struct {

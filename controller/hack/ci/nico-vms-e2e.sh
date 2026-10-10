@@ -18,7 +18,7 @@
 #   NKE_E2E_TILT_STALL       fail when no resource changes state for this long (default: 12m)
 #   NKE_E2E_STATE_DIR        diagnostics directory      (default: controller/.local/nico-vms-e2e/<run>)
 #   NKE_E2E_RUN_ID           names the state directory  (default: GITHUB_RUN_ID or local-<pid>)
-#   NKE_E2E_NKECTL_SMOKE     run hack/ci/nkectl-smoke.sh after the suite (default: true)
+#   NKE_E2E_NVKECTL_SMOKE     run hack/ci/nvkectl-smoke.sh after the suite (default: true)
 #   KIND_CLUSTER_NAME        management cluster name    (default: cwe-nico-vms)
 #   NKE_E2E_KEEP             non-empty keeps kind, Tilt and the VMs running on exit
 
@@ -29,10 +29,10 @@ CONTROLLER_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 WORKSPACE_ROOT="$(cd "${CONTROLLER_ROOT}/.." && pwd)"
 # shellcheck source=controller/hack/backend-e2e-lib.sh
 source "${CONTROLLER_ROOT}/hack/backend-e2e-lib.sh"
-# No runner container here, so the smoke runs nkectl on this host. It reads
-# NKECTL_SMOKE_RUNNER being unset as the signal; see its header.
-# shellcheck source=controller/hack/ci/nkectl-smoke.sh
-source "${SCRIPT_DIR}/nkectl-smoke.sh"
+# No runner container here, so the smoke runs nvkectl on this host. It reads
+# NVKECTL_SMOKE_RUNNER being unset as the signal; see its header.
+# shellcheck source=controller/hack/ci/nvkectl-smoke.sh
+source "${SCRIPT_DIR}/nvkectl-smoke.sh"
 cd "${CONTROLLER_ROOT}"
 
 RUN_ID="${NKE_E2E_RUN_ID:-${GITHUB_RUN_ID:-local-$$}}"
@@ -53,13 +53,13 @@ NICO_SIM_DIR="${CONTROLLER_ROOT}/nico-sim"
 E2E_BIN="${STATE_DIR}/cwe-e2e.test"
 E2E_CONFIG="${STATE_DIR}/e2e-config.json"
 E2E_KUBECONFIG="${STATE_DIR}/kubeconfig"
-# What the nkectl smoke needs. BACKEND gates its write round trip to CAPD, so
+# What the nvkectl smoke needs. BACKEND gates its write round trip to CAPD, so
 # this lane runs the read paths, negatives and provider checks only.
-# NKECTL_SMOKE_RUNNER stays unset, which is how the smoke knows to run the CLI
+# NVKECTL_SMOKE_RUNNER stays unset, which is how the smoke knows to run the CLI
 # on this host.
-NKECTL_SMOKE="${NKE_E2E_NKECTL_SMOKE:-true}"
-NKECTL_BIN="${STATE_DIR}/nkectl"
-NKECTL_SMOKE_KUBECONFIG="${E2E_KUBECONFIG}"
+NVKECTL_SMOKE="${NKE_E2E_NVKECTL_SMOKE:-true}"
+NVKECTL_BIN="${STATE_DIR}/nvkectl"
+NVKECTL_SMOKE_KUBECONFIG="${E2E_KUBECONFIG}"
 TMP_DIR="${STATE_DIR}"
 BACKEND=nico-vms
 # The controller runs with NKE_OIDC_AUTH_ENABLED here, so the smoke's no-token control is
@@ -730,7 +730,7 @@ log "nico-vms E2E passed: ${LABEL_FILTER}"
 # After the suite, like the CAPD and NICo lanes: drive the real binary against
 # the controller this lane deployed. Called bare so errexit and the EXIT trap turn a
 # non-zero into a failed job with diagnostics intact.
-if [[ "${NKECTL_SMOKE}" == "true" ]]; then
-  nkectl_smoke_build "$(go env GOARCH)"
-  nkectl_smoke
+if [[ "${NVKECTL_SMOKE}" == "true" ]]; then
+  nvkectl_smoke_build "$(go env GOARCH)"
+  nvkectl_smoke
 fi

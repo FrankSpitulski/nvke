@@ -17,7 +17,7 @@ import (
 	api "github.com/dsx-ai-factory/nvke/controller/api"
 )
 
-// NewGetCmd returns the "nkectl get clusters" subcommand.
+// NewGetCmd returns the "nvkectl get clusters" subcommand.
 func NewGetCmd(clientFn ControllerClientFn) *cobra.Command {
 	var outputFormat string
 
@@ -30,10 +30,10 @@ func NewGetCmd(clientFn ControllerClientFn) *cobra.Command {
 Naming clusters narrows the listing to them, in the order given.
 
 Example — every cluster:
-  nkectl get clusters
+  nvkectl get clusters
 
 Example — two clusters, as YAML:
-  nkectl get clusters prod staging -o yaml`,
+  nvkectl get clusters prod staging -o yaml`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			f, err := util.ParseFormat(outputFormat)

@@ -15,7 +15,7 @@ import (
 )
 
 // TestExamplesDecode keeps the shipped example documents valid: they are what
-// an operator copies first, so one that nkectl itself rejects is a bug.
+// an operator copies first, so one that nvkectl itself rejects is a bug.
 func TestExamplesDecode(t *testing.T) {
 	t.Parallel()
 

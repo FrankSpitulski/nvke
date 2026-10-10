@@ -6,7 +6,7 @@
 // cli/internal/bootstrap/engine creates), then waits for the controller to report
 // healthy on /readyz.
 //
-// It installs the controller and Postgres charts embedded in nkectl
+// It installs the controller and Postgres charts embedded in nvkectl
 // (controller/deploy/charts), and the Temporal and SPIRE charts the
 // bootstrap manifest pins. See manifests/*.yaml for the values each release
 // gets.
@@ -30,13 +30,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
 
 	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/manifest"
+	"github.com/dsx-ai-factory/nvke/cli/internal/envalias"
 	"github.com/dsx-ai-factory/nvke/controller/deploy/charts"
 )
 
@@ -122,12 +122,12 @@ const (
 	// Service, the external NodePort Service, and both sides of Kind's host port
 	// mapping.
 	//
-	// nkectl has to reach the API it just deployed, from the host, to create the
+	// nvkectl has to reach the API it just deployed, from the host, to create the
 	// site cluster. It cannot use the ClusterIP, and the chart's Service
 	// template has no nodePort field -- so this is a second Service beside the
 	// chart's own, the same shape and for the same reason as
 	// spire-server-nodeport.yaml. bootstrapengine maps it to a host port (see
-	// cmd/nkectl/bootstrap.go), which keeps the route the same whether kind runs
+	// cmd/nvkectl/bootstrap.go), which keeps the route the same whether kind runs
 	// on Docker or nerdctl, on Linux or macOS.
 	//
 	DefaultCWEPort int32 = 30080
@@ -145,7 +145,7 @@ const (
 	// profilesPath is where the controller reads OS and config profiles from
 	// (PROFILES_DIR). Set explicitly rather than left to the chart's empty
 	// default, so PROFILES_DIR names the empty /profiles the controller image
-	// ships rather than resolving somewhere else. nkectl deploys no profiles
+	// ships rather than resolving somewhere else. nvkectl deploys no profiles
 	// into it; a site gets them from its deploy repository.
 	profilesPath = "/profiles"
 )
@@ -164,14 +164,14 @@ const defaultTenantKubeconfigTimeout = 2 * time.Minute
 // Config describes a controller deployment.
 type Config struct {
 	// CWEImage is the image reference to deploy. Defaults to nke-controller:latest,
-	// the local build's tag, from the bootstrap manifest. NKECTL_CONTROLLER_IMAGE
+	// the local build's tag, from the bootstrap manifest. NVKECTL_CONTROLLER_IMAGE
 	// overrides it, for example with the image .github/workflows/image-nvcr.yml
 	// publishes.
 	CWEImage string
 
 	// SPIFFEClusterName identifies the ephemeral Kind cluster to SPIRE. It is
 	// the Kind cluster's own name, which is the only name this cluster has.
-	// Empty defaults to "nkectl-bootstrap", matching bootstrapengine's default.
+	// Empty defaults to "nvkectl-bootstrap", matching bootstrapengine's default.
 	SPIFFEClusterName string
 
 	// SPIFFETrustDomain is the trust domain used for the controller's workload identity.
@@ -212,7 +212,7 @@ type Config struct {
 	// ProvisionedProviderImage is the cluster-api-provider-provisioned image to
 	// run as the CAPI infrastructure provider for hosts that already exist.
 	// Defaults to cluster-api-provider-provisioned:latest, the local build's
-	// tag, from the bootstrap manifest. NKECTL_CAPI_PROVISIONED_IMAGE overrides
+	// tag, from the bootstrap manifest. NVKECTL_CAPI_PROVISIONED_IMAGE overrides
 	// it, for example with the image .github/workflows/image-provisioned-nvcr.yml
 	// publishes. Either way the image is loaded into the cluster rather than
 	// pulled, because the bootstrap cluster has no pull secret.
@@ -256,69 +256,52 @@ type Config struct {
 // bootstrapengine.DefaultConfig's env-driven shape.
 func DefaultConfig() Config {
 	return Config{
-		CWEImage: envOr("NKECTL_CONTROLLER_IMAGE", defaultImage(manifest.ComponentController, manifest.ImageController)),
+		CWEImage: envOr("NVKECTL_CONTROLLER_IMAGE", defaultImage(manifest.ComponentController, manifest.ImageController)),
 		// No cluster-name variable of its own: the bootstrap cluster has one
-		// name, NKECTL_BOOTSTRAP_CLUSTER_NAME, and SPIRE is told that one.
+		// name, NVKECTL_BOOTSTRAP_CLUSTER_NAME, and SPIRE is told that one.
 		// Callers set SPIFFEClusterName; an empty trust domain is derived from
 		// it below.
-		SPIFFETrustDomain: os.Getenv("NKECTL_SPIFFE_TRUST_DOMAIN"),
+		SPIFFETrustDomain: getenv("NVKECTL_SPIFFE_TRUST_DOMAIN"),
 
-		ProvisionedProviderImage: envOr("NKECTL_CAPI_PROVISIONED_IMAGE", defaultImage(manifest.ComponentProvisioned, manifest.ImageManager)),
-		CWEPort:                  envPort("NKECTL_CONTROLLER_PORT", DefaultCWEPort),
+		ProvisionedProviderImage: envOr("NVKECTL_CAPI_PROVISIONED_IMAGE", defaultImage(manifest.ComponentProvisioned, manifest.ImageManager)),
+		CWEPort:                  envPort("NVKECTL_CONTROLLER_PORT", DefaultCWEPort),
 
-		HelmTimeout:  envDuration("NKECTL_CONTROLLER_HELM_TIMEOUT", 5*time.Minute),
-		ReadyTimeout: envDuration("NKECTL_CONTROLLER_READY_TIMEOUT", 5*time.Minute),
+		HelmTimeout:  envDuration("NVKECTL_CONTROLLER_HELM_TIMEOUT", 5*time.Minute),
+		ReadyTimeout: envDuration("NVKECTL_CONTROLLER_READY_TIMEOUT", 5*time.Minute),
 
-		TemporalChartRef:  getenv("NKECTL_CONTROLLER_TEMPORAL_CHART"),
-		SPIREChartRef:     getenv("NKECTL_CONTROLLER_SPIRE_CHART"),
-		SPIRECRDsChartRef: getenv("NKECTL_CONTROLLER_SPIRE_CRDS_CHART"),
+		TemporalChartRef:  getenv("NVKECTL_CONTROLLER_TEMPORAL_CHART"),
+		SPIREChartRef:     getenv("NVKECTL_CONTROLLER_SPIRE_CHART"),
+		SPIRECRDsChartRef: getenv("NVKECTL_CONTROLLER_SPIRE_CRDS_CHART"),
 	}
 }
 
-// renamedSettings maps each setting named for the controller to the name it
-// had while the controller was called CWE. The old name is still read when the
-// new one is unset, for one release, and DeprecatedSettings reports it.
-var renamedSettings = map[string]string{
-	"NKECTL_CONTROLLER_IMAGE":            "NKECTL_CWE_IMAGE",
-	"NKECTL_CONTROLLER_PORT":             "NKECTL_CWE_PORT",
-	"NKECTL_CONTROLLER_HELM_TIMEOUT":     "NKECTL_CWE_HELM_TIMEOUT",
-	"NKECTL_CONTROLLER_READY_TIMEOUT":    "NKECTL_CWE_READY_TIMEOUT",
-	"NKECTL_CONTROLLER_TEMPORAL_CHART":   "NKECTL_CWE_TEMPORAL_CHART",
-	"NKECTL_CONTROLLER_SPIRE_CHART":      "NKECTL_CWE_SPIRE_CHART",
-	"NKECTL_CONTROLLER_SPIRE_CRDS_CHART": "NKECTL_CWE_SPIRE_CRDS_CHART",
+// Settings is every environment variable this package reads. Each is also
+// read under the name it had while the binary was called nkectl, for one
+// release; see envalias.
+var Settings = []string{
+	"NVKECTL_CONTROLLER_IMAGE",
+	"NVKECTL_CAPI_PROVISIONED_IMAGE",
+	"NVKECTL_SPIFFE_TRUST_DOMAIN",
+	"NVKECTL_CONTROLLER_PORT",
+	"NVKECTL_CONTROLLER_HELM_TIMEOUT",
+	"NVKECTL_CONTROLLER_READY_TIMEOUT",
+	"NVKECTL_CONTROLLER_TEMPORAL_CHART",
+	"NVKECTL_CONTROLLER_SPIRE_CHART",
+	"NVKECTL_CONTROLLER_SPIRE_CRDS_CHART",
 }
 
-// RenamedSetting is an old setting name that is set while its replacement is
-// not.
-type RenamedSetting struct {
-	Old, New string
-}
-
-// DeprecatedSettings returns, sorted by old name, every old NKECTL_CWE_*
-// setting DefaultConfig reads because its NKECTL_CONTROLLER_* replacement is
+// DeprecatedSettings returns, sorted by old name, every setting in Settings
+// that DefaultConfig reads under its previous name because the current name is
 // unset. The caller warns about each; this package has no logger of its own at
 // the point DefaultConfig runs.
-func DeprecatedSettings() []RenamedSetting {
-	var found []RenamedSetting
-	for name, old := range renamedSettings {
-		if os.Getenv(name) == "" && os.Getenv(old) != "" {
-			found = append(found, RenamedSetting{Old: old, New: name})
-		}
-	}
-	sort.Slice(found, func(i, j int) bool { return found[i].Old < found[j].Old })
-	return found
+func DeprecatedSettings() []envalias.Renamed {
+	return envalias.Deprecated(Settings...)
 }
 
 // getenv returns the setting's value, or, when it is unset or empty, the value
-// of the name it replaced.
+// under its previous name.
 func getenv(name string) string {
-	if v := os.Getenv(name); v != "" {
-		return v
-	}
-	if old, ok := renamedSettings[name]; ok {
-		return os.Getenv(old)
-	}
-	return ""
+	return envalias.Get(name)
 }
 
 // CommandRunner is the seam every helm/kubectl invocation goes through, so
@@ -383,7 +366,7 @@ func (e *Engine) Deploy(ctx context.Context, kubeconfigPath string, cfg Config) 
 	// The charts this binary was built with. helm takes a directory and this
 	// process runs the helm binary rather than linking its loader, so they are
 	// written out for the length of the deploy.
-	chartPath, err := os.MkdirTemp("", "nkectl-controller-chart-*")
+	chartPath, err := os.MkdirTemp("", "nvkectl-controller-chart-*")
 	if err != nil {
 		return fmt.Errorf("controllerdeploy: creating a directory for the controller chart: %w", err)
 	}
@@ -391,7 +374,7 @@ func (e *Engine) Deploy(ctx context.Context, kubeconfigPath string, cfg Config) 
 	if err := charts.Extract(charts.NVKEController, chartPath); err != nil {
 		return fmt.Errorf("controllerdeploy: writing out the controller chart: %w", err)
 	}
-	postgresChartPath, err := os.MkdirTemp("", "nkectl-postgres-chart-*")
+	postgresChartPath, err := os.MkdirTemp("", "nvkectl-postgres-chart-*")
 	if err != nil {
 		return fmt.Errorf("controllerdeploy: creating a directory for the postgres chart: %w", err)
 	}
@@ -415,7 +398,7 @@ func (e *Engine) Deploy(ctx context.Context, kubeconfigPath string, cfg Config) 
 	}
 	spireClusterName := cfg.SPIFFEClusterName
 	if spireClusterName == "" {
-		spireClusterName = "nkectl-bootstrap"
+		spireClusterName = "nvkectl-bootstrap"
 	}
 	spireTrustDomain := cfg.SPIFFETrustDomain
 	if spireTrustDomain == "" {
@@ -688,7 +671,7 @@ func writeEmbeddedFile(name string) (path string, cleanup func(), err error) {
 	if err != nil {
 		return "", func() {}, fmt.Errorf("controllerdeploy: reading embedded %s: %w", name, err)
 	}
-	return writeTempFile("nkectl-cwedeploy-*.yaml", body)
+	return writeTempFile("nvkectl-cwedeploy-*.yaml", body)
 }
 
 // writeEmbeddedTemplate renders an embedded YAML template to a temporary file.
@@ -705,7 +688,7 @@ func writeEmbeddedTemplate(name string, data any) (path string, cleanup func(), 
 	if err := tmpl.Execute(&rendered, data); err != nil {
 		return "", func() {}, fmt.Errorf("controllerdeploy: rendering embedded %s: %w", name, err)
 	}
-	return writeTempFile("nkectl-cwedeploy-*.yaml", rendered.Bytes())
+	return writeTempFile("nvkectl-cwedeploy-*.yaml", rendered.Bytes())
 }
 
 // writeTempFile writes body to a temporary file matching pattern and returns
@@ -844,7 +827,7 @@ func chartArgs(override, name, repo string) []string {
 // spireInstallArgs builds the `helm upgrade --install` for the SPIRE chart.
 //
 // Everything static about the deployment is in spire-values.yaml. Only what
-// nkectl cannot know ahead of time is computed here — the trust domain and
+// nvkectl cannot know ahead of time is computed here — the trust domain and
 // cluster name, the controller's admin identity, the CA to chain to, and the thumbprints
 // allowed to attest.
 func spireInstallArgs(cfg Config, chart manifest.Chart, valuesPath, clusterName, trustDomain string, timeout time.Duration) []string {

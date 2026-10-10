@@ -26,7 +26,7 @@
 # when clean.
 #
 # That set was zero for six of the seven modules present on 2026-08-13. The
-# matrix now also discovers the imported nkectl module. It is also the set that
+# matrix now also discovers the imported nvkectl module. It is also the set that
 # matters.
 # GO-2026-6061 was reachable from cmd/agent/main.go through
 # agent.startSecureServer to grpc.Server.Serve, and it reached main behind a

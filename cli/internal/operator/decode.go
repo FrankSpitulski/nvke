@@ -21,7 +21,7 @@ import (
 // returns it as a Resource.
 //
 // The document is a single mapping with a metadata and a spec, and nothing
-// else: apiVersion, kind, namespace and resourceVersion are supplied by nkectl,
+// else: apiVersion, kind, namespace and resourceVersion are supplied by nvkectl,
 // so supplying them is an error. Unknown fields anywhere in the document are
 // errors, as are a missing or invalid name and a spec of the wrong shape.
 //
@@ -83,7 +83,7 @@ func rejectUnknownTopLevel(doc map[string]any) error {
 	}
 	sort.Strings(unknown)
 	return fmt.Errorf(
-		"unknown field %q: a request document has only metadata and spec; nkectl supplies apiVersion, kind and the rest",
+		"unknown field %q: a request document has only metadata and spec; nvkectl supplies apiVersion, kind and the rest",
 		unknown[0],
 	)
 }

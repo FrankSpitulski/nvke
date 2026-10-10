@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# A control-plane release for `nkectl create clusterrelease -f clusterrelease.yaml`.
+# A control-plane release for `nvkectl create clusterrelease -f clusterrelease.yaml`.
 #
 # machineImageRef and machineInit are immutable once published. To change
 # either, publish a new name. The only thing that changes in place is
-# lifecycle, through `nkectl deprecate clusterrelease <name>`.
+# lifecycle, through `nvkectl deprecate clusterrelease <name>`.
 metadata:
   name: example-ubuntu-24.04-amd64
   annotations:

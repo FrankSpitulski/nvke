@@ -458,7 +458,7 @@ $(GO_LICENSES):
 # A named alias for the rule above, so another module can ask for the binary by
 # name. GO_LICENSES is an absolute path, which means the real rule's target is
 # also absolute and `make -C .. bin/go-licenses` does not match it -- it fails
-# with "No rule to make target 'bin/go-licenses'". nkectl's notices target hit
+# with "No rule to make target 'bin/go-licenses'". nvkectl's notices target hit
 # exactly that, and it was masked in CI because the controller step runs first
 # and leaves the binary behind.
 .PHONY: go-licenses

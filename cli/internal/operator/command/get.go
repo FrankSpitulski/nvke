@@ -15,7 +15,7 @@ import (
 	"github.com/dsx-ai-factory/nvke/cli/internal/util"
 )
 
-// NewGetCmds returns the "nkectl get machineimages|clusterreleases|
+// NewGetCmds returns the "nvkectl get machineimages|clusterreleases|
 // nodepoolreleases" subcommands.
 func NewGetCmds(clientFn ClientFn) []*cobra.Command {
 	cmds := make([]*cobra.Command, 0, len(kindInfos))
@@ -37,14 +37,14 @@ func newGetCmd(k kindInfo, clientFn ClientFn) *cobra.Command {
 Naming %ss narrows the listing to them, in the order given.
 
 With -o json or -o yaml, one name prints that %s as a single object in the
-metadata and spec shape that 'nkectl create %s' accepts, so it can be edited and
+metadata and spec shape that 'nvkectl create %s' accepts, so it can be edited and
 created under a new name. No name, or several, prints a list of those objects.
 
 Example - every %s:
-  nkectl get %s
+  nvkectl get %s
 
 Example - one %s, as YAML:
-  nkectl get %s <name> -o yaml`,
+  nvkectl get %s <name> -o yaml`,
 			k.noun, k.noun, k.noun, k.use, k.noun, k.plural(), k.noun, k.plural()),
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

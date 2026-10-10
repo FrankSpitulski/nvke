@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package nkectl
+package nvkectl
 
 import (
 	"io"
@@ -124,7 +124,7 @@ func TestClusterNotFoundIn(t *testing.T) {
 			// Reading that as a deletion would pass the wait against a Runner
 			// whose site registration had broken.
 			name: "the site is missing from the config",
-			out:  `Error: site "e2e-nkectl" not found in config`,
+			out:  `Error: site "e2e-nvkectl" not found in config`,
 			want: false,
 		},
 		{
@@ -169,7 +169,7 @@ func TestTrackCreated(t *testing.T) {
 
 func TestResolveBinary(t *testing.T) {
 	t.Run("rejects a path that does not exist", func(t *testing.T) {
-		_, err := resolveBinary(t.TempDir() + "/absent-nkectl")
+		_, err := resolveBinary(t.TempDir() + "/absent-nvkectl")
 		require.Error(t, err)
 	})
 
@@ -189,7 +189,7 @@ func TestResolveBinary(t *testing.T) {
 // WaitForNodePoolDeleted reads not-found as the pool having gone, so anything
 // this matches by mistake reads as a completed deletion.
 func TestNodePoolNotFoundIn(t *testing.T) {
-	ref := NodePoolRef{Cluster: "capd-cluster-20260914", Pool: "nkectl-workers"}
+	ref := NodePoolRef{Cluster: "capd-cluster-20260914", Pool: "nvkectl-workers"}
 
 	tests := []struct {
 		name string
@@ -198,7 +198,7 @@ func TestNodePoolNotFoundIn(t *testing.T) {
 	}{
 		{
 			name: "the node pool is absent",
-			out:  `Error: node pool "nkectl-workers" not found in cluster "capd-cluster-20260914"`,
+			out:  `Error: node pool "nvkectl-workers" not found in cluster "capd-cluster-20260914"`,
 			want: true,
 		},
 		{
@@ -211,7 +211,7 @@ func TestNodePoolNotFoundIn(t *testing.T) {
 		},
 		{
 			name: "the same pool name is absent from another cluster",
-			out:  `Error: node pool "nkectl-workers" not found in cluster "some-other-cluster"`,
+			out:  `Error: node pool "nvkectl-workers" not found in cluster "some-other-cluster"`,
 			want: false,
 		},
 		{
@@ -237,9 +237,9 @@ func TestNodePoolNotFoundIn(t *testing.T) {
 // missing from it is one nothing will remove.
 func TestTrackCreatedNodePool(t *testing.T) {
 	r := &Runner{}
-	first := NodePoolRef{Cluster: "capd-one", Pool: "nkectl-workers"}
+	first := NodePoolRef{Cluster: "capd-one", Pool: "nvkectl-workers"}
 	// The same pool name in another cluster is another pool.
-	second := NodePoolRef{Cluster: "capd-two", Pool: "nkectl-workers"}
+	second := NodePoolRef{Cluster: "capd-two", Pool: "nvkectl-workers"}
 
 	r.trackCreatedNodePool(first)
 	r.trackCreatedNodePool(second)

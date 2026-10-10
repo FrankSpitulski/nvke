@@ -240,7 +240,7 @@ func TestManifest(t *testing.T) {
 		"annotations": map[string]any{
 			"internal.nke.nvidia.com/machine-init-k8s-version-injected": "true",
 		},
-	}, got["metadata"], "only what the operator wrote: nkectl adds no GitOps annotations")
+	}, got["metadata"], "only what the operator wrote: nvkectl adds no GitOps annotations")
 	assert.Equal(t, r.Spec, got["spec"])
 	assert.Len(t, got, 4)
 }

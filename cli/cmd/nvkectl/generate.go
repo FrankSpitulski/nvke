@@ -38,7 +38,7 @@ func newGenerateSiteSpecCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sitespec <cluster-name>",
 		Short: "Generate a site spec file for a tier-0 cluster",
-		Long: `Write a complete site spec for "nkectl bootstrap site" to standard output.
+		Long: `Write a complete site spec for "nvkectl bootstrap site" to standard output.
 
 The hosts come from a CSV so a real site can be described without repeating a
 flag per machine. The output needs no editing: every field is validated before
@@ -61,12 +61,12 @@ The generated file depends only on the arguments given: unlike bootstrap site,
 this command ignores the inventory environment variables, so a site spec never
 carries a value nobody typed.`,
 		Example: `  # Generate a site spec and bootstrap from it
-  nkectl generate sitespec my-tier0-site --nodes hosts.csv \
+  nvkectl generate sitespec my-tier0-site --nodes hosts.csv \
     --set cluster.controlPlaneVIP=10.10.50.10 > sitespec.yaml
-  nkectl bootstrap site -f sitespec.yaml
+  nvkectl bootstrap site -f sitespec.yaml
 
   # Override fields the CSV does not carry
-  nkectl generate sitespec my-tier0-site --nodes hosts.csv \
+  nvkectl generate sitespec my-tier0-site --nodes hosts.csv \
     --set cluster.controlPlaneVIP=10.10.50.10 \
     --set cluster.podCidr=10.244.0.0/16 > sitespec.yaml`,
 		Args:         cobra.ExactArgs(1),
@@ -146,13 +146,13 @@ file can be passed to config set-site --kubeconfig.
 
 By default the kubeconfig is printed to stdout. Use --output-file to write it
 to a file instead.`,
-		Example: `  nkectl generate oidc-kubeconfig \
+		Example: `  nvkectl generate oidc-kubeconfig \
     --kubeconfig ./cluster.kubeconfig \
     --oidc-issuer-url https://idp.example/realms/nke \
-    --oidc-client-id nke-cli \
+    --oidc-client-id nvke-cli \
     --output-file ./oidc.kubeconfig
 
-  nkectl config set-site --name my-tier0-site \
+  nvkectl config set-site --name my-tier0-site \
     --url https://controller.my-tier0-site.example.com \
     --kubeconfig ./oidc.kubeconfig`,
 		Args:         cobra.NoArgs,

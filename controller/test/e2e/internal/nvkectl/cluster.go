@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package nkectl
+package nvkectl
 
 import (
 	"context"
@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	// createdRe matches the line `nkectl create cluster` prints on success:
+	// createdRe matches the line `nvkectl create cluster` prints on success:
 	//
 	//	Cluster "my-cluster" created (id: 0f8f...)
 	createdRe = regexp.MustCompile(`Cluster "([^"]+)" created \(id: ([^)]+)\)`)
@@ -33,7 +33,7 @@ var (
 )
 
 // CreateCluster writes spec to a file, creates it with
-// `nkectl create cluster -f`, and returns the cluster read back by name.
+// `nvkectl create cluster -f`, and returns the cluster read back by name.
 //
 // The new cluster's identity is recorded before that read, so a cluster the controller
 // created but this could not then look up is still removable by CleanupCreated.
@@ -48,13 +48,13 @@ func (r *Runner) CreateCluster(ctx context.Context, spec nvke.ClusterSpec) (*api
 		return nil, fmt.Errorf("marshaling the create request for %q: %w", req.Name, err)
 	}
 
-	dir, err := os.MkdirTemp("", "nkectl-e2e-spec-")
+	dir, err := os.MkdirTemp("", "nvkectl-e2e-spec-")
 	if err != nil {
 		return nil, fmt.Errorf("creating a spec directory: %w", err)
 	}
 	defer os.RemoveAll(dir)
 
-	// JSON in a .yaml file: nkectl parses -f as YAML, which is a superset.
+	// JSON in a .yaml file: nvkectl parses -f as YAML, which is a superset.
 	path := filepath.Join(dir, "cluster.yaml")
 	if writeErr := os.WriteFile(path, body, 0o600); writeErr != nil {
 		return nil, fmt.Errorf("writing the spec for %q: %w", req.Name, writeErr)
@@ -73,16 +73,16 @@ func (r *Runner) CreateCluster(ctx context.Context, spec nvke.ClusterSpec) (*api
 	// nothing and still exited 0 is the regression most worth catching.
 	match := createdRe.FindStringSubmatch(out)
 	if match == nil {
-		return nil, fmt.Errorf("nkectl create cluster %q reported no id: %s", req.Name, strings.TrimSpace(out))
+		return nil, fmt.Errorf("nvkectl create cluster %q reported no id: %s", req.Name, strings.TrimSpace(out))
 	}
-	r.logf("nkectl e2e: %s", strings.TrimSpace(out))
+	r.logf("nvkectl e2e: %s", strings.TrimSpace(out))
 
 	name := match[1]
 	r.trackCreated(name) // a no-op unless the controller named it something else
 	if id, parseErr := uuid.Parse(match[2]); parseErr == nil {
 		r.clusterNames[id] = name
 	} else {
-		r.logf("nkectl e2e: cluster %s reported an unparsable id %q: %v", name, match[2], parseErr)
+		r.logf("nvkectl e2e: cluster %s reported an unparsable id %q: %v", name, match[2], parseErr)
 	}
 
 	return r.GetClusterByName(ctx, name)
@@ -132,7 +132,7 @@ func (r *Runner) GetByName(ctx context.Context, name string) (*api.Cluster, erro
 // done.
 //
 // It takes an id to match the REST client's signature but polls by name, which
-// is the only lookup nkectl has.
+// is the only lookup nvkectl has.
 func (r *Runner) WaitForClusterReady(ctx context.Context, id openapi_types.UUID) (*api.Cluster, error) {
 	name, err := r.nameForID(ctx, id)
 	if err != nil {
@@ -155,7 +155,7 @@ func (r *Runner) WaitForClusterReady(ctx context.Context, id openapi_types.UUID)
 				// A single failed poll is not fatal: the API is reachable through
 				// a forward that reconnects, and the deadline above is the bound
 				// that matters.
-				r.logf("nkectl e2e: polling %s: %v", name, err)
+				r.logf("nvkectl e2e: polling %s: %v", name, err)
 				continue
 			}
 			if cluster.Conditions.Provisioned.Status == api.ConditionStatusTrue {
@@ -168,7 +168,7 @@ func (r *Runner) WaitForClusterReady(ctx context.Context, id openapi_types.UUID)
 	}
 }
 
-// GetKubeconfig returns the tenant admin kubeconfig `nkectl get kubeconfig`
+// GetKubeconfig returns the tenant admin kubeconfig `nvkectl get kubeconfig`
 // prints for the named cluster.
 //
 // The command reads the nke-system/<cluster>-admin-kubeconfig Secret through the
@@ -185,7 +185,7 @@ func (r *Runner) GetKubeconfig(ctx context.Context, name string) ([]byte, error)
 // PatchCluster applies patch to the named cluster, passing it as --patch-file,
 // and returns the cluster as the CLI reports it afterwards.
 func (r *Runner) PatchCluster(ctx context.Context, name string, patch []byte) (*api.Cluster, error) {
-	dir, err := os.MkdirTemp("", "nkectl-e2e-patch-")
+	dir, err := os.MkdirTemp("", "nvkectl-e2e-patch-")
 	if err != nil {
 		return nil, fmt.Errorf("creating a patch directory: %w", err)
 	}
@@ -201,9 +201,9 @@ func (r *Runner) PatchCluster(ctx context.Context, name string, patch []byte) (*
 		return nil, err
 	}
 	if !strings.Contains(out, "patched (id: ") {
-		return nil, fmt.Errorf("nkectl patch cluster %q did not report the patch: %s", name, strings.TrimSpace(out))
+		return nil, fmt.Errorf("nvkectl patch cluster %q did not report the patch: %s", name, strings.TrimSpace(out))
 	}
-	r.logf("nkectl e2e: %s", strings.TrimSpace(out))
+	r.logf("nvkectl e2e: %s", strings.TrimSpace(out))
 
 	return r.GetClusterByName(ctx, name)
 }
@@ -244,7 +244,7 @@ func (r *Runner) WaitForClusterDeleted(ctx context.Context, id openapi_types.UUI
 				return nil
 			}
 			if err != nil {
-				r.logf("nkectl e2e: polling for %s to go away: %v", name, err)
+				r.logf("nvkectl e2e: polling for %s to go away: %v", name, err)
 			}
 		}
 	}
@@ -262,12 +262,12 @@ func (r *Runner) CleanupCreated(ctx context.Context) {
 		case err != nil:
 			// Not knowing is not the same as gone: say so, rather than leave a
 			// cluster running with nothing in the log to explain it.
-			r.logf("nkectl e2e: could not tell whether cluster %s is still there: %v", name, err)
+			r.logf("nvkectl e2e: could not tell whether cluster %s is still there: %v", name, err)
 			continue
 		}
-		r.logf("nkectl e2e: removing leftover cluster %s", name)
+		r.logf("nvkectl e2e: removing leftover cluster %s", name)
 		if err := r.deleteClusterByName(ctx, name); err != nil {
-			r.logf("nkectl e2e: could not remove leftover cluster %s: %v", name, err)
+			r.logf("nvkectl e2e: could not remove leftover cluster %s: %v", name, err)
 		}
 	}
 	r.createdClusters = nil
@@ -289,12 +289,12 @@ func (r *Runner) deleteClusterByName(ctx context.Context, name string) error {
 		return err
 	}
 	if !strings.Contains(out, "deletion started") {
-		return fmt.Errorf("nkectl delete cluster %q did not report deletion: %s", name, strings.TrimSpace(out))
+		return fmt.Errorf("nvkectl delete cluster %q did not report deletion: %s", name, strings.TrimSpace(out))
 	}
 	return nil
 }
 
-// nameForID resolves an id to the name nkectl addresses clusters by, from
+// nameForID resolves an id to the name nvkectl addresses clusters by, from
 // clusterNames when it can and by listing when it cannot.
 func (r *Runner) nameForID(ctx context.Context, id openapi_types.UUID) (string, error) {
 	if name, ok := r.clusterNames[id]; ok {

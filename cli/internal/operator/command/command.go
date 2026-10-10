@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package command holds the nkectl subcommands that manage machine images and
+// Package command holds the nvkectl subcommands that manage machine images and
 // releases on a site's management cluster.
 package command
 

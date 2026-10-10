@@ -3,8 +3,8 @@
 
 // Package clusterstate reads a cluster's conditions.
 //
-// One reading, shared: `nkectl get clusters` prints it in a column and
-// `nkectl bootstrap site` waits on it, and the two must not be able to disagree
+// One reading, shared: `nvkectl get clusters` prints it in a column and
+// `nvkectl bootstrap site` waits on it, and the two must not be able to disagree
 // about what a cluster is doing.
 package clusterstate
 

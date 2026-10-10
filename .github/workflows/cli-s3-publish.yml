@@ -3,11 +3,11 @@
 
 name: CLI S3 Publish
 
-# Publishes nkectl binaries to S3, fronted by the same CloudFront distribution
+# Publishes nvkectl binaries to S3, fronted by the same CloudFront distribution
 # agent/scripts/upload-s3-apt-intake.sh already uses for the agent .deb --
 # confirmed live and unauthenticated. Uses scripts/upload-s3-flat.sh, a
 # generic uploader, not that apt-specific one (it shells to dpkg-deb and
-# writes an apt-publisher index.json; nkectl is neither a .deb nor
+# writes an apt-publisher index.json; nvkectl is neither a .deb nor
 # apt-consumed).
 #
 # Needs a new `s3-publish` GitHub Environment (Settings -> Environments),
@@ -110,7 +110,7 @@ jobs:
             echo "release=${release}"
             echo "cf_domain=${CF_DOMAIN}"
           } >> "${GITHUB_OUTPUT}"
-          echo "Publishing nkectl release ${release} to ${S3_URI}"
+          echo "Publishing nvkectl release ${release} to ${S3_URI}"
 
       # One build per release. release.yml builds and checksums; this consumes
       # exactly those bytes, so checksums.txt describes what ships here too.
@@ -145,9 +145,15 @@ jobs:
           RELEASE: ${{ steps.meta.outputs.release }}
         run: |
           set -euo pipefail
+          # The prefix stays nkectl/ for now: the publishing role's permission
+          # policy names nke-packages/nkectl/*, and moving the prefix is its own
+          # change. Both binary names are published for one release, so the
+          # download links and scripts that know the old name keep working.
           for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
-            S3_PREFIX="nkectl/releases/${RELEASE}/${platform}" \
-              ./scripts/upload-s3-flat.sh "dist/nkectl-${platform}"
+            for bin in "nvkectl-${platform}" "nkectl-${platform}"; do
+              S3_PREFIX="nkectl/releases/${RELEASE}/${platform}" \
+                ./scripts/upload-s3-flat.sh "dist/${bin}"
+            done
           done
 
       - name: Verify upload
@@ -169,8 +175,10 @@ jobs:
           bucket="${bucket%%/*}"
           s3_path="${S3_URI#s3://*/}"
           for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
-            key="${s3_path}/nkectl/releases/${RELEASE}/${platform}/nkectl-${platform}"
-            aws s3api head-object --bucket "${bucket}" --key "${key}" >/dev/null
-            url="https://${CF_DOMAIN}/${key}"
-            echo "OK s3://${bucket}/${key} (${url})"
+            for bin in "nvkectl-${platform}" "nkectl-${platform}"; do
+              key="${s3_path}/nkectl/releases/${RELEASE}/${platform}/${bin}"
+              aws s3api head-object --bucket "${bucket}" --key "${key}" >/dev/null
+              url="https://${CF_DOMAIN}/${key}"
+              echo "OK s3://${bucket}/${key} (${url})"
+            done
           done

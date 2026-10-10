@@ -428,13 +428,13 @@ func TestRenderKindConfig_OmitsEmptyOptionalFields(t *testing.T) {
 	}
 }
 
-// NKECTL_BOOTSTRAP_PROVIDER selected the container runtime front end before
+// NVKECTL_BOOTSTRAP_PROVIDER selected the container runtime front end before
 // the Docker provider was removed. A stale export of it must be inert rather
 // than steering the runtime, so a script that still sets it does not silently
 // bootstrap against a runtime this package no longer drives.
 func TestDefaultConfig_IgnoresBootstrapProviderEnv(t *testing.T) {
-	t.Setenv("NKECTL_BOOTSTRAP_PROVIDER", "docker")
-	t.Setenv("NKECTL_BOOTSTRAP_CLUSTER_NAME", "from-env")
+	t.Setenv("NVKECTL_BOOTSTRAP_PROVIDER", "docker")
+	t.Setenv("NVKECTL_BOOTSTRAP_CLUSTER_NAME", "from-env")
 
 	cfg := DefaultConfig()
 
@@ -452,7 +452,7 @@ func TestDefaultConfig_IgnoresBootstrapProviderEnv(t *testing.T) {
 		t.Fatalf("Exists returned error: %v", err)
 	}
 	if got := runner.calls[0].env[kindExperimentalProviderEnv]; got != RuntimeCLI {
-		t.Errorf("%s = %q, want %q (NKECTL_BOOTSTRAP_PROVIDER must not steer this)",
+		t.Errorf("%s = %q, want %q (NVKECTL_BOOTSTRAP_PROVIDER must not steer this)",
 			kindExperimentalProviderEnv, got, RuntimeCLI)
 	}
 }

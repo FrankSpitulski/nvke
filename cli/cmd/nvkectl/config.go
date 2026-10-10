@@ -15,7 +15,7 @@ import (
 func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
-		Short: "Manage nkectl configuration",
+		Short: "Manage nvkectl configuration",
 	}
 	cmd.AddCommand(newConfigSetSiteCmd())
 	cmd.AddCommand(newConfigUseSiteCmd())
@@ -28,10 +28,10 @@ func newConfigSetSiteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set-site",
 		Short: "Configure the site controller the CLI connects to",
-		Long: `Store the URL and management cluster kubeconfig for a site controller in ~/.config/nkectl/config.yaml.
+		Long: `Store the URL and management cluster kubeconfig for a site controller in ~/.config/nvkectl/config.yaml.
 
 For sites fronted by a proxy that requires TLS client authentication, pass
---proxy-client-cert and --proxy-client-key. nkectl presents the certificate to
+--proxy-client-cert and --proxy-client-key. nvkectl presents the certificate to
 the proxy on every request.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -75,7 +75,7 @@ func newConfigUseSiteCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "use-site <name>",
 		Short: "Switch the active site to a previously configured entry",
-		Long:  `Set current-site in ~/.config/nkectl/config.yaml to a previously registered site, without re-registering it.`,
+		Long:  `Set current-site in ~/.config/nvkectl/config.yaml to a previously registered site, without re-registering it.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -84,7 +84,7 @@ func newConfigUseSiteCmd() *cobra.Command {
 				return fmt.Errorf("loading config: %w", err)
 			}
 			if _, ok := cfg.Sites[name]; !ok {
-				return fmt.Errorf("site %q not found in config: run 'nkectl config view' to list configured sites", name)
+				return fmt.Errorf("site %q not found in config: run 'nvkectl config view' to list configured sites", name)
 			}
 			cfg.CurrentSite = name
 			if err := cfg.Save(); err != nil {
@@ -99,7 +99,7 @@ func newConfigUseSiteCmd() *cobra.Command {
 func newConfigViewCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "view",
-		Short: "Print the current nkectl configuration",
+		Short: "Print the current nvkectl configuration",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.Load()

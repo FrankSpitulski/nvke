@@ -3,7 +3,7 @@
 
 //go:build !windows
 
-// Contract tests for the nkectl command boundary.
+// Contract tests for the nvkectl command boundary.
 //
 // Everything else in this package tests Go functions. These tests build the
 // real binary and run it as a process, because the properties they protect only
@@ -36,25 +36,25 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// nkectlBin is the binary under test, built once by TestMain.
-var nkectlBin string //nolint:gochecknoglobals // TestMain builds it once for every test in this file
+// nvkectlBin is the binary under test, built once by TestMain.
+var nvkectlBin string //nolint:gochecknoglobals // TestMain builds it once for every test in this file
 
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "nkectl-contract")
+	dir, err := os.MkdirTemp("", "nvkectl-contract")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "contract tests: creating temp dir: %v\n", err)
 		os.Exit(1)
 	}
 	defer os.RemoveAll(dir)
 
-	nkectlBin = filepath.Join(dir, "nkectl")
+	nvkectlBin = filepath.Join(dir, "nvkectl")
 	// No -ldflags: the version string is not what is under test here, and
 	// leaving it at its "dev" default keeps this independent of the Makefile.
-	build := exec.Command("go", "build", "-o", nkectlBin, ".")
+	build := exec.Command("go", "build", "-o", nvkectlBin, ".")
 	build.Stdout = os.Stderr
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "contract tests: building nkectl: %v\n", err)
+		fmt.Fprintf(os.Stderr, "contract tests: building nvkectl: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -70,17 +70,17 @@ type result struct {
 	stderr   string
 }
 
-// run invokes nkectl with args and an empty, already-closed stdin, so every
+// run invokes nvkectl with args and an empty, already-closed stdin, so every
 // case also stands as a non-interactive invocation: a command that waits for a
 // human hangs here rather than passing.
 //
-// configHome becomes $XDG_CONFIG_HOME, which is where nkectl looks for its
+// configHome becomes $XDG_CONFIG_HOME, which is where nvkectl looks for its
 // config file. Tests pass a temporary directory so that none of them read or
-// write the developer's real ~/.config/nkectl.
+// write the developer's real ~/.config/nvkectl.
 func run(t *testing.T, configHome string, args ...string) result {
 	t.Helper()
 
-	cmd := exec.Command(nkectlBin, args...)
+	cmd := exec.Command(nvkectlBin, args...)
 	cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+configHome)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -89,7 +89,7 @@ func run(t *testing.T, configHome string, args ...string) result {
 	err := cmd.Run()
 	var exitErr *exec.ExitError
 	if err != nil && !errors.As(err, &exitErr) {
-		t.Fatalf("nkectl %s: %v", strings.Join(args, " "), err)
+		t.Fatalf("nvkectl %s: %v", strings.Join(args, " "), err)
 	}
 	return result{
 		exitCode: cmd.ProcessState.ExitCode(),
@@ -104,7 +104,7 @@ func run(t *testing.T, configHome string, args ...string) result {
 //
 // The rule is one line long and this table is what keeps it true: results go to
 // stdout, diagnostics go to stderr, and the two never mix. A caller doing
-// `nkectl get clusters -o json | jq` depends on exactly that.
+// `nvkectl get clusters -o json | jq` depends on exactly that.
 func TestExitCodeAndOutputChannel(t *testing.T) {
 	t.Parallel()
 
@@ -144,7 +144,7 @@ func TestExitCodeAndOutputChannel(t *testing.T) {
 			name:       "version succeeds",
 			args:       []string{"version"},
 			wantExit:   0,
-			wantStdout: "nkectl ",
+			wantStdout: "nvkectl ",
 			wantStderr: "",
 		},
 		{
@@ -486,13 +486,13 @@ func TestSignalCancelsAnInFlightCommand(t *testing.T) {
 				}
 			})
 
-			cmd := exec.Command(nkectlBin, "get", "clusters")
+			cmd := exec.Command(nvkectlBin, "get", "clusters")
 			cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+writeSiteConfig(t, srv.URL))
 			var stdout, stderr strings.Builder
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
 			if err := cmd.Start(); err != nil {
-				t.Fatalf("starting nkectl: %v", err)
+				t.Fatalf("starting nvkectl: %v", err)
 			}
 			t.Cleanup(func() { close(release) })
 
@@ -500,7 +500,7 @@ func TestSignalCancelsAnInFlightCommand(t *testing.T) {
 			case <-reached:
 			case <-time.After(30 * time.Second):
 				_ = cmd.Process.Kill()
-				t.Fatal("nkectl never reached the stub site controller")
+				t.Fatal("nvkectl never reached the stub site controller")
 			}
 
 			if err := cmd.Process.Signal(tc.sig); err != nil {
@@ -513,7 +513,7 @@ func TestSignalCancelsAnInFlightCommand(t *testing.T) {
 			case <-done:
 			case <-time.After(30 * time.Second):
 				_ = cmd.Process.Kill()
-				t.Fatalf("nkectl did not exit within 30s of %s", tc.name)
+				t.Fatalf("nvkectl did not exit within 30s of %s", tc.name)
 			}
 
 			if got := cmd.ProcessState.ExitCode(); got != tc.wantExit {
@@ -537,7 +537,7 @@ func TestSignalCancelsAnInFlightCommand(t *testing.T) {
 // The spec comes from a FIFO rather than from a pipe on stdin so that the test
 // knows when to interrupt without guessing. Opening a FIFO for writing blocks
 // until a reader opens the other end, so the open below returns only once
-// nkectl has reached its spec read, which is long past the point where main
+// nvkectl has reached its spec read, which is long past the point where main
 // installed the handler. A sleep here would instead race process startup, and
 // lose on a cold or loaded machine.
 func TestASecondSignalKillsACommandThatIgnoresTheFirst(t *testing.T) {
@@ -548,15 +548,15 @@ func TestASecondSignalKillsACommandThatIgnoresTheFirst(t *testing.T) {
 		t.Fatalf("creating fifo: %v", err)
 	}
 
-	cmd := exec.Command(nkectlBin, "create", "cluster", "-f", fifo)
+	cmd := exec.Command(nvkectlBin, "create", "cluster", "-f", fifo)
 	cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+t.TempDir())
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("starting nkectl: %v", err)
+		t.Fatalf("starting nvkectl: %v", err)
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 
-	// Blocks until nkectl opens the FIFO to read the spec. Held open for the
+	// Blocks until nvkectl opens the FIFO to read the spec. Held open for the
 	// rest of the test and never written to, so the read never completes and
 	// never sees EOF.
 	writer, err := os.OpenFile(fifo, os.O_WRONLY, 0)
@@ -572,7 +572,7 @@ func TestASecondSignalKillsACommandThatIgnoresTheFirst(t *testing.T) {
 
 	select {
 	case <-done:
-		t.Fatal("nkectl exited on the first SIGINT while blocked reading its spec; " +
+		t.Fatal("nvkectl exited on the first SIGINT while blocked reading its spec; " +
 			"the first signal should cancel the context and only the second should kill it")
 	case <-time.After(time.Second):
 	}
@@ -593,7 +593,7 @@ func TestASecondSignalKillsACommandThatIgnoresTheFirst(t *testing.T) {
 			return
 		case <-deadline:
 			_ = cmd.Process.Kill()
-			t.Fatal("nkectl never died despite repeated SIGINT")
+			t.Fatal("nvkectl never died despite repeated SIGINT")
 		case <-tick.C:
 			_ = cmd.Process.Signal(syscall.SIGINT)
 		}
@@ -616,14 +616,14 @@ func stubCWE(t *testing.T, list http.HandlerFunc) *httptest.Server {
 }
 
 // writeSiteConfig returns an XDG_CONFIG_HOME holding a config file that points
-// nkectl at url with no kubeconfig, which is how the CLI behaves against a site
+// nvkectl at url with no kubeconfig, which is how the CLI behaves against a site
 // whose API authentication is off. The file is written directly rather than
 // through "config set-site" so that these tests do not depend on that command;
 // the file's shape is itself part of the compatibility surface.
 func writeSiteConfig(t *testing.T, url string) string {
 	t.Helper()
 	home := t.TempDir()
-	dir := filepath.Join(home, "nkectl")
+	dir := filepath.Join(home, "nvkectl")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("creating config dir: %v", err)
 	}

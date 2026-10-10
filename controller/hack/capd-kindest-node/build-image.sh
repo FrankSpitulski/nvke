@@ -59,7 +59,7 @@ tpm_plugin_version_pin="$(read_tool_version TPM_PLUGIN_VERSION)"
 # The container CLI to build through. Docker by default, for the consumers
 # that run on it (controller/Makefile.dev, controller/hack/ci/backend-e2e.sh).
 # cli/e2e/bootstrap passes nerdctl, because that suite has no Docker daemon
-# and the image has to land in the containerd store nkectl loads from.
+# and the image has to land in the containerd store nvkectl loads from.
 : "${CONTAINER_CLI:=docker}"
 
 if [[ "$(uname -s)" == "Darwin" && -z "${DOCKER_HOST:-}" ]]; then

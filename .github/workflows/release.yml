@@ -156,7 +156,7 @@ jobs:
           case "${DIR}" in
             cli)
               make -C cli build-cross DIST="${GITHUB_WORKSPACE}/dist"
-              # Shipped beside the binaries because nkectl is redistributed --
+              # Shipped beside the binaries because nvkectl is redistributed --
               # which is the reason it carries its own attribution at all.
               cp cli/THIRD_PARTY_NOTICES.md dist/
               ;;
@@ -182,7 +182,8 @@ jobs:
           # and needs the answer for that platform. The four differ, because
           # the dependency graph is GOOS/GOARCH-conditional.
           shopt -s nullglob
-          for bin in dist/nkectl-*; do
+          # Both names for one release; build-cross makes the nkectl-* copies.
+          for bin in dist/nvkectl-* dist/nkectl-*; do
             case "${bin}" in *.spdx.json) continue ;; esac
             syft scan "file:${bin}" \
               --output "spdx-json=${bin}.spdx.json" \
@@ -218,14 +219,14 @@ jobs:
       # build-cross stamps the version from `git describe`, this job takes it
       # from the tag, and nothing tied the two together. The runner is
       # linux/amd64, so the shipped binary can be asked directly.
-      - name: Check nkectl reports the tag version
+      - name: Check nvkectl reports the tag version
         if: steps.component.outputs.dir == 'cli'
         shell: bash
         env:
           VERSION: ${{ steps.component.outputs.version }}
         run: |
           set -euo pipefail
-          BIN="${GITHUB_WORKSPACE}/dist/nkectl-linux-amd64"
+          BIN="${GITHUB_WORKSPACE}/dist/nvkectl-linux-amd64"
 
           # 2>&1 and the exit check, so a binary that dies on start fails here
           # rather than printing nothing and matching whatever comes last.
@@ -237,7 +238,7 @@ jobs:
           # The trailing space is load-bearing: it stops a v0.1.0 tag accepting
           # a v0.1.0-rc.1 binary, or a describe with commits after the tag.
           case "${out}" in
-            "nkectl ${VERSION} "*) echo "nkectl reports ${VERSION}: ${out}" ;;
+            "nvkectl ${VERSION} "*) echo "nvkectl reports ${VERSION}: ${out}" ;;
             *)
               echo "::error::This release is tagged ${VERSION}, and the binary reports: ${out}"
               exit 1

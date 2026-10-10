@@ -37,7 +37,7 @@ func loggableJoinRequest(req *pb.KubeadmJoinRequest) *pb.KubeadmJoinRequest {
 }
 
 // encryptionKeyDigest is the hex SHA-256 of key, or "" when there is none. It
-// identifies a key without disclosing it, and matches the digest nkectl logs
+// identifies a key without disclosing it, and matches the digest nvkectl logs
 // for the key it saves.
 func encryptionKeyDigest(key string) string {
 	if key == "" {

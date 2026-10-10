@@ -109,7 +109,7 @@ func TestDynamicCreateAnnotationsAbsent(t *testing.T) {
 	_, err := c.Create(context.Background(), KindMachineImage, Resource{Metadata: Metadata{Name: "img"}, Spec: map[string]any{"architecture": "amd64"}})
 
 	require.NoError(t, err)
-	assert.Empty(t, gotObject.GetAnnotations(), "nkectl adds no annotations of its own")
+	assert.Empty(t, gotObject.GetAnnotations(), "nvkectl adds no annotations of its own")
 }
 
 func TestDynamicGetProjectsToPortableShape(t *testing.T) {
@@ -341,7 +341,7 @@ func TestNewDynamicNeedsAKubeconfig(t *testing.T) {
 	_, err := NewDynamic("")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "nkectl config set-site")
+	assert.Contains(t, err.Error(), "nvkectl config set-site")
 }
 
 func TestNewDynamicUnreadableKubeconfig(t *testing.T) {

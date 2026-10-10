@@ -59,7 +59,7 @@ func (f *fakeRunner) called(fragments ...string) bool {
 	return false
 }
 
-// supported returns the entry for typ from the set nkectl supports.
+// supported returns the entry for typ from the set nvkectl supports.
 func supported(t *testing.T, typ providers.Type) providers.Provider {
 	t.Helper()
 	for _, p := range providers.Supported() {

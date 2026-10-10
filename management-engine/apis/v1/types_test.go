@@ -211,7 +211,7 @@ func firstAuthenticator(t *testing.T, obj map[string]any) map[string]any {
 // Deprecating a release goes through the Go types, so a decode/edit/encode
 // cycle must not itself look like a change to the immutable content. Without
 // this, the spec-level rule could pass its own unit tests and still reject
-// every write a controller or nkectl makes.
+// every write a controller or nvkectl makes.
 func TestLifecycleEditRoundTripsThroughGoTypes(t *testing.T) {
 	for _, resource := range releaseResources {
 		t.Run(resource, func(t *testing.T) {

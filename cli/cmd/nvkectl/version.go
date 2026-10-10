@@ -48,7 +48,7 @@ func newVersionCmd(ver, commit, treeState, date string) *cobra.Command {
 			}
 			switch of {
 			case "":
-				fmt.Fprintf(cmd.OutOrStdout(), "nkectl %s (commit: %s, built: %s)\n",
+				fmt.Fprintf(cmd.OutOrStdout(), "nvkectl %s (commit: %s, built: %s)\n",
 					v.BuildVersion, v.GitCommit, v.BuildDate)
 			case "short":
 				fmt.Fprintln(cmd.OutOrStdout(), v.BuildVersion)

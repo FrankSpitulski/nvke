@@ -139,7 +139,7 @@ type Options struct {
 	Node  nvke.NodeInputs
 	Tools HostTools
 
-	// DisableMTLS runs the node agent without SPIFFE. nkectl bootstrap site
+	// DisableMTLS runs the node agent without SPIFFE. nvkectl bootstrap site
 	// must be given --disable-mtls to match, and the stack deployed with
 	// spiffe.enabled=false, or every dial fails as a TLS handshake error.
 	DisableMTLS bool
@@ -154,7 +154,7 @@ type Options struct {
 	CreateTimeout time.Duration
 }
 
-// Provider creates Forge instances ready for `nkectl bootstrap site`.
+// Provider creates Forge instances ready for `nvkectl bootstrap site`.
 type Provider struct {
 	opts Options
 	site Site

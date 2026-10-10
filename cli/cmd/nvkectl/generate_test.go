@@ -205,7 +205,7 @@ func TestGenerateOIDCKubeconfigWritesToStdout(t *testing.T) {
 		"generate", "oidc-kubeconfig",
 		"--kubeconfig", writeAdminKubeconfig(t),
 		"--oidc-issuer-url", "https://idp.example/realms/nke",
-		"--oidc-client-id", "nke-cli",
+		"--oidc-client-id", "nvke-cli",
 	)
 	if err != nil {
 		t.Fatalf("generate oidc-kubeconfig: %v", err)
@@ -214,7 +214,7 @@ func TestGenerateOIDCKubeconfigWritesToStdout(t *testing.T) {
 		"https://10.10.50.2:6443",
 		"oidc-login",
 		"--oidc-issuer-url=https://idp.example/realms/nke",
-		"--oidc-client-id=nke-cli",
+		"--oidc-client-id=nvke-cli",
 		"oidc@site",
 	} {
 		if !strings.Contains(stdout, want) {
@@ -232,7 +232,7 @@ func TestGenerateOIDCKubeconfigWritesFile(t *testing.T) {
 		"generate", "oidc-kubeconfig",
 		"--kubeconfig", writeAdminKubeconfig(t),
 		"--oidc-issuer-url", "https://idp.example/realms/nke",
-		"--oidc-client-id", "nke-cli",
+		"--oidc-client-id", "nvke-cli",
 		"--output-file", path,
 	)
 	if err != nil {
@@ -260,7 +260,7 @@ func TestGenerateOIDCKubeconfigRejects(t *testing.T) {
 			[]string{
 				"generate", "oidc-kubeconfig",
 				"--oidc-issuer-url", "https://idp.example",
-				"--oidc-client-id", "nke-cli",
+				"--oidc-client-id", "nvke-cli",
 			},
 			"kubeconfig",
 		},
@@ -268,7 +268,7 @@ func TestGenerateOIDCKubeconfigRejects(t *testing.T) {
 			[]string{
 				"generate", "oidc-kubeconfig",
 				"--kubeconfig", valid,
-				"--oidc-client-id", "nke-cli",
+				"--oidc-client-id", "nvke-cli",
 			},
 			"oidc-issuer-url",
 		},
@@ -285,7 +285,7 @@ func TestGenerateOIDCKubeconfigRejects(t *testing.T) {
 				"generate", "oidc-kubeconfig",
 				"--kubeconfig", "",
 				"--oidc-issuer-url", "https://idp.example",
-				"--oidc-client-id", "nke-cli",
+				"--oidc-client-id", "nvke-cli",
 			},
 			"kubeconfig",
 		},
@@ -294,7 +294,7 @@ func TestGenerateOIDCKubeconfigRejects(t *testing.T) {
 				"generate", "oidc-kubeconfig",
 				"--kubeconfig", valid,
 				"--oidc-issuer-url", "",
-				"--oidc-client-id", "nke-cli",
+				"--oidc-client-id", "nvke-cli",
 			},
 			"oidc-issuer-url",
 		},

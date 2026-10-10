@@ -13,9 +13,9 @@ name: Image Provisioned NVCR
 # component versions and releases on its own tag, so one workflow per component
 # keeps a controller release from republishing this provider and the reverse.
 #
-# `nkectl bootstrap site` installs this provider onto the ephemeral bootstrap
+# `nvkectl bootstrap site` installs this provider onto the ephemeral bootstrap
 # cluster and needs the image to exist somewhere it can pull from
-# (NKECTL_CAPI_PROVISIONED_IMAGE). Until this workflow, nothing published it and
+# (NVKECTL_CAPI_PROVISIONED_IMAGE). Until this workflow, nothing published it and
 # every operator had to build it from a checkout.
 #
 # The destination org is not written here. It comes from the `nvcr`
@@ -316,7 +316,7 @@ jobs:
   # NVCR needs an NGC account to pull from, so this image is not reachable by
   # anyone outside NVIDIA. A release tag copies it to GHCR, which is public once
   # this repository is, so a released version can be pulled by whoever the
-  # release is for. That matters more here than for the controller: nkectl is
+  # release is for. That matters more here than for the controller: nvkectl is
   # the binary an external operator downloads, and it cannot bootstrap a site
   # without pulling this provider.
   #

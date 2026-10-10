@@ -377,7 +377,7 @@ func (c *Client) GetByName(ctx context.Context, name string) (*api.Cluster, erro
 }
 
 // WithDefaults fills in the timeouts a caller left unset. Exported so
-// internal/nkectl, which waits on the same operations through the CLI, waits
+// internal/nvkectl, which waits on the same operations through the CLI, waits
 // exactly as long as this client would rather than keeping its own copy.
 func WithDefaults(opts Options) Options {
 	if opts.Provision <= 0 {

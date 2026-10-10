@@ -141,7 +141,7 @@ func TestGetProviders_NoKubeconfigNamesTheFix(t *testing.T) {
 // site configured at all.
 func TestGetProviders_SiteResolutionFailurePropagates(t *testing.T) {
 	siteFn := func() (config.SiteConfig, error) {
-		return config.SiteConfig{}, errors.New("no site configured: run 'nkectl config set-site' first")
+		return config.SiteConfig{}, errors.New("no site configured: run 'nvkectl config set-site' first")
 	}
 	_, err := run(t, siteFn, emptyCluster())
 	if err == nil {

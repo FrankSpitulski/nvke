@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# e2e coverage for `nkectl bootstrap site`, driven by cli/e2e/bootstrap/run.sh.
+# e2e coverage for `nvkectl bootstrap site`, driven by cli/e2e/bootstrap/run.sh.
 # Separate from the `cli` unit-test lane, which is plain `go test ./...`.
 #
 # The suite stands up everything it needs: fake node containers
@@ -35,7 +35,7 @@
 # so it could never merge -- the same failure the required-member rules exist
 # to prevent. Making it gateable means removing the runner dependency first,
 # which is a change to the lane, not to its gate membership.
-name: nkectl bootstrap e2e
+name: nvkectl bootstrap e2e
 
 # No workflow_call: this lane left the merge gate when it moved to the mirror
 # branch, so it reports as its own advisory check like capd-e2e and nico-e2e.
@@ -56,7 +56,7 @@ on:
       # workspace files can break the image as well as controller source changes.
       - 'go.work'
       - 'go.work.sum'
-      - '.github/workflows/nkectl-bootstrap-e2e.yml'
+      - '.github/workflows/nvkectl-bootstrap-e2e.yml'
   # Twice a day as well: a schedule ignores the paths above, so a break they
   # filtered out still surfaces within twelve hours.
   schedule:
@@ -68,7 +68,7 @@ permissions: {}
 concurrency:
   # See go-build.yml for why the sha is only in the group on main, and why the
   # group name is a literal rather than ${{ github.workflow }}.
-  group: nkectl bootstrap e2e-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  group: nvkectl bootstrap e2e-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
@@ -107,7 +107,7 @@ jobs:
     permissions:
       contents: read
     env:
-      CWE_IMAGE: cwe-controller:nkectl-bootstrap-e2e
+      CWE_IMAGE: cwe-controller:nvkectl-bootstrap-e2e
       # A public pull-through mirror, not dc.local.gha-runners.nvidia.com:
       # that name resolves only on the self-hosted fleet. Same host and same
       # reasoning as backend-e2e.yml and os-image-artifact.yml, both of which
@@ -124,11 +124,11 @@ jobs:
       # The same mirror for the ephemeral bootstrap Kind cluster, which pulls
       # the temporal, postgres, SPIRE and Cluster API images itself. Concurrent
       # runs hit Docker Hub's anonymous rate limit without it.
-      NKECTL_BOOTSTRAP_DOCKERHUB_MIRROR: mirror.gcr.io
-      # Deliberately differs from nkectl's derived bootstrap-cluster default.
+      NVKECTL_BOOTSTRAP_DOCKERHUB_MIRROR: mirror.gcr.io
+      # Deliberately differs from nvkectl's derived bootstrap-cluster default.
       # run.sh writes it into the site inventory and uses it for every fixture
       # host's pre-provisioned SPIRE agent configuration.
-      NKECTL_E2E_SPIRE_TRUST_DOMAIN: nkectl-e2e.example.test
+      NVKECTL_E2E_SPIRE_TRUST_DOMAIN: nvkectl-e2e.example.test
       # A standalone socket and data root. Docker's containerd.io package owns
       # a unit also named `containerd.service`, on
       # /run/containerd/containerd.sock; reusing it would mean this job is
@@ -248,8 +248,8 @@ jobs:
           kind_version: ${{ steps.versions.outputs.kind_version }}
           kubectl_version: ${{ steps.versions.outputs.kubectl_version }}
 
-      # `nkectl bootstrap site` runs clusterctl to install Cluster API onto the
-      # bootstrap cluster. Same version nkectl asks for: cli/Makefile injects
+      # `nvkectl bootstrap site` runs clusterctl to install Cluster API onto the
+      # bootstrap cluster. Same version nvkectl asks for: cli/Makefile injects
       # CAPI_VERSION into the binary at build time.
       - name: Set up clusterctl
         shell: bash
@@ -312,7 +312,7 @@ jobs:
           NKE_E2E_DISPOSABLE_HOST: "1"
         run: cli/hack/bootstrap-e2e-host.sh remove-docker
 
-      # Into the standalone containerd, not Docker: nkectl loads the image
+      # Into the standalone containerd, not Docker: nvkectl loads the image
       # from there, so a Docker-built one would be invisible to it.
       # The base images come through the mirror too: configureDockerHubMirror
       # covers the bootstrap cluster's node, not this host's containerd.
@@ -325,14 +325,14 @@ jobs:
             --file controller/Dockerfile \
             --platform "linux/${{ matrix.arch }}" \
             --tag "${CWE_IMAGE}" \
-            --build-arg "BUILD_VERSION=nkectl-bootstrap-e2e" \
+            --build-arg "BUILD_VERSION=nvkectl-bootstrap-e2e" \
             --build-arg "GIT_VERSION=${GITHUB_SHA}" \
             "${mirror_args[@]}" \
             .
 
       # Built as the ordinary runner user: building ahead of run.sh keeps
       # `sudo -E` scoped to the part of the run that touches kind and nerdctl.
-      - name: Build nkectl
+      - name: Build nvkectl
         working-directory: cli
         run: make build
 
@@ -344,13 +344,13 @@ jobs:
 
       # sudo -E: kind and nerdctl reach the standalone containerd's socket as
       # root, the same way every other step below that touches them does.
-      - name: Run nkectl bootstrap e2e
+      - name: Run nvkectl bootstrap e2e
         working-directory: cli
         env:
-          NKECTL_CWE_IMAGE: ${{ env.CWE_IMAGE }}
+          NVKECTL_CONTROLLER_IMAGE: ${{ env.CWE_IMAGE }}
         run: sudo -E env "PATH=$PATH" ./e2e/bootstrap/run.sh
 
-      # Written by `nkectl bootstrap site` when a bootstrap fails: a
+      # Written by `nvkectl bootstrap site` when a bootstrap fails: a
       # cluster-info dump plus the object state and helm releases that explain
       # a pod which never started, collected before the cluster goes away.
       # if-no-files-found: ignore, since a successful run writes nothing.
@@ -359,7 +359,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # The arch too: GitHub keeps two same-named artifacts.
-          name: nkectl-bootstrap-e2e-diagnostics-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: nvkectl-bootstrap-e2e-diagnostics-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: cli/cluster-diagnostics/
           if-no-files-found: ignore
           retention-days: 7

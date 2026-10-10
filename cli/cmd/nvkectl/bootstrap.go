@@ -32,6 +32,7 @@ import (
 	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/untaint"
 	"github.com/dsx-ai-factory/nvke/cli/internal/clients"
 	"github.com/dsx-ai-factory/nvke/cli/internal/config"
+	"github.com/dsx-ai-factory/nvke/cli/internal/envalias"
 )
 
 const (
@@ -146,9 +147,9 @@ dispatched or any node is touched.
 The bootstrap side-loads two images this repository builds,
 nke-controller:latest and cluster-api-provider-provisioned:latest, which
 "make -C cli images" builds. --controller-image and --provisioned-provider-image, or
-NKECTL_CONTROLLER_IMAGE and NKECTL_CAPI_PROVISIONED_IMAGE, name other images, such as
+NVKECTL_CONTROLLER_IMAGE and NVKECTL_CAPI_PROVISIONED_IMAGE, name other images, such as
 ones pushed to a registry; a flag wins over its variable. cli/README.md lists
-every NKECTL_* variable.
+every NVKECTL_* variable.
 
 Every node becomes a control-plane node. Once the cluster is up, the
 control-plane NoSchedule taint is removed from each node so workloads can run.
@@ -156,16 +157,16 @@ control-plane NoSchedule taint is removed from each node so workloads can run.
 See the bundled examples/sitespec.yaml and docs/sitespec.md for the
 site spec file format.`,
 		Example: `  # Validate and bootstrap from a site spec file
-  nkectl bootstrap site -f sitespec.yaml
+  nvkectl bootstrap site -f sitespec.yaml
 
   # Validate only — load, check, and print the site spec without dispatching
-  nkectl bootstrap site -f sitespec.yaml --dry-run
+  nvkectl bootstrap site -f sitespec.yaml --dry-run
 
   # Supply the registry credential without putting it in the file
-  REGISTRY_API_KEY=... nkectl bootstrap site -f sitespec.yaml
+  REGISTRY_API_KEY=... nvkectl bootstrap site -f sitespec.yaml
 
   # Deploy images you pushed to a registry instead of the local build
-  nkectl bootstrap site -f sitespec.yaml \
+  nvkectl bootstrap site -f sitespec.yaml \
     --controller-image nvcr.io/<org>/nke-controller:edge \
     --provisioned-provider-image nvcr.io/<org>/cluster-api-provider-provisioned:edge`,
 		Args:         cobra.NoArgs,
@@ -183,22 +184,22 @@ site spec file format.`,
 	cmd.Flags().StringVar(&opts.registryAPIKey, "registry-api-key", "",
 		"Container registry credential (overrides registry.apiKey and the "+registryAPIKeyEnv+" env var)")
 	cmd.Flags().StringVar(&opts.controllerImage, "controller-image", "",
-		"Controller image to deploy (overrides NKECTL_CONTROLLER_IMAGE and the manifest default)")
+		"Controller image to deploy (overrides NVKECTL_CONTROLLER_IMAGE and the manifest default)")
 	cmd.Flags().StringVar(&opts.provisionedProviderImage, "provisioned-provider-image", "",
-		"Provisioned-provider image to deploy (overrides NKECTL_CAPI_PROVISIONED_IMAGE and the manifest default)")
+		"Provisioned-provider image to deploy (overrides NVKECTL_CAPI_PROVISIONED_IMAGE and the manifest default)")
 	cmd.Flags().StringVar(&opts.diagnosticsDir, "diagnostics-dir",
-		envOrDefault("NKECTL_BOOTSTRAP_DIAGNOSTICS_DIR", "cluster-diagnostics"),
+		envOrDefault("NVKECTL_BOOTSTRAP_DIAGNOSTICS_DIR", "cluster-diagnostics"),
 		"Directory a failed bootstrap writes cluster diagnostics to before tearing the cluster down. "+
-			"Overrides NKECTL_BOOTSTRAP_DIAGNOSTICS_DIR.")
+			"Overrides NVKECTL_BOOTSTRAP_DIAGNOSTICS_DIR.")
 	cmd.Flags().BoolVar(&opts.disableMTLS, "disable-mtls", false,
 		"Stand the site up without SPIFFE: no SPIRE, and the controller dials node agents in plaintext. "+
 			"The agents must be running with --disable-mtls too. Development only.")
 	cmd.Flags().BoolVar(&opts.keepBootstrapKind, "keep-bootstrap-cluster", false,
 		"Leave the ephemeral bootstrap Kind cluster running after the command exits, for debugging")
 	cmd.Flags().DurationVar(&opts.clusterTimeout, "timeout",
-		envDurationOrDefault("NKECTL_BOOTSTRAP_CLUSTER_TIMEOUT", 30*time.Minute),
+		envDurationOrDefault("NVKECTL_BOOTSTRAP_CLUSTER_TIMEOUT", 30*time.Minute),
 		"How long to wait for the cluster to finish provisioning, which includes "+
-			"every control plane node joining. Overrides NKECTL_BOOTSTRAP_CLUSTER_TIMEOUT.")
+			"every control plane node joining. Overrides NVKECTL_BOOTSTRAP_CLUSTER_TIMEOUT.")
 	cmd.Flags().StringVar(&opts.kubeconfigOut, "kubeconfig-out", "",
 		"Where to write the finished cluster's admin kubeconfig "+
 			"(default: <clusterName>.kubeconfig in the working directory)")
@@ -209,15 +210,25 @@ site spec file format.`,
 	return cmd
 }
 
+// bootstrapSettings is every NVKECTL_* variable `bootstrap site` reads, across
+// this command and the packages it drives, for the one-release warning about
+// settings given under their previous NKECTL_* name.
+func bootstrapSettings() []string {
+	names := []string{"NVKECTL_BOOTSTRAP_DIAGNOSTICS_DIR", "NVKECTL_BOOTSTRAP_CLUSTER_TIMEOUT"}
+	names = append(names, controllerdeploy.Settings...)
+	names = append(names, bootstrapengine.Settings...)
+	names = append(names, sitespec.Settings...)
+	return names
+}
+
 // cleanupTimeout bounds each post-failure cleanup step. The steps run on a
 // context detached from the command's, so they need a stop of their own.
 const cleanupTimeout = 2 * time.Minute
 
 func runBootstrapSite(ctx context.Context, out io.Writer, opts *bootstrapSiteOptions) (err error) {
 	logger := slog.Default().With("component", "bootstrap-site")
-	for _, s := range controllerdeploy.DeprecatedSettings() {
-		logger.Warn(s.Old+" is deprecated and will be removed in a future release; set "+s.New+" instead",
-			"deprecated", s.Old, "replacement", s.New)
+	for _, s := range envalias.Deprecated(bootstrapSettings()...) {
+		logger.Warn(s.Warning(), "deprecated", s.Old, "replacement", s.New)
 	}
 
 	// Step 1: load and validate the sitespec. Fail fast on any problem.
@@ -771,7 +782,7 @@ func requireNoControlPlane(
 // default. A malformed or non-positive value falls back rather than failing:
 // this is a flag default, and an explicit --timeout still overrides it.
 func envDurationOrDefault(key string, fallback time.Duration) time.Duration {
-	v := os.Getenv(key)
+	v := envalias.Get(key)
 	if v == "" {
 		return fallback
 	}
@@ -784,7 +795,7 @@ func envDurationOrDefault(key string, fallback time.Duration) time.Duration {
 
 // envOrDefault reads an environment variable, falling back to a default.
 func envOrDefault(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
+	if value := envalias.Get(key); value != "" {
 		return value
 	}
 	return fallback
@@ -813,10 +824,10 @@ func cweDeployConfig(inv *sitespec.SiteSpec, clusterName string, disableMTLS boo
 	// Both images default to the local build's tag from the bootstrap
 	// manifest, so an empty value means the manifest lacks the entry.
 	if cfg.CWEImage == "" {
-		return cfg, errors.New("--controller-image and NKECTL_CONTROLLER_IMAGE are not set and the bootstrap manifest carries no default controller image")
+		return cfg, errors.New("--controller-image and NVKECTL_CONTROLLER_IMAGE are not set and the bootstrap manifest carries no default controller image")
 	}
 	if cfg.ProvisionedProviderImage == "" {
-		return cfg, errors.New("--provisioned-provider-image and NKECTL_CAPI_PROVISIONED_IMAGE are not set and the bootstrap manifest carries no default provisioned-provider image")
+		return cfg, errors.New("--provisioned-provider-image and NVKECTL_CAPI_PROVISIONED_IMAGE are not set and the bootstrap manifest carries no default provisioned-provider image")
 	}
 
 	// SPIRE is told the Kind cluster's own name. The identity trust domain comes
@@ -1016,7 +1027,7 @@ func requireLocalImages(ctx context.Context, engine *bootstrapengine.Engine, ima
 func missingLocalImageError(image string, err error, out string) error {
 	return fmt.Errorf("image %s is not in the local image store (%w\n%s) and names no registry to pull it from; "+
 		"build it with `make -C cli images`, or name an image the runtime can pull with "+
-		"--controller-image / --provisioned-provider-image or NKECTL_CONTROLLER_IMAGE / NKECTL_CAPI_PROVISIONED_IMAGE "+
+		"--controller-image / --provisioned-provider-image or NVKECTL_CONTROLLER_IMAGE / NVKECTL_CAPI_PROVISIONED_IMAGE "+
 		"(for Docker Hub, write docker.io/<org>/<name>)",
 		image, err, strings.TrimSpace(out))
 }

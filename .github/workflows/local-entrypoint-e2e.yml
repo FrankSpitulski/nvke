@@ -101,7 +101,7 @@ jobs:
       # A public pull-through mirror: dc.local.gha-runners.nvidia.com resolves
       # only on the self-hosted fleet, and the arm64 leg now runs on ARC.
       # Same host as backend-e2e.yml, os-image-artifact.yml and
-      # nkectl-bootstrap-e2e.yml, each of which had to make this change when
+      # nvkectl-bootstrap-e2e.yml, each of which had to make this change when
       # it moved. helm needs the shim below to honour it for OCI charts,
       # which is how the CI entrypoint does it too.
       NKE_E2E_DOCKERHUB_MIRROR: mirror.gcr.io

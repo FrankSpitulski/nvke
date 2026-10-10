@@ -32,15 +32,15 @@ func TestReportFailure(t *testing.T) {
 		},
 		{
 			name: "SIGINT is one line", err: fmt.Errorf("get: %w", context.Canceled), canceled: true, sig: syscall.SIGINT,
-			wantCode: exitSIGINT, wantOutput: []string{"nkectl: canceled"}, denyOutput: []string{"Error:"},
+			wantCode: exitSIGINT, wantOutput: []string{"nvkectl: canceled"}, denyOutput: []string{"Error:"},
 		},
 		{
 			name: "SIGTERM", err: context.Canceled, canceled: true, sig: syscall.SIGTERM,
-			wantCode: exitSIGTERM, wantOutput: []string{"nkectl: canceled"},
+			wantCode: exitSIGTERM, wantOutput: []string{"nvkectl: canceled"},
 		},
 		{
 			name: "recovery advice survives a cancellation", err: fmt.Errorf("bootstrap: %w", recovery), canceled: true, sig: syscall.SIGINT,
-			wantCode: exitSIGINT, wantOutput: []string{"nkectl: canceled", `bootstrap cluster "kind-x" retained`},
+			wantCode: exitSIGINT, wantOutput: []string{"nvkectl: canceled", `bootstrap cluster "kind-x" retained`},
 		},
 	}
 	for _, tc := range tests {

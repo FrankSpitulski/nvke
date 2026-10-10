@@ -48,7 +48,7 @@ KUBECTL=(kubectl)
 [[ -n "${KUBE_CONTEXT}" ]] && KUBECTL+=(--context "${KUBE_CONTEXT}")
 
 if [[ -z "${NKE_CONTROLLER_NAMESPACE}" ]]; then
-  # Same order nkectl uses: the greenfield namespace if it holds the auth
+  # Same order nvkectl uses: the greenfield namespace if it holds the auth
   # ConfigMap, else the legacy one. A greenfield site with authentication off
   # has no ConfigMap, so its Deployment also selects the greenfield namespace.
   # Only a confirmed absence of both falls back.

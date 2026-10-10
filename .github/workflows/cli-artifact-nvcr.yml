@@ -126,6 +126,8 @@ jobs:
             echo "::error::${ORG_VAR} is not set in the nvcr environment"
             exit 1
           fi
+          # The NVCR repository keeps the old name until an nvkectl repository
+          # exists in the NGC org; the binaries inside it are nvkectl.
           repo="nvcr.io/${NGC_ORG}/nkectl"
 
           version="$(git describe --match 'cli/v*' --tags --always 2>/dev/null || git rev-parse --short HEAD)"
@@ -194,7 +196,7 @@ jobs:
           for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             os="${platform%/*}"
             arch="${platform#*/}"
-            bin="nkectl-${os}-${arch}"
+            bin="nvkectl-${os}-${arch}"
 
             tags=""
             for alias in "${aliases[@]}"; do
@@ -208,7 +210,7 @@ jobs:
                 --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
                 --annotation "org.opencontainers.image.version=${VERSION}" \
                 --annotation "org.opencontainers.image.licenses=Apache-2.0" \
-                --annotation "org.opencontainers.image.title=nkectl" \
+                --annotation "org.opencontainers.image.title=nvkectl" \
                 "${bin}:application/octet-stream" )
           done
 
@@ -233,4 +235,4 @@ jobs:
             ${{ steps.meta.outputs.repo }}:sha-${{ github.sha }}-linux-arm64
             ${{ steps.meta.outputs.repo }}:sha-${{ github.sha }}-darwin-amd64
             ${{ steps.meta.outputs.repo }}:sha-${{ github.sha }}-darwin-arm64
-          component: nkectl-nvcr-${{ matrix.destination }}
+          component: nvkectl-nvcr-${{ matrix.destination }}

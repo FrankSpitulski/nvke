@@ -8,8 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTROLLER_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # shellcheck source=controller/hack/backend-e2e-lib.sh
 source "${CONTROLLER_ROOT}/hack/backend-e2e-lib.sh"
-# shellcheck source=controller/hack/ci/nkectl-smoke.sh
-source "${SCRIPT_DIR}/nkectl-smoke.sh"
+# shellcheck source=controller/hack/ci/nvkectl-smoke.sh
+source "${SCRIPT_DIR}/nvkectl-smoke.sh"
 WORKSPACE_ROOT="$(cd "${CONTROLLER_ROOT}/.." && pwd)"
 cd "${CONTROLLER_ROOT}"
 
@@ -36,10 +36,10 @@ BUNDLE_VOLUME="capd-e2e-bundles-${RUN_ID}"
 CAPD_NODE_IMAGE="cwe-capd-kindest-node:run-${RUN_ID}"
 BGP_CONTAINER_NAME="bgp-containers-${RUN_ID}"
 DIAGNOSTICS_MARKER="${STATE_DIR}/SAFE_TO_UPLOAD"
-# Run the nkectl checks in hack/ci/nkectl-smoke.sh once the suite passes. This
+# Run the nvkectl checks in hack/ci/nvkectl-smoke.sh once the suite passes. This
 # lane has an inner runner, so the smoke drives the CLI inside it.
-NKECTL_SMOKE="${NKE_E2E_NKECTL_SMOKE:-false}"
-NKECTL_SMOKE_RUNNER="${RUNNER_NAME}"
+NVKECTL_SMOKE="${NKE_E2E_NVKECTL_SMOKE:-false}"
+NVKECTL_SMOKE_RUNNER="${RUNNER_NAME}"
 TMP_DIR="$(mktemp -d)"
 MANAGEMENT_KUBECONFIG="${TMP_DIR}/management.kubeconfig"
 CLUSTERCTL_BIN="${TMP_DIR}/clusterctl"
@@ -50,7 +50,7 @@ SOURCE_ARCHIVE="${TMP_DIR}/cwe-source.tgz"
 CAPNICO_SOURCE_CONTAINER_DIR=/workspace/cluster-api-provider-nico
 E2E_BIN="${TMP_DIR}/cwe-e2e.test"
 NICO_SIM_BIN="${TMP_DIR}/nico-sim"
-NKECTL_BIN="${TMP_DIR}/nkectl"
+NVKECTL_BIN="${TMP_DIR}/nvkectl"
 E2E_CONFIG="${TMP_DIR}/e2e-config.json"
 RUNNER_DOCKER_HOST="${DOCKER_HOST:-unix:///var/run/docker.sock}"
 RUNNER_DOCKER_ARGS=()
@@ -125,10 +125,10 @@ fi
 
 # The controller's namespace, and the name of its Deployment, Service and
 # container. Tilt and the deploy paths both install it as nke-controller. The
-# e2e suite and the nkectl smoke are pointed at it.
+# e2e suite and the nvkectl smoke are pointed at it.
 CONTROLLER_NAME=nke-controller
-NKECTL_SMOKE_CONTROLLER_NAMESPACE="${CONTROLLER_NAME}"
-NKECTL_SMOKE_CONTROLLER_SERVICE="${CONTROLLER_NAME}"
+NVKECTL_SMOKE_CONTROLLER_NAMESPACE="${CONTROLLER_NAME}"
+NVKECTL_SMOKE_CONTROLLER_SERVICE="${CONTROLLER_NAME}"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -816,8 +816,8 @@ if [[ "${NICO_PROVIDER_ENABLED}" == true ]]; then
   NICO_SIM_BINARY_PREBUILT=true
 fi
 
-if [[ "${NKECTL_SMOKE}" == "true" ]]; then
-  nkectl_smoke_build "${host_arch}"
+if [[ "${NVKECTL_SMOKE}" == "true" ]]; then
+  nvkectl_smoke_build "${host_arch}"
 fi
 
 log "building CAPD node image with agent source ${NODE_AGENT_VERSION}"
@@ -911,8 +911,8 @@ if [[ ! "${runner_kind_ip}" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
 fi
 docker cp "${MANAGEMENT_KUBECONFIG}" "${RUNNER_NAME}:/state/management.kubeconfig"
 docker cp "${CLUSTERCTL_BIN}" "${RUNNER_NAME}:/usr/local/bin/clusterctl"
-if [[ "${NKECTL_SMOKE}" == "true" ]]; then
-  nkectl_smoke_stage
+if [[ "${NVKECTL_SMOKE}" == "true" ]]; then
+  nvkectl_smoke_stage
 fi
 docker cp "${TILT_BIN}" "${RUNNER_NAME}:/usr/local/bin/tilt"
 docker cp "$(command -v helm)" "${RUNNER_NAME}:/usr/local/bin/helm-real"
@@ -1280,8 +1280,8 @@ if ! wait_for_zero_tenant_clusters; then
   exit 1
 fi
 
-if [[ "${NKECTL_SMOKE}" == "true" ]]; then
-  nkectl_smoke
+if [[ "${NVKECTL_SMOKE}" == "true" ]]; then
+  nvkectl_smoke
 fi
 
 log "${BACKEND} management-plane E2E passed"

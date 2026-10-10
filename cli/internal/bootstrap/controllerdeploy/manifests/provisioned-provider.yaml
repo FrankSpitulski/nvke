@@ -4,7 +4,7 @@
 # GENERATED FILE -- do not edit. Regenerate with `make -C cli provider-manifest`.
 #
 # `kubectl kustomize cluster-api-provider-provisioned/config/default`, rendered
-# here so nkectl installs the provider of the commit it was built from without
+# here so nvkectl installs the provider of the commit it was built from without
 # a checkout. The source of truth is that kustomize base, whose CRDs and RBAC
 # are themselves controller-gen output; edit the provider, regenerate there,
 # then regenerate this.

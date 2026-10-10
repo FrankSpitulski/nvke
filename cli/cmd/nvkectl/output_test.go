@@ -30,7 +30,7 @@ func TestRootCommandWritesToSetOut(t *testing.T) {
 		{
 			name: "default",
 			args: []string{"version"},
-			want: "nkectl v1.2.3 (commit: abc1234, built: 2026-01-01T00:00:00Z)\n",
+			want: "nvkectl v1.2.3 (commit: abc1234, built: 2026-01-01T00:00:00Z)\n",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -41,7 +41,7 @@ func TestRootCommandWritesToSetOut(t *testing.T) {
 			root.SetArgs(tc.args)
 
 			if err := root.Execute(); err != nil {
-				t.Fatalf("nkectl %s: %v", strings.Join(tc.args, " "), err)
+				t.Fatalf("nvkectl %s: %v", strings.Join(tc.args, " "), err)
 			}
 			if got := out.String(); got != tc.want {
 				t.Errorf("captured output = %q, want %q", got, tc.want)

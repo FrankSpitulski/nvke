@@ -177,7 +177,7 @@ type Stack struct {
 	// staged to the node with their layout intact, which the deploy path
 	// depends on: a release reaches its chart by relative path.
 	//
-	// Nothing in the bootstrap reads them: nkectl pulls its charts from their
+	// Nothing in the bootstrap reads them: nvkectl pulls its charts from their
 	// repositories and embeds its values. These are the deploy's own
 	// installer, tree and scripts.
 	Assets     string

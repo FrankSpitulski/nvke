@@ -158,7 +158,7 @@ ConfigMap) and, for `authn-spire`, `deploy/k8s/nke-spire-client.yaml`. NKE's
 permission to read the cluster JWKS comes from the chart
 (`apiAuth.clusterIssuerDiscovery`).
 
-`nkectl` uses the same admitted identity (`nke-clients/nke-client`) against a
+`nvkectl` uses the same admitted identity (`nke-clients/nke-client`) against a
 Tilt or E2E cluster. The token-minter RoleBinding in that file is for the
 `nke-e2e` ServiceAccount the suite impersonates; a cluster-admin kubeconfig
 (the usual Tilt user) can mint without it.
@@ -215,7 +215,7 @@ make test-e2e ARGS='--label-filter="capd && cp-controller"'
 
 `make test-e2e-capd-local` (Colima + kind + Tilt + CAPD) runs the CAPD suite
 against a controller that provisions every control plane from the cluster-level
-`controlPlaneConfig`, cp-controller entries included. It skips the `nkectl` row,
+`controlPlaneConfig`, cp-controller entries included. It skips the `nvkectl` row,
 which needs the CLI and `kubectl` that the local runner does not have, so the
 local run is not CLI coverage. An entry that describes its control plane as one
 node pool is sent as the equivalent `controlPlaneConfig`.
@@ -418,7 +418,7 @@ management cluster in the kube context. `-e2e.site-stage` picks how far it goes;
 without it the lane is skipped:
 
 - `provision`: provision the node over the site's jump host and check its egress.
-- `bootstrap`: also run `nkectl bootstrap site` and wait for the API server.
+- `bootstrap`: also run `nvkectl bootstrap site` and wait for the API server.
 - `full`: also deploy the SBOM stack, wait for CWE, then create and delete a tenant.
 
 Both lanes create the same `nico-forge` tenant and both entries carry that
@@ -490,22 +490,22 @@ gmake site-inputs SITE_IMAGE_REGISTRY=nvcr.io/<org> SITE_CONTROLLER_VERSION=...
 The node still pulls CAPNICo from GHCR either way: its release asset names a
 GHCR image, and nothing else on the node pulls at all.
 
-`site-inputs` builds that image from the checkout. nkectl is built here too and
+`site-inputs` builds that image from the checkout. nvkectl is built here too and
 is a client of the CWE it bootstraps, so the two have to be one commit; the
-newest CWE on GHCR predates #850 and rejects this checkout's nkectl at
+newest CWE on GHCR predates #850 and rejects this checkout's nvkectl at
 "creating the site cluster". `SITE_CONTROLLER_BUILD=0` pulls
 `SITE_CONTROLLER_VERSION` as a published tag instead, for qualifying a release
 once one is cut past #850.
 
-To stage a published nkectl instead, set `SITE_CLI_BUILD=0` and name the
-version. `site-inputs` downloads `nkectl-linux-$(SITE_ARCH)` from its
-`cli/<version>` GitHub Release into `$(SITE_INPUTS)/nkectl/`, checks it against
+To stage a published nvkectl instead, set `SITE_CLI_BUILD=0` and name the
+version. `site-inputs` downloads `nvkectl-linux-$(SITE_ARCH)` from its
+`cli/<version>` GitHub Release into `$(SITE_INPUTS)/nvkectl/`, checks it against
 the release's `checksums.txt`, and, when the binary is for the host it runs on,
 checks it reports that version. It needs `GITHUB_TOKEN` and `jq`:
 
 ```bash
 GITHUB_TOKEN=... gmake site-inputs SITE_CLI_BUILD=0 SITE_CLI_VERSION=v0.1.0 SITE_CONTROLLER_VERSION=...
-# and in e2e-config.yaml, site.nkectl: <SITE_INPUTS>/nkectl/nkectl-linux-<arch>
+# and in e2e-config.yaml, site.nvkectl: <SITE_INPUTS>/nvkectl/nvkectl-linux-<arch>
 # and on the suite, -e2e.versions=...,cli=<version>
 ```
 

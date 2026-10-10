@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// The nkectl half of the tenant table: the wiring that points one entry's
+// The nvkectl half of the tenant table: the wiring that points one entry's
 // cluster lifecycle at the CLI, and the validations that need a CLI-created
 // cluster to have provisioned first.
 //
-// Driving the binary lives in internal/nkectl; this is the seam between that
+// Driving the binary lives in internal/nvkectl; this is the seam between that
 // package and the suite. The node pool commands belong here as they ship.
 
 package e2e
@@ -30,73 +30,73 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/dsx-ai-factory/nvke/controller/api"
-	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nkectl"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvkectl"
 )
 
-// useNkectl points the test's cluster lifecycle at the nkectl binary, and skips
+// useNvkectl points the test's cluster lifecycle at the nvkectl binary, and skips
 // the spec when there is no such binary to drive.
 //
 // Only a missing binary skips, because that alone means the environment does not
 // run CLI specs. A port-forward that will not start or a failing
 // `config set-site` is a regression, and skipping on those would hide one behind
 // a green run.
-func (t *tenantTest) useNkectl(ctx context.Context, timeouts nvke.Options) {
+func (t *tenantTest) useNvkectl(ctx context.Context, timeouts nvke.Options) {
 	GinkgoHelper()
 
-	runner, err := nkectl.New(ctx, nkectl.Options{
+	runner, err := nvkectl.New(ctx, nvkectl.Options{
 		Kubeconfig: t.mgmt.Kubeconfig,
 		Context:    t.mgmt.Context,
 		Timeouts:   timeouts,
 		Logf:       func(format string, args ...any) { t.log.Info(fmt.Sprintf(format, args...)) },
 	})
-	if errors.Is(err, nkectl.ErrBinaryNotFound) {
-		Skip("no nkectl binary, so the CLI entry cannot run: " + err.Error())
+	if errors.Is(err, nvkectl.ErrBinaryNotFound) {
+		Skip("no nvkectl binary, so the CLI entry cannot run: " + err.Error())
 	}
-	Expect(err).NotTo(HaveOccurred(), "should start the nkectl runner")
+	Expect(err).NotTo(HaveOccurred(), "should start the nvkectl runner")
 
-	t.nkectlRunner = runner
+	t.nvkectlRunner = runner
 	t.lifecycle = runner
-	t.log.Info("Driving the cluster lifecycle through nkectl", "endpoint", runner.BaseURL())
+	t.log.Info("Driving the cluster lifecycle through nvkectl", "endpoint", runner.BaseURL())
 }
 
-// cleanupNkectlCreated removes any node pool and cluster nkectl created that
+// cleanupNvkectlCreated removes any node pool and cluster nvkectl created that
 // still exists,
 // including one the suite never recorded because its post-create lookup failed.
 // A no-op for entries that did not use the CLI.
-func (t *tenantTest) cleanupNkectlCreated(ctx context.Context) {
-	if t.nkectlRunner == nil {
+func (t *tenantTest) cleanupNvkectlCreated(ctx context.Context) {
+	if t.nvkectlRunner == nil {
 		return
 	}
 	// Pools first: CleanupCreated takes their clusters away.
-	t.nkectlRunner.CleanupCreatedNodePools(ctx)
-	t.nkectlRunner.CleanupCreated(ctx)
+	t.nvkectlRunner.CleanupCreatedNodePools(ctx)
+	t.nvkectlRunner.CleanupCreated(ctx)
 }
 
-// closeNkectl releases the runner's port-forward and throwaway config. It must
+// closeNvkectl releases the runner's port-forward and throwaway config. It must
 // run after any cleanup that still needs the forward.
-func (t *tenantTest) closeNkectl() {
-	if t.nkectlRunner == nil {
+func (t *tenantTest) closeNvkectl() {
+	if t.nvkectlRunner == nil {
 		return
 	}
-	if err := t.nkectlRunner.Close(); err != nil {
-		t.log.Info("Closing the nkectl runner", "error", err)
+	if err := t.nvkectlRunner.Close(); err != nil {
+		t.log.Info("Closing the nvkectl runner", "error", err)
 	}
-	t.nkectlRunner = nil
+	t.nvkectlRunner = nil
 }
 
-// validateNkectlPostCreate registers the CLI specs that need a provisioned
+// validateNvkectlPostCreate registers the CLI specs that need a provisioned
 // cluster. initCluster already drove the create, list and provisioning wait
-// through nkectl; these are the commands left over.
-func validateNkectlPostCreate(test *tenantTest) {
-	Describe("nkectl against the provisioned cluster", Label("nkectl"), func() {
+// through nvkectl; these are the commands left over.
+func validateNvkectlPostCreate(test *tenantTest) {
+	Describe("nvkectl against the provisioned cluster", Label("nvkectl"), func() {
 		BeforeEach(func() {
 			// Assert rather than Skip: a missing runner here is a bug in this
 			// file, and a Skip reported from a BeforeEach is invisible to
 			// e2e_assert_no_new_skips, so the lane would stay green with
 			// neither spec below ever running.
-			Expect(test.nkectlRunner).NotTo(BeNil(),
-				"the nkectl runner should still be open; it is closed in AfterAll, after these specs")
+			Expect(test.nvkectlRunner).NotTo(BeNil(),
+				"the nvkectl runner should still be open; it is closed in AfterAll, after these specs")
 		})
 
 		// The gap this entry exists to close. `get kubeconfig` reads
@@ -104,7 +104,7 @@ func validateNkectlPostCreate(test *tenantTest) {
 		// kubeconfig rather than the controller API, and that Secret appears only after
 		// provisioning -- which the smoke lane's cluster never does.
 		It("prints a usable admin kubeconfig", func(ctx context.Context) {
-			raw, err := test.nkectlRunner.GetKubeconfig(ctx, test.cluster.Name)
+			raw, err := test.nvkectlRunner.GetKubeconfig(ctx, test.cluster.Name)
 			Expect(err).NotTo(HaveOccurred(), "should fetch the tenant admin kubeconfig")
 
 			// Assert the shape, not just that bytes came back: an empty Secret
@@ -135,7 +135,7 @@ func validateNkectlPostCreate(test *tenantTest) {
 		// fields each hold the update lock for a workflow, and a version bump
 		// recycles nodes.
 		It("applies a patch to the provisioned cluster", func(ctx context.Context) {
-			patched, err := test.nkectlRunner.PatchCluster(ctx, test.cluster.Name,
+			patched, err := test.nvkectlRunner.PatchCluster(ctx, test.cluster.Name,
 				[]byte("enableCPNodeRecycling: true\n"))
 			Expect(err).NotTo(HaveOccurred(), "should patch the cluster")
 
@@ -147,7 +147,7 @@ func validateNkectlPostCreate(test *tenantTest) {
 		// real cluster exists alongside here, so this also shows the lookup
 		// filters rather than simply finding nothing.
 		It("reports a missing cluster as not found", func(ctx context.Context) {
-			out, err := test.nkectlRunner.Run(ctx, "get", "clusters", test.cluster.Name+"-absent")
+			out, err := test.nvkectlRunner.Run(ctx, "get", "clusters", test.cluster.Name+"-absent")
 			Expect(err).To(HaveOccurred(), "a cluster that does not exist should not resolve")
 			Expect(strings.ToLower(out)).To(ContainSubstring("not found"))
 		}, SpecTimeout(2*time.Minute))
@@ -155,65 +155,65 @@ func validateNkectlPostCreate(test *tenantTest) {
 }
 
 const (
-	// nkectlPoolName is the node pool the CLI lifecycle below creates. Distinct
+	// nvkectlPoolName is the node pool the CLI lifecycle below creates. Distinct
 	// from the names nodepool_lifecycle_test.go uses so a shared cluster could
 	// never have the two collide.
-	nkectlPoolName = "nkectl-workers"
-	// nkectlPoolNodeNamePrefix is the pool's node name prefix. Node names are
+	nvkectlPoolName = "nvkectl-workers"
+	// nvkectlPoolNodeNamePrefix is the pool's node name prefix. Node names are
 	// <cluster>-<prefix>-<4 digits> (controller/internal/naming/node.go), which
-	// is how the tenant-side readiness assertion finds this pool's nodes: nkectl
+	// is how the tenant-side readiness assertion finds this pool's nodes: nvkectl
 	// has no node-level command to list them with.
-	nkectlPoolNodeNamePrefix = "nkw"
-	// nkectlPoolLabelKey and nkectlPoolTaintKey are the label and taint the pool
+	nvkectlPoolNodeNamePrefix = "nkw"
+	// nvkectlPoolLabelKey and nvkectlPoolTaintKey are the label and taint the pool
 	// is created with, to read back through the CLI. They sit outside the
 	// namespaces the controller reserves for itself.
-	nkectlPoolLabelKey = "example.com/nkectl-e2e"
-	nkectlPoolTaintKey = "example.com/nkectl-e2e"
+	nvkectlPoolLabelKey = "example.com/nvkectl-e2e"
+	nvkectlPoolTaintKey = "example.com/nvkectl-e2e"
 )
 
-// validateNkectlNodePoolLifecycle drives a node pool through create, scale up,
-// scale down and delete with nkectl alone, asserting the nodes it adds become
+// validateNvkectlNodePoolLifecycle drives a node pool through create, scale up,
+// scale down and delete with nvkectl alone, asserting the nodes it adds become
 // Ready in the tenant cluster.
 //
 // It runs on the CLI rows of both container-backed lanes, so the commands are
 // covered against CAPD and against NICo.
-func validateNkectlNodePoolLifecycle(test *tenantTest) {
-	Describe("nkectl node pool lifecycle", Label("nkectl", "nodepool", "scale"), func() {
+func validateNvkectlNodePoolLifecycle(test *tenantTest) {
+	Describe("nvkectl node pool lifecycle", Label("nvkectl", "nodepool", "scale"), func() {
 		It("creates, scales and deletes a node pool through the CLI", func(ctx context.Context) {
-			Expect(test.nkectlRunner).NotTo(BeNil(),
-				"the nkectl runner should still be open; it is closed in AfterAll, after these specs")
-			ref := nkectl.NodePoolRef{Cluster: test.cluster.Name, Pool: nkectlPoolName}
+			Expect(test.nvkectlRunner).NotTo(BeNil(),
+				"the nvkectl runner should still be open; it is closed in AfterAll, after these specs")
+			ref := nvkectl.NodePoolRef{Cluster: test.cluster.Name, Pool: nvkectlPoolName}
 
-			By("Creating a worker node pool with `nkectl create nodepool -f`")
-			req := expectSucceed(workerNodePoolRequest(test, nkectlPoolName, nkectlPoolNodeNamePrefix))
-			wantLabels := map[string]string{nkectlPoolLabelKey: "true"}
-			wantTaints := []api.NodeTaint{{Key: nkectlPoolTaintKey, Value: "true", Effect: api.NodeTaintEffectNoSchedule}}
+			By("Creating a worker node pool with `nvkectl create nodepool -f`")
+			req := expectSucceed(workerNodePoolRequest(test, nvkectlPoolName, nvkectlPoolNodeNamePrefix))
+			wantLabels := map[string]string{nvkectlPoolLabelKey: "true"}
+			wantTaints := []api.NodeTaint{{Key: nvkectlPoolTaintKey, Value: "true", Effect: api.NodeTaintEffectNoSchedule}}
 			req.NodeLabels = wantLabels
 			req.NodeTaints = wantTaints
-			pool := expectSucceed(test.nkectlRunner.CreateNodePool(ctx, test.cluster.Name, req))
-			Expect(pool.Name).To(Equal(nkectlPoolName))
-			Expect(pool.NodeLabels).To(Equal(wantLabels), "`nkectl get nodepools -o json` should report the labels the pool was created with")
-			Expect(pool.NodeTaints).To(Equal(wantTaints), "`nkectl get nodepools -o json` should report the taints the pool was created with")
+			pool := expectSucceed(test.nvkectlRunner.CreateNodePool(ctx, test.cluster.Name, req))
+			Expect(pool.Name).To(Equal(nvkectlPoolName))
+			Expect(pool.NodeLabels).To(Equal(wantLabels), "`nvkectl get nodepools -o json` should report the labels the pool was created with")
+			Expect(pool.NodeTaints).To(Equal(wantTaints), "`nvkectl get nodepools -o json` should report the taints the pool was created with")
 			Expect(pool.ControlPlane).To(BeFalse(), "the created pool should be a worker pool")
 			Expect(pool.DesiredNodeCount).To(Equal(1))
 			Expect(pool.ClusterID).To(Equal(test.cluster.ID), "the pool should belong to this cluster")
 
-			By("Waiting for `nkectl get nodepools` to report the pool provisioned")
-			expectSucceed(test.nkectlRunner.WaitForNodePoolProvisioned(ctx, ref))
+			By("Waiting for `nvkectl get nodepools` to report the pool provisioned")
+			expectSucceed(test.nvkectlRunner.WaitForNodePoolProvisioned(ctx, ref))
 
 			By("Verifying the pool appears in the cluster's node pool listing")
-			listed := expectSucceed(test.nkectlRunner.ListNodePools(ctx, test.cluster.Name))
-			Expect(nodePoolNames(listed)).To(ContainElement(nkectlPoolName))
+			listed := expectSucceed(test.nvkectlRunner.ListNodePools(ctx, test.cluster.Name))
+			Expect(nodePoolNames(listed)).To(ContainElement(nvkectlPoolName))
 
-			tenantClient := nkectlTenantClient(ctx, test)
+			tenantClient := nvkectlTenantClient(ctx, test)
 			nodePrefix := fmt.Sprintf("%s-%s-", test.cluster.Name, req.NodeNamePrefix)
 
 			By("Waiting for the pool's node to be Ready in the tenant cluster")
 			eventuallyReadyPoolNodes(ctx, test, tenantClient, nodePrefix, 1)
 
-			By("Scaling the pool to two with `nkectl patch nodepool --patch`")
-			expectSucceed(test.nkectlRunner.ScaleNodePool(ctx, ref, 2))
-			expectSucceed(test.nkectlRunner.WaitForNodePoolDesiredCount(ctx, ref, 2))
+			By("Scaling the pool to two with `nvkectl patch nodepool --patch`")
+			expectSucceed(test.nvkectlRunner.ScaleNodePool(ctx, ref, 2))
+			expectSucceed(test.nvkectlRunner.WaitForNodePoolDesiredCount(ctx, ref, 2))
 			scaledUpNodes := eventuallyReadyPoolNodes(ctx, test, tenantClient, nodePrefix, 2)
 
 			// Scaling down asserts desiredNodeCount, not the node count:
@@ -221,27 +221,27 @@ func validateNkectlNodePoolLifecycle(test *tenantTest) {
 			// pending nodes on a surplus and deliberately skips auto-teardown of
 			// running ones, so both nodes stay up.
 			By("Scaling the pool back to one and verifying the running nodes are kept")
-			expectSucceed(test.nkectlRunner.ScaleNodePool(ctx, ref, 1))
-			scaledDown := expectSucceed(test.nkectlRunner.WaitForNodePoolDesiredCount(ctx, ref, 1))
+			expectSucceed(test.nvkectlRunner.ScaleNodePool(ctx, ref, 1))
+			scaledDown := expectSucceed(test.nvkectlRunner.WaitForNodePoolDesiredCount(ctx, ref, 1))
 			Expect(scaledDown.DesiredNodeCount).To(Equal(1))
 			Expect(expectSucceed(readyPoolNodes(ctx, tenantClient, nodePrefix))).To(Equal(scaledUpNodes),
 				"scaling down must not tear down running nodes")
 
-			By("Deleting the pool with `nkectl delete nodepool`")
-			Expect(test.nkectlRunner.DeleteNodePool(ctx, ref)).To(Succeed())
-			Expect(test.nkectlRunner.WaitForNodePoolDeleted(ctx, ref)).To(Succeed())
+			By("Deleting the pool with `nvkectl delete nodepool`")
+			Expect(test.nvkectlRunner.DeleteNodePool(ctx, ref)).To(Succeed())
+			Expect(test.nvkectlRunner.WaitForNodePoolDeleted(ctx, ref)).To(Succeed())
 
 			By("Verifying the CLI reports the deleted pool as not found")
-			out, err := test.nkectlRunner.Run(ctx, "get", "nodepools", nkectlPoolName, "--cluster", test.cluster.Name)
+			out, err := test.nvkectlRunner.Run(ctx, "get", "nodepools", nvkectlPoolName, "--cluster", test.cluster.Name)
 			Expect(err).To(HaveOccurred(), "a deleted node pool should not resolve")
 			Expect(strings.ToLower(out)).To(ContainSubstring("not found"))
 		}, SpecTimeout(2*time.Hour))
 	})
 }
 
-// nkectlTenantClient returns a client for the tenant cluster, retrying while
+// nvkectlTenantClient returns a client for the tenant cluster, retrying while
 // its credentials are still being published.
-func nkectlTenantClient(ctx context.Context, test *tenantTest) client.Client {
+func nvkectlTenantClient(ctx context.Context, test *tenantTest) client.Client {
 	GinkgoHelper()
 	var tenantClient client.Client
 	Eventually(func(ctx context.Context) error {

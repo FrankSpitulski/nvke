@@ -36,17 +36,17 @@ func newGetBootstrapManifestCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "bootstrap-manifest",
 		Short: "Print the charts and images the bootstrap fetches, with version and digest",
-		Long: `Print the bootstrap manifest this nkectl was built with to standard output.
+		Long: `Print the bootstrap manifest this nvkectl was built with to standard output.
 
-The manifest lists the charts "nkectl bootstrap site" fetches and installs
-with Helm, and the images the bootstrap runs. nkectl installs each chart at
+The manifest lists the charts "nvkectl bootstrap site" fetches and installs
+with Helm, and the images the bootstrap runs. nvkectl installs each chart at
 the listed version. The digests are a record for mirroring. The bootstrap
 does not verify them.
 
 Not listed: the controller chart, the Postgres chart and the provisioned
-provider's manifest, which ship inside nkectl. Also not listed: the
+provider's manifest, which ship inside nvkectl. Also not listed: the
 components "clusterctl init" installs, and the kindest/node image.`,
-		Example:      `  nkectl get bootstrap-manifest`,
+		Example:      `  nvkectl get bootstrap-manifest`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
