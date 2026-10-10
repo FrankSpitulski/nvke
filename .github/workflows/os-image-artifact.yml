@@ -302,6 +302,7 @@ jobs:
       # from both runner architectures; locks and installed names remain
       # docker.io identities.
       CNI_DOCKERHUB_MIRROR: mirror.gcr.io
+      KVM_SETTLE_RETRIES: "6"
     steps:
       # GitHub's own timeout-minutes has no grace period: it kills the whole
       # job process tree at once, so nothing started beforehand (a
