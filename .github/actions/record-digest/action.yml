@@ -38,8 +38,8 @@ inputs:
     description: >-
       Names this component in the candidate, and names the uploaded file.
       Unique within a release, which for a workflow with a destination matrix
-      means including the destination: nke-controller-chart-nke and
-      nke-controller-chart-dsx publish the same chart to two registries and
+      means including the destination: nvke-controller-chart-nvke and
+      nvke-controller-chart-dsx publish the same chart to two registries and
       would otherwise collide on the artifact name.
     required: true
   retention_days:

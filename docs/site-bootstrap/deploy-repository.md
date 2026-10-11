@@ -126,12 +126,12 @@ spec:
     server: https://kubernetes.default.svc
   source:
     repoURL: nvcr.io/<org>
-    chart: nke-controller-chart
+    chart: nvke-controller-chart
     targetRevision: "0.1.0"
     helm:
       values: |
         image:
-          repository: nvcr.io/<org>/nke-controller
+          repository: nvcr.io/<org>/nvke-controller
           tag: v0.1.0
   syncPolicy:
     automated: {}

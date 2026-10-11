@@ -15,8 +15,8 @@ name: Chart Publish NVCR
 #   DSX_NGC_ORG_TEAM         variable  DSX NGC org/team path
 #   NGC_REGISTRY_TOKEN_DSX   secret    NGC API key with write access on DSX
 #
-# The chart is pushed to nvcr.io/<destination>/nke-controller-chart, so the
-# chart is REPACKAGED under the name nke-controller-chart below. On GHCR the
+# The chart is pushed to nvcr.io/<destination>/nvke-controller-chart, so the
+# chart is REPACKAGED under the name nvke-controller-chart below. On GHCR the
 # same chart publishes as charts/nke-controller; the NVCR and GHCR paths
 # deliberately differ.
 #
@@ -24,7 +24,7 @@ name: Chart Publish NVCR
 # nvcr.io/<org>/<repo> or nvcr.io/<org>/<team>/<repo> -- at most one middle
 # segment, and it names a TEAM, an access-control object an org owner has to
 # create, not a free path component. Pushing to
-# nvcr.io/<org>/charts/nke-controller asks NGC for a team named `charts` that
+# nvcr.io/<org>/charts/nvke-controller asks NGC for a team named `charts` that
 # does not exist, and the push dies before it reaches the registry:
 
 # Through controller/v0.1.1-rc.1 the chart was named cloud-workflow-engine and
@@ -77,7 +77,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - destination: nke
+          - destination: nvke
             org_var: NVKE_NGC_ORG
             # Looked up by name: the new secret first, the existing one until
             # NGC_REGISTRY_TOKEN_NVKE is created. An unset secret reads as empty,
@@ -127,7 +127,7 @@ jobs:
           describe="${describe#controller/}"
           version="${describe#v}"
           repo="nvcr.io/${ORG_TEAM}"
-          image="${repo}/nke-controller"
+          image="${repo}/nvke-controller"
 
           {
             echo "version=${version}"
@@ -141,7 +141,7 @@ jobs:
         id: package
         shell: bash
         env:
-          CHART_NAME: nke-controller-chart
+          CHART_NAME: nvke-controller-chart
           IMAGE_REPOSITORY: ${{ steps.meta.outputs.image }}
           IMAGE_PULL_SECRET: ${{ matrix.pull_secret }}
           CHART_VERSION: ${{ steps.meta.outputs.version }}
@@ -227,7 +227,7 @@ jobs:
         run: |
           set -euo pipefail
           helm push "${CHART_PACKAGE}" "oci://${REPO}"
-          echo "Pushed ${REPO}/nke-controller-chart:${VERSION}"
+          echo "Pushed ${REPO}/nvke-controller-chart:${VERSION}"
 
       # The chart's whole purpose is to name an image, and both it and the
       # image it names have to be digest-pinned for the candidate to mean
@@ -237,5 +237,5 @@ jobs:
       - name: Record the published digest
         uses: ./.github/actions/record-digest
         with:
-          references: ${{ steps.meta.outputs.repo }}/nke-controller-chart:${{ steps.meta.outputs.version }}
-          component: nke-controller-chart-${{ matrix.destination }}
+          references: ${{ steps.meta.outputs.repo }}/nvke-controller-chart:${{ steps.meta.outputs.version }}
+          component: nvke-controller-chart-${{ matrix.destination }}

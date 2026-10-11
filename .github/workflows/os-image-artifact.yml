@@ -933,7 +933,7 @@ jobs:
           fi
           {
             echo "tag=${tag}"
-            echo "nvcr_repo=nvcr.io/${NVKE_NGC_ORG}/nke-os-image-${{ matrix.variant }}"
+            echo "nvcr_repo=nvcr.io/${NVKE_NGC_ORG}/nvke-os-image-${{ matrix.variant }}"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Log in to GHCR (pull) and NVCR (push)

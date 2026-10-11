@@ -10,7 +10,7 @@ name: Image NVCR
 # The destination org is not written here. It comes from the `nvcr`
 # environment, so no registry identifier lands in a tracked file of a
 # repository that is released publicly. The image is pushed to
-# nvcr.io/<NVKE_NGC_ORG>/nke-controller:
+# nvcr.io/<NVKE_NGC_ORG>/nvke-controller:
 #
 #   NVKE_NGC_ORG              variable  NGC org id
 #   NGC_REGISTRY_TOKEN_NVKE   secret    NGC API key with write access on the org
@@ -123,7 +123,7 @@ jobs:
             echo "::error::NVKE_NGC_ORG is not set in the nvcr environment"
             exit 1
           fi
-          IMAGE="nvcr.io/${NVKE_NGC_ORG}/nke-controller"
+          IMAGE="nvcr.io/${NVKE_NGC_ORG}/nvke-controller"
 
           # Nearest controller/v* tag, prefix stripped: v0.1.0 on a release
           # commit, v0.1.0-4-gabcdef between releases.
@@ -227,7 +227,7 @@ jobs:
           fi
 
           {
-            echo "image=nvcr.io/${NVKE_NGC_ORG}/nke-controller"
+            echo "image=nvcr.io/${NVKE_NGC_ORG}/nvke-controller"
             echo "push_tags=${tags[*]}"
             # The tag the release layer records, as distinct from sha- and
             # edge: those two move, and a candidate cannot be assembled from
@@ -394,7 +394,7 @@ jobs:
           # By digest, so this copies the index the manifest job just created
           # rather than whatever the version tag resolves to now.
           digest="${INDEX_DIGEST}"
-          src="nvcr.io/${NVKE_NGC_ORG}/nke-controller@${digest}"
+          src="nvcr.io/${NVKE_NGC_ORG}/nvke-controller@${digest}"
           dst="ghcr.io/${GITHUB_REPOSITORY,,}/nke-controller"
 
           crane copy "${src}" "${dst}:${version}"
@@ -552,8 +552,8 @@ jobs:
           # By digest, so this promotes the index the manifest job just created
           # rather than whatever the version tag resolves to now.
           source_digest="${INDEX_DIGEST}"
-          src="nvcr.io/${NVKE_NGC_ORG}/nke-controller@${source_digest}"
-          dst="nvcr.io/${DSX_NGC_ORG_TEAM}/nke-controller"
+          src="nvcr.io/${NVKE_NGC_ORG}/nvke-controller@${source_digest}"
+          dst="nvcr.io/${DSX_NGC_ORG_TEAM}/nvke-controller"
           layout="${RUNNER_TEMP}/controller-image.oci"
 
           # shellcheck disable=SC2016
@@ -675,7 +675,7 @@ jobs:
         run: |
           set -euo pipefail
           digest="$(cat "image-digest-${ARCH}.txt")"
-          echo "ref=nvcr.io/${NVKE_NGC_ORG}/nke-controller@${digest}" >> "${GITHUB_OUTPUT}"
+          echo "ref=nvcr.io/${NVKE_NGC_ORG}/nvke-controller@${digest}" >> "${GITHUB_OUTPUT}"
 
       # An arm64 image scans fine on an amd64 runner: the scanner reads layers,
       # it does not run them.

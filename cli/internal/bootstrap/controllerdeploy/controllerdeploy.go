@@ -365,7 +365,7 @@ func (e *Engine) Deploy(ctx context.Context, kubeconfigPath string, cfg Config) 
 	}
 	if cfg.CWEImage == "" {
 		return errors.New("controllerdeploy: Config.CWEImage is required " +
-			"(e.g. nvcr.io/<org>/nke-controller:edge -- see .github/workflows/image-nvcr.yml)")
+			"(e.g. nvcr.io/<org>/nvke-controller:edge -- see .github/workflows/image-nvcr.yml)")
 	}
 	if cfg.ProvisionedProviderImage == "" {
 		return errors.New("controllerdeploy: Config.ProvisionedProviderImage is required; the CAPI " +

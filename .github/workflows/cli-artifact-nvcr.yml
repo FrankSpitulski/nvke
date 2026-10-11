@@ -19,7 +19,7 @@ name: CLI Artifact NVCR
 #   DSX_NGC_ORG_TEAM        variable  DSX NGC org/team path
 #   NGC_REGISTRY_TOKEN_DSX  secret    NGC API key with write access on DSX
 #
-# The repository is nvcr.io/<org>/nkectl -- named after the actual binary
+# The repository is nvcr.io/<org>/nvkectl -- named after the actual binary
 # (nkectl), not a generic "nke-cli", matching how nke-agent and nke-controller
 # are both named after their real binaries. An NKE-org path has no team
 # segment; the DSX path carries one, which is why DSX_NGC_ORG_TEAM holds the
@@ -133,7 +133,7 @@ jobs:
           fi
           # The NVCR repository keeps the old name until an nvkectl repository
           # exists in the NGC org; the binaries inside it are nvkectl.
-          repo="nvcr.io/${NGC_ORG}/nkectl"
+          repo="nvcr.io/${NGC_ORG}/nvkectl"
 
           version="$(git describe --match 'cli/v*' --tags --always 2>/dev/null || git rev-parse --short HEAD)"
           version="${version#cli/}"

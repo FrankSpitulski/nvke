@@ -1015,10 +1015,10 @@ func TestDefaultConfig_ImagesDefaultToTheManifest(t *testing.T) {
 		t.Errorf("ProvisionedProviderImage = %q, want the manifest's %q", cfg.ProvisionedProviderImage, want)
 	}
 
-	t.Setenv("NVKECTL_CONTROLLER_IMAGE", "nvcr.io/org/nke-controller:edge")
+	t.Setenv("NVKECTL_CONTROLLER_IMAGE", "nvcr.io/org/nvke-controller:edge")
 	t.Setenv("NVKECTL_CAPI_PROVISIONED_IMAGE", "nvcr.io/org/provisioned:edge")
 	cfg = DefaultConfig()
-	if cfg.CWEImage != "nvcr.io/org/nke-controller:edge" || cfg.ProvisionedProviderImage != "nvcr.io/org/provisioned:edge" {
+	if cfg.CWEImage != "nvcr.io/org/nvke-controller:edge" || cfg.ProvisionedProviderImage != "nvcr.io/org/provisioned:edge" {
 		t.Errorf("environment did not win: %+v", cfg)
 	}
 }

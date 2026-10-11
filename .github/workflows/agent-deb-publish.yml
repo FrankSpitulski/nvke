@@ -485,7 +485,7 @@ jobs:
             echo "::error::NVKE_NGC_ORG is not set in the nvcr environment"
             exit 1
           fi
-          echo "repo=nvcr.io/${NVKE_NGC_ORG}/nke-agent-deb" >> "${GITHUB_OUTPUT}"
+          echo "repo=nvcr.io/${NVKE_NGC_ORG}/nvke-agent-deb" >> "${GITHUB_OUTPUT}"
 
       # `$oauthtoken` is NGC's literal username, not a shell variable.
       - name: Log in to NVCR

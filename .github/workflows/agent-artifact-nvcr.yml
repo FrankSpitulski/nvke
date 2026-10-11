@@ -14,7 +14,7 @@ name: Agent Artifact NVCR
 #   NVKE_NGC_ORG             variable  NGC org that owns the artifact
 #   NGC_REGISTRY_TOKEN_NVKE  secret    NGC API key with write access on that org
 #
-# The repository is nvcr.io/<NVKE_NGC_ORG>/nke-agent. Only the org varies, so the
+# The repository is nvcr.io/<NVKE_NGC_ORG>/nvke-agent. Only the org varies, so the
 # environment carries the org rather than the whole reference, and the steps
 # below share one resolved value via steps.meta.outputs.repo. An NKE-org path
 # has no team segment; compare cluster-api-provider-nico's NVCR_NKE_IMAGE.
@@ -96,7 +96,7 @@ jobs:
             echo "::error::NVKE_NGC_ORG is not set in the nvcr environment"
             exit 1
           fi
-          repo="nvcr.io/${NVKE_NGC_ORG}/nke-agent"
+          repo="nvcr.io/${NVKE_NGC_ORG}/nvke-agent"
 
           version="$(git describe --match 'agent/v*' --tags --always 2>/dev/null || git rev-parse --short HEAD)"
           version="${version#agent/}"

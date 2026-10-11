@@ -167,7 +167,7 @@ site spec file format.`,
 
   # Deploy images you pushed to a registry instead of the local build
   nvkectl bootstrap site -f sitespec.yaml \
-    --controller-image nvcr.io/<org>/nke-controller:edge \
+    --controller-image nvcr.io/<org>/nvke-controller:edge \
     --provisioned-provider-image nvcr.io/<org>/cluster-api-provider-provisioned:edge`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,

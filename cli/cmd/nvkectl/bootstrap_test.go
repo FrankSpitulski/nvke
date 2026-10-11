@@ -812,7 +812,7 @@ func TestHasRegistryHost(t *testing.T) {
 	for ref, want := range map[string]bool{
 		"nke-controller:latest":                   false,
 		"cluster-api-provider-provisioned:latest": false,
-		"nvcr.io/org/nke-controller:edge":         true,
+		"nvcr.io/org/nvke-controller:edge":        true,
 		"localhost:5000/nke-controller:dev":       true,
 		"localhost/nke-controller:dev":            true,
 		"ghcr.io/spiffe/spire-server@sha256:abcd": true,

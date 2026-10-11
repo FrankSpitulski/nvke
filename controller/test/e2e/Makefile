@@ -75,7 +75,7 @@ endif
 # Passed through as GIT_VERSION, which the controller Makefile takes from
 # CI_COMMIT_SHA whenever CI is set. That is GitLab's variable: under GitHub
 # Actions CI is set and CI_COMMIT_SHA is not, so GIT_VERSION comes out empty
-# and the build dies on `invalid tag "nvcr.io/j7sbcjl3qgta/nke-controller:"`.
+# and the build dies on `invalid tag "nvcr.io/j7sbcjl3qgta/nvke-controller:"`.
 # image-nvcr.yml passes GITHUB_SHA for the same reason.
 #
 # BUILD_VERSION is a different thing: GIT_VERSION only names the image, while

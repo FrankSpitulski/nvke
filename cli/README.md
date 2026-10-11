@@ -51,7 +51,7 @@ nvkectl generate sitespec my-site --nodes hosts.csv > sitespec.yaml
 nvkectl bootstrap site -f sitespec.yaml
 # ... or with images you pushed to a registry
 nvkectl bootstrap site -f sitespec.yaml \
-  --controller-image nvcr.io/<org>/nke-controller:edge \
+  --controller-image nvcr.io/<org>/nvke-controller:edge \
   --provisioned-provider-image nvcr.io/<org>/cluster-api-provider-provisioned:edge
 nvkectl bootstrap site -f sitespec.yaml --dry-run                 # validate only
 nvkectl bootstrap site -f sitespec.yaml --keep-bootstrap-cluster  # leave the Kind cluster for debugging

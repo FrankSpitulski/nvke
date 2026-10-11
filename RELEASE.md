@@ -109,9 +109,9 @@ additionally publishes the controller image and Helm chart:
 
 | Workflow | What it publishes |
 |---|---|
-| `image-nvcr.yml` | multi-arch image to `nvcr.io/<org>/nke-controller`, promotes that released image to DSX as `nvcr.io/<dsx-org-team>/nke-controller`, and promotes release tags to `ghcr.io/dsx-ai-factory/nvke/nke-controller` |
+| `image-nvcr.yml` | multi-arch image to `nvcr.io/<org>/nvke-controller`, promotes that released image to DSX as `nvcr.io/<dsx-org-team>/nvke-controller`, and promotes release tags to `ghcr.io/dsx-ai-factory/nvke/nke-controller` |
 | `chart-publish.yml` | chart to `ghcr.io/dsx-ai-factory/nvke/charts/nke-controller` |
-| `chart-publish-nvcr.yml` | chart to `nvcr.io/<org>/nke-controller-chart` and `nvcr.io/<dsx-org-team>/nke-controller-chart` |
+| `chart-publish-nvcr.yml` | chart to `nvcr.io/<org>/nvke-controller-chart` and `nvcr.io/<dsx-org-team>/nvke-controller-chart` |
 
 Every `main` commit already publishes the image and chart to NVCR. GHCR receives
 released versions only, which is why a chart built from a tag can safely point at
@@ -127,7 +127,7 @@ Both use separate credentials from the same protected GitHub environment:
 
 | Name | Type | Purpose |
 |---|---|---|
-| `NVKE_NGC_ORG` | variable | Source NGC org for `nvcr.io/<org>/nke-controller` |
+| `NVKE_NGC_ORG` | variable | Source NGC org for `nvcr.io/<org>/nvke-controller` |
 | `NGC_REGISTRY_TOKEN_NVKE` | secret | Read/write token for the source NVKE NGC org |
 | `DSX_NGC_ORG_TEAM` | variable | Destination NGC org/team, for example `<org>/components-dev` |
 | `NGC_REGISTRY_TOKEN_DSX` | secret | Write token for the DSX NGC org/team |
@@ -136,12 +136,12 @@ The source and destination both live on `nvcr.io`, but they may require differen
 NGC tokens. Docker auth stores one credential per registry host, so the DSX
 promotion pulls the source image into a local OCI layout with the NVKE token, then
 logs in with the DSX token and pushes that same index to
-`nvcr.io/<dsx-org-team>/nke-controller`. Immutable tags
+`nvcr.io/<dsx-org-team>/nvke-controller`. Immutable tags
 (`sha-<commit>` and the git-described version) are treated as idempotent only
 when an existing destination digest matches the source digest; a mismatch fails
 the run. The `edge` tag is mutable and moves only on `main`.
 
-The DSX chart is packaged from the controller chart as `nke-controller-chart`,
+The DSX chart is packaged from the controller chart as `nvke-controller-chart`,
 the same chart artifact name used for the NVKE NVCR chart, and pushed to
 `oci://nvcr.io/<dsx-org-team>`. Its chart version is the controller git describe
 string without the leading `v`, while `appVersion` keeps the leading `v` so the
@@ -355,7 +355,7 @@ promotion gates above read, and it can be verified by hand the same way:
 
 ```bash
 gh attestation verify \
-  oci://nvcr.io/<org>/nke-controller@sha256:<digest> \
+  oci://nvcr.io/<org>/nvke-controller@sha256:<digest> \
   --repo dsx-ai-factory/nvke \
   --signer-workflow dsx-ai-factory/nvke/.github/workflows/image-nvcr.yml
 ```
