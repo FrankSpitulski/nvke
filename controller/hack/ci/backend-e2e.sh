@@ -220,6 +220,20 @@ curl_with_retry() {
   fi
 }
 
+# The Docker Hub mirror sometimes 404s a blob it has not cached yet; a second pull gets it.
+pull_with_retry() {
+  local image=$1 attempt
+  for attempt in 1 2 3; do
+    bounded "${DOCKER_PULL_TIMEOUT}" docker pull "${image}" && return 0
+    if ((attempt == 3)); then
+      log "docker pull failed after ${attempt} attempts: ${image}" >&2
+      return 1
+    fi
+    log "docker pull attempt ${attempt} failed, retrying: ${image}"
+    sleep 15
+  done
+}
+
 runner_exec() {
   docker exec \
     -e KUBECONFIG=/state/management.kubeconfig \
@@ -882,11 +896,13 @@ log "starting the CAPD bundle mirror on the Kind Docker network"
 docker volume create "${BUNDLE_VOLUME}" >/dev/null
 BUNDLE_VOLUME_OWNED=true
 BUNDLE_LOADER_OWNED=true
+pull_with_retry "$(dockerhub_image alpine:3.22)"
 bounded "${DOCKER_PULL_TIMEOUT}" docker create --name "${BUNDLE_LOADER_NAME}" -v "${BUNDLE_VOLUME}:/bundle" "$(dockerhub_image alpine:3.22)" true >/dev/null
 docker cp "${BUNDLE_DIR}/." "${BUNDLE_LOADER_NAME}:/bundle/"
 docker rm "${BUNDLE_LOADER_NAME}" >/dev/null
 BUNDLE_LOADER_OWNED=false
 BUNDLE_MIRROR_OWNED=true
+pull_with_retry "$(dockerhub_image nginx:alpine)"
 bounded "${DOCKER_PULL_TIMEOUT}" docker run -d \
   --name "${BUNDLE_MIRROR_NAME}" \
   --network kind \
@@ -894,16 +910,7 @@ bounded "${DOCKER_PULL_TIMEOUT}" docker run -d \
   "$(dockerhub_image nginx:alpine)" >/dev/null
 
 log "starting inner runner on the Kind Docker network"
-# The Docker Hub mirror sometimes 404s a blob it has not cached yet; a second pull gets it.
-for attempt in 1 2 3; do
-  bounded "${DOCKER_PULL_TIMEOUT}" docker pull "${RUNNER_IMAGE}" && break
-  if ((attempt == 3)); then
-    log "docker pull failed after ${attempt} attempts: ${RUNNER_IMAGE}" >&2
-    exit 1
-  fi
-  log "docker pull attempt ${attempt} failed, retrying: ${RUNNER_IMAGE}"
-  sleep 15
-done
+pull_with_retry "${RUNNER_IMAGE}"
 docker volume create "${STATE_VOLUME}" >/dev/null
 STATE_VOLUME_OWNED=true
 RUNNER_OWNED=true
