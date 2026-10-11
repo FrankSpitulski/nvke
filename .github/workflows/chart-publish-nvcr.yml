@@ -79,13 +79,16 @@ jobs:
         include:
           - destination: nke
             org_var: NVKE_NGC_ORG
-            # Looked up by name, so no fallback is possible: this stays the
-            # secret that exists until NGC_REGISTRY_TOKEN_NVKE is created.
-            token_secret_var_name: NGC_REGISTRY_TOKEN_NKE
+            # Looked up by name: the new secret first, the existing one until
+            # NGC_REGISTRY_TOKEN_NVKE is created. An unset secret reads as empty,
+            # so || falls through to the fallback.
+            token_secret_var_name: NGC_REGISTRY_TOKEN_NVKE
+            token_secret_fallback_var_name: NGC_REGISTRY_TOKEN_NKE
             pull_secret: svc-nke-ngc-imagepull
           - destination: dsx
             org_var: DSX_NGC_ORG_TEAM
             token_secret_var_name: NGC_REGISTRY_TOKEN_DSX
+            token_secret_fallback_var_name: NGC_REGISTRY_TOKEN_DSX
             pull_secret: ngc-dsx-registry-creds
     steps:
       - name: Checkout
@@ -191,12 +194,13 @@ jobs:
       - name: Log in to NVCR
         shell: bash
         env:
-          NGC_TOKEN: ${{ secrets[matrix.token_secret_var_name] }}
+          NGC_TOKEN: ${{ secrets[matrix.token_secret_var_name] || secrets[matrix.token_secret_fallback_var_name] }}
           TOKEN_SECRET_VAR_NAME: ${{ matrix.token_secret_var_name }}
+          TOKEN_SECRET_FALLBACK_VAR_NAME: ${{ matrix.token_secret_fallback_var_name }}
         run: |
           set -euo pipefail
           if [[ -z "${NGC_TOKEN}" ]]; then
-            echo "::error::${TOKEN_SECRET_VAR_NAME} is not set in the nvcr environment"
+            echo "::error::neither ${TOKEN_SECRET_VAR_NAME} nor ${TOKEN_SECRET_FALLBACK_VAR_NAME} is set in the nvcr environment"
             exit 1
           fi
           # shellcheck disable=SC2016
@@ -212,7 +216,7 @@ jobs:
         with:
           registry: nvcr.io
           username: "$oauthtoken"
-          password: ${{ secrets[matrix.token_secret_var_name] }}
+          password: ${{ secrets[matrix.token_secret_var_name] || secrets[matrix.token_secret_fallback_var_name] }}
 
       - name: Push chart
         shell: bash

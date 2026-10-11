@@ -14,7 +14,8 @@ name: CLI Artifact NVCR
 # repository that is released publicly:
 #
 #   NVKE_NGC_ORG             variable  NGC org that owns the artifact
-#   NGC_REGISTRY_TOKEN_NKE   secret    NGC API key with write access on that org
+#   NGC_REGISTRY_TOKEN_NVKE  secret    NGC API key with write access on that org
+#                                      (NGC_REGISTRY_TOKEN_NKE until it exists)
 #   DSX_NGC_ORG_TEAM        variable  DSX NGC org/team path
 #   NGC_REGISTRY_TOKEN_DSX  secret    NGC API key with write access on DSX
 #
@@ -47,7 +48,7 @@ on:
         required: false
         default: ""
     secrets:
-      NGC_REGISTRY_TOKEN_NKE:
+      NGC_REGISTRY_TOKEN_NVKE:
         description: NGC API key with write access on the NKE org, for the nvcr push.
         required: true
       NGC_REGISTRY_TOKEN_DSX:
@@ -84,10 +85,14 @@ jobs:
         include:
           - destination: nke
             org_var: NVKE_NGC_ORG
-            token_secret_var_name: NGC_REGISTRY_TOKEN_NKE
+            # The new secret first, the existing one until it is created; an
+            # unset secret reads as empty, so || falls through.
+            token_secret_var_name: NGC_REGISTRY_TOKEN_NVKE
+            token_secret_fallback_var_name: NGC_REGISTRY_TOKEN_NKE
           - destination: dsx
             org_var: DSX_NGC_ORG_TEAM
             token_secret_var_name: NGC_REGISTRY_TOKEN_DSX
+            token_secret_fallback_var_name: NGC_REGISTRY_TOKEN_DSX
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -171,12 +176,13 @@ jobs:
       - name: Log in to NVCR
         shell: bash
         env:
-          NGC_TOKEN: ${{ secrets[matrix.token_secret_var_name] }}
+          NGC_TOKEN: ${{ secrets[matrix.token_secret_var_name] || secrets[matrix.token_secret_fallback_var_name] }}
           TOKEN_SECRET_VAR_NAME: ${{ matrix.token_secret_var_name }}
+          TOKEN_SECRET_FALLBACK_VAR_NAME: ${{ matrix.token_secret_fallback_var_name }}
         run: |
           set -euo pipefail
           if [[ -z "${NGC_TOKEN}" ]]; then
-            echo "::error::${TOKEN_SECRET_VAR_NAME} is not set in the nvcr environment"
+            echo "::error::neither ${TOKEN_SECRET_VAR_NAME} nor ${TOKEN_SECRET_FALLBACK_VAR_NAME} is set in the nvcr environment"
             exit 1
           fi
           # shellcheck disable=SC2016
