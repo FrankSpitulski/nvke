@@ -234,6 +234,22 @@ pull_with_retry() {
   done
 }
 
+# The same 404 fails a build while it loads a base image; a second build gets it.
+build_with_retry() {
+  local out attempt rc
+  out=$(mktemp)
+  for attempt in 1 2; do
+    rc=0
+    docker build "$@" 2>&1 | tee "${out}" || rc=$?
+    if ((rc == 0 || attempt == 2)) || ! grep -q 'could not fetch content descriptor' "${out}"; then
+      rm -f "${out}"
+      return "${rc}"
+    fi
+    log "docker build hit a mirror 404, retrying in 15s"
+    sleep 15
+  done
+}
+
 runner_exec() {
   docker exec \
     -e KUBECONFIG=/state/management.kubeconfig \
@@ -699,7 +715,7 @@ DSX_IDENTITY_EXCHANGE_IMAGE=""
 # dockerhub_build_args in backend-e2e-lib.sh.
 log "building the sanitized profiles fixture image"
 mapfile -t profiles_build_args < <(dockerhub_build_args test/fixtures/Dockerfile)
-docker build \
+build_with_retry \
   --platform "linux/${host_arch}" \
   --file test/fixtures/Dockerfile \
   "${profiles_build_args[@]}" \
@@ -710,7 +726,7 @@ docker image inspect "${NKE_CONTROLLER_PROFILES_TILT_IMAGE}" >"${STATE_DIR}/cwe-
 
 log "building controller image ${NKE_CONTROLLER_IMAGE} for the ${host_arch} CAPD runner"
 mapfile -t cwe_build_args < <(dockerhub_build_args "${CONTROLLER_ROOT}/Dockerfile")
-DOCKER_BUILDKIT=1 docker build \
+DOCKER_BUILDKIT=1 build_with_retry \
   --platform "linux/${host_arch}" \
   --file "${CONTROLLER_ROOT}/Dockerfile" \
   --build-arg "BUILD_VERSION=${NKE_CONTROLLER_BUILD_VERSION}" \
@@ -725,7 +741,7 @@ if [[ "${DSX_IDENTITY_EXCHANGE_ENABLED}" == "true" ]]; then
   DSX_IDENTITY_EXCHANGE_IMAGE="dsx-identity-exchange-e2e:${git_short_sha}"
   log "building DSX identity exchange mock ${DSX_IDENTITY_EXCHANGE_IMAGE}"
   mapfile -t dsx_build_args < <(dockerhub_build_args "${CONTROLLER_ROOT}/hack/dsx-identity-exchange-mock/Dockerfile")
-  DOCKER_BUILDKIT=1 docker build \
+  DOCKER_BUILDKIT=1 build_with_retry \
     --platform "linux/${host_arch}" \
     --file "${CONTROLLER_ROOT}/hack/dsx-identity-exchange-mock/Dockerfile" \
     "${dsx_build_args[@]}" \
@@ -884,7 +900,7 @@ NKE_E2E_SPIRE_RELEASE="${NKE_E2E_SPIRE_RELEASE:-}"
 if [[ "${NKE_E2E_USE_STACK:-false}" == "true" ]]; then
   log "building capd-reboot-controller for the deploy-path lane"
   mapfile -t reboot_build_args < <(dockerhub_build_args "${CONTROLLER_ROOT}/hack/capd-reboot-controller/Dockerfile")
-  docker build \
+  build_with_retry \
     "${reboot_build_args[@]}" \
     -t "${CAPD_REBOOT_IMAGE}" \
     -f "${CONTROLLER_ROOT}/hack/capd-reboot-controller/Dockerfile" \

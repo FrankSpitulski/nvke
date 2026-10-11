@@ -371,7 +371,13 @@ fi
 # an anonymous docker.io pull from the shared CI egress returns 429 under load.
 kindest_node_image="${NKE_E2E_DOCKERHUB_MIRROR:+${NKE_E2E_DOCKERHUB_MIRROR}/}kindest/node"
 echo "Ensuring ${kindest_node_image}:${CAPD_KINDEST_NODE_TAG} is available for ${effective_platform}..."
-"${CONTAINER_CLI}" pull --platform "${effective_platform}" "${kindest_node_image}:${CAPD_KINDEST_NODE_TAG}"
+# The mirror sometimes 404s a blob it has not cached yet; a second pull gets it.
+for attempt in 1 2 3; do
+  "${CONTAINER_CLI}" pull --platform "${effective_platform}" "${kindest_node_image}:${CAPD_KINDEST_NODE_TAG}" && break
+  if ((attempt == 3)); then exit 1; fi
+  echo "  pull attempt ${attempt} failed, retrying in 15s" >&2
+  sleep 15
+done
 
 build_args=(
   build
