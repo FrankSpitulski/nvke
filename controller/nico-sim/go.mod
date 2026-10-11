@@ -5,9 +5,9 @@ go 1.27.2
 require (
 	github.com/NVIDIA/ncx-infra-controller-rest v1.3.0
 	github.com/google/uuid v1.6.0
-	github.com/lmittmann/tint v1.2.0
+	github.com/lmittmann/tint v1.2.1
 	github.com/mattn/go-sqlite3 v1.14.52
-	github.com/osrg/gobgp/v4 v4.9.0
+	github.com/osrg/gobgp/v4 v4.10.0
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18
 	github.com/vishvananda/netlink v1.3.1
