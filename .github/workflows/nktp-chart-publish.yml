@@ -5,7 +5,8 @@
 # oci://ghcr.io/dsx-ai-factory/nvke/charts/nktp and cuts the GitHub Release.
 # release.yml skips nktp/ tags, because nktp/ is not a Go module.
 #
-# The version is authored in Chart.yaml, and the tag has to equal it.
+# The chart version is the tag's, as for the controller chart: Chart.yaml
+# carries a 0.0.0 placeholder and `helm package --version` sets the real one.
 
 name: NKTP Chart Publish
 
@@ -56,8 +57,8 @@ jobs:
       - name: Set up kubeconform
         uses: ./.github/actions/setup-kubeconform
 
-      # The same rule release.yml enforces on every other tag.
-      - name: Check the tag against Chart.yaml
+      # The same format rule release.yml enforces on every other tag.
+      - name: Take the version from the tag
         id: version
         run: |
           set -euo pipefail
@@ -66,20 +67,17 @@ jobs:
             echo "::error::${GITHUB_REF_NAME} is neither nktp/vX.Y.Z nor nktp/vX.Y.Z-rc.N. Delete it and push a corrected tag."
             exit 1
           fi
-          chart_version="$(yq '.version' "${CHART}/Chart.yaml")"
-          if [[ "${version}" != "${chart_version}" ]]; then
-            echo "::error::${GITHUB_REF_NAME} does not match version ${chart_version} in ${CHART}/Chart.yaml."
-            exit 1
-          fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Check the chart
         run: make nktp-chart-check
 
       - name: Package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          helm package "${CHART}" --destination dist
+          helm package "${CHART}" --version "${VERSION}" --destination dist
 
       - name: Malware scan the release artifacts
         uses: ./.github/actions/malware-scan

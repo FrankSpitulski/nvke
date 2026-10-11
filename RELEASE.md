@@ -97,10 +97,11 @@ themselves, after they have built and verified the real artifacts:
 An `os-image/` tag that fails Packer or the boot-smoke test never publishes the
 OCI artifact and never promotes the GitHub Release out of draft.
 
-An `nktp/` tag releases the NKTP Helm chart. Its version is `version:` in
-`nktp/deploy/charts/nktp/Chart.yaml`, and the tag must equal it, so bump it in
-a pull request before tagging. For a release candidate, set
-`version: X.Y.Z-rc.1` and tag `nktp/vX.Y.Z-rc.1`. The workflow pushes
+An `nktp/` tag releases the NKTP Helm chart. The chart version is the tag's:
+`nktp/vX.Y.Z` packages the chart as `X.Y.Z` and `nktp/vX.Y.Z-rc.1` as
+`X.Y.Z-rc.1`, the way the controller chart takes its version from
+`controller/v*`. `version:` in `nktp/deploy/charts/nktp/Chart.yaml` is a
+placeholder, so nothing needs editing before tagging. The workflow pushes
 `oci://ghcr.io/dsx-ai-factory/nvke/charts/nktp:<version>` and writes the release
 body itself, because git-cliff has no section for a component tag.
 
