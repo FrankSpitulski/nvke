@@ -33,8 +33,8 @@ type virsh struct {
 }
 
 const (
-	startAttempts    = 3
-	startRetryDelay  = 2 * time.Second
+	startAttempts    = 6
+	startRetryDelay  = 10 * time.Second
 	defineAttempts   = 6
 	defineRetryDelay = 30 * time.Second
 )
@@ -110,6 +110,7 @@ func (r *virsh) CreateAndStart(ctx context.Context, spec vm.InstanceSpec) (strin
 	// "failed to create directory ...: File exists" and never boots. The
 	// engine marks such an instance Error and stops reconciling it, so one
 	// lost race costs the whole VM. A later attempt finds the directory there.
+	// A neighbour pod's qemu install also leaves /dev/kvm unusable for a few seconds.
 	if err := retry(ctx, startAttempts, startRetryDelay, func() error {
 		_, startErr := r.runVirsh(ctx, "start", spec.DomainName)
 		return startErr
