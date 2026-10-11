@@ -30,12 +30,12 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/swaggest/swgui v1.8.9
 	github.com/uber-go/tally/v4 v4.1.17
-	github.com/uptrace/bun v1.2.18
-	github.com/uptrace/bun/dialect/pgdialect v1.2.18
-	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18
-	github.com/uptrace/bun/driver/pgdriver v1.2.18
-	github.com/uptrace/bun/extra/bunotel v1.2.18
-	github.com/uptrace/bun/extra/bunslog v1.2.18
+	github.com/uptrace/bun v1.3.0
+	github.com/uptrace/bun/dialect/pgdialect v1.3.0
+	github.com/uptrace/bun/dialect/sqlitedialect v1.3.0
+	github.com/uptrace/bun/driver/pgdriver v1.3.0
+	github.com/uptrace/bun/extra/bunotel v1.3.0
+	github.com/uptrace/bun/extra/bunslog v1.3.0
 	go.etcd.io/gofail v0.2.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
 	go.opentelemetry.io/otel v1.47.0

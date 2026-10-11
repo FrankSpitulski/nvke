@@ -108,11 +108,11 @@ notices-check` verifies it is up to date.
 | `github.com/tmthrgd/go-hex` | BSD-2-Clause / BSD-3-Clause | `github.com/tmthrgd/go-hex@v0.0.0-20190904060850-447a3041c3bc` | https://github.com/tmthrgd/go-hex/blob/447a3041c3bc/LICENSE |
 | `github.com/twmb/murmur3` | BSD-3-Clause | `github.com/twmb/murmur3@v1.1.8` | https://github.com/twmb/murmur3/blob/v1.1.8/LICENSE |
 | `github.com/uber-go/tally/v4` | MIT | `github.com/uber-go/tally/v4@v4.1.17` | https://github.com/uber-go/tally/blob/v4.1.17/LICENSE |
-| `github.com/uptrace/bun` | BSD-2-Clause | `github.com/uptrace/bun@v1.2.18` | https://github.com/uptrace/bun/blob/v1.2.18/LICENSE |
-| `github.com/uptrace/bun/dialect/pgdialect` | BSD-2-Clause | `github.com/uptrace/bun/dialect/pgdialect@v1.2.18` | https://github.com/uptrace/bun/blob/dialect/pgdialect/v1.2.18/dialect/pgdialect/LICENSE |
-| `github.com/uptrace/bun/driver/pgdriver` | BSD-2-Clause | `github.com/uptrace/bun/driver/pgdriver@v1.2.18` | https://github.com/uptrace/bun/blob/driver/pgdriver/v1.2.18/driver/pgdriver/LICENSE |
-| `github.com/uptrace/bun/extra/bunotel` | BSD-2-Clause | `github.com/uptrace/bun/extra/bunotel@v1.2.18` | https://github.com/uptrace/bun/blob/extra/bunotel/v1.2.18/extra/bunotel/LICENSE |
-| `github.com/uptrace/bun/extra/bunslog` | BSD-2-Clause | `github.com/uptrace/bun/extra/bunslog@v1.2.18` | https://github.com/uptrace/bun/blob/extra/bunslog/v1.2.18/extra/bunslog/LICENSE |
+| `github.com/uptrace/bun` | BSD-2-Clause | `github.com/uptrace/bun@v1.3.0` | https://github.com/uptrace/bun/blob/v1.3.0/LICENSE |
+| `github.com/uptrace/bun/dialect/pgdialect` | BSD-2-Clause | `github.com/uptrace/bun/dialect/pgdialect@v1.3.0` | https://github.com/uptrace/bun/blob/dialect/pgdialect/v1.3.0/dialect/pgdialect/LICENSE |
+| `github.com/uptrace/bun/driver/pgdriver` | BSD-2-Clause | `github.com/uptrace/bun/driver/pgdriver@v1.3.0` | https://github.com/uptrace/bun/blob/driver/pgdriver/v1.3.0/driver/pgdriver/LICENSE |
+| `github.com/uptrace/bun/extra/bunotel` | BSD-2-Clause | `github.com/uptrace/bun/extra/bunotel@v1.3.0` | https://github.com/uptrace/bun/blob/extra/bunotel/v1.3.0/extra/bunotel/LICENSE |
+| `github.com/uptrace/bun/extra/bunslog` | BSD-2-Clause | `github.com/uptrace/bun/extra/bunslog@v1.3.0` | https://github.com/uptrace/bun/blob/extra/bunslog/v1.3.0/extra/bunslog/LICENSE |
 | `github.com/uptrace/opentelemetry-go-extra/otelsql` | BSD-2-Clause | `github.com/uptrace/opentelemetry-go-extra/otelsql@v0.3.2` | https://github.com/uptrace/opentelemetry-go-extra/blob/otelsql/v0.3.2/otelsql/LICENSE |
 | `github.com/vearutop/statigz` | MIT | `github.com/vearutop/statigz@v1.4.0` | https://github.com/vearutop/statigz/blob/v1.4.0/LICENSE |
 | `github.com/vmihailenco/msgpack/v5` | BSD-2-Clause | `github.com/vmihailenco/msgpack/v5@v5.4.1` | https://github.com/vmihailenco/msgpack/blob/v5.4.1/LICENSE |
@@ -10840,7 +10840,7 @@ SOFTWARE.
 
 ### github.com/uptrace/bun
 
-_BSD-2-Clause — github.com/uptrace/bun@v1.2.18_
+_BSD-2-Clause — github.com/uptrace/bun@v1.3.0_
 
 #### LICENSE
 
@@ -10874,7 +10874,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### github.com/uptrace/bun/dialect/pgdialect
 
-_BSD-2-Clause — github.com/uptrace/bun/dialect/pgdialect@v1.2.18_
+_BSD-2-Clause — github.com/uptrace/bun/dialect/pgdialect@v1.3.0_
 
 #### LICENSE
 
@@ -10908,7 +10908,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### github.com/uptrace/bun/driver/pgdriver
 
-_BSD-2-Clause — github.com/uptrace/bun/driver/pgdriver@v1.2.18_
+_BSD-2-Clause — github.com/uptrace/bun/driver/pgdriver@v1.3.0_
 
 #### LICENSE
 
@@ -10942,7 +10942,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### github.com/uptrace/bun/extra/bunotel
 
-_BSD-2-Clause — github.com/uptrace/bun/extra/bunotel@v1.2.18_
+_BSD-2-Clause — github.com/uptrace/bun/extra/bunotel@v1.3.0_
 
 #### LICENSE
 
@@ -10976,7 +10976,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### github.com/uptrace/bun/extra/bunslog
 
-_BSD-2-Clause — github.com/uptrace/bun/extra/bunslog@v1.2.18_
+_BSD-2-Clause — github.com/uptrace/bun/extra/bunslog@v1.3.0_
 
 #### LICENSE
 
