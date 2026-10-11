@@ -890,7 +890,16 @@ bounded "${DOCKER_PULL_TIMEOUT}" docker run -d \
   "$(dockerhub_image nginx:alpine)" >/dev/null
 
 log "starting inner runner on the Kind Docker network"
-bounded "${DOCKER_PULL_TIMEOUT}" docker pull "${RUNNER_IMAGE}"
+# The Docker Hub mirror sometimes 404s a blob it has not cached yet; a second pull gets it.
+for attempt in 1 2 3; do
+  bounded "${DOCKER_PULL_TIMEOUT}" docker pull "${RUNNER_IMAGE}" && break
+  if ((attempt == 3)); then
+    log "docker pull failed after ${attempt} attempts: ${RUNNER_IMAGE}" >&2
+    exit 1
+  fi
+  log "docker pull attempt ${attempt} failed, retrying: ${RUNNER_IMAGE}"
+  sleep 15
+done
 docker volume create "${STATE_VOLUME}" >/dev/null
 STATE_VOLUME_OWNED=true
 RUNNER_OWNED=true
