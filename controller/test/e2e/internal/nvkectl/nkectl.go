@@ -285,6 +285,43 @@ func (r *Runner) BaseURL() string { return r.baseURL }
 // Run invokes nvkectl with args and returns its combined output. The output is
 // returned on failure too, because nvkectl reports the reason there.
 func (r *Runner) Run(ctx context.Context, args ...string) (string, error) {
+	out, err := r.runOnce(ctx, args...)
+	if err == nil || ctx.Err() != nil || !forwardBroken(out) {
+		return out, err
+	}
+	// A wedged forward stays alive, so ensureForward would keep it; drop it, and repeat only a call that reads.
+	r.logf("nvkectl e2e: the port-forward at %s stopped answering; replacing it", r.baseURL)
+	r.stopForward()
+	if !readOnly(args) {
+		return out, err
+	}
+	return r.runOnce(ctx, args...)
+}
+
+// forwardBroken reports whether nvkectl's output shows a connection the forward reset or never answered.
+func forwardBroken(out string) bool {
+	for _, mark := range []string{"connection reset by peer", "Client.Timeout exceeded", "EOF", "connection refused"} {
+		if strings.Contains(out, mark) {
+			return true
+		}
+	}
+	return false
+}
+
+// readOnly reports whether the nvkectl verb only reads, so repeating it cannot create or destroy anything.
+func readOnly(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "get", "list", "describe":
+			return true
+		case "create", "delete", "scale", "upgrade", "set", "config":
+			return false
+		}
+	}
+	return false
+}
+
+func (r *Runner) runOnce(ctx context.Context, args ...string) (string, error) {
 	if err := r.ensureForward(ctx); err != nil {
 		return "", err
 	}
