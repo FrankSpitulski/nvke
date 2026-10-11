@@ -193,6 +193,13 @@ e2e_wait_for_zero_tenant_clusters() {
   done
 }
 
+# Runs node image $1's ovs-vswitchd check on this host. If it fails, every OVN
+# tenant stays unready until the suite times out (#1515).
+e2e_host_loads_openvswitch() {
+  docker run --rm --privileged -v /lib/modules:/lib/modules:ro --entrypoint /bin/sh "$1" \
+    -c 'test -e /sys/module/openvswitch || exec modprobe openvswitch'
+}
+
 # Per-node evidence: console, unit status, and the journals of the units a
 # CAPD node depends on. Without this a node whose agent never binds its port is
 # undiagnosable, and the entrypoints disagreed here too: CI collected it, local

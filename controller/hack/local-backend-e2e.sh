@@ -238,6 +238,8 @@ if [[ "${LOCAL_NKE_E2E_REUSE_CAPD_SETUP:-false}" == true ]]; then
 else
   make -C "${repo_root}" capd-up REGISTRY_MIRROR_IMAGE="$(dockerhub_image registry:2)"
 fi
+e2e_host_loads_openvswitch "${CAPD_NODE_IMAGE:-cwe-capd-kindest-node:local}" ||
+  fail "this host cannot load the openvswitch module (#1515)"
 
 # The committed fixture, not the provider checkout: this script installs the
 # CRDs but never builds the provider, so requiring a checkout would gate the

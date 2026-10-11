@@ -856,6 +856,10 @@ NKE_E2E_DOCKERHUB_MIRROR="${DOCKERHUB_MIRROR}" \
   bash hack/capd-kindest-node/build-image.sh
 CAPD_NODE_IMAGE_OWNED=true
 docker image inspect "${CAPD_NODE_IMAGE}" >"${STATE_DIR}/capd-node-image.json"
+if ! e2e_host_loads_openvswitch "${CAPD_NODE_IMAGE}"; then
+  log "this runner host cannot load the openvswitch module (#1515)" >&2
+  exit 1
+fi
 
 log "creating Kind management cluster ${KIND_CLUSTER_NAME}"
 KIND_CLUSTER_OWNED=true
