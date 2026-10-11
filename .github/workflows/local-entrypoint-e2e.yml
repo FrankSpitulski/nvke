@@ -76,7 +76,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
-    timeout-minutes: 120
+    # The 110-minute suite below plus about 15 minutes of setup.
+    timeout-minutes: 135
     strategy:
       fail-fast: false
       matrix:
@@ -93,6 +94,8 @@ jobs:
             install_cni_after_init: false
     env:
       INSTALL_CNI_AFTER_INIT: ${{ matrix.install_cni_after_init }}
+      # arm64 suites run close to the 100-minute default.
+      E2E_SUITE_TIMEOUT_MINUTES: "110"
       # Pull-request mirrors run the same bounded lifecycle as the CAPD lane.
       # Main, scheduled, and manual runs keep the comprehensive CAPD suite.
       LOCAL_NKE_E2E_LABEL_FILTER: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'pull-request/') && 'core-docker || health' || '' }}
