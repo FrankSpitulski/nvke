@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -159,6 +160,7 @@ func (t *recoveringTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		return resp, err
 	}
 	// A wedged SPDY session still accepts the local dial and then resets every stream, so nothing but the request sees it die.
+	slog.Warn("port-forward session replaced after a transport failure", "target", t.forwarder.target, "method", req.Method, "path", req.URL.Path, "err", err)
 	t.forwarder.Reset()
 	if req.Method != http.MethodGet && req.Method != http.MethodHead {
 		return nil, err
