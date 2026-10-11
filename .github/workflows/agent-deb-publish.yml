@@ -20,7 +20,7 @@
 # environment, so no bucket name lands in a tracked file of a repository that
 # is released publicly:
 #
-#   APT_INTAKE_S3_URI       variable  e.g. s3://example-bucket/nke-packages
+#   APT_INTAKE_S3_URI       variable  e.g. s3://example-bucket/nvke-packages
 #   APT_INTAKE_PROJECT      variable  optional; default nke-agent
 #   APT_INTAKE_AWS_ROLE_ARN variable  IAM role assumed via OIDC to write intake
 #   APT_INTAKE_AWS_REGION   variable  optional; default us-west-2

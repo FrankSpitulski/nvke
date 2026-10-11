@@ -14,15 +14,15 @@ name: CLI S3 Publish
 # not a reuse of `apt-intake` -- that name and scope are conceptually
 # apt-specific. Required environment vars:
 #
-#   S3_PUBLISH_S3_URI             variable  e.g. s3://nke-prod-assets/nke-packages
+#   S3_PUBLISH_S3_URI             variable  e.g. s3://nke-prod-assets/nvke-packages
 #   S3_PUBLISH_AWS_ROLE_ARN       variable  role ARN with write access to the
-#                                           nkectl/* prefix under that URI
+#                                           nvkectl/* prefix under that URI
 #   S3_PUBLISH_AWS_REGION         variable  optional, defaults to us-west-2
 #   S3_PUBLISH_CLOUDFRONT_DOMAIN  variable  domain fronting that bucket, used
 #                                           to verify the upload is actually
 #                                           reachable (e.g. d1veq6e8nuk2fy.cloudfront.net)
 #
-# The role's permission policy needs nke-packages/nkectl/* added -- see
+# The role's permission policy needs nvke-packages/nvkectl/* -- see
 # artifacts.md section 19 for the exact IAM diff. Until that widening lands,
 # this workflow will fail at the upload step with an access-denied error, not
 # silently do nothing.
@@ -145,13 +145,11 @@ jobs:
           RELEASE: ${{ steps.meta.outputs.release }}
         run: |
           set -euo pipefail
-          # The prefix stays nkectl/ for now: the publishing role's permission
-          # policy names nke-packages/nkectl/*, and moving the prefix is its own
-          # change. Both binary names are published for one release, so the
-          # download links and scripts that know the old name keep working.
+          # Both binary names are published for one release, so the download
+          # links and scripts that know the old name keep working.
           for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
             for bin in "nvkectl-${platform}" "nkectl-${platform}"; do
-              S3_PREFIX="nkectl/releases/${RELEASE}/${platform}" \
+              S3_PREFIX="nvkectl/releases/${RELEASE}/${platform}" \
                 ./scripts/upload-s3-flat.sh "dist/${bin}"
             done
           done
@@ -176,7 +174,7 @@ jobs:
           s3_path="${S3_URI#s3://*/}"
           for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
             for bin in "nvkectl-${platform}" "nkectl-${platform}"; do
-              key="${s3_path}/nkectl/releases/${RELEASE}/${platform}/${bin}"
+              key="${s3_path}/nvkectl/releases/${RELEASE}/${platform}/${bin}"
               aws s3api head-object --bucket "${bucket}" --key "${key}" >/dev/null
               url="https://${CF_DOMAIN}/${key}"
               echo "OK s3://${bucket}/${key} (${url})"

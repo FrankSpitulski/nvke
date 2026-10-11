@@ -37,11 +37,11 @@ spec:
     - name: os-image-amd64
       resolve:
         strategy: osImage
-        with: {from: os-image, arch: amd64, variant: non-fde, source: artifact-cdn, path: nke-packages}
+        with: {from: os-image, arch: amd64, variant: non-fde, source: artifact-cdn, path: nvke-packages}
     - name: os-image-arm64
       resolve:
         strategy: osImage
-        with: {from: os-image, arch: arm64, variant: non-fde, source: artifact-cdn, path: nke-packages}
+        with: {from: os-image, arch: arm64, variant: non-fde, source: artifact-cdn, path: nvke-packages}
     - {name: os-image-bootloader-amd64, resolve: {strategy: url, with: {source: artifact-cdn}}}
     - {name: os-image-bootloader-arm64, resolve: {strategy: url, with: {source: artifact-cdn}}}
 
