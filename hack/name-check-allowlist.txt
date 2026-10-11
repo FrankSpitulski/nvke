@@ -149,9 +149,6 @@ token:(^|[./:@-])NKE_[A-Z0-9_]+([:./].*)?$|^LOCAL_NKE_
 # request removes this entry with the fallbacks.
 token:NGC_REGISTRY_TOKEN_NKE
 
-# GitHub team slugs, renamed after launch with five CODEOWNERS files (D17).
-token:^@dsx-ai-factory/nke-|^nke-(admin|maintainer|write)$
-
 # The product mailbox in the deb Maintainer fields.
 token:^nke-dev@
 

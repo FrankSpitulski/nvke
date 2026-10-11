@@ -20,7 +20,7 @@ Below is a complete cloud-init configuration for bootstrapping a tier-0 cluster 
 #cloud-config
 users:
   - default
-  - name: nke-admin
+  - name: nvke-admin
     gecos: NVKE Admin User
     sudo: ALL=(ALL) NOPASSWD:ALL
     groups: root
@@ -30,7 +30,7 @@ autoinstall:
   identity:
     hostname: <node-name>
     password: $6$...  # hashed password
-    username: nke-admin
+    username: nvke-admin
   packages:
     - chrony
     - jq
