@@ -1,16 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Reports every token in the tree that carries a banned name, outside the
+# Fails on every token in the tree that carries a banned name, outside the
 # allowlist in hack/name-check-allowlist.txt.
 #
-# Today the check runs in report mode: it prints how many hits remain, in how
-# many files, and the most common tokens, and exits 0, because the tree still
-# carries the default name everywhere and a listing of every hit is noise.
-# Once the name is meant to be gone, NAME_CHECK_MODE in make/checks.mk flips to
-# fail, and the same job lists every leftover and blocks the merge. A dead
-# allowlist entry fails in both modes, so the allowlist cannot outlive what it
-# covered.
+# Until 2026-10-11 the check ran in report mode: it printed how many hits
+# remained and exited 0, because the tree still carried the default name
+# everywhere. NAME_CHECK_MODE in make/checks.mk now says fail, so the same job
+# lists every leftover and blocks the merge. A dead allowlist entry fails in
+# both modes, so the allowlist cannot outlive what it covered.
 #
 # Tokens, not lines: the header of hack/name-check.py gives the rule that keeps
 # a product token and drops the English word or camel-case identifier beside
