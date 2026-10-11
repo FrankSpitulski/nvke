@@ -435,7 +435,7 @@ newest_os_image_tag() {
     return 0
   done < <(gh api --paginate \
       "/orgs/${org}/packages/container/${pkg//\//%2F}/versions?per_page=100" \
-      --jq '.[] | {u: .updated_at, t: (.metadata.container.tags // [])[]}' 2>/dev/null |
+      --jq '(if type == "array" then . else [] end)[] | {u: .updated_at, t: (.metadata.container.tags // [])[]}' 2>/dev/null |
     jq -rs --arg a "-${arch}" \
       'map(select(.t | startswith("sha-") and endswith($a) and (contains("-ubuntu") | not)))
        | sort_by(.u) | reverse | .[].t')
