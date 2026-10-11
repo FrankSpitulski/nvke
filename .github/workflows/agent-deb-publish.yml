@@ -75,6 +75,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+      actions: read  # upload-sarif reads the workflow run
       security-events: write  # the malware scan uploads SARIF
     strategy:
       fail-fast: false

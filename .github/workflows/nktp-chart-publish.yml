@@ -35,6 +35,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: read  # upload-sarif reads the workflow run
       security-events: write  # the malware scan uploads SARIF
     outputs:
       version: ${{ steps.version.outputs.version }}

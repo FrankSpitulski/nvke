@@ -71,6 +71,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+      actions: read  # upload-sarif reads the workflow run
       security-events: write  # the malware scan uploads SARIF
     # Both orgs get the same bytes. DSX clusters hold an NGC credential for
     # their own org and none for the NKE org, so an artifact published only to

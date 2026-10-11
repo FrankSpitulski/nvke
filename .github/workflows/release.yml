@@ -64,6 +64,7 @@ jobs:
     needs: [license-checks]
     permissions:
       contents: write         # creates the GitHub release
+      actions: read  # upload-sarif reads the workflow run
       security-events: write  # the malware scan uploads SARIF
       id-token: write         # the OIDC token the attestation is signed against
       attestations: write     # writes the provenance attestation
@@ -378,6 +379,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: read  # upload-sarif reads the workflow run
       security-events: write
     with:
       dist_artifact: ${{ needs.release.outputs.dist_artifact }}
@@ -388,6 +390,7 @@ jobs:
     uses: ./.github/workflows/cli-artifact-nvcr.yml
     permissions:
       contents: read
+      actions: read  # upload-sarif reads the workflow run
       security-events: write
     secrets:
       NGC_REGISTRY_TOKEN_NVKE: ${{ secrets.NGC_REGISTRY_TOKEN_NVKE || secrets.NGC_REGISTRY_TOKEN_NKE }}
@@ -402,6 +405,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      actions: read  # upload-sarif reads the workflow run
       security-events: write
     with:
       dist_artifact: ${{ needs.release.outputs.dist_artifact }}
