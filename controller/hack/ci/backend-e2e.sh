@@ -23,6 +23,10 @@ DOCKERHUB_MIRROR="${NKE_E2E_DOCKERHUB_MIRROR:-}"
 # Names the backend in this script's own output. Both lanes share the script, so
 # without it a NICo run reports itself as CAPD.
 BACKEND="${NKE_E2E_BACKEND:-capd}"
+# Passing CAPD suites run within minutes of the shared 100-minute timeout.
+if [[ "${BACKEND}" == capd ]]; then
+  export E2E_SUITE_TIMEOUT_MINUTES="${E2E_SUITE_TIMEOUT_MINUTES:-120}"
+fi
 # Keep the existing in-init default; focused lanes can select InstallCNI.
 export INSTALL_CNI_AFTER_INIT="${INSTALL_CNI_AFTER_INIT:-false}"
 RUNNER_NAME="capd-e2e-runner-${RUN_ID}"

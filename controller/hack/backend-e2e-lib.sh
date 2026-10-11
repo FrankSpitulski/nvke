@@ -111,6 +111,7 @@ e2e_write_tilt_config() {
 # silently, which is the failure mode a shared filter constant exists to stop.
 e2e_run_ginkgo() {
   local exec_fn="$1" log_fn="$2" state_dir="$3" label_filter="$4"
+  local suite_minutes="${E2E_SUITE_TIMEOUT_MINUTES:-100}"
   shift 4
   [[ "${1:-}" == "--" ]] && shift
 
@@ -120,12 +121,12 @@ e2e_run_ginkgo() {
   "${exec_fn}" \
     /state/cwe-e2e.test \
     -test.v \
-    -test.timeout=105m \
+    -test.timeout="$((suite_minutes + 5))m" \
     -e2e.config=/state/e2e-config.json \
     -ginkgo.v \
     -ginkgo.no-color \
     -ginkgo.fail-on-empty \
-    -ginkgo.timeout=100m \
+    -ginkgo.timeout="${suite_minutes}m" \
     "-ginkgo.label-filter=${label_filter}" \
     "-ginkgo.junit-report=/state/junit.xml" \
     "$@" \
