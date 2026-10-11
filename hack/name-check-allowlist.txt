@@ -183,9 +183,6 @@ token:^nke-cluster-bringup$
 # The profiles directory is moving out of this repository (AGENTS.md: ask first).
 path:controller/profiles/*
 
-# The Fern instance and the planned custom domain, until the documents move.
-token:buildwithfern\.com/nke|docs\.nvidia\.com/nke|^/nke$
-
 # Image URLs inside the two synthetic fixture profiles. Their MachineImage specs
 # are published fixtures, and osprofiles-to-crs refuses to change a published
 # spec under the same name.
