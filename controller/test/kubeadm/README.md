@@ -158,7 +158,7 @@ pins. Set both when you are validating a specific apt publish — that is what
 this test is for.
 
 The apt repository coordinates are compiled-in defaults and normally need no
-override: suite `nke-noble` (**not** plain `noble`), component `main`, served
+override: suite `nvke-noble` (**not** plain `noble`), component `main`, served
 from the public upstream mirrors.
 
 `.github/workflows/kubeadm-bringup-e2e.yml` is the canonical worked example of

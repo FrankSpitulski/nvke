@@ -90,8 +90,8 @@ autoinstall:
 
       # TODO: Replace apt repo URL with confirmed public URL before publishing.
       # Install nke-agent from the NVKE apt repository
-      - [sh, -c, "curl -fsSL -o /etc/apt/keyrings/nke.asc https://packages.nvidia.com/nke/nke-apt-public.key"]
-      - [sh, -c, "echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://packages.nvidia.com/nke/apt nke-noble main' | tee /etc/apt/sources.list.d/nke-apt.list"]
+      - [sh, -c, "curl -fsSL -o /etc/apt/keyrings/nke.asc https://packages.nvidia.com/nvke/nvke-apt-public.key"]
+      - [sh, -c, "echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://packages.nvidia.com/nvke/apt nvke-noble main' | tee /etc/apt/sources.list.d/nke-apt.list"]
       - [sh, -c, "apt-get update"]
       - [sh, -c, "apt-get install -y nke-agent"]
       - [sh, -c, "echo 'AGENT_ARGS=\"--disable-mtls --secure-server-port 15005\"' > /etc/default/nke-agent"]

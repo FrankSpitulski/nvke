@@ -112,8 +112,8 @@ BODY=$(cat <<EOF
         },
         "preKubeadmCommands": [
         "install -d -m 0755 /etc/apt/keyrings",
-        "curl -fsSL -o /etc/apt/keyrings/nke.asc https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-public.key",
-        "echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-noble nke-noble main' > /etc/apt/sources.list.d/nke-apt.list",
+        "curl -fsSL -o /etc/apt/keyrings/nke.asc https://nke-prod-assets.s3.us-west-2.amazonaws.com/nvke-apt-public.key",
+        "echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://nke-prod-assets.s3.us-west-2.amazonaws.com/nvke-apt-noble nvke-noble main' > /etc/apt/sources.list.d/nke-apt.list",
         "apt-get update",
         "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-agent nke-kubeadm-distro-${KUBERNETES_VERSION}",
         "DEBIAN_FRONTEND=noninteractive apt-get install -y ${CNI_IMAGES_PACKAGE}",
@@ -164,8 +164,8 @@ BODY=$(cat <<EOF
         },
         "preKubeadmCommands": [
         "install -d -m 0755 /etc/apt/keyrings",
-        "curl -fsSL -o /etc/apt/keyrings/nke.asc https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-public.key",
-        "echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-noble nke-noble main' > /etc/apt/sources.list.d/nke-apt.list",
+        "curl -fsSL -o /etc/apt/keyrings/nke.asc https://nke-prod-assets.s3.us-west-2.amazonaws.com/nvke-apt-public.key",
+        "echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://nke-prod-assets.s3.us-west-2.amazonaws.com/nvke-apt-noble nvke-noble main' > /etc/apt/sources.list.d/nke-apt.list",
         "apt-get update",
         "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-agent nke-kubeadm-distro-${KUBERNETES_VERSION}",
         "DEBIAN_FRONTEND=noninteractive apt-get install -y ${CNI_IMAGES_PACKAGE}",

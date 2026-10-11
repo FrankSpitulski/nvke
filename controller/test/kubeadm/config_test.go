@@ -40,9 +40,9 @@ const (
 	// Published production NVKE apt repo. Reachable anonymously over plain
 	// HTTPS, which matters because CI runners have no route to NVIDIA's
 	// internal network.
-	defaultAptRepoURL = "https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-noble"
-	defaultAptGpgURL  = "https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-public.key"
-	defaultAptSuite   = "nke-noble" // NOT plain "noble"
+	defaultAptRepoURL = "https://nke-prod-assets.s3.us-west-2.amazonaws.com/nvke-apt-noble"
+	defaultAptGpgURL  = "https://nke-prod-assets.s3.us-west-2.amazonaws.com/nvke-apt-public.key"
+	defaultAptSuite   = "nvke-noble" // NOT plain "noble"
 	defaultAptComp    = "main"
 
 	// nico-vms's own default bridge subnet.

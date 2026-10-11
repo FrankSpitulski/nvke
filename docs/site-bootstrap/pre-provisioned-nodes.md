@@ -162,10 +162,10 @@ curl -fsSL "https://github.com/containernetworking/plugins/releases/download/${C
 
 ### Install Node-Agent
 
-`nke-agent` will install from the NVKE apt repository. The commands below are for Ubuntu 24.04 (Noble); on 26.04 (Resolute) use the `nke-apt-resolute` prefix and `nke-resolute` suite.
+`nke-agent` will install from the NVKE apt repository. The commands below are for Ubuntu 24.04 (Noble); on 26.04 (Resolute) use the `nvke-apt-resolute` prefix and `nvke-resolute` suite.
 
 > **Not published yet — the commands below do not work.**
-> `packages.nvidia.com/nke` serves neither the key nor the suite: the `curl`
+> `packages.nvidia.com/nvke` serves neither the key nor the suite: the `curl`
 > returns HTTP 404 (`NoSuchKey`), so `apt-get install nke-agent` fails after it.
 > Until the repository exists there is no package install. To prepare a node in
 > the meantime, build the agent from this repository: `make -C agent package`
@@ -181,9 +181,9 @@ curl -fsSL "https://github.com/containernetworking/plugins/releases/download/${C
 ```bash
 # Configure the NVKE apt repository
 sudo curl -fsSL -o /etc/apt/keyrings/nke.asc \
-  https://packages.nvidia.com/nke/nke-apt-public.key
+  https://packages.nvidia.com/nvke/nvke-apt-public.key
 
-echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://packages.nvidia.com/nke/apt nke-noble main' | \
+echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://packages.nvidia.com/nvke/apt nvke-noble main' | \
   sudo tee /etc/apt/sources.list.d/nke-apt.list
 
 sudo apt-get update

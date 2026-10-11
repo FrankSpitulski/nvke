@@ -127,8 +127,11 @@ token:nke\.io/
 # is absent.
 token:nke-kubeadm-distro|nke-cni-|nke-cni/|nke-calico-|nke-spire|nke-node|nke-os-image|nke_qemu|qemu\.nke-|nke-packer-|nke-(non-)?fde$|nke-\d\d\.\d\d-|nke-rootfs|nke-builder|nke-builds|nke-package-builder|nke-ubuntu|nke-multiarch|nke\.ssh|nke-efi|nke-boot-smoke|nke-run-|nke_find_firmware|nke_arch_from|nke-capture|nke-image|nke-pxe|nke-iso|nke-materials|nke\.dev/|\.cache/nke|\.nke-kubeadm-file|^/nke-$|^nke-k8s-installer$
 
-# S3 buckets and prefixes, CloudFront, apt suites and keys, the IAM role (D16).
-token:nke_bundles|nke-isos|nke-apt|nke-noble|nke-resolute|nke-jammy|nke-packages|nke-prod-assets|nke-non-prod-assets|nke-github-apt-intake|packages\.nvidia\.com/nke
+# S3 buckets, the CloudFront bundle path, the ISO prefix and the IAM role keep
+# their names (D16); `nke-packages` is the local package cache on nodes and in
+# the build guest, `nke-apt` the agent's example repository URLs and the
+# image's acquisitions tarball. The apt suites and keys moved to nvke-*.
+token:nke_bundles|nke-isos|nke-apt|nke-packages|nke-prod-assets|nke-non-prod-assets|nke-github-apt-intake
 
 # ---- The CLI's old name, kept for one release (D10, D27) ----
 
