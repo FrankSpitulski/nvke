@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Scratch: probes whether NKE_INTERNAL_RO_TOKEN can read the ovn-kubernetes fork. Delete after.
+name: scratch-ovn-token-probe
+on:
+  push:
+    branches: [scratch/NKX-15886-token-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      T: ${{ secrets.NKE_INTERNAL_RO_TOKEN }}
+    steps:
+      - name: probe
+        run: |
+          [ -n "$T" ] || { echo "secret is empty"; exit 1; }
+          api=https://api.github.com/repos/dsx-ai-factory/ovn-kubernetes
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $T" "$api/commits/release-1.6.0")
+          echo "commit lookup: HTTP $code"
+          code=$(curl -s -L -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $T" "$api/tarball/3fe59276c7b627378107c5688cad3dee3a73250a")
+          echo "tarball: HTTP $code"
+          [ "$code" = 200 ]
