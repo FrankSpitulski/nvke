@@ -809,6 +809,8 @@ jobs:
           path: |
             .site-inputs/
             cli/dist/
+          # .site-inputs is dot-prefixed, which this action otherwise excludes.
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 1
 
