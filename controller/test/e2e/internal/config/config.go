@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"sigs.k8s.io/yaml"
+
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/artifact"
 )
 
 // Config is the E2E suite configuration.
@@ -147,6 +149,9 @@ func (i SiteImages) validate() error {
 	} {
 		if image.image.Repository == "" || image.image.Archive == "" {
 			problems = append(problems, image.name+" needs a repository and an archive")
+		}
+		if err := artifact.ValidateDigest(image.image.Digest); err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v", image.name, err))
 		}
 		switch {
 		case image.tag && image.image.Tag == "" && image.image.Digest == "":

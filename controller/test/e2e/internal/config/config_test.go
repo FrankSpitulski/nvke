@@ -191,6 +191,68 @@ func TestLoadStagedArtifactReferences(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidImageDigests(t *testing.T) {
+	for _, image := range []string{"controller", "capi-provisioned", "profiles"} {
+		for _, tc := range []struct{ name, digest string }{
+			{"missing algorithm", strings.Repeat("a", 64)},
+			{"missing value", "sha256:"},
+			{"short value", "sha256:" + strings.Repeat("a", 63)},
+			{"long value", "sha256:" + strings.Repeat("a", 65)},
+			{"nonhex value", "sha256:" + strings.Repeat("g", 64)},
+			{"uppercase value", "sha256:" + strings.Repeat("A", 64)},
+			{"unknown algorithm", "sha999:" + strings.Repeat("a", 64)},
+			{"leading whitespace", " sha256:" + strings.Repeat("a", 64)},
+			{"short sha384", "sha384:" + strings.Repeat("a", 64)},
+			{"short sha512", "sha512:" + strings.Repeat("a", 64)},
+		} {
+			t.Run(image+"/"+tc.name, func(t *testing.T) {
+				doc := fmt.Sprintf("site:\n  images:\n    %s:\n      digest: %q\n", image, tc.digest)
+				_, err := Load(write(t, doc))
+				if err == nil || !strings.Contains(err.Error(), image) || !strings.Contains(err.Error(), "digest") {
+					t.Fatalf("Load = %v, want an invalid digest error naming %s", err, image)
+				}
+			})
+		}
+	}
+}
+
+func TestLoadAcceptsOptionalImageDigests(t *testing.T) {
+	for _, tc := range []struct{ name, digest string }{
+		{"omitted", ""},
+		{"sha256", "sha256:" + strings.Repeat("a", 64)},
+		{"sha384", "sha384:" + strings.Repeat("b", 96)},
+		{"sha512", "sha512:" + strings.Repeat("c", 128)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := fmt.Sprintf(`site:
+  images:
+    controller:
+      digest: %q
+    capi-provisioned:
+      digest: %q
+    profiles:
+      digest: %q
+`, tc.digest, tc.digest, tc.digest)
+			cfg, err := Load(write(t, doc))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, image := range []SiteImage{cfg.Site.Images.Controller, cfg.Site.Images.CAPIProvisioned, cfg.Site.Images.Profiles} {
+				if image.Digest != tc.digest || image.Repository == "" || image.Archive == "" {
+					t.Errorf("image = %+v, want unchanged digest and legacy repository/archive defaults", image)
+				}
+			}
+			wantTag := ""
+			if tc.digest == "" {
+				wantTag = "local"
+			}
+			if cfg.Site.Images.Profiles.Tag != wantTag {
+				t.Errorf("profiles tag = %q, want %q", cfg.Site.Images.Profiles.Tag, wantTag)
+			}
+		})
+	}
+}
+
 // The limit of that, recorded because it looks like a gap and is not one.
 // sigs.k8s.io/yaml converts to JSON and decodes with encoding/json, whose
 // field matching is case-insensitive, so a key differing only in case binds

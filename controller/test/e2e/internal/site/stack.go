@@ -19,6 +19,7 @@ import (
 
 	"sigs.k8s.io/yaml"
 
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/artifact"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra"
 )
@@ -410,6 +411,14 @@ func spireAdminPath() string { return "/nke-service/" + controllerName() }
 
 func (d Stack) validate() error {
 	var problems []string
+	for _, image := range []struct {
+		name  string
+		image Image
+	}{{"controller", d.Controller}, {"profiles", d.Profiles}} {
+		if err := artifact.ValidateDigest(image.image.Digest); err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v", image.name, err))
+		}
+	}
 	if !d.Controller.valid() {
 		problems = append(problems, "controller image needs a repository and a tag or digest")
 	}
@@ -426,18 +435,8 @@ func (d Stack) validate() error {
 			problems = append(problems, fmt.Sprintf("asset path %q is not inside the checkout", rel))
 		}
 	}
-	for _, item := range sortedKeys(d.ChartOverrides) {
-		switch item {
-		case releaseController, releasePostgreSQL, releaseTemporal, releaseSpire, "spire-crds", "nktp":
-		default:
-			problems = append(problems, fmt.Sprintf("unknown chart override %q", item))
-		}
-		info, err := os.Stat(d.ChartOverrides[item])
-		if err != nil {
-			problems = append(problems, fmt.Sprintf("chart %s: %v", item, err))
-		} else if !info.Mode().IsRegular() || info.Size() == 0 {
-			problems = append(problems, fmt.Sprintf("chart %s must be a nonempty regular file", item))
-		}
+	if err := ValidateChartOverrides(d.ChartOverrides); err != nil {
+		problems = append(problems, err.Error())
 	}
 	if _, ok := tpmServerChecksum(d.Arch); !ok {
 		problems = append(problems, fmt.Sprintf("no TPM attestor checksum for architecture %q", d.Arch))
@@ -459,6 +458,29 @@ func (d Stack) validate() error {
 type step struct {
 	name string
 	cmd  string
+}
+
+// ValidateChartOverrides checks resolved runner paths before provisioning or
+// deployment. Chart parsing and artifact authentication remain caller-owned.
+func ValidateChartOverrides(charts map[string]string) error {
+	var problems []string
+	for _, item := range sortedKeys(charts) {
+		switch item {
+		case releaseController, releasePostgreSQL, releaseTemporal, releaseSpire, "spire-crds", "nktp":
+		default:
+			problems = append(problems, fmt.Sprintf("unknown chart override %q", item))
+		}
+		info, err := os.Stat(charts[item])
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("chart %s: %v", item, err))
+		} else if !info.Mode().IsRegular() || info.Size() == 0 {
+			problems = append(problems, fmt.Sprintf("chart %s must be a nonempty regular file", item))
+		}
+	}
+	if len(problems) != 0 {
+		return errors.New(strings.Join(problems, "; "))
+	}
+	return nil
 }
 
 func stagedChart(item string) string { return path.Join(workDir, "charts", item+".tgz") }

@@ -382,6 +382,69 @@ func TestImageDigestOverridesTag(t *testing.T) {
 	}
 }
 
+func TestStackRejectsInvalidImageDigestsBeforeRemoteWork(t *testing.T) {
+	for _, image := range []string{"controller", "profiles"} {
+		for _, tc := range []struct{ name, digest string }{
+			{"short value", "sha256:abc"},
+			{"uppercase value", "sha256:" + strings.Repeat("A", 64)},
+			{"unsupported algorithm", "sha999:" + strings.Repeat("a", 64)},
+		} {
+			t.Run(image+"/"+tc.name, func(t *testing.T) {
+				d := testSBOM()
+				if image == "controller" {
+					d.Controller.Digest = tc.digest
+				} else {
+					d.Profiles.Digest = tc.digest
+				}
+				s := sbomSession()
+				err := d.Deploy(context.Background(), s, sbomTarget)
+				if err == nil || !strings.Contains(err.Error(), image) || !strings.Contains(err.Error(), "digest") {
+					t.Fatalf("Deploy = %v, want an invalid digest error naming %s", err, image)
+				}
+				if len(s.runs) != 0 || len(s.puts) != 0 || len(s.forwards) != 0 {
+					t.Fatal("invalid image digest touched the node")
+				}
+			})
+		}
+	}
+}
+
+func TestValidateChartOverrides(t *testing.T) {
+	dir := t.TempDir()
+	chart := filepath.Join(dir, "controller.tgz")
+	empty := filepath.Join(dir, "empty.tgz")
+	for file, data := range map[string][]byte{chart: []byte("packaged chart payload"), empty: nil} {
+		if err := os.WriteFile(file, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name      string
+		overrides map[string]string
+		want      string
+	}{
+		{"nil overrides", nil, ""},
+		{"empty overrides", map[string]string{}, ""},
+		{"known items", map[string]string{"controller": chart, "postgresql": chart, "temporal": chart, "spire": chart, "spire-crds": chart, "nktp": chart}, ""},
+		{"unknown item", map[string]string{"unexpected": chart}, "unexpected"},
+		{"empty path", map[string]string{"controller": ""}, "controller"},
+		{"absent chart", map[string]string{"controller": chart + ".absent"}, "controller"},
+		{"empty chart", map[string]string{"controller": empty}, "nonempty regular file"},
+		{"directory", map[string]string{"controller": dir}, "nonempty regular file"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateChartOverrides(tc.overrides)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ValidateChartOverrides = %v, want an error containing %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 	data, err := json.Marshal(v)

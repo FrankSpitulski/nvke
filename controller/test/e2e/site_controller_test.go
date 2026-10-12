@@ -733,6 +733,17 @@ func deployPathRef(repo, configured, controllerVersion string) (string, error) {
 // that could be asked for its own would have to hand them to anything holding
 // it.
 func newStack(cfg config.Config, arch string) (site.Stack, []string, error) {
+	repo, err := cloneRoot()
+	if err != nil {
+		return site.Stack{}, nil, err
+	}
+	charts := make(map[string]string, len(cfg.Site.ChartOverrides))
+	for item, file := range cfg.Site.ChartOverrides {
+		charts[item] = inRepo(repo, file)
+	}
+	if chartErr := site.ValidateChartOverrides(charts); chartErr != nil {
+		return site.Stack{}, nil, fmt.Errorf("site.chartOverrides: %w", chartErr)
+	}
 	deployConfig, err := newDeployConfig()
 	if err != nil {
 		return site.Stack{}, nil, err
@@ -742,10 +753,6 @@ func newStack(cfg config.Config, arch string) (site.Stack, []string, error) {
 		return site.Stack{}, nil, err
 	}
 	controller := site.Image{Repository: cfg.Site.Images.Controller.Repository, Tag: version, Digest: cfg.Site.Images.Controller.Digest}
-	repo, err := cloneRoot()
-	if err != nil {
-		return site.Stack{}, nil, err
-	}
 	// The deploy path carries the controller's own chart, so it is exported
 	// from the commit that controller was built from rather than from whatever
 	// is checked out.
@@ -769,10 +776,6 @@ func newStack(cfg config.Config, arch string) (site.Stack, []string, error) {
 	}
 	images := cfg.Site.Images
 	profiles := site.Image{Repository: images.Profiles.Repository, Tag: images.Profiles.Tag, Digest: images.Profiles.Digest}
-	charts := make(map[string]string, len(cfg.Site.ChartOverrides))
-	for item, file := range cfg.Site.ChartOverrides {
-		charts[item] = inRepo(repo, file)
-	}
 	user, token := os.Getenv(envRegistryUser), os.Getenv(envRegistryToken)
 	if user == "" || token == "" {
 		return site.Stack{}, nil, fmt.Errorf("%s and %s are required for the node to pull CAPNICo from %s", envRegistryUser, envRegistryToken, siteCAPNICoRegistry)
@@ -867,6 +870,34 @@ func randomHex(n int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// TestNewStackRejectsInvalidChartsBeforeOtherInputs ensures invalid staged
+// charts fail before credentials, deployment-source export, or provisioning.
+func TestNewStackRejectsInvalidChartsBeforeOtherInputs(t *testing.T) {
+	dir := t.TempDir()
+	empty := filepath.Join(dir, "empty.tgz")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(envForgeAPIKey, "")
+	for _, tc := range []struct{ name, item, file string }{
+		{"missing", "controller", filepath.Join(dir, "absent.tgz")},
+		{"relative missing", "controller", "controller/test/e2e/absent-chart.tgz"},
+		{"directory", "controller", dir},
+		{"empty file", "controller", empty},
+		{"unknown item", "unexpected", empty},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.Config{}
+			cfg.Site.ChartOverrides = map[string]string{tc.item: tc.file}
+			cfg.Site.DeployPathRef = "unresolvable-source-ref"
+			_, _, err := newStack(cfg, "amd64")
+			if err == nil || !strings.Contains(err.Error(), "site.chartOverrides:") {
+				t.Fatalf("newStack = %v, want chart preflight failure before other inputs", err)
+			}
+		})
+	}
 }
 
 func TestSiteSpecImageReferences(t *testing.T) {

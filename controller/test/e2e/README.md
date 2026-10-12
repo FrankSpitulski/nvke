@@ -558,6 +558,8 @@ and capi-provisioned still reject a `tag` key in the config. A profiles
 digest suppresses that default tag. The version flags remain required for the
 Forge lane: they still supply version expectations and the other component
 inputs. Supplying a digest does not change what version CWE is expected to report.
+Nonempty digests must use a supported OCI digest algorithm and its exact lowercase
+hex encoding; malformed or unsupported values fail configuration loading.
 
 `chartOverrides` is optional. Its supported keys are `controller`, `postgresql`,
 `temporal`, `spire`, `spire-crds`, and `nktp`; each supplied path names a nonempty
@@ -565,6 +567,9 @@ packaged chart file on the runner. These packages are staged onto the node and
 passed through the deploy script's existing `--chart-override` option. Omitted
 keys retain the deploy path's existing chart selection. Relative chart and
 archive paths resolve against the clone the suite runs from; `~` is expanded.
+Full-stage preflight checks chart keys and resolved paths before provisioning.
+Deployment repeats these checks for direct stack callers. Provision and bootstrap
+stages do not consume chart overrides.
 
 The deploy scripts, overlays, and other assets are still exported from a
 controller source ref in that clone. If the controller version flag is not a
