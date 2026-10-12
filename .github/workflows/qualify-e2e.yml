@@ -488,9 +488,7 @@ jobs:
       # e2e-config-example.yaml documents even though the prefix differs.
       SITE_INPUTS: ${{ github.workspace }}/.site-inputs
       # Read only to mask it below, before any step can print it -- this job
-      # never dials it. A repository variable rather than a secret, which is
-      # its own finding (NKX-17923): nothing here grants reach to it, FORGE_
-      # credentials in qualify-run do.
+      # never dials it.
       FORGE_YTL_JUMP_HOST: ${{ vars.FORGE_YTL_JUMP_HOST }}
     steps:
       - name: Checkout
@@ -824,7 +822,7 @@ jobs:
   # Gated behind the forge environment, except on a dry run: a dry run joins
   # no Teleport and takes no machine, so it has nothing here for a reviewer to
   # approve, and the environment: expression below resolves to '' for one,
-  # which carries no protection rules. See NKX-17923.
+  # which carries no protection rules.
   qualify-run:
     name: ${{ matrix.stream }}${{ needs.plan.outputs.dry-run == 'true' && ' (dry run)' || '' }}
     needs: [plan, qualify-validate]
@@ -833,11 +831,9 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: arc-amd64-cpu16
-    # The true branch has to be the non-empty string: `cond && '' || 'forge'`
-    # would give the gated name back on a dry run, because '' is falsy and
-    # falls through the ||, the same way an empty stream-json field did in
-    # #1336. `!cond && ''` makes the empty branch's own condition explicit
-    # instead of relying on it being what is left over.
+    # The non-empty string has to be the true branch: `cond && '' || 'forge'`
+    # gives 'forge' back on a dry run, because '' is falsy and falls through
+    # the ||.
     environment: ${{ (needs.plan.outputs.dry-run != 'true' && 'forge') || (needs.plan.outputs.dry-run == 'true' && '') || '' }}
     timeout-minutes: 235
     permissions:
@@ -905,10 +901,9 @@ jobs:
       # log header, and only a secret is masked there. A variable masked by a
       # step is still in the clear in every header before that step.
       #
-      # An environment secret, scoped to forge: this job is the only place
-      # these four resolve to anything, which is NKX-17923's acceptance
-      # criterion. A dry run never reads past the environment: '' above, so it
-      # never resolves them either, same as qualify-validate never does.
+      # Scoped to the forge environment, so this job is the only place it
+      # resolves to anything; qualify-validate and a dry run both read it as
+      # empty.
       FORGE_JUMP_HOST: ${{ secrets.FORGE_JUMP_HOST }}
       # The tbot join token. Names a Teleport resource rather than granting
       # anything on its own -- joining also requires this repository's OIDC
