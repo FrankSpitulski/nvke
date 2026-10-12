@@ -872,9 +872,21 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+// siteCheckoutForTest supplies the Git root these input checks need even when
+// the compiled test binary runs outside the source checkout, as it does in CI.
+func siteCheckoutForTest(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	if output, err := exec.CommandContext(t.Context(), "git", "init", "--quiet", repo).CombinedOutput(); err != nil {
+		t.Fatalf("initialize test checkout: %v\n%s", err, output)
+	}
+	return repo
+}
+
 // TestNewStackRejectsInvalidChartsBeforeOtherInputs ensures invalid staged
 // charts fail before credentials, deployment-source export, or provisioning.
 func TestNewStackRejectsInvalidChartsBeforeOtherInputs(t *testing.T) {
+	t.Chdir(siteCheckoutForTest(t))
 	dir := t.TempDir()
 	empty := filepath.Join(dir, "empty.tgz")
 	if err := os.WriteFile(empty, nil, 0o600); err != nil {
@@ -900,7 +912,10 @@ func TestNewStackRejectsInvalidChartsBeforeOtherInputs(t *testing.T) {
 	}
 }
 
+// TestSiteSpecImageReferences preserves legacy tags and forwards explicit
+// digests into bootstrap inputs independently of the test runner's checkout.
 func TestSiteSpecImageReferences(t *testing.T) {
+	t.Chdir(siteCheckoutForTest(t))
 	saved, savedErr := runSelection()
 	t.Cleanup(func() { selectionValue, errSelection = saved, savedErr })
 	errSelection = nil
