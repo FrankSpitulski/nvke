@@ -159,6 +159,111 @@ func find(t *testing.T, docs []map[string]any, kind, name string) map[string]any
 	return nil
 }
 
+// TestStackImageReferencesAgainstPackagedChart exercises the real installer
+// and controller chart without downloading or rendering dependency charts.
+func TestStackImageReferencesAgainstPackagedChart(t *testing.T) {
+	assets := deployPath(t)
+	name, err := controllerNameFromDeployPath(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(controller.EnvNamespace, name)
+	t.Setenv(controller.EnvService, name)
+	packages := t.TempDir()
+	if _, packageErr := runTool(t, "helm", "package", filepath.Join(assets, "controller", "deploy", "charts", "controller"),
+		"--destination", packages, "--version", "9.8.7", "--app-version", "9.8.7"); packageErr != nil {
+		t.Fatal(packageErr)
+	}
+	packagedChart := filepath.Join(packages, "nke-controller-9.8.7.tgz")
+	overlay, err := os.ReadFile(filepath.Join(assets, "deploy", "nico", "spire", "overlay.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	controllerDigest := "sha256:" + strings.Repeat("a", 64)
+	profilesDigest := "sha256:" + strings.Repeat("b", 64)
+	for _, tc := range []struct {
+		name, controllerDigest, profilesDigest string
+	}{
+		{name: "legacy tags"},
+		{name: "explicit digests", controllerDigest: controllerDigest, profilesDigest: profilesDigest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := testSBOM().withDefaults()
+			d.DatabasePassword = databasePassword
+			d.Controller.Digest, d.Profiles.Digest = tc.controllerDigest, tc.profilesDigest
+			files, err := d.render(sbomTarget, overlay)
+			if err != nil {
+				t.Fatal(err)
+			}
+			values := t.TempDir()
+			for file, data := range files {
+				if writeErr := os.WriteFile(filepath.Join(values, file), data, 0o600); writeErr != nil {
+					t.Fatal(writeErr)
+				}
+			}
+			args := make([]string, 0, 11)
+			args = append(args,
+				filepath.Join(assets, "deploy", "nvke-deploy.sh"), "install",
+				"--deploy-path", filepath.Join(assets, "deploy", "nico"),
+				"--config", filepath.Join(values, "bootstrap-config.json"),
+				"--values-for", "controller="+filepath.Join(values, "controller.yaml"), "--dry-run",
+			)
+			baseline, err := runTool(t, "bash", args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ordinary := helmInstalls(t, baseline)
+			args = append(args, "--chart-override", "controller="+packagedChart)
+			withOverride, err := runTool(t, "bash", args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			overridden := helmInstalls(t, withOverride)
+			if len(ordinary) != 6 || len(overridden) != len(ordinary) {
+				t.Fatalf("installer chart count changed: ordinary=%d, overridden=%d", len(ordinary), len(overridden))
+			}
+			for release, install := range ordinary {
+				if release != name && overridden[release] != install {
+					t.Errorf("controller override changed %s install: %q -> %q", release, install, overridden[release])
+				}
+			}
+			if !strings.Contains(overridden[name], " "+packagedChart+" ") {
+				t.Fatalf("installer did not select packaged controller chart: %s", overridden[name])
+			}
+			for _, chart := range []struct {
+				name, install, appVersion string
+			}{
+				{"checkout chart", ordinary[name], "0.0.0"},
+				{"packaged chart", overridden[name], "9.8.7"},
+			} {
+				t.Run(chart.name, func(t *testing.T) {
+					manifest, err := helmTemplate(t, chart.install)
+					if err != nil {
+						t.Fatal(err)
+					}
+					deployment := find(t, documents(t, manifest), "Deployment", name)
+					containers := dig(t, deployment, "spec", "template", "spec", "containers").([]any)
+					initContainers := dig(t, deployment, "spec", "template", "spec", "initContainers").([]any)
+					wantController := d.Controller.Repository + ":" + d.Controller.Tag
+					wantProfiles := d.Profiles.Repository + ":" + d.Profiles.Tag
+					if tc.controllerDigest != "" {
+						// The controller chart retains an informational appVersion
+						// tag while the digest selects the container content.
+						wantController = d.Controller.Repository + ":" + chart.appVersion + "@" + tc.controllerDigest
+						wantProfiles = d.Profiles.Repository + "@" + tc.profilesDigest
+					}
+					if got := containers[0].(map[string]any)["image"]; got != wantController {
+						t.Errorf("controller image = %v, want %s", got, wantController)
+					}
+					if got := initContainers[0].(map[string]any)["image"]; got != wantProfiles {
+						t.Errorf("profiles image = %v, want %s", got, wantProfiles)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestSBOMAgainstDeployPath(t *testing.T) {
 	assets := deployPath(t)
 	// This renders the deploy path in the checkout, so it asserts the name

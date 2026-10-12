@@ -4,6 +4,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,11 @@ func TestLoadAcceptsShippedConfigs(t *testing.T) {
 // heredoc in the workflow rather than from this struct, so nothing but a test
 // keeps the two in step.
 func TestLoadAcceptsTheGeneratedSiteConfig(t *testing.T) {
-	doc := `site:
+	doc := `node:
+  user: ubuntu
+nvkectl:
+  binary: /w/.site-inputs/nvkectl/nvkectl-linux-amd64
+site:
   images:
     controller:
       repository: nvcr.io/example-org/nvke-controller
@@ -48,8 +53,24 @@ func TestLoadAcceptsTheGeneratedSiteConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the config the workflow writes no longer loads: %v", err)
 	}
-	if got := cfg.Site.Images.CAPIProvisioned.Repository; got != "nvcr.io/example-org/cluster-api-provider-provisioned" {
-		t.Errorf("capi-provisioned repository = %q, want the one written", got)
+	for _, image := range []struct {
+		name string
+		got  SiteImage
+		want SiteImage
+	}{
+		{"controller", cfg.Site.Images.Controller, SiteImage{Repository: "nvcr.io/example-org/nvke-controller", Archive: "/w/.site-inputs/controller.tar"}},
+		{"capi-provisioned", cfg.Site.Images.CAPIProvisioned, SiteImage{Repository: "nvcr.io/example-org/cluster-api-provider-provisioned", Archive: "/w/.site-inputs/capi-provisioned.tar"}},
+		{"profiles", cfg.Site.Images.Profiles, SiteImage{Repository: "nke-e2e-profiles", Tag: "local", Archive: "/w/.site-inputs/profiles.tar"}},
+	} {
+		if image.got != image.want {
+			t.Errorf("%s = %+v, want %+v", image.name, image.got, image.want)
+		}
+	}
+	if cfg.Site.ChartOverrides != nil || cfg.Site.DeployPathRef != "" {
+		t.Errorf("legacy config acquired deploy overrides: %+v", cfg.Site)
+	}
+	if cfg.Node.User != "ubuntu" || cfg.Nvkectl.Binary != "/w/.site-inputs/nvkectl/nvkectl-linux-amd64" {
+		t.Errorf("workflow node/CLI inputs changed: node=%+v nvkectl=%+v", cfg.Node, cfg.Nvkectl)
 	}
 }
 
@@ -90,12 +111,39 @@ func TestRunnerTakesTheTeleportIdentityFile(t *testing.T) {
 }
 
 func TestDefaultsNeedNoSiteBlock(t *testing.T) {
-	cfg, err := Load(filepath.Join(t.TempDir(), "absent.yaml"))
-	if err != nil {
-		t.Fatalf("defaults do not validate: %v", err)
-	}
-	if got := cfg.Site.Images.Profiles.Archive; got != DefaultSiteInputs+"/profiles.tar" {
-		t.Errorf("profiles archive = %q, want the site-inputs default", got)
+	for _, tc := range []struct {
+		name, doc string
+		missing   bool
+	}{
+		{"missing config", "", true},
+		{"empty config", "", false},
+		{"empty site", "site: {}\n", false},
+		{"unrelated settings", "kube:\n  context: local\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "absent.yaml")
+			if !tc.missing {
+				p = write(t, tc.doc)
+			}
+			cfg, err := Load(p)
+			if err != nil {
+				t.Fatalf("defaults do not validate: %v", err)
+			}
+			want := SiteImages{
+				Controller:      SiteImage{Repository: "ghcr.io/dsx-ai-factory/nvke/nke-controller", Archive: DefaultSiteInputs + "/controller.tar"},
+				CAPIProvisioned: SiteImage{Repository: "ghcr.io/dsx-ai-factory/nvke/cluster-api-provider-provisioned", Archive: DefaultSiteInputs + "/capi-provisioned.tar"},
+				Profiles:        SiteImage{Repository: "nke-e2e-profiles", Tag: "local", Archive: DefaultSiteInputs + "/profiles.tar"},
+			}
+			if cfg.Site.Images != want {
+				t.Errorf("default images = %+v, want %+v", cfg.Site.Images, want)
+			}
+			if cfg.Site.ChartOverrides != nil || cfg.Site.DeployPathRef != "" || cfg.Nvkectl.Binary != "" {
+				t.Errorf("legacy defaults acquired overrides: site=%+v nvkectl=%+v", cfg.Site, cfg.Nvkectl)
+			}
+			if cfg.Cluster.CAPDNodeImage != "cwe-capd-kindest-node:local" {
+				t.Errorf("default CAPD image = %q", cfg.Cluster.CAPDNodeImage)
+			}
+		})
 	}
 }
 
@@ -112,6 +160,34 @@ func TestImagesValidate(t *testing.T) {
 				t.Errorf("Load = %v, want an error naming %s", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadStagedArtifactReferences(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	doc := fmt.Sprintf(`site:
+  chartOverrides:
+    controller: /staged/controller.tgz
+  images:
+    controller:
+      digest: %s
+    capi-provisioned:
+      digest: %s
+    profiles:
+      digest: %s
+`, digest, digest, digest)
+	cfg, err := Load(write(t, doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Site.ChartOverrides["controller"] != "/staged/controller.tgz" {
+		t.Fatalf("chart override lost: %v", cfg.Site.ChartOverrides)
+	}
+	if cfg.Site.Images.Controller.Digest != digest || cfg.Site.Images.CAPIProvisioned.Digest != digest || cfg.Site.Images.Profiles.Digest != digest {
+		t.Fatal("image digest was dropped")
+	}
+	if cfg.Site.Images.Profiles.Tag != "" {
+		t.Fatal("a staged digest acquired a default profiles tag")
 	}
 }
 

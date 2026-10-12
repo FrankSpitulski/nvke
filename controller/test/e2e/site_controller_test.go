@@ -678,8 +678,8 @@ func siteSpec(cfg config.Config, name string) (site.Spec, error) {
 		return site.Spec{}, err
 	}
 	images := cfg.Site.Images
-	controller := site.Image{Repository: images.Controller.Repository, Tag: versions[versionController]}
-	provisioned := site.Image{Repository: images.CAPIProvisioned.Repository, Tag: versions[versionCAPIProvisioned]}
+	controller := site.Image{Repository: images.Controller.Repository, Tag: versions[versionController], Digest: images.Controller.Digest}
+	provisioned := site.Image{Repository: images.CAPIProvisioned.Repository, Tag: versions[versionCAPIProvisioned], Digest: images.CAPIProvisioned.Digest}
 
 	return site.Spec{
 		Name: name,
@@ -741,7 +741,7 @@ func newStack(cfg config.Config, arch string) (site.Stack, []string, error) {
 	if err != nil {
 		return site.Stack{}, nil, err
 	}
-	controller := site.Image{Repository: cfg.Site.Images.Controller.Repository, Tag: version}
+	controller := site.Image{Repository: cfg.Site.Images.Controller.Repository, Tag: version, Digest: cfg.Site.Images.Controller.Digest}
 	repo, err := cloneRoot()
 	if err != nil {
 		return site.Stack{}, nil, err
@@ -768,7 +768,11 @@ func newStack(cfg config.Config, arch string) (site.Stack, []string, error) {
 		return site.Stack{}, nil, nameErr
 	}
 	images := cfg.Site.Images
-	profiles := site.Image{Repository: images.Profiles.Repository, Tag: images.Profiles.Tag}
+	profiles := site.Image{Repository: images.Profiles.Repository, Tag: images.Profiles.Tag, Digest: images.Profiles.Digest}
+	charts := make(map[string]string, len(cfg.Site.ChartOverrides))
+	for item, file := range cfg.Site.ChartOverrides {
+		charts[item] = inRepo(repo, file)
+	}
 	user, token := os.Getenv(envRegistryUser), os.Getenv(envRegistryToken)
 	if user == "" || token == "" {
 		return site.Stack{}, nil, fmt.Errorf("%s and %s are required for the node to pull CAPNICo from %s", envRegistryUser, envRegistryToken, siteCAPNICoRegistry)
@@ -784,12 +788,13 @@ func newStack(cfg config.Config, arch string) (site.Stack, []string, error) {
 	unameArch := map[string]string{"amd64": "x86_64", "arm64": "arm64"}[arch]
 	GinkgoLogr.Info("deploying the stack", "controller", controller.Ref(), "profiles", profiles.Ref())
 	return site.Stack{
-		Assets:     assets,
-		AssetPaths: site.DeployAssetPaths(),
-		Controller: controller,
-		Profiles:   profiles,
-		Provider:   deployConfig,
-		Registry:   site.Registry{Server: siteCAPNICoRegistry, Username: user, Token: token},
+		Assets:         assets,
+		AssetPaths:     site.DeployAssetPaths(),
+		Controller:     controller,
+		Profiles:       profiles,
+		ChartOverrides: charts,
+		Provider:       deployConfig,
+		Registry:       site.Registry{Server: siteCAPNICoRegistry, Username: user, Token: token},
 		// The login baked into tenant nodes' user-data. Nothing outside the
 		// run needs it.
 		Tenant: site.Tenant{User: "nvke-tenant", Password: tenantPassword},
@@ -862,6 +867,41 @@ func randomHex(n int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+func TestSiteSpecImageReferences(t *testing.T) {
+	saved, savedErr := runSelection()
+	t.Cleanup(func() { selectionValue, errSelection = saved, savedErr })
+	errSelection = nil
+	selectionValue.Versions = map[string]string{
+		versionController: "v1.2.3", versionCAPIProvisioned: "v0.1.0", versionKube: "1.32.0",
+	}
+	controllerDigest := "sha256:" + strings.Repeat("a", 64)
+	providerDigest := "sha256:" + strings.Repeat("b", 64)
+	for _, tc := range []struct {
+		name, controllerDigest, providerDigest, wantController, wantProvider string
+	}{
+		{"legacy tags", "", "", "example/controller:v1.2.3", "example/provider:v0.1.0"},
+		{"explicit digests", controllerDigest, providerDigest, "example/controller@" + controllerDigest, "example/provider@" + providerDigest},
+		{"partial digest override", controllerDigest, "", "example/controller@" + controllerDigest, "example/provider:v0.1.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.Config{}
+			cfg.Site.Images.Controller = config.SiteImage{Repository: "example/controller", Digest: tc.controllerDigest, Archive: "/staged/controller.tar"}
+			cfg.Site.Images.CAPIProvisioned = config.SiteImage{Repository: "example/provider", Digest: tc.providerDigest, Archive: "/staged/provider.tar"}
+			cfg.Site.Images.Profiles = config.SiteImage{Repository: "example/profiles", Tag: "local", Archive: "/staged/profiles.tar"}
+			spec, err := siteSpec(cfg, "e2e-site")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if spec.ControllerImage != tc.wantController || spec.CAPIProvisionedImage != tc.wantProvider {
+				t.Fatalf("bootstrap references = %s, %s; want %s, %s", spec.ControllerImage, spec.CAPIProvisionedImage, tc.wantController, tc.wantProvider)
+			}
+			if spec.KubernetesVersion != "1.32.0" || strings.Join(spec.ImageArchives, ",") != "/staged/controller.tar,/staged/provider.tar,/staged/profiles.tar" {
+				t.Fatalf("bootstrap inputs changed: %+v", spec)
+			}
+		})
+	}
 }
 
 func TestDeployPathRefFollowsTheController(t *testing.T) {

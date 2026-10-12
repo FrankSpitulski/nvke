@@ -82,16 +82,32 @@ type envVar struct {
 	Value string `json:"value"`
 }
 
-// Image is a container image by repository and tag.
+// Image describes container content. A digest takes precedence over a tag;
+// authentication and archive integrity belong to the caller staging the input.
 type Image struct {
 	Repository string
 	Tag        string
+	Digest     string
 }
 
-func (i Image) valid() bool { return i.Repository != "" && i.Tag != "" }
+func (i Image) valid() bool { return i.Repository != "" && (i.Tag != "" || i.Digest != "") }
 
-// Ref is the image as repository:tag.
-func (i Image) Ref() string { return i.Repository + ":" + i.Tag }
+// Ref is the image as repository@digest, or repository:tag when no digest is supplied.
+func (i Image) Ref() string {
+	if i.Digest != "" {
+		return i.Repository + "@" + i.Digest
+	}
+	return i.Repository + ":" + i.Tag
+}
+
+func (i Image) values() map[string]any {
+	values := map[string]any{"repository": i.Repository, "tag": i.Tag}
+	if i.Digest != "" {
+		values["tag"] = ""
+		values["digest"] = i.Digest
+	}
+	return values
+}
 
 // CAPIProviderConfig is how the Cluster API infrastructure provider the stack
 // installs reaches the infrastructure it creates tenant machines on. That
@@ -183,6 +199,10 @@ type Stack struct {
 	Assets     string
 	AssetPaths []string
 
+	// ChartOverrides are packaged chart files on the runner, keyed by deploy item.
+	// These files are staged verbatim and bypass the installer's chart lookup.
+	ChartOverrides map[string]string
+
 	// Provider is how the installed Cluster API provider reaches its
 	// infrastructure. Required: a stack with no way to create machines
 	// deploys and then cannot do its job.
@@ -253,6 +273,15 @@ func (d Stack) Deploy(ctx context.Context, s infra.Session, t DeployTarget) erro
 
 	if err := d.stageAssets(ctx, s); err != nil {
 		return err
+	}
+	for _, item := range sortedKeys(d.ChartOverrides) {
+		data, err := os.ReadFile(d.ChartOverrides[item])
+		if err != nil {
+			return fmt.Errorf("read staged chart %s: %w", item, err)
+		}
+		if err := s.Put(ctx, stagedChart(item), data, 0o600); err != nil {
+			return fmt.Errorf("stage chart %s: %w", item, err)
+		}
 	}
 
 	overlay, err := s.Fetch(ctx, path.Join(assetsDir, d.DeployPath, releaseSpire, "overlay.yaml"))
@@ -382,10 +411,10 @@ func spireAdminPath() string { return "/nke-service/" + controllerName() }
 func (d Stack) validate() error {
 	var problems []string
 	if !d.Controller.valid() {
-		problems = append(problems, "controller image needs a repository and a tag")
+		problems = append(problems, "controller image needs a repository and a tag or digest")
 	}
 	if !d.Profiles.valid() {
-		problems = append(problems, "profiles image needs a repository and a tag")
+		problems = append(problems, "profiles image needs a repository and a tag or digest")
 	}
 	if d.Assets == "" {
 		problems = append(problems, "no assets")
@@ -395,6 +424,19 @@ func (d Stack) validate() error {
 	for _, rel := range d.AssetPaths {
 		if filepath.IsAbs(rel) || strings.HasPrefix(filepath.Clean(rel), "..") {
 			problems = append(problems, fmt.Sprintf("asset path %q is not inside the checkout", rel))
+		}
+	}
+	for _, item := range sortedKeys(d.ChartOverrides) {
+		switch item {
+		case releaseController, releasePostgreSQL, releaseTemporal, releaseSpire, "spire-crds", "nktp":
+		default:
+			problems = append(problems, fmt.Sprintf("unknown chart override %q", item))
+		}
+		info, err := os.Stat(d.ChartOverrides[item])
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("chart %s: %v", item, err))
+		} else if !info.Mode().IsRegular() || info.Size() == 0 {
+			problems = append(problems, fmt.Sprintf("chart %s must be a nonempty regular file", item))
 		}
 	}
 	if _, ok := tpmServerChecksum(d.Arch); !ok {
@@ -419,6 +461,8 @@ type step struct {
 	cmd  string
 }
 
+func stagedChart(item string) string { return path.Join(workDir, "charts", item+".tgz") }
+
 // commands are the install and what the deploy path's README says surrounds
 // it: untaint and clusterctl init and a default StorageClass before, the CAPI
 // SPIFFE patch after.
@@ -429,6 +473,10 @@ func (d Stack) commands(t DeployTarget, valuesDir string) []step {
 		return "--values-for " + shellQuote(release+"="+path.Join(valuesDir, valuesFile(release)))
 	}
 	defaultClass := `{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}`
+	var chartArgs string
+	for _, item := range sortedKeys(d.ChartOverrides) {
+		chartArgs += " --chart-override " + shellQuote(item+"="+stagedChart(item))
+	}
 	return []step{
 		{"untaint the control plane", env + "kubectl taint nodes --all node-role.kubernetes.io/control-plane- || true"},
 		{"clusterctl init", env + "clusterctl init --wait-providers"},
@@ -441,7 +489,7 @@ func (d Stack) commands(t DeployTarget, valuesDir string) []step {
 			" " + values(releaseSpire) +
 			" " + values(releasePostgreSQL) +
 			" " + values(releaseTemporal) +
-			" --kubeconfig " + kc},
+			" --kubeconfig " + kc + chartArgs},
 		{"CAPI SPIFFE exec auth", env + "bash " + shellQuote(path.Join(assetsDir, hackDir, "apply-capi-spiffe-exec-auth.sh"))},
 	}
 }
@@ -475,12 +523,12 @@ func (d Stack) render(t DeployTarget, spireOverlay []byte) (map[string][]byte, e
 
 	docs := map[string]any{
 		valuesFile(releaseController): map[string]any{
-			"image":       map[string]any{"repository": d.Controller.Repository, "tag": d.Controller.Tag},
+			"image":       d.Controller.values(),
 			"appDb":       map[string]any{"postgresPassword": d.DatabasePassword},
 			"nkeOIDCAuth": map[string]any{"discoveryURL": fmt.Sprintf("https://%s:%d/.well-known/openid-configuration", vip, oidcPort)},
 			"spiffe":      map[string]any{"trustDomain": t.TrustDomain, "spire": map[string]any{"serverAddress": vip}},
 			"nodeAgent":   map[string]any{"spireAttestationMethod": "tpm"},
-			"profiles":    map[string]any{"image": map[string]any{"repository": d.Profiles.Repository, "tag": d.Profiles.Tag}},
+			"profiles":    map[string]any{"image": d.Profiles.values()},
 			"env":         env,
 		},
 		valuesFile(releaseSpire): map[string]any{

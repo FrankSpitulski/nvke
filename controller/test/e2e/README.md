@@ -505,7 +505,7 @@ checks it reports that version. It needs `GITHUB_TOKEN` and `jq`:
 
 ```bash
 GITHUB_TOKEN=... gmake site-inputs SITE_CLI_BUILD=0 SITE_CLI_VERSION=v0.1.0 SITE_CONTROLLER_VERSION=...
-# and in e2e-config.yaml, site.nvkectl: <SITE_INPUTS>/nvkectl/nvkectl-linux-<arch>
+# and in e2e-config.yaml, nvkectl.binary: <SITE_INPUTS>/nvkectl/nvkectl-linux-<arch>
 # and on the suite, -e2e.versions=...,cli=<version>
 ```
 
@@ -521,6 +521,64 @@ controller's chart and overlay, so it follows `-e2e.versions=controller=`: that
 commit when the controller was built from one, else its `controller/<version>`
 release tag, which has to be fetched in a shallow clone. Set
 `site.deployPathRef` only when developing the deploy path itself.
+
+### Supplying prebuilt artifacts
+
+The `site-inputs` command and the tag-based configurations above keep their
+existing behavior. A caller that already has a compatible CLI, image archives,
+and packaged charts can instead point the same suite at those files:
+
+```yaml
+nvkectl:
+  binary: /staged/nvkectl-linux-amd64
+site:
+  deployPathRef: "<controller source commit>"
+  images:
+    controller:
+      repository: ghcr.io/example/controller
+      digest: "sha256:<manifest digest>"
+      archive: /staged/controller.tar
+    capi-provisioned:
+      repository: ghcr.io/example/capi-provisioned
+      digest: "sha256:<manifest digest>"
+      archive: /staged/capi-provisioned.tar
+    profiles:
+      repository: ghcr.io/example/profiles
+      digest: "sha256:<manifest digest>"
+      archive: /staged/profiles.tar
+  chartOverrides:
+    controller: /staged/controller.tgz
+```
+
+`digest` is optional and selects image content by digest. Bootstrap uses
+`repository@digest`; the controller chart may retain an informational tag before
+`@digest`. Omit it to retain the controller and capi-provisioned tags from
+`-e2e.versions` and the profiles tag from the config (default `local`). Controller
+and capi-provisioned still reject a `tag` key in the config. A profiles
+digest suppresses that default tag. The version flags remain required for the
+Forge lane: they still supply version expectations and the other component
+inputs. Supplying a digest does not change what version CWE is expected to report.
+
+`chartOverrides` is optional. Its supported keys are `controller`, `postgresql`,
+`temporal`, `spire`, `spire-crds`, and `nktp`; each supplied path names a nonempty
+packaged chart file on the runner. These packages are staged onto the node and
+passed through the deploy script's existing `--chart-override` option. Omitted
+keys retain the deploy path's existing chart selection. Relative chart and
+archive paths resolve against the clone the suite runs from; `~` is expanded.
+
+The deploy scripts, overlays, and other assets are still exported from a
+controller source ref in that clone. If the controller version flag is not a
+resolvable source commit or controller release tag, set `site.deployPathRef`
+explicitly to the controller source commit whose deployment assets are compatible
+with the staged components and the suite. A packaged chart does not replace
+those scripts or select a different test harness.
+
+The caller owns artifact authentication and must verify that the supplied files
+carry the selected image content and chart bytes, match the node architecture,
+and form a compatible CLI/controller/deployment pair before invoking the suite.
+This configuration supplies inputs; it does not verify signatures or release
+membership. Run the existing Go suite with the same stage, environment, and
+version flags shown above after staging those inputs.
 
 ### Reaching the jump host
 

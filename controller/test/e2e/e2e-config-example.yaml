@@ -56,18 +56,29 @@
 #   # deployed with, and the archive carrying it. Relative archive paths
 #   # resolve against the clone the suite runs from. The controller and
 #   # capi-provisioned tags are their -e2e.versions keys, so they take none
-#   # here.
+#   # here. Optional digest values select repository@digest instead; version
+#   # flags still supply the expected version and other component inputs.
 #   images:
 #     controller:
 #       repository: ghcr.io/dsx-ai-factory/nvke/nke-controller   # or nvcr.io/<org>/nvke-controller
+#       # digest: "sha256:<manifest digest>"  # caller verifies staged content
 #       archive: ~/.cache/nke-e2e/site/controller.tar
 #     capi-provisioned:
 #       repository: ghcr.io/dsx-ai-factory/nvke/cluster-api-provider-provisioned
+#       # digest: "sha256:<manifest digest>"
 #       archive: ~/.cache/nke-e2e/site/capi-provisioned.tar
 #     profiles:       # built from controller/test/fixtures, published nowhere
 #       repository: nke-e2e-profiles
-#       tag: local
+#       tag: local   # omit when supplying a digest
+#       # digest: "sha256:<manifest digest>"  # suppresses the default local tag
 #       archive: ~/.cache/nke-e2e/site/profiles.tar
+#   # Optional packaged charts on the runner, verified by the caller. Omitted
+#   # keys retain deployment defaults. The supported keys are controller,
+#   # postgresql, temporal, spire, spire-crds, and nktp. Relative paths resolve
+#   # against this clone. Deployment scripts and overlays still come from
+#   # deployPathRef; choose controller source compatible with the components.
+#   # chartOverrides:
+#   #   controller: /staged/controller.tgz
 
 # What the machine running the suite supplies, rather than anything about the
 # site it reaches — which is why this is not under `site`.

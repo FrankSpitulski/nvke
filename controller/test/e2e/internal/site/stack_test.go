@@ -4,6 +4,7 @@
 package site
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -109,6 +110,15 @@ func TestSBOMRender(t *testing.T) {
 	}
 
 	controllerValues := decode(t, files["controller.yaml"])
+	for _, keys := range [][]string{{"image"}, {"profiles", "image"}} {
+		image, ok := dig(t, controllerValues, keys...).(map[string]any)
+		if !ok {
+			t.Fatalf("%v is not an image map", keys)
+		}
+		if _, exists := image["digest"]; exists {
+			t.Errorf("legacy %v overlay acquired a digest override", keys)
+		}
+	}
 	for keys, want := range map[string]string{
 		"image.repository":                 "nvcr.io/nvke/cwe",
 		"image.tag":                        "v1.2.3",
@@ -242,6 +252,14 @@ func TestSBOMDeploy(t *testing.T) {
 		t.Errorf("last command should remove the values directory, got %s", final)
 	}
 	install := s.cmd(t, "nvke-deploy.sh")
+	if strings.Contains(install, "--chart-override") {
+		t.Errorf("legacy install acquired a chart override: %s", install)
+	}
+	for staged := range s.puts {
+		if strings.HasPrefix(staged, path.Join(workDir, "charts")+"/") {
+			t.Errorf("legacy install staged an unrequested chart: %s", staged)
+		}
+	}
 	for _, want := range []string{
 		"--deploy-path /var/lib/nke-e2e/assets/deploy/nico",
 		"--config",
@@ -300,6 +318,67 @@ func TestStackValidation(t *testing.T) {
 				t.Error("touched the node before validating")
 			}
 		})
+	}
+}
+
+func TestStagedChartOverrides(t *testing.T) {
+	d := testSBOM()
+	chart := filepath.Join(t.TempDir(), "controller.tgz")
+	data := []byte("packaged chart payload")
+	if err := os.WriteFile(chart, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.ChartOverrides = map[string]string{"controller": chart}
+	s := sbomSession()
+	if err := d.Deploy(context.Background(), s, sbomTarget); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.puts[stagedChart("controller")]; !bytes.Equal(got.data, data) || got.mode != 0o600 {
+		t.Fatalf("staged chart = %+v, want exact payload with mode 0600", got)
+	}
+	want := "controller=" + stagedChart("controller")
+	commands := strings.Join(s.runs, "\n")
+	if !strings.Contains(commands, "--chart-override") || !strings.Contains(commands, want) {
+		t.Fatalf("installer did not receive chart override %s", want)
+	}
+	for _, tc := range []struct{ name, item, file string }{
+		{"unknown item", "unexpected", chart},
+		{"absent chart", "controller", chart + ".absent"},
+		{"directory", "controller", filepath.Dir(chart)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d.ChartOverrides = map[string]string{tc.item: tc.file}
+			s := sbomSession()
+			if err := d.Deploy(context.Background(), s, sbomTarget); err == nil {
+				t.Fatal("invalid chart override was accepted")
+			}
+			if len(s.runs) != 0 || len(s.puts) != 0 {
+				t.Fatal("invalid chart touched the node")
+			}
+		})
+	}
+}
+
+func TestImageDigestOverridesTag(t *testing.T) {
+	d := testSBOM()
+	digest := "sha256:" + strings.Repeat("a", 64)
+	d.Controller.Digest = digest
+	d.Profiles.Digest = digest
+	files, err := d.render(sbomTarget, []byte(spireOverlay))
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := decode(t, files[valuesFile(releaseController)])
+	for _, keys := range [][]string{{"image"}, {"profiles", "image"}} {
+		if got := dig(t, values, append(keys, "digest")...); got != digest {
+			t.Errorf("%v digest = %v, want %s", keys, got, digest)
+		}
+		if got := dig(t, values, append(keys, "tag")...); got != "" {
+			t.Errorf("%v tag = %v, want empty to avoid tag fallback", keys, got)
+		}
+	}
+	if got := d.Controller.Ref(); got != d.Controller.Repository+"@"+digest {
+		t.Errorf("Ref = %s, want digest reference", got)
 	}
 }
 

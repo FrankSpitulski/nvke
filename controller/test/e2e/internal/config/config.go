@@ -89,8 +89,12 @@ type Site struct {
 	// follows the controller version: the commit itself when the controller
 	// was built from one, else its controller/<version> release tag. The
 	// deploy path carries the controller's own chart, so the two have to
-	// agree; override only when developing the deploy path itself.
+	// agree; override when supplying compatible deployment assets explicitly.
 	DeployPathRef string `json:"deployPathRef"`
+
+	// ChartOverrides maps deploy items to already packaged charts on the runner.
+	// The caller owns artifact verification before invoking the suite.
+	ChartOverrides map[string]string `json:"chartOverrides"`
 
 	// Images are the site's images and the archives staged into the node's
 	// containerd, which is the cluster's, so they resolve with IfNotPresent
@@ -103,19 +107,22 @@ type Site struct {
 // together so nothing can list an archive without the reference it carries.
 type SiteImages struct {
 	// Controller's tag is the controller version under qualification, so it
-	// takes none here.
+	// takes none here. An optional digest selects content independently.
 	Controller SiteImage `json:"controller"`
 	// CAPIProvisioned's tag is the capi-provisioned -e2e.versions key.
 	CAPIProvisioned SiteImage `json:"capi-provisioned"`
-	// Profiles is built from controller/test/fixtures and published nowhere,
-	// so it has no version key and its tag is here.
+	// Profiles defaults to the local controller/test/fixtures image, so it has
+	// no version key. Its tag or optional digest is configured here.
 	Profiles SiteImage `json:"profiles"`
 }
 
-// SiteImage is an image by repository, and the docker save archive of it.
+// SiteImage is an image by repository, and its container image archive.
 type SiteImage struct {
 	Repository string `json:"repository"`
 	Tag        string `json:"tag"`
+	// Digest selects registry content independently of the version expectation.
+	// The caller authenticates it and verifies Archive before invoking the suite.
+	Digest string `json:"digest"`
 	// Archive is a runner path; a relative one resolves against the clone
 	// the suite runs from.
 	Archive string `json:"archive"`
@@ -142,8 +149,8 @@ func (i SiteImages) validate() error {
 			problems = append(problems, image.name+" needs a repository and an archive")
 		}
 		switch {
-		case image.tag && image.image.Tag == "":
-			problems = append(problems, image.name+" needs a tag")
+		case image.tag && image.image.Tag == "" && image.image.Digest == "":
+			problems = append(problems, image.name+" needs a tag or digest")
 		case !image.tag && image.image.Tag != "":
 			problems = append(problems, fmt.Sprintf("%s takes its tag from -e2e.versions=%s=, not from a tag here", image.name, image.name))
 		}
@@ -196,7 +203,9 @@ func (c *Config) applyDefaults() {
 	setDefault(&images.CAPIProvisioned.Repository, "ghcr.io/dsx-ai-factory/nvke/cluster-api-provider-provisioned")
 	setDefault(&images.CAPIProvisioned.Archive, DefaultSiteInputs+"/capi-provisioned.tar")
 	setDefault(&images.Profiles.Repository, "nke-e2e-profiles")
-	setDefault(&images.Profiles.Tag, "local")
+	if images.Profiles.Digest == "" {
+		setDefault(&images.Profiles.Tag, "local")
+	}
 	setDefault(&images.Profiles.Archive, DefaultSiteInputs+"/profiles.tar")
 }
 
