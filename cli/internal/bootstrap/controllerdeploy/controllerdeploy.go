@@ -888,7 +888,7 @@ func tpmAttestorArgs(cfg Config, prefix string) []string {
 		return nil
 	}
 	args := []string{"--set", prefix + ".nodeAttestor.tpmDirect.enabled=true"}
-	if checksum := tpmPluginChecksum(runtime.GOARCH); checksum != "" {
+	if checksum := SpireTPMDirectChecksum(runtime.GOARCH); checksum != "" {
 		args = append(args, "--set-string", prefix+".nodeAttestor.tpmDirect.checksum="+checksum)
 	}
 	for i, fingerprint := range cfg.TPMEKFingerprints {
@@ -898,7 +898,10 @@ func tpmAttestorArgs(cfg Config, prefix string) []string {
 	return args
 }
 
-func tpmPluginChecksum(goarch string) string {
+// SpireTPMDirectChecksum returns the sha256 of the TPM attestor server plugin
+// for goarch, amd64 or arm64, or "" for any other. A wrong value crash-loops
+// spire-server, so every installer takes it from here.
+func SpireTPMDirectChecksum(goarch string) string {
 	switch goarch {
 	case "amd64":
 		return spireTPMDirectAMD64Checksum

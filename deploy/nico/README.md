@@ -35,6 +35,25 @@ What the node needs, all present on the reference instance type:
 
 - `helm`, `kubectl`, `git`, `python3` (the executor's item parser and template
   renderer are Python), plus `clusterctl` for the prerequisites
+- to render the site's values first: `nvkectl` (`make -C cli build` writes
+  `cli/bin/nvkectl`). `nvkectl render deploy-path --deploy-path deploy/nico
+  --sitespec sitespec.yaml --out DIR`, with `DIR` under a directory only you
+  can read such as `~/.local/state/nvke/renders/<site>` (a shared temp
+  directory is refused), writes a copy of this deploy path for
+  the site the spec's `controllerStack` section describes: the controller,
+  SPIRE, PostgreSQL and Temporal items get a `site-values.yaml` (database
+  password, OIDC discovery URL, SPIRE server address and identity, the
+  controller's admin ID, the TPM attestor checksum, the bootstrap CA as a
+  file reference read at install time), the
+  template items are rendered and become manifests, and `site.env` names the
+  site. Tokens and passwords are read from the files the spec names and
+  written into `DIR`, so it is created `0700` and is for one install. The
+  command ends by naming the files under `DIR` that hold a credential;
+  delete `DIR` after the install. `DIR` gets a `.gitignore` that ignores
+  everything, so a repository does not pick it up by accident. Then
+  install `DIR` with this script; it needs no `--config`. This deploy path
+  enables the profiles content image without naming it, so the spec sets
+  `controllerStack.images.profiles`
 - a checkout laid out so that `deploy/` and `controller/` are siblings --
   `controller/release.yaml` reaches its chart as
   `../../controller/deploy/charts/controller`
