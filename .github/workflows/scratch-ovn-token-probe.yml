@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Scratch: probes whether NKE_INTERNAL_RO_TOKEN can read the ovn-kubernetes fork. Delete after.
+# Scratch: probes whether OVN_KUBERNETES_RO_TOKEN can read the ovn-kubernetes fork. Delete after.
 name: scratch-ovn-token-probe
 on:
   push:
@@ -12,7 +12,7 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     env:
-      T: ${{ secrets.NKE_INTERNAL_RO_TOKEN }}
+      T: ${{ secrets.OVN_KUBERNETES_RO_TOKEN }}
     steps:
       - name: probe
         run: |
