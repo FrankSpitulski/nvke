@@ -80,6 +80,23 @@ kubectl_run() {
   fi
 }
 
+# helm_install retries helm upgrade --install up to 3 times when the chart download gets a 5xx.
+helm_install() {
+  local attempt err rc
+  err="$(mktemp)"
+  for attempt in 1 2 3; do
+    rc=0
+    run helm upgrade --install "$@" 2>"${err}" || rc=$?
+    cat "${err}" >&2
+    if (( rc == 0 || attempt == 3 )) || ! grep -qE 'failed to fetch .*: 5[0-9][0-9]([^0-9]|$)' "${err}"; then
+      rm -f "${err}"
+      return "${rc}"
+    fi
+    log "chart download got a server error; retrying (attempt $((attempt + 1)) of 3)"
+    sleep 5
+  done
+}
+
 # apply_manifest_item applies every .yaml in the item directory, lexicographically.
 # The generator names them 00-, 10-, 40- precisely so that order is the intended
 # one: namespaces exist before anything lands in them.
@@ -225,7 +242,7 @@ not publish needs."
   done < <(values_for "${item}")
 
   log "item ${item} -> release ${release} (${chart_name} ${version}) in ${namespace}"
-  run helm upgrade --install "${release}" "${ref[@]}" \
+  helm_install "${release}" "${ref[@]}" \
     ${KUBECONFIG_PATH:+--kubeconfig "${KUBECONFIG_PATH}"} \
     --namespace "${namespace}" \
     --wait --timeout "${PHASE_TIMEOUT}" \
