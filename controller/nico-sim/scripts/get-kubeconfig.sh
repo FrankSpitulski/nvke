@@ -31,9 +31,10 @@
 set -euo pipefail
 
 # ── defaults ─────────────────────────────────────────────────────────
-# Default diagnostic user/password injected into all VMs by nico-vms.
-DIAG_SSH_USER="nico-diag"
-DIAG_SSH_PASSWORD="nico-diag"
+# Default diagnostic user/password injected into all VMs by nico-vms; the same
+# variables nico-vms reads override them.
+DIAG_SSH_USER="${NICO_VMS_DIAG_SSH_USER:-nico-diag}"
+DIAG_SSH_PASSWORD="${NICO_VMS_DIAG_SSH_PASSWORD:-nico-diag}"
 
 # CWE_API is a deprecated alias for NKE_CONTROLLER_API_URL; #1399 removes it.
 NKE_CONTROLLER_API_URL="${NKE_CONTROLLER_API_URL:-${CWE_API:-http://localhost:8080/api}}"

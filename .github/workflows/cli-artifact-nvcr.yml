@@ -88,12 +88,12 @@ jobs:
             org_var: NVKE_NGC_ORG
             # The new secret first, the existing one until it is created; an
             # unset secret reads as empty, so || falls through.
-            token_secret_var_name: NGC_REGISTRY_TOKEN_NVKE
-            token_secret_fallback_var_name: NGC_REGISTRY_TOKEN_NKE
+            token_secret_var_name: "NGC_REGISTRY_TOKEN_NVKE"
+            token_secret_fallback_var_name: "NGC_REGISTRY_TOKEN_NKE"
           - destination: dsx
             org_var: DSX_NGC_ORG_TEAM
-            token_secret_var_name: NGC_REGISTRY_TOKEN_DSX
-            token_secret_fallback_var_name: NGC_REGISTRY_TOKEN_DSX
+            token_secret_var_name: "NGC_REGISTRY_TOKEN_DSX"
+            token_secret_fallback_var_name: "NGC_REGISTRY_TOKEN_DSX"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -82,13 +82,13 @@ jobs:
             # Looked up by name: the new secret first, the existing one until
             # NGC_REGISTRY_TOKEN_NVKE is created. An unset secret reads as empty,
             # so || falls through to the fallback.
-            token_secret_var_name: NGC_REGISTRY_TOKEN_NVKE
-            token_secret_fallback_var_name: NGC_REGISTRY_TOKEN_NKE
+            token_secret_var_name: "NGC_REGISTRY_TOKEN_NVKE"
+            token_secret_fallback_var_name: "NGC_REGISTRY_TOKEN_NKE"
             pull_secret: svc-nke-ngc-imagepull
           - destination: dsx
             org_var: DSX_NGC_ORG_TEAM
-            token_secret_var_name: NGC_REGISTRY_TOKEN_DSX
-            token_secret_fallback_var_name: NGC_REGISTRY_TOKEN_DSX
+            token_secret_var_name: "NGC_REGISTRY_TOKEN_DSX"
+            token_secret_fallback_var_name: "NGC_REGISTRY_TOKEN_DSX"
             pull_secret: ngc-dsx-registry-creds
     steps:
       - name: Checkout
