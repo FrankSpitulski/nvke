@@ -646,7 +646,7 @@ jobs:
           tar="teleport-v${version}-linux-amd64-bin.tar.gz"
           tmp="$(mktemp -d)"
 
-          curl -fsSL --connect-timeout 20 --max-time 300 \
+          curl -fsSL --connect-timeout 20 --max-time 300 --retry 8 --retry-all-errors --retry-max-time 240 \
             -o "${tmp}/${tar}" "https://cdn.teleport.dev/${tar}"
           if [ -z "${expected}" ]; then
             echo "::error::no checksum entry for ${tar}"
