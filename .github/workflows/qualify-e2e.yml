@@ -833,7 +833,12 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: arc-amd64-cpu16
-    environment: ${{ needs.plan.outputs.dry-run == 'true' && '' || 'forge' }}
+    # The true branch has to be the non-empty string: `cond && '' || 'forge'`
+    # would give the gated name back on a dry run, because '' is falsy and
+    # falls through the ||, the same way an empty stream-json field did in
+    # #1336. `!cond && ''` makes the empty branch's own condition explicit
+    # instead of relying on it being what is left over.
+    environment: ${{ (needs.plan.outputs.dry-run != 'true' && 'forge') || (needs.plan.outputs.dry-run == 'true' && '') || '' }}
     timeout-minutes: 235
     permissions:
       contents: read
