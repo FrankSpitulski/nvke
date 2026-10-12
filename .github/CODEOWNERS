@@ -32,9 +32,6 @@ go.sum @dsx-ai-factory/nvke-write @TerryHowe @rbever-nvidia
 # area/os-image
 /os-image/ @dsx-ai-factory/nvke-write @dsx-ai-factory/nvke-team-node-os @j-griffith @jdubs @pdmack
 
-# area/generated — vendored AICR charts
-/generated/ @dsx-ai-factory/nvke-write @nhammernik @TerryHowe
-
 # area/chart
 /controller/deploy/ @dsx-ai-factory/nvke-write @TerryHowe @vwilson-nvidia @danbudris @rbever-nvidia
 /deploy/ @dsx-ai-factory/nvke-write @TerryHowe @vwilson-nvidia @danbudris @rbever-nvidia
