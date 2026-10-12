@@ -1043,7 +1043,9 @@ jobs:
           for pair_arch in amd64 arm64; do
             eval "image=\${OS_IMAGE_${pair_arch^^}}"
             eval "loader=\${OS_IMAGE_BOOTLOADER_${pair_arch^^}}"
-            [ -n "${image}" ] && [ -n "${loader}" ] || continue
+            if [ -z "${image}" ] || [ -z "${loader}" ]; then
+              continue
+            fi
             versions="${versions},os-image-bootloader-${pair_arch}=${loader},os-image-${pair_arch}=${image}"
           done
           for pair in "kube=${KUBERNETES_VERSION}" "cni-ovn=${CNI_OVN_VERSION}" \
