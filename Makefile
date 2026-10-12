@@ -65,7 +65,8 @@ WORK_MODULES := agent \
                 controller/test/e2e \
                 management-engine \
                 os-image \
-                release
+                release \
+                validate
 
 # Modules whose commands `build` can compile with `go build -o bin/ ./cmd/...`,
 # which names each binary after its package directory. controller/api and

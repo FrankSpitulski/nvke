@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# The versioned check registry: WHAT each check verifies and WHY, never how.
+# Implementations are bound by id in the engine; a registry entry with no
+# implementation is reported as an error, not silently passed.
+version: 0.1.0
+checks:
+  - id: INT-001
+    family: integrity
+    severity: blocking
+    method: static
+    verifies: "The image file's sha256 equals the digest the release checksums record for its artifact name."
+    why: >-
+      The checksums file is the attestation subject (SLSA provenance over
+      checksums.txt binds every artifact it names); an image whose bytes do not
+      match it is not the stamped release.
+  - id: COMPAT-001
+    family: compatibility
+    severity: blocking
+    method: static
+    verifies: "The variant, Ubuntu release and architecture declared by the artifact name match the validation target."
+    why: >-
+      Validating the wrong variant or architecture produces a verdict that
+      does not describe the image a node will boot; identity must hold before
+      any deeper check means anything.

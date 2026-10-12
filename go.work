@@ -18,4 +18,5 @@ use (
 	./management-engine
 	./os-image
 	./release
+	./validate
 )

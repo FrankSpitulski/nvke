@@ -19,6 +19,7 @@ instructions.
   - [agent/AGENTS.md](agent/AGENTS.md) — proto generation, packaging, gRPC conventions
   - [cli/AGENTS.md](cli/AGENTS.md) — nvkectl, verification, doc-comment conventions
   - [os-image/AGENTS.md](os-image/AGENTS.md) — reference node OS image spec, Packer, connectivity checker
+  - [validate/AGENTS.md](validate/AGENTS.md) — offline node-image validator: check registry, inspection tiers, signed verdicts
   - [nktp/AGENTS.md](nktp/AGENTS.md) — NKTP Helm chart: versioning, dependency pins
   - [controller/nico-sim/AGENTS.md](controller/nico-sim/AGENTS.md) — local NICo simulator with VM and container backends
   - [controller/deploy/dashboards/AGENTS.md](controller/deploy/dashboards/AGENTS.md) — Grafana reference JSON (import-only, not nke-stack); operators: [README.md](controller/deploy/dashboards/README.md)

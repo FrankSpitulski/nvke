@@ -59,6 +59,7 @@ COVERAGE_MODULES=(
 	management-engine
 	os-image
 	release
+	validate
 )
 
 # Modules with no test files at all, so there is nothing to collect. `check`
