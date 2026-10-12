@@ -487,9 +487,6 @@ jobs:
       # interpolates this, so the paths keep the shape
       # e2e-config-example.yaml documents even though the prefix differs.
       SITE_INPUTS: ${{ github.workspace }}/.site-inputs
-      # Read only to mask it below, before any step can print it -- this job
-      # never dials it.
-      FORGE_YTL_JUMP_HOST: ${{ vars.FORGE_YTL_JUMP_HOST }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -555,13 +552,6 @@ jobs:
           NGC_TOKEN: ${{ secrets.NGC_API_KEY }}
         run: |
           set -Eeuo pipefail
-
-          # FORGE_JUMP_HOST is a secret, so the log masks it without being
-          # asked. FORGE_YTL_JUMP_HOST is a repository variable and gets none
-          # of that, so it is masked here, before any step can print it.
-          if [ -n "${FORGE_YTL_JUMP_HOST}" ]; then
-            echo "::add-mask::${FORGE_YTL_JUMP_HOST}"
-          fi
 
           # The join token allows refs/heads/main and refs/pull/*/merge and
           # nothing else, so a dispatch from any other branch mints nothing.
@@ -939,7 +929,9 @@ jobs:
       FORGE_YTL_VPC_ID: ${{ vars.FORGE_YTL_VPC_ID }}
       FORGE_YTL_VPC_PREFIX_ID: ${{ vars.FORGE_YTL_VPC_PREFIX_ID }}
       FORGE_YTL_SSH_KEY_GROUP_ID: ${{ vars.FORGE_YTL_SSH_KEY_GROUP_ID }}
-      FORGE_YTL_JUMP_HOST: ${{ vars.FORGE_YTL_JUMP_HOST }}
+      # An environment secret, like FORGE_JUMP_HOST, so only this job can
+      # read it and the log masks it without being asked.
+      FORGE_YTL_JUMP_HOST: ${{ secrets.FORGE_YTL_JUMP_HOST }}
       # root for the same reason as FORGE_TELEPORT_LOGIN: the same bot reaches
       # both jump hosts through rg-k8aas-bot-ssh-root, whose only login is
       # root. Unset falls back to tsh's default, the runner's local user,
@@ -999,9 +991,6 @@ jobs:
           NGC_TOKEN: ${{ secrets.NGC_API_KEY }}
         run: |
           set -Eeuo pipefail
-          if [ -n "${FORGE_YTL_JUMP_HOST}" ]; then
-            echo "::add-mask::${FORGE_YTL_JUMP_HOST}"
-          fi
           if [ "${DRY_RUN}" != "true" ]; then
             case "${REF}" in
               refs/heads/main | refs/pull/*/merge) ;;
@@ -1342,7 +1331,7 @@ jobs:
             "ytl VPC|FORGE_YTL_VPC_ID||FORGE_YTL_VPC_ID|FORGE_YTL_VPC_ID"
             "ytl VPC prefix|FORGE_YTL_VPC_PREFIX_ID||FORGE_YTL_VPC_PREFIX_ID|FORGE_YTL_VPC_PREFIX_ID"
             "ytl ssh key group|FORGE_YTL_SSH_KEY_GROUP_ID||FORGE_YTL_SSH_KEY_GROUP_ID|FORGE_YTL_SSH_KEY_GROUP_ID"
-            "ytl jump host|FORGE_YTL_JUMP_HOST||FORGE_YTL_JUMP_HOST|FORGE_YTL_JUMP_HOST"
+            "ytl jump host|FORGE_YTL_JUMP_HOST|||"
             "ytl Teleport login|FORGE_YTL_TELEPORT_LOGIN|||"
             "ytl amd64 cpu instance type|FORGE_YTL_INSTANCE_TYPE_CPU_AMD64_ID||FORGE_YTL_INSTANCE_TYPE_CPU_AMD64_ID|FORGE_YTL_INSTANCE_TYPE_CPU_AMD64_ID"
             "ytl arm64 cpu instance type|FORGE_YTL_INSTANCE_TYPE_CPU_ARM64_ID||FORGE_YTL_INSTANCE_TYPE_CPU_ARM64_ID|FORGE_YTL_INSTANCE_TYPE_CPU_ARM64_ID"
