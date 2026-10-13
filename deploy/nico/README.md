@@ -35,18 +35,14 @@ What the node needs, all present on the reference instance type:
 
 - `helm`, `kubectl`, `git`, `python3` (the executor's item parser and template
   renderer are Python), plus `clusterctl` for the prerequisites
-- to render the site's values first: `nvkectl` (`make -C cli build` writes
-  `cli/bin/nvkectl`). `nvkectl render deploy-path --deploy-path deploy/nico
-  --sitespec sitespec.yaml --out DIR`, with `DIR` under a directory only you
-  can read such as `~/.local/state/nvke/renders/<site>` (a shared temp
-  directory is refused), writes a copy of this deploy path with the site's
-  values filled in from the spec's `controllerStack` section. `DIR` holds
-  the site's secrets, so it is created `0700` and is for one install. The
-  command ends by naming the files under `DIR` that hold a credential;
-  delete `DIR` after the install. `DIR` gets a `.gitignore` that ignores
-  everything, so a repository does not pick it up by accident. Then install
-  `DIR` with this script; it needs no `--config`. Without a release, the
-  spec sets `controllerStack.images.profiles`: this deploy path enables the
+- to install for a site: `nvkectl` (`make -C cli build` writes
+  `cli/bin/nvkectl`; `NVKECTL` names it, else PATH). `deploy/nvke-deploy.sh
+  install --deploy-path deploy/nico --sitespec sitespec.yaml` renders a copy
+  of this deploy path with the site's values filled in from the spec's
+  `controllerStack` section into a private scratch directory, installs it,
+  and removes it, so no rendered credential is left behind; it needs no
+  `--config`. Without a release, the spec
+  sets `controllerStack.images.profiles`: this deploy path enables the
   profiles content image without naming it
 - a checkout laid out so that `deploy/` and `controller/` are siblings --
   `controller/release.yaml` reaches its chart as
@@ -58,23 +54,22 @@ What the node needs, all present on the reference instance type:
   `prometheus-community.github.io` and `kubernetes-sigs.github.io`, where the
   chart's dependencies come from, and to `docker.io`, `ghcr.io`, `quay.io` and
   `registry.k8s.io`, where its images come from
-- to install from an NVKR release: `nvkectl` on the machine that renders.
-  `nvkectl render deploy-path --deploy-path deploy/nico --release
-  release.json --out DIR` resolves this deploy path against the
+- to install from an NVKR release: add `--release release.json`, the
   `nvkr.dev/release-description/v1` JSON that `nvkr release export
   --reference <repo@digest>` writes. The export describes the release; it
   verifies nothing. Run `nvkr release verify` on the same reference first.
-  Charts the release carries are pulled by digest into `DIR/charts/`; images
-  are pinned by digest; a chart the release lacks stays on its public
-  repository. The release decides the version of a chart it carries, with
-  a warning when the item pins another; the pin decides only for a chart
-  the release lacks. Each
-  item's `release.yaml` names its artifacts: `chart.artifact` (default: the
-  item name), `chart.imageArtifact`, `chart.profilesArtifact`, or a manifest
-  item's `artifact`. `--arch` selects them (default: the site spec's
-  `controllerStack.arch`). The render refuses, naming every problem, when an
-  image artifact is missing. Then install `DIR` with this script; it needs
-  no `nvkectl`.
+  Charts the release carries are pulled by digest; images are pinned by
+  digest; a chart the release lacks stays on its public repository. The
+  release decides the version of a chart it carries, with a warning when
+  the item pins another; the pin decides only for a chart the release
+  lacks. Each item's `release.yaml` names its artifacts: `chart.artifact`
+  (default: the item name), `chart.imageArtifact`, `chart.profilesArtifact`,
+  or a manifest item's `artifact`. Artifacts are selected for the site
+  spec's `controllerStack.arch`. The render refuses, naming every problem,
+  when an image artifact is missing. With `--nvkr-run-dir
+  .nvkr/runs/<attempt>`, charts and images come from the Run's OCI layouts
+  and the images are imported into the node's containerd (`CTR` names the
+  import command).
 
 ## Before this runs
 
@@ -163,23 +158,24 @@ That run's install script does none of this, because it had
 
 ## Per-site values
 
-Every item's committed values are site-independent. What varies comes in
-through `--values-for`, exactly as `controller/hack/ci/deploy-stack.sh` does it
-for the e2e lanes -- that script is the reference for these derivations.
+Every item's committed values are site-independent. The install writes what
+varies into each item's `site-values.yaml` from the site spec; the e2e lanes
+derive the same values in `controller/hack/ci/deploy-stack.sh`. `--values-for` still applies on top of a
+rendered path, after `site-values.yaml`.
 
-| value | e2e derivation | on a NICo site |
+| value | the install takes it from | e2e derivation |
 |---|---|---|
-| trust domain | `${KIND_CLUSTER_NAME}.nke.local` | the trust domain the site's nodes were bootstrapped with (`spire.trustDomain` in the site spec); never derived from a name |
-| management VIP | kind control-plane IP | the site controller's node IP |
-| SPIRE admin path | `/nke-service/nke-controller` | the same; it is a constant |
-| TPM attestor **server** checksum | pinned per arch in `resolve_tpm_checksum()` | the same pin for the same arch |
-| OIDC domains / IP SANs | VIP plus the kind gateway | the VIP |
+| trust domain | `spire.trustDomain`, else `nvkectl-bootstrap.nke.local` with a warning | `${KIND_CLUSTER_NAME}.nke.local` |
+| management VIP | `cluster.controlPlaneVIP`, or the only node's IP | kind control-plane IP |
+| SPIRE admin path | a constant, `/nke-service/nke-controller` | the same |
+| TPM attestor **server** checksum | pinned per `controllerStack.arch` | pinned per arch in `resolve_tpm_checksum()` |
+| OIDC domains / IP SANs | the overlay's hostnames plus the VIP | VIP plus the kind gateway |
 | discovery URL | `https://<VIP>:30443/.well-known/openid-configuration` | the same shape |
-| Postgres / Temporal password | generated per run | site secret, on BOTH Temporal datastores |
-| controller image | built per run | a released tag |
-| profiles image | built per run | the site's fleet profile content |
-| telemetry backend | not installed | the bundled development backend, until the site passes its own with `--values-for nktp=` |
-| telemetry `k8s.cluster.name` | not installed | `ClusterName` in the BootstrapConfig passed with `--config`; required |
+| Postgres / Temporal password | `controllerStack.database.passwordFile`, on both Temporal datastores; the controller reads its connection string from a Secret | generated per run |
+| controller image | the release, or `controllerStack.images.controller` | built per run |
+| profiles image | the release, or `controllerStack.images.profiles` | built per run |
+| telemetry backend | `controllerStack.nktpValuesFile`, else the chart's bundled development backend | not installed |
+| telemetry `k8s.cluster.name` | `clusterName`, through the `nvke-base-config` template | not installed |
 
 The TPM checksum is easy to confuse: the value in `spire/values.yaml`
 (`spire-server.nodeAttestor.tpmDirect.checksum`) is the **server** plugin, and
@@ -233,15 +229,20 @@ components: each component ships its own, and one that does not is not scraped.
 
 Everything NKTP exports carries `k8s.cluster.name`, the site's name. Nothing
 in the cluster knows it -- NVKE's kubeadm configuration names every cluster
-`kubernetes` -- so `nvke-base-config` renders it from BootstrapConfig's
-`ClusterName` into the `nktp-cluster` ConfigMap, and the watchdog and the three
-gateways, which are what export to the backend, read it from there. A config
-without `ClusterName` stops the install at that template.
+`kubernetes` -- so `nvke-base-config` renders it into the `nktp-cluster`
+ConfigMap, and the watchdog and the three gateways, which are what export to
+the backend, read it from there. With `--sitespec`, the render takes it from
+the spec's `clusterName`. A plain install without a site spec renders the
+template from the BootstrapConfig passed with `--config`, whose `ClusterName`
+must be set; an empty name stops the install at that template.
 
 Everything exports to the chart's bundled development backend by default. It
 keeps data in memory and has no authentication, so it is for evaluation. A site
-with a real backend passes it with `--values-for nktp=<file>`; the chart
-README's "The backend" section lists the keys that file sets.
+with a real backend names a values file in `controllerStack.nktpValuesFile`;
+the render applies it after the item's own values. `--values-for nktp=<file>`
+is the same thing for an install without a site spec, and applies on top of a
+rendered path. The chart README's "The backend" section lists the keys that
+file sets.
 
 Not scraped yet: the Postgres item runs no metrics exporter; CAPI core and the
 kubeadm providers serve metrics only to a caller with a bearer token, which the

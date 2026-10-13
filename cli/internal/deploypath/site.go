@@ -106,21 +106,37 @@ func (r *renderer) site() {
 	ctx.Registry.Token = read("controllerStack.pullSecret.tokenFile", stackPath(cs.PullSecret.TokenFile))
 	ctx.Tenant.User = check("controllerStack.tenant.user", cs.Tenant.User)
 	ctx.Tenant.Password = read("controllerStack.tenant.passwordFile", stackPath(cs.Tenant.PasswordFile))
-	password := r.dbPassword(spec)
 	if len(r.problems) > 0 {
 		return
 	}
-	trustDomain := spec.EffectiveTrustDomain(spec.ClusterName)
+	// The stack joins the trust domain the nodes were bootstrapped with. The
+	// default is the one a bootstrap with the default cluster name derives;
+	// a bootstrap that was given another name needs spire.trustDomain set.
+	// The warning is written now, not noted: it matters even when the render
+	// fails later.
+	trustDomain, defaulted := spec.TrustDomain()
+	if defaulted {
+		fmt.Fprintf(r.opts.Log, "warning: spire.trustDomain is not set; using %s, the domain a bootstrap with the default cluster name used. A bootstrap run under another cluster name printed a different one; the install has to use that.\n", trustDomain)
+	}
 	checksum := controllerdeploy.SpireTPMDirectChecksum(cs.Arch)
 	if checksum == "" {
 		r.problem("site spec: controllerStack.arch %q has no TPM attestor checksum", cs.Arch)
+		return
+	}
+	// May write the operator's password file. A later refusal leaves it in
+	// place: it is the operator's, and the next render reads it back.
+	password := r.dbPassword(spec)
+	if len(r.problems) > 0 {
 		return
 	}
 
 	// controller: the database password, the OIDC discovery URL and the SPIRE
 	// server, all VIP-derived; the images only when the site spec overrides them.
 	controller := map[string]any{
-		"appDb":       map[string]any{"postgresPassword": password},
+		"appDb": map[string]any{"postgresPassword": password},
+		// The chart then writes the connection string, URL-escaped, into a
+		// Secret instead of a plain env value.
+		"secrets":     map[string]any{"createDbSecret": true},
 		"nkeOIDCAuth": map[string]any{"discoveryURL": fmt.Sprintf("https://%s:%d/.well-known/openid-configuration", vip, oidcNodePort)},
 		"spiffe":      map[string]any{"trustDomain": trustDomain, "spire": map[string]any{"serverAddress": vip}},
 	}
@@ -236,7 +252,7 @@ func (r *renderer) site() {
 // siteValues appends item's site values when the deploy path has the item.
 func (r *renderer) siteValues(item string, values map[string]any) {
 	if !r.hasItem(item, TypeHelm) {
-		r.note("%s: not a helm item of this deploy path; no site values", item)
+		r.problem("%s: the deploy path has no %s helm item; its site values have nowhere to go", item, item)
 		return
 	}
 	var b bytes.Buffer
@@ -283,7 +299,8 @@ func (r *renderer) dbPassword(spec *sitespec.SiteSpec) string {
 		r.problem("site spec: controllerStack.database.passwordFile: %v", err)
 		return ""
 	}
-	r.note("database password generated and written to %s", path)
+	// Said at once, not noted: the file exists whether or not the render goes on.
+	fmt.Fprintf(r.opts.Log, "database password generated and written to %s\n", path)
 	return password
 }
 

@@ -52,7 +52,8 @@ func filledSiteSpec(t *testing.T, edits map[string]string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(body)
+	// The trust domain goes in before the edits, so a case can take it out.
+	text := string(body) + "spire:\n  trustDomain: my-tier0-site.nke.local\n"
 	for placeholder, value := range values {
 		text = strings.ReplaceAll(text, placeholder, value)
 	}
@@ -67,20 +68,28 @@ func TestValidateSiteSpec_GeneratedFileListsPlaceholders(t *testing.T) {
 	if err == nil {
 		t.Fatal("a generated site spec validated as ready")
 	}
-	if !strings.Contains(stdout, "bootstrap: valid\n") {
+	if !strings.Contains(stdout, "bootstrap: valid; nvkectl bootstrap site can run with this file\n") {
 		t.Errorf("bootstrap section not reported valid:\n%s", stdout)
 	}
 	if !strings.Contains(stdout, "controllerStack: 11 values still to fill in: controllerStack.arch, controllerStack.nico.endpoint") {
 		t.Errorf("placeholders not listed:\n%s", stdout)
 	}
+	// generate sitespec leaves the spire block commented out; the default
+	// trust domain is reported, not required.
+	if !strings.Contains(stdout, "spire.trustDomain: not set; a bootstrap with the default cluster name and the controller stack install both use nvkectl-bootstrap.nke.local") {
+		t.Errorf("default trust domain not reported:\n%s", stdout)
+	}
 	if strings.Contains(stdout, "is required") {
 		t.Errorf("placeholders reported as errors too:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "bootstrap: valid; nvkectl bootstrap site can run with this file") || !strings.Contains(err.Error(), "the bootstrap can run now") {
+		t.Errorf("the output does not say the bootstrap can run:\n%s\n%v", stdout, err)
 	}
 }
 
 func TestValidateSiteSpec_BootstrapOnly(t *testing.T) {
 	stdout, _, err := runGenerate(t, "validate", "sitespec", "-f", generatedSiteSpec(t), "--bootstrap-only")
-	if err != nil || stdout != "bootstrap: valid\n" {
+	if err != nil || stdout != "bootstrap: valid; nvkectl bootstrap site can run with this file\n" {
 		t.Errorf("--bootstrap-only: %q %v", stdout, err)
 	}
 }
@@ -89,6 +98,11 @@ func TestValidateSiteSpec_Filled(t *testing.T) {
 	stdout, _, err := runGenerate(t, "validate", "sitespec", "-f", filledSiteSpec(t, nil))
 	if err != nil || !strings.HasSuffix(stdout, "controllerStack: valid\n") {
 		t.Errorf("filled site spec: %q %v", stdout, err)
+	}
+	// Without a trust domain the file is still ready: both commands default it.
+	stdout, _, err = runGenerate(t, "validate", "sitespec", "-f", filledSiteSpec(t, map[string]string{"spire:\n  trustDomain: my-tier0-site.nke.local\n": ""}))
+	if err != nil || !strings.Contains(stdout, "spire.trustDomain: not set") || !strings.HasSuffix(stdout, "controllerStack: valid\n") {
+		t.Errorf("filled site spec without a trust domain: %q %v", stdout, err)
 	}
 }
 
