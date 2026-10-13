@@ -7,7 +7,8 @@
 # not signer authority. This branch never builds product components or resolves tags.
 #
 # Required NKE_E2E_CANDIDATE_ inputs:
-# RELEASE (verified v4 JSON), LAYOUT (complete published artifacts), NVKECTL,
+# RELEASE (release-description/v1 JSON exported after parent verification),
+# LAYOUT (complete published artifacts), NVKECTL,
 # SIMULATOR, SEED, QCOW2 (absolute files, each with an exact _SHA256 blob pin),
 # SITESPEC (private local deployment), RELEASES (owner-generated profile CRs),
 # OS_PROFILE, KUBERNETES_VERSION, CONTROLLER_VERSION, SIMULATOR_ENDPOINT,
@@ -17,7 +18,9 @@
 # postgresql.json and temporal.json derived from the same verified artifacts.
 # The parent holds the same lock on FD9 through setup and passes it to this
 # process. NKE_CI_HOST_EXTERNAL_DHCP=true leaves DHCP ownership to this attempt.
-# The supplied nvkectl must support render deploy-path --nvkr-run-dir and v4.
+# The supplied nvkectl must support inspect nvkr-release and render deploy-path
+# --nvkr-run-dir for the current release-description/v1 contract. Its inspection
+# admits metadata and platform selection only; it establishes no authentication.
 # STATE_DIR must be fresh and outside shared /tmp, as the renderer requires.
 # Native Ginkgo/JUnit and KVM observations are diagnostic runtime evidence;
 # this adapter neither signs observations nor authorizes a Release.
@@ -61,6 +64,19 @@ candidate_pin() {
 }
 
 candidate_kubectl() { kubectl --kubeconfig "${E2E_KUBECONFIG}" "$@"; }
+
+candidate_release_inputs() {
+  local role selected
+  [[ -f "${NKE_E2E_CANDIDATE_RELEASE}" && ! -L "${NKE_E2E_CANDIDATE_RELEASE}" ]] || fail "candidate release description is not a regular file"
+  # The product owner validates its current v1 format and full inventory.
+  # Do not translate lifecycle verification JSON or infer signer authority.
+  timeout 30 "${NKE_E2E_CANDIDATE_NVKECTL}" inspect nvkr-release "${NKE_E2E_CANDIDATE_RELEASE}" --artifacts >/dev/null || fail "supplied CLI cannot read the current complete release description"
+  for role in controller-chart nktp postgresql spire-crds spire temporal cwe controller-profiles capnico-controller; do
+    selected="$(timeout 30 "${NKE_E2E_CANDIDATE_NVKECTL}" inspect nvkr-release "${NKE_E2E_CANDIDATE_RELEASE}" --select "${role}" --arch linux/arm64)" || fail "candidate role ${role} is not selectable for Linux ARM64"
+    # The inspect owner deliberately returns empty success for an absent role.
+    [[ -n "${selected}" ]] || fail "candidate release description omits required role ${role}"
+  done
+}
 
 candidate_image_inputs() {
   local row archive pin role
@@ -251,9 +267,7 @@ candidate_admit() {
   done
   [[ -x "${NKE_E2E_CANDIDATE_NVKECTL}" && -x "${NKE_E2E_CANDIDATE_SIMULATOR}" ]] || fail "candidate tools are not executable"
   [[ -f "${NKE_E2E_CANDIDATE_SITESPEC}" && ! -L "${NKE_E2E_CANDIDATE_SITESPEC}" && -d "${NKE_E2E_CANDIDATE_LAYOUT}" && -d "${NKE_E2E_CANDIDATE_RELEASES}" ]] || fail "candidate handoff omits site, release resources or layout"
-  jq -e '(.release // .).schemaVersion == "nvkr.dev/release/v4"' "${NKE_E2E_CANDIDATE_RELEASE}" >/dev/null || fail "candidate input requires the current verified-v4 release contract"
-  jq -e '(.release // .) as $r | ["controller-chart", "nktp", "postgresql", "spire-crds", "spire", "temporal", "cwe", "controller-profiles", "capnico-controller"] | all(.[]; . as $name | any($r.artifacts[]; .name == $name or .name == ($name + "-arm64")))' \
-    "${NKE_E2E_CANDIDATE_RELEASE}" >/dev/null || fail "candidate release omits a required chart or product image"
+  candidate_release_inputs
   "${NKE_E2E_CANDIDATE_NVKECTL}" validate sitespec -f "${NKE_E2E_CANDIDATE_SITESPEC}" >/dev/null
   candidate_image_inputs
   [[ ! -e "${STATE_DIR}" && ! -L "${STATE_DIR}" ]] || fail "candidate mode requires a fresh private state directory"

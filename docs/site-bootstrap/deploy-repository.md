@@ -127,6 +127,10 @@ requires:
 
 `nvkectl render deploy-path` writes a resolved copy of the deploy path. Charts from the release land in `charts/<item>/` and `chart.path` points at them. An item gets `release-images.yaml` and `site-values.yaml` as needed. A manifest item bound to an image gets a `kustomization.yaml`. Template items are rendered and become manifest items. At the top: `images.txt`, `site.env`, `nvkr-release.json` and a `.gitignore` that ignores the tree. `deploy/nvke-deploy.sh` applies the copy as a plain deploy path.
 
+Its `--release` input is the complete `nvkr.dev/release-description/v1` document exported by `nvkr release export`, with `reference`, `rootDigest` and `outputs`. Inspect it with `nvkectl inspect nvkr-release <file> --artifacts`; select a target role with `--select <role> --arch linux/arm64`. Inspection validates metadata and platform selection. The caller separately verifies publication payloads, signatures and policy before handing off the description and artifacts.
+
+The candidate mode of `controller/hack/ci/nico-vms-e2e.sh` delegates description admission to its supplied CLI and requires nonempty selections for every chart and image role used by the lane. It rejects filtered inventories and missing or incompatible roles before runtime setup. It consumes the description document directly; lifecycle verification JSON is a different contract.
+
 ### `argocd` — ArgoCD Applications
 
 ArgoCD items must contain an `application.yaml` file with a valid `argoproj.io/v1alpha1` Application manifest. The application is created via `argocd app create -f <path> --upsert`.

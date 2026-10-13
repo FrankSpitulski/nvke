@@ -4,6 +4,7 @@
 package e2e
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -76,6 +77,114 @@ func candidateLibrary(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// The current product CLI is built only as a contract-test fixture. Runtime
+// candidate admission receives an already verified and supplied CLI; it never
+// invokes this build or turns metadata inspection into authentication.
+func TestUnit_CandidateReleaseInputsUseCurrentCLIOwner(t *testing.T) {
+	cliDir, err := filepath.Abs("../../../cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(t.TempDir(), "nvkectl")
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "./cmd/nvkectl")
+	build.Dir = cliDir
+	if out, buildErr := build.CombinedOutput(); buildErr != nil {
+		t.Fatalf("build the current CLI contract fixture: %s %v", out, buildErr)
+	}
+	fixture, err := os.ReadFile("../../../deploy/testdata/nvkr-release/valid.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name   string
+		mutate func(map[string]any)
+		wantOK bool
+	}{
+		{name: "complete current metadata", wantOK: true},
+		{name: "lifecycle v4", mutate: func(doc map[string]any) {
+			doc["schemaVersion"] = "nvkr.dev/release/v4"
+			doc["artifacts"] = doc["outputs"]
+			delete(doc, "outputs")
+		}},
+		{name: "verification wrapper", mutate: func(doc map[string]any) {
+			wrapped := make(map[string]any, len(doc))
+			for key, value := range doc {
+				wrapped[key] = value
+				delete(doc, key)
+			}
+			doc["release"] = wrapped
+		}},
+		{name: "filtered output selection", mutate: func(doc map[string]any) {
+			doc["inspectionDetails"] = map[string]any{"outputSelection": "filtered"}
+		}},
+		{name: "selected output", mutate: func(doc map[string]any) { doc["selectedOutput"] = "cwe" }},
+		{name: "incomplete output count", mutate: func(doc map[string]any) { doc["totalOutputs"] = 99 }},
+		{name: "duplicate named output", mutate: func(doc map[string]any) {
+			outputs := doc["outputs"].([]any)
+			doc["outputs"] = append(outputs, outputs[0])
+			doc["totalOutputs"] = len(outputs) + 1
+		}},
+		{name: "missing required role returns empty owner selection", mutate: func(doc map[string]any) {
+			outputs := doc["outputs"].([]any)
+			var retained []any
+			for _, output := range outputs {
+				if output.(map[string]any)["name"] != "temporal" {
+					retained = append(retained, output)
+				}
+			}
+			doc["outputs"] = retained
+			doc["totalOutputs"] = len(retained)
+		}},
+		{name: "required role has wrong platform", mutate: func(doc map[string]any) {
+			for _, output := range doc["outputs"].([]any) {
+				artifact := output.(map[string]any)
+				if artifact["name"] == "controller-profiles" {
+					artifact["os"], artifact["arch"] = "linux", "amd64"
+				}
+			}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var doc map[string]any
+			if decodeErr := json.Unmarshal(fixture, &doc); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			if tc.mutate != nil {
+				tc.mutate(doc)
+			}
+			raw, encodeErr := json.Marshal(doc)
+			if encodeErr != nil {
+				t.Fatal(encodeErr)
+			}
+			dir := t.TempDir()
+			release := filepath.Join(dir, "release.json")
+			if writeErr := os.WriteFile(release, raw, 0o600); writeErr != nil {
+				t.Fatal(writeErr)
+			}
+			cmd := exec.CommandContext(t.Context(), "bash", "-ec", `source "$1"; fail(){ printf '%s\n' "$*" >&2; exit 1; }; candidate_release_inputs`, "contract", candidateLibrary(t))
+			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "NKE_E2E_CANDIDATE_NVKECTL=" + binary, "NKE_E2E_CANDIDATE_RELEASE=" + release}
+			out, runErr := cmd.CombinedOutput()
+			if (runErr == nil) != tc.wantOK {
+				t.Fatalf("metadata/platform admission: %s %v; want success=%v", out, runErr, tc.wantOK)
+			}
+			if tc.name == "missing required role returns empty owner selection" && !strings.Contains(string(out), "omits required role temporal") {
+				t.Fatalf("absent role must fail after empty owner selection: %s", out)
+			}
+			unchanged, readErr := os.ReadFile(release)
+			if readErr != nil || string(unchanged) != string(raw) {
+				t.Fatalf("admission modified the description: %v", readErr)
+			}
+			entries, readErr := os.ReadDir(dir)
+			if readErr != nil || len(entries) != 1 {
+				t.Fatalf("admission wrote output before runtime: %v, entries=%v", readErr, entries)
+			}
+		})
+	}
 }
 
 func TestUnit_CandidateNativeReportsRejectEmptyAndSkippedRuns(t *testing.T) {
