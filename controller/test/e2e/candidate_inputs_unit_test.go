@@ -4,6 +4,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -176,7 +177,7 @@ func TestUnit_CandidateReleaseInputsUseCurrentCLIOwner(t *testing.T) {
 				t.Fatalf("absent role must fail after empty owner selection: %s", out)
 			}
 			unchanged, readErr := os.ReadFile(release)
-			if readErr != nil || string(unchanged) != string(raw) {
+			if readErr != nil || !bytes.Equal(unchanged, raw) {
 				t.Fatalf("admission modified the description: %v", readErr)
 			}
 			entries, readErr := os.ReadDir(dir)

@@ -129,7 +129,7 @@ requires:
 
 Its `--release` input is the complete `nvkr.dev/release-description/v1` document exported by `nvkr release export`, with `reference`, `rootDigest` and `outputs`. Inspect it with `nvkectl inspect nvkr-release <file> --artifacts`; select a target role with `--select <role> --arch linux/arm64`. Inspection validates metadata and platform selection. The caller separately verifies publication payloads, signatures and policy before handing off the description and artifacts.
 
-The candidate mode of `controller/hack/ci/nico-vms-e2e.sh` delegates description admission to its supplied CLI and requires nonempty selections for every chart and image role used by the lane. It rejects filtered inventories and missing or incompatible roles before runtime setup. It consumes the description document directly; lifecycle verification JSON is a different contract.
+The candidate mode of `controller/hack/ci/nico-vms-e2e.sh` delegates description admission to its supplied CLI and requires nonempty selections for the lane's required chart and image roles. It rejects filtered inventories and missing or incompatible roles before runtime setup. It consumes the description document directly; lifecycle verification JSON is a different contract.
 
 ### `argocd` — ArgoCD Applications
 
