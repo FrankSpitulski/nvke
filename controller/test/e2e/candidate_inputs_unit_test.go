@@ -8,10 +8,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"testing"
@@ -89,13 +91,6 @@ func TestUnit_CandidateReleaseInputsUseCurrentCLIOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(t.TempDir(), "nvkectl")
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
-	defer cancel()
-	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "./cmd/nvkectl")
-	build.Dir = cliDir
-	if out, buildErr := build.CombinedOutput(); buildErr != nil {
-		t.Fatalf("build the current CLI contract fixture: %s %v", out, buildErr)
-	}
 	fixture, err := os.ReadFile("../../../deploy/testdata/nvkr-release/valid.json")
 	if err != nil {
 		t.Fatal(err)
@@ -149,6 +144,64 @@ func TestUnit_CandidateReleaseInputsUseCurrentCLIOwner(t *testing.T) {
 			}
 		}},
 	}
+	const probeTimeout = 15 * time.Second
+	// CI compiles this suite with -race. Reuse those compiled dependencies
+	// instead of rebuilding the same graph without instrumentation in a cold
+	// cache. The actual test binary's metadata, not an environment guess,
+	// determines the fixture's build mode.
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		t.Fatal("current test binary omits its Go build metadata")
+	}
+	args := []string{"build"}
+	for _, setting := range info.Settings {
+		if setting.Key == "-race" && setting.Value == "true" {
+			args = append(args, "-race")
+		}
+	}
+	args = append(args, "-o", binary, "./cmd/nvkectl")
+	// The enclosing test owns the cold-cache compilation budget. Reserve
+	// every admission case and process cleanup, rather than imposing a short
+	// independent cap on public dependency downloads and compilation. Keep
+	// Go's normal ten-minute budget if the runner disables its test timeout.
+	deadline := time.Now().Add(10 * time.Minute)
+	if parentDeadline, timed := t.Deadline(); timed {
+		deadline = parentDeadline
+	}
+	deadline = deadline.Add(-time.Duration(len(cases))*probeTimeout - 5*time.Second)
+	ctx, cancel := context.WithDeadline(t.Context(), deadline)
+	defer cancel()
+	build := exec.CommandContext(ctx, "go", args...)
+	build.Dir = cliDir
+	build.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	build.Cancel = func() error {
+		err := syscall.Kill(-build.Process.Pid, syscall.SIGKILL)
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return err
+	}
+	build.WaitDelay = time.Second
+	out, buildErr := build.CombinedOutput()
+	if build.Process != nil {
+		if stopErr := syscall.Kill(-build.Process.Pid, syscall.SIGKILL); stopErr != nil && !errors.Is(stopErr, syscall.ESRCH) {
+			t.Fatalf("stop CLI fixture compiler group: %v", stopErr)
+		}
+		joinDeadline := time.Now().Add(2 * time.Second)
+		for {
+			probeErr := syscall.Kill(-build.Process.Pid, 0)
+			if errors.Is(probeErr, syscall.ESRCH) {
+				break
+			}
+			if probeErr != nil || time.Now().After(joinDeadline) {
+				t.Fatalf("CLI fixture compiler group did not join: %v", probeErr)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if buildErr != nil {
+		t.Fatalf("build the current CLI contract fixture: %s %v", out, errors.Join(buildErr, ctx.Err()))
+	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var doc map[string]any
@@ -169,11 +222,23 @@ func TestUnit_CandidateReleaseInputsUseCurrentCLIOwner(t *testing.T) {
 			}
 			// This metadata contract runs on macOS too. The Go deadline bounds
 			// the fixture; the Linux runtime's timeout utility is not required.
-			probeCtx, probeCancel := context.WithTimeout(t.Context(), 15*time.Second)
+			probeCtx, probeCancel := context.WithTimeout(t.Context(), probeTimeout)
 			defer probeCancel()
 			cmd := exec.CommandContext(probeCtx, "bash", "-ec", `source "$1"; timeout(){ shift; "$@"; }; fail(){ printf '%s\n' "$*" >&2; exit 1; }; candidate_release_inputs`, "contract", candidateLibrary(t))
-			cmd.Env = []string{"PATH=" + t.TempDir(), "NKE_E2E_CANDIDATE_NVKECTL=" + binary, "NKE_E2E_CANDIDATE_RELEASE=" + release}
+			// Admission invokes the CLI up to ten times. Remove only the race
+			// runtime's one-second exit sleep; keep its detection and failure exit.
+			raceReports := t.TempDir()
+			cmd.Env = []string{"PATH=" + t.TempDir(), "GORACE=atexit_sleep_ms=0 log_path=" + filepath.Join(raceReports, "race"), "NKE_E2E_CANDIDATE_NVKECTL=" + binary, "NKE_E2E_CANDIDATE_RELEASE=" + release}
 			out, runErr := cmd.CombinedOutput()
+			if probeCtx.Err() != nil {
+				t.Fatalf("metadata admission exceeded its deadline: %s %v", out, probeCtx.Err())
+			}
+			// A race is a fixture failure even when this case expects metadata
+			// rejection; the race owner writes reports independently of shell output.
+			reports, reportErr := os.ReadDir(raceReports)
+			if reportErr != nil || len(reports) != 0 {
+				t.Fatalf("CLI fixture race reports: %v, entries=%v", reportErr, reports)
+			}
 			if (runErr == nil) != tc.wantOK {
 				t.Fatalf("metadata/platform admission: %s %v; want success=%v", out, runErr, tc.wantOK)
 			}
