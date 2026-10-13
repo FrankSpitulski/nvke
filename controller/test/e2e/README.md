@@ -561,6 +561,16 @@ inputs. Supplying a digest does not change what version CWE is expected to repor
 Nonempty digests must use a supported OCI digest algorithm and its exact lowercase
 hex encoding; malformed or unsupported values fail configuration loading.
 
+When a digest is supplied, use a fully qualified repository (for example,
+`ghcr.io/example/controller`) and an OCI archive whose `index.json` manifest
+annotation `org.opencontainers.image.ref.name` is exactly `repository@digest`.
+NVKR's `publish image-export` produces this archive format. A tag-only
+`docker save` archive does not satisfy the digest contract. After import into
+both containerd namespaces, the suite checks each digest reference with CRI's
+image lookup and nerdctl's native image inspection before bootstrap. A missing
+local reference fails the run instead of relying on a registry pull. These
+checks establish local resolution, not artifact authenticity.
+
 `chartOverrides` is optional. Its supported keys are `controller`, `postgresql`,
 `temporal`, `spire`, `spire-crds`, and `nktp`; each supplied path names a nonempty
 packaged chart file on the runner. These packages are staged onto the node and

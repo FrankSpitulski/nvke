@@ -233,6 +233,64 @@ func testSite(t *testing.T) Spec {
 	}
 }
 
+func TestBootstrapChecksImportedDigestReferences(t *testing.T) {
+	for _, tc := range []struct{ name, missing string }{
+		{name: "all imported"},
+		{name: "CRI lookup missing", missing: "crictl"},
+		{name: "bootstrap lookup missing", missing: "nerdctl"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := testSite(t)
+			digest := "@sha256:" + strings.Repeat("a", 64)
+			spec.ControllerImage = "ghcr.io/example/controller" + digest
+			spec.CAPIProvisionedImage = "ghcr.io/example/provider" + digest
+			spec.ProfilesImage = "ghcr.io/example/profiles" + digest
+			session := newFakeSession()
+			session.fail = func(cmd string) (string, error) {
+				if tc.missing != "" && strings.Contains(cmd, tc.missing) {
+					return "no such image present", errors.New("image missing")
+				}
+				return "", nil
+			}
+			cluster, err := Bootstrap(context.Background(), testNode, session, testNvkectl(t), spec)
+			if tc.missing != "" {
+				if err == nil || !strings.Contains(err.Error(), "does not resolve locally") || !strings.Contains(err.Error(), "image missing") {
+					t.Fatalf("Bootstrap = %v, want missing imported digest error", err)
+				}
+				if session.ran("bootstrap site") >= 0 || len(session.forwards) != 0 {
+					t.Fatal("bootstrap continued after a missing imported image")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(cluster.Kubeconfig)) })
+			for _, ref := range []string{spec.ControllerImage, spec.CAPIProvisionedImage, spec.ProfilesImage} {
+				index := session.ran("inspecti --quiet " + ref)
+				if index <= session.ran("ctr -n k8s.io images import") || index >= session.ran("bootstrap site") {
+					t.Fatalf("digest lookup %s did not run between import and bootstrap", ref)
+				}
+				if !strings.Contains(unquoted(session.runs[index]), "nerdctl --namespace default image inspect --mode=native "+ref) {
+					t.Fatalf("bootstrap namespace lookup missing for %s", ref)
+				}
+			}
+		})
+	}
+}
+
+func TestBootstrapLegacyImagesDoNotRequireDigestLookup(t *testing.T) {
+	session := newFakeSession()
+	cluster, err := Bootstrap(context.Background(), testNode, session, testNvkectl(t), testSite(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(cluster.Kubeconfig)) })
+	if session.ran("inspecti") >= 0 || session.ran("image inspect") >= 0 {
+		t.Fatal("legacy tag images acquired digest lookup requirements")
+	}
+}
+
 var testNode = infra.Node{Name: "e2e-site-0", IP: "10.0.0.5", TPMEkThumbprint: "abc123"}
 
 func TestBootstrap(t *testing.T) {

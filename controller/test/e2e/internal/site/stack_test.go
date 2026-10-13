@@ -298,6 +298,89 @@ func TestSBOMDeployCleansUpOnFailure(t *testing.T) {
 	}
 }
 
+func TestStackRemovesStagedCharts(t *testing.T) {
+	for _, tc := range []struct{ name, failure string }{
+		{name: "success"},
+		{name: "overlay missing", failure: "overlay"},
+		{name: "install failed", failure: "install"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := testSBOM()
+			chart := filepath.Join(t.TempDir(), "controller.tgz")
+			writeFile(t, chart, "packaged chart payload")
+			d.ChartOverrides = map[string]string{"controller": chart}
+			s := sbomSession()
+			if tc.failure == "overlay" {
+				s.fetch = map[string][]byte{}
+			}
+			s.fail = func(cmd string) (string, error) {
+				if tc.failure == "install" && strings.Contains(cmd, "nvke-deploy.sh") {
+					return "failed install", errors.New("install failed")
+				}
+				return "", nil
+			}
+			err := d.Deploy(context.Background(), s, sbomTarget)
+			if (err != nil) != (tc.failure != "") {
+				t.Fatalf("Deploy = %v, failure = %s", err, tc.failure)
+			}
+			if _, staged := s.puts[stagedChart("controller")]; !staged {
+				t.Fatal("test never staged the chart")
+			}
+			last := unquoted(s.runs[len(s.runs)-1])
+			if !strings.Contains(last, "rm -rf "+path.Join(workDir, "values")+" "+path.Join(workDir, "charts")) {
+				t.Fatalf("staged charts not removed: %s", last)
+			}
+		})
+	}
+}
+
+type chartFailureSession struct {
+	*fakeSession
+	cancel             context.CancelFunc
+	cleanupWasDetached bool
+}
+
+func (s *chartFailureSession) Put(ctx context.Context, name string, data []byte, mode uint32) error {
+	if err := s.fakeSession.Put(ctx, name, data, mode); err != nil {
+		return err
+	}
+	if name == stagedChart("postgresql") {
+		s.cancel()
+		return errors.New("partial chart write")
+	}
+	return nil
+}
+
+func (s *chartFailureSession) Run(ctx context.Context, cmd string) (string, error) {
+	if strings.Contains(unquoted(cmd), "rm -rf "+path.Join(workDir, "values")) {
+		s.cleanupWasDetached = ctx.Err() == nil
+	}
+	return s.fakeSession.Run(ctx, cmd)
+}
+
+func TestStackRemovesPartialChartsAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d := testSBOM()
+	chart := filepath.Join(t.TempDir(), "chart.tgz")
+	writeFile(t, chart, "chart payload")
+	d.ChartOverrides = map[string]string{"controller": chart, "postgresql": chart}
+	s := &chartFailureSession{fakeSession: sbomSession(), cancel: cancel}
+	err := d.Deploy(ctx, s, sbomTarget)
+	if err == nil || !strings.Contains(err.Error(), "partial chart write") {
+		t.Fatalf("Deploy = %v, want failed chart staging", err)
+	}
+	if _, ok := s.puts[stagedChart("controller")]; !ok {
+		t.Fatal("first chart was not staged before failure")
+	}
+	if !s.cleanupWasDetached || !strings.Contains(unquoted(s.runs[len(s.runs)-1]), path.Join(workDir, "charts")) {
+		t.Fatal("canceled chart staging did not clean charts with a detached context")
+	}
+	if s.ran("nvke-deploy.sh") >= 0 {
+		t.Fatal("deploy continued after chart staging failed")
+	}
+}
+
 func TestStackValidation(t *testing.T) {
 	for name, mutate := range map[string]func(*Stack){
 		"arch":          func(d *Stack) { d.Arch = "riscv64" },

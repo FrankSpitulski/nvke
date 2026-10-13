@@ -275,6 +275,15 @@ func (d Stack) Deploy(ctx context.Context, s infra.Session, t DeployTarget) erro
 	if err := d.stageAssets(ctx, s); err != nil {
 		return err
 	}
+	valuesDir := path.Join(workDir, "values")
+	// Register cleanup before any chart or values Put, including partial
+	// staging failures. Detached and bounded so cancellation still removes
+	// the files carrying bootstrap tokens and database credentials.
+	defer func() {
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), valuesCleanupTimeout)
+		defer cancel()
+		_, _ = s.Run(cctx, asRoot("rm -rf "+shellQuote(valuesDir)+" "+shellQuote(path.Join(workDir, "charts"))))
+	}()
 	for _, item := range sortedKeys(d.ChartOverrides) {
 		data, err := os.ReadFile(d.ChartOverrides[item])
 		if err != nil {
@@ -294,20 +303,6 @@ func (d Stack) Deploy(ctx context.Context, s infra.Session, t DeployTarget) erro
 		return err
 	}
 
-	valuesDir := path.Join(workDir, "values")
-	// Registered before the first Put rather than after the loop. Every one of
-	// these files carries the bootstrap tokens and the database password, so a
-	// Put that fails halfway has already written one to the node, and the map
-	// is walked in random order -- which would make the exposure intermittent
-	// and the bug hard to see.
-	defer func() {
-		// Detached, because the failure that brings us here is often a
-		// cancellation and that is when the files matter most. Bounded,
-		// because a wedged session must not hold the spec open.
-		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), valuesCleanupTimeout)
-		defer cancel()
-		_, _ = s.Run(cctx, asRoot("rm -rf "+shellQuote(valuesDir)))
-	}()
 	for name, data := range files {
 		if err := s.Put(ctx, path.Join(valuesDir, name), data, 0o600); err != nil {
 			return err

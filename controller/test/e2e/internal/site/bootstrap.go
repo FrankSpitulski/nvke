@@ -209,6 +209,18 @@ func (b bootstrap) importImages(ctx context.Context) error {
 			return fmt.Errorf("%s: %w", filepath.Base(image), err)
 		}
 	}
+	// CRI and nerdctl resolve names differently. Check both consumers before
+	// bootstrap can fall back to a registry pull for a digest-pinned image.
+	for _, reference := range []string{b.spec.ControllerImage, b.spec.CAPIProvisionedImage, b.spec.ProfilesImage} {
+		if !strings.Contains(reference, "@") {
+			continue
+		}
+		cmd := "crictl --runtime-endpoint unix:///run/containerd/containerd.sock inspecti --quiet " + shellQuote(reference) +
+			" > /dev/null && nerdctl --namespace default image inspect --mode=native " + shellQuote(reference) + " > /dev/null"
+		if err := b.run(ctx, asRoot(cmd)); err != nil {
+			return fmt.Errorf("imported digest image %s does not resolve locally: %w", reference, err)
+		}
+	}
 	return nil
 }
 

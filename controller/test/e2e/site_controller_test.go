@@ -693,6 +693,10 @@ func siteSpec(cfg config.Config, name string) (site.Spec, error) {
 		DisableMTLS:          siteDisableMTLS,
 		ControllerImage:      controller.Ref(),
 		CAPIProvisionedImage: provisioned.Ref(),
+		ProfilesImage: site.Image{
+			Repository: images.Profiles.Repository, Tag: images.Profiles.Tag,
+			Digest: images.Profiles.Digest,
+		}.Ref(),
 	}, nil
 }
 
@@ -935,13 +939,20 @@ func TestSiteSpecImageReferences(t *testing.T) {
 			cfg := config.Config{}
 			cfg.Site.Images.Controller = config.SiteImage{Repository: "example/controller", Digest: tc.controllerDigest, Archive: "/staged/controller.tar"}
 			cfg.Site.Images.CAPIProvisioned = config.SiteImage{Repository: "example/provider", Digest: tc.providerDigest, Archive: "/staged/provider.tar"}
-			cfg.Site.Images.Profiles = config.SiteImage{Repository: "example/profiles", Tag: "local", Archive: "/staged/profiles.tar"}
+			cfg.Site.Images.Profiles = config.SiteImage{Repository: "example/profiles", Tag: "local", Digest: tc.controllerDigest, Archive: "/staged/profiles.tar"}
 			spec, err := siteSpec(cfg, "e2e-site")
 			if err != nil {
 				t.Fatal(err)
 			}
 			if spec.ControllerImage != tc.wantController || spec.CAPIProvisionedImage != tc.wantProvider {
 				t.Fatalf("bootstrap references = %s, %s; want %s, %s", spec.ControllerImage, spec.CAPIProvisionedImage, tc.wantController, tc.wantProvider)
+			}
+			wantProfiles := "example/profiles:local"
+			if tc.controllerDigest != "" {
+				wantProfiles = "example/profiles@" + tc.controllerDigest
+			}
+			if spec.ProfilesImage != wantProfiles {
+				t.Fatalf("profiles import reference = %s, want %s", spec.ProfilesImage, wantProfiles)
 			}
 			if spec.KubernetesVersion != "1.32.0" || strings.Join(spec.ImageArchives, ",") != "/staged/controller.tar,/staged/provider.tar,/staged/profiles.tar" {
 				t.Fatalf("bootstrap inputs changed: %+v", spec)

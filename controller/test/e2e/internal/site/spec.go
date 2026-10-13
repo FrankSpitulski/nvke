@@ -37,10 +37,11 @@ type Spec struct {
 	// Name names the cluster, and through it the SPIRE trust domain.
 	Name string
 
-	// ImageArchives are files on the runner, as docker save writes them,
+	// ImageArchives are Docker or OCI image archives on the runner,
 	// imported into the node's containerd. The node's containerd is the
 	// cluster's, so an imported image resolves with IfNotPresent and needs no
-	// pull credential.
+	// pull credential. Digest references require OCI archives named with the
+	// matching fully qualified repository@digest.
 	//
 	// Paths, where ControllerImage and CAPIProvisionedImage below are
 	// references. More archives are staged than references are passed: the
@@ -64,6 +65,9 @@ type Spec struct {
 	// outside.
 	ControllerImage      string
 	CAPIProvisionedImage string
+
+	// ProfilesImage is checked after import but consumed only by the deployer.
+	ProfilesImage string
 }
 
 func (s Spec) validate() error {
