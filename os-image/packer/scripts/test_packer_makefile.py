@@ -140,6 +140,7 @@ class PackerMakefileTest(unittest.TestCase):
         scripts = workspace / "scripts"
         scripts.mkdir()
         shutil.copy2(PACKER_DIR / "scripts" / "qemu-arch.sh", scripts / "qemu-arch.sh")
+        shutil.copy2(PACKER_DIR / "scripts" / "run-packer-build.sh", scripts / "run-packer-build.sh")
         shutil.copy2(PACKER_DIR / "scripts" / "package-builder.sh", scripts / "package-builder.sh")
         events = root / "events.log"
         artifacts = workspace / "artifacts"
@@ -185,6 +186,15 @@ printf 'patched installer iso\n' > "${OUT_DIR}/${ISO_URL##*/}.patched.iso"
 set -eu
 printf 'packer:%s\\n' "$1" >> "${EVENT_LOG:?}"
 printf 'packer-args|%s\\n' "$*" >> "${EVENT_LOG:?}"
+if [ "$1" = "build" ] && [ "${PACKER_KVM_DENIED_ONCE:-0}" = "1" ] && [ ! -e "${EVENT_LOG}.kvm-denied" ]; then
+  : > "${EVENT_LOG}.kvm-denied"
+  printf 'Qemu stderr: Could not access KVM kernel module: Permission denied\\n' >> "${PACKER_LOG_PATH:?}"
+  exit 1
+fi
+if [ "$1" = "build" ] && [ "${PACKER_BUILD_FAIL:-0}" = "1" ]; then
+  printf 'Error launching VM: Qemu failed to start\\n' >> "${PACKER_LOG_PATH:?}"
+  exit 1
+fi
 if [ "$1" = "build" ]; then
   test -f "${EXPECTED_ARTIFACTS_DIR:?}/ready"
   test ! -e "${EXPECTED_ARTIFACTS_DIR}/stale"
@@ -207,6 +217,7 @@ fi
         )
         self.write_executable(tools / "go", "#!/bin/sh\nexit 0\n")
         self.write_executable(tools / "qemu-img", "#!/bin/sh\nexit 0\n")
+        self.write_executable(tools / "sudo", "#!/bin/sh\nexit 0\n")
         self.write_executable(
             tools / "ssh-keygen",
             """#!/bin/sh
@@ -278,6 +289,8 @@ printf '%s\n' 'ssh-ed25519 generated-key generated' > "${key}.pub"
         generate_ssh_key=False,
         generated_key_state=None,
         guest_memory_mib=None,
+        packer_kvm_denied_once=False,
+        packer_build_fails=False,
     ):
         workspace, source, tools, packer, events, artifacts = (
             self.create_image_build_fixture(
@@ -397,6 +410,8 @@ exec "${REAL_MV:?}" "$@"
                 },
                 "FETCH_FAIL": "1" if fetch_fails else "0",
                 "PROMOTION_FAIL": "1" if promotion_fails else "0",
+                "PACKER_KVM_DENIED_ONCE": "1" if packer_kvm_denied_once else "0",
+                "PACKER_BUILD_FAIL": "1" if packer_build_fails else "0",
                 "REAL_MV": real_mv,
             },
             make_options=make_options,
@@ -777,6 +792,29 @@ exec "${REAL_MV:?}" "$@"
                 builds = [event for event in events if event.startswith("packer-args|build ")]
                 self.assertEqual(len(builds), 1)
                 self.assertIn("-var guest_memory_mib=16384", builds[0])
+
+    def test_packer_build_retries_once_when_qemu_cannot_open_kvm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, events, artifacts, _ = self.run_image_build(
+                "os-image-fde", "amd64", Path(tmp), packer_kvm_denied_once=True
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            builds = [event for event in events if event.startswith("packer-args|build ")]
+            self.assertEqual(len(builds), 2)
+            kept_log = artifacts.parent / "build-logs" / "packer-fde.kvm-denied.log"
+            self.assertIn(
+                "Could not access KVM kernel module",
+                kept_log.read_text(encoding="utf-8"),
+            )
+
+    def test_packer_build_does_not_retry_other_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, events, _, _ = self.run_image_build(
+                "os-image-non-fde", "arm64", Path(tmp), packer_build_fails=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            builds = [event for event in events if event.startswith("packer-args|build ")]
+            self.assertEqual(len(builds), 1)
 
     def test_failed_artifact_staging_prevents_packer_build(self):
         cases = (

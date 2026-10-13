@@ -174,14 +174,11 @@ BOOT_WAIT ?= $(if $(filter kvm,$(ACCELERATOR)),10s,30s)
 
 # Firmware and acceleration checks share the boot harness selection, including
 # QEMU's firmware directory on hosts without /usr/share/OVMF or AAVMF. The
-# wrapper receives the whole `packer build ... TEMPLATE` command and inserts the
-# firmware -var flags in front of the template, which Packer requires last.
+# wrapper receives the whole `packer build ... TEMPLATE` command, inserts the
+# firmware -var flags in front of the template, which Packer requires last, and
+# retries once when a neighbour pod's qemu postinst closed /dev/kvm under QEMU.
 PACKER_BUILD = ARCH=$(ARCH) ACCELERATOR=$(ACCELERATOR) REQUIRE_ACCELERATION=$(REQUIRE_ACCELERATION) \
-	bash -ec '. ./scripts/qemu-arch.sh; nvke_qemu_env "$$ARCH"; \
-	template=$${@: -1}; set -- "$${@:1:$$\#-1}"; \
-	exec "$$@" -var "efi_firmware_code=$${OVMF_CODE:-$$EFI_CODE_DEFAULT}" \
-	-var "efi_firmware_vars=$${OVMF_VARS_TEMPLATE:-$$EFI_VARS_DEFAULT}" "$$template"' \
-	bash $(PACKER) build
+	./scripts/run-packer-build.sh $(PACKER) build
 
 .PHONY: os-image-fde os-image-non-fde _os-image-fde _os-image-non-fde preflight init-packer init-fde init-non-fde validate-packer ssh-key prepare-ssh-key prepare-image-build prepare-installer-iso prepare-artifacts prepare-packer-inputs clean clean-packer-scratch clean-fde-output clean-non-fde-output check-deps check-source collect-qcow2-fde collect-qcow2-non-fde check-acceleration
 
