@@ -167,8 +167,12 @@ func TestUnit_CandidateReleaseInputsUseCurrentCLIOwner(t *testing.T) {
 			if writeErr := os.WriteFile(release, raw, 0o600); writeErr != nil {
 				t.Fatal(writeErr)
 			}
-			cmd := exec.CommandContext(t.Context(), "bash", "-ec", `source "$1"; fail(){ printf '%s\n' "$*" >&2; exit 1; }; candidate_release_inputs`, "contract", candidateLibrary(t))
-			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "NKE_E2E_CANDIDATE_NVKECTL=" + binary, "NKE_E2E_CANDIDATE_RELEASE=" + release}
+			// This metadata contract runs on macOS too. The Go deadline bounds
+			// the fixture; the Linux runtime's timeout utility is not required.
+			probeCtx, probeCancel := context.WithTimeout(t.Context(), 15*time.Second)
+			defer probeCancel()
+			cmd := exec.CommandContext(probeCtx, "bash", "-ec", `source "$1"; timeout(){ shift; "$@"; }; fail(){ printf '%s\n' "$*" >&2; exit 1; }; candidate_release_inputs`, "contract", candidateLibrary(t))
+			cmd.Env = []string{"PATH=" + t.TempDir(), "NKE_E2E_CANDIDATE_NVKECTL=" + binary, "NKE_E2E_CANDIDATE_RELEASE=" + release}
 			out, runErr := cmd.CombinedOutput()
 			if (runErr == nil) != tc.wantOK {
 				t.Fatalf("metadata/platform admission: %s %v; want success=%v", out, runErr, tc.wantOK)

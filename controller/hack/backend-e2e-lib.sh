@@ -120,6 +120,7 @@ e2e_run_ginkgo() {
   set +e
   "${exec_fn}" \
     /state/cwe-e2e.test \
+    -test.run='^TestE2E$' \
     -test.v \
     -test.timeout="$((suite_minutes + 5))m" \
     -e2e.config=/state/e2e-config.json \

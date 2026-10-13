@@ -714,6 +714,7 @@ set +e
 env NKE_CONTROLLER_RELEASES_DIR="${CONTROLLER_ROOT}/test/fixtures/fleet-releases" \
   NKE_CONTROLLER_EXPECTED_VERSION="${NKE_CONTROLLER_BUILD_VERSION}" \
   "${E2E_BIN}" \
+  -test.run='^TestE2E$' \
   -test.v \
   -test.timeout="${test_timeout}" \
   -e2e.config="${E2E_CONFIG}" \
