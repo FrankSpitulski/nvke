@@ -6,17 +6,22 @@ package site
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/dsx-ai-factory/nvke/cli/pkg/deploypath"
 	"sigs.k8s.io/yaml"
 
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/artifact"
@@ -101,7 +106,6 @@ func (i Image) Ref() string {
 func (i Image) values() map[string]any {
 	values := map[string]any{"repository": i.Repository, "tag": i.Tag}
 	if i.Digest != "" {
-		values["tag"] = ""
 		values["digest"] = i.Digest
 	}
 	return values
@@ -194,7 +198,8 @@ type Stack struct {
 	Profiles   Image
 
 	// ChartOverrides are packaged chart files on the runner, keyed by deploy item.
-	// These files are staged verbatim and bypass the installer's chart lookup.
+	// These files are staged verbatim. Only the private exported release
+	// metadata is projected to its staged archive; the executor is unchanged.
 	ChartOverrides map[string]string
 
 	// Provider is how the installed Cluster API provider reaches its
@@ -291,6 +296,15 @@ func (d Stack) Deploy(ctx context.Context, s infra.Session, t DeployTarget) erro
 	if err := d.validate(); err != nil {
 		return err
 	}
+	releases, releaseErr := chartOverrideReleases(d.Assets, d.ChartOverrides)
+	if releaseErr != nil {
+		return releaseErr
+	}
+	if len(d.ChartOverrides) != 0 {
+		if err := admitChartExecutor(ctx, d.Assets, sortedKeys(d.ChartOverrides)[0]); err != nil {
+			return err
+		}
+	}
 	if d.DatabasePassword == "" {
 		password, err := randomPassword()
 		if err != nil {
@@ -316,8 +330,13 @@ func (d Stack) Deploy(ctx context.Context, s infra.Session, t DeployTarget) erro
 		if err != nil {
 			return fmt.Errorf("read staged chart %s: %w", item, err)
 		}
+		slog.InfoContext(ctx, "staging packaged chart", "item", item, "path", d.ChartOverrides[item], "sha256", fmt.Sprintf("%x", sha256.Sum256(data)))
 		if err := s.Put(ctx, stagedChart(item), data, 0o600); err != nil {
 			return fmt.Errorf("stage chart %s: %w", item, err)
+		}
+		metadata := path.Join(assetsDir, d.Assets.Layout.DeployPath, item, "release.yaml")
+		if err := s.Put(ctx, metadata, releases[item], 0o600); err != nil {
+			return fmt.Errorf("stage release metadata %s: %w", item, err)
 		}
 	}
 
@@ -430,6 +449,9 @@ func (d Stack) validate() error {
 		if err := artifact.ValidateDigest(image.image.Digest); err != nil {
 			problems = append(problems, fmt.Sprintf("%s: %v", image.name, err))
 		}
+		if err := artifact.ValidateRepository(image.image.Repository, image.image.Digest); err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v", image.name, err))
+		}
 	}
 	if !d.Controller.valid() {
 		problems = append(problems, "controller image needs a repository and a tag or digest")
@@ -477,11 +499,6 @@ type step struct {
 func ValidateChartOverrides(charts map[string]string) error {
 	var problems []string
 	for _, item := range sortedKeys(charts) {
-		switch item {
-		case releaseController, releasePostgreSQL, releaseTemporal, releaseSpire, "spire-crds", "nktp":
-		default:
-			problems = append(problems, fmt.Sprintf("unknown chart override %q", item))
-		}
 		info, err := os.Stat(charts[item])
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("chart %s: %v", item, err))
@@ -491,6 +508,163 @@ func ValidateChartOverrides(charts map[string]string) error {
 	}
 	if len(problems) != 0 {
 		return errors.New(strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+// ValidateChartOverridesForAssets checks chart roles and release metadata
+// against the exported deployment layout before provisioning a site.
+func ValidateChartOverridesForAssets(ctx context.Context, assets DeployAssets, charts map[string]string) error {
+	_, err := chartOverrideReleases(assets, charts)
+	if err != nil || len(charts) == 0 {
+		return err
+	}
+	return admitChartExecutor(ctx, assets, sortedKeys(charts)[0])
+}
+
+// admitChartExecutor tests the exported executor's real dry-run contract on a
+// one-item private deploy path. An old executor may prepend the deploy path to
+// an absolute archive path; reject it before a site machine is taken.
+func admitChartExecutor(ctx context.Context, assets DeployAssets, item string) error {
+	if assets.Layout.Executor == "" {
+		assets.Layout = CurrentLayout()
+	}
+	root, err := os.OpenRoot(assets.Dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	if metadataErr := checkDeployMetadata(root, assets.Layout.Executor); metadataErr != nil {
+		return metadataErr
+	}
+	release, err := deploypath.ReadRelease(filepath.Join(assets.Dir, assets.Layout.DeployPath, item))
+	if err != nil {
+		return err
+	}
+	const name = "nvke-e2e-chart-admission"
+	const archive = "/nvke-e2e-chart-admission.tgz"
+	release.Chart.Name, release.Chart.Version = name, "1.0.0"
+	release.Chart.Path, release.Chart.Repository = archive, ""
+	release.Chart.SetFile, release.Values, release.Requires = nil, nil, nil
+	release.Release.Name, release.Release.Namespace = name, name
+	probe, err := os.MkdirTemp("", "nvke-e2e-chart-admission-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(probe)
+	if directoryErr := os.Mkdir(filepath.Join(probe, "chart"), 0o700); directoryErr != nil {
+		return directoryErr
+	}
+	if itemsErr := os.WriteFile(filepath.Join(probe, "nvke-deploy.yaml"), deploypath.MarshalItems([]deploypath.Item{{Name: "chart", Type: deploypath.TypeHelm}}, ""), 0o600); itemsErr != nil {
+		return itemsErr
+	}
+	if releaseErr := os.WriteFile(filepath.Join(probe, "chart", "release.yaml"), release.Marshal(), 0o600); releaseErr != nil {
+		return releaseErr
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	command := exec.CommandContext(probeCtx, "bash", filepath.Join(assets.Dir, assets.Layout.Executor), "install", "--deploy-path", probe, "--dry-run") // #nosec G204 -- caller-selected executor is a bounded regular file under the export root; fixed argv, no shell interpolation.
+	command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "LC_ALL=C"}
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.Cancel = func() error {
+		return syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
+	}
+	command.WaitDelay = time.Second
+	raw, runErr := command.Output()
+	if command.Process != nil {
+		stopErr := syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
+		if stopErr != nil && !errors.Is(stopErr, syscall.ESRCH) {
+			return fmt.Errorf("stop chart executor preflight: %w", stopErr)
+		}
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			probeErr := syscall.Kill(-command.Process.Pid, 0)
+			if errors.Is(probeErr, syscall.ESRCH) {
+				break
+			}
+			if probeErr != nil {
+				return fmt.Errorf("chart executor preflight process group did not stop: %w", probeErr)
+			}
+			if time.Now().After(deadline) {
+				return errors.New("chart executor preflight process group did not stop before the cleanup deadline")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if runErr != nil {
+		return fmt.Errorf("exported executor %s cannot admit a staged chart: %w", assets.Layout.Executor, errors.Join(runErr, probeCtx.Err()))
+	}
+	want := "helm upgrade --install " + name + " " + archive + " "
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(line, want) {
+			return nil
+		}
+	}
+	return fmt.Errorf("exported executor %s does not support an absolute packaged chart.path; use a newer deployment ref", assets.Layout.Executor)
+}
+
+func chartOverrideReleases(assets DeployAssets, charts map[string]string) (map[string][]byte, error) {
+	if err := ValidateChartOverrides(charts); err != nil {
+		return nil, err
+	}
+	releases := make(map[string][]byte, len(charts))
+	if len(charts) == 0 {
+		return releases, nil
+	}
+	if assets.Layout.Executor == "" {
+		assets.Layout = CurrentLayout()
+	}
+	if !filepath.IsLocal(assets.Layout.DeployPath) {
+		return nil, fmt.Errorf("deploy path %q is outside the exported assets", assets.Layout.DeployPath)
+	}
+	directory := filepath.Join(assets.Dir, assets.Layout.DeployPath)
+	root, rootErr := os.OpenRoot(assets.Dir)
+	if rootErr != nil {
+		return nil, fmt.Errorf("open exported deploy assets: %w", rootErr)
+	}
+	defer root.Close()
+	if err := checkDeployMetadata(root, path.Join(assets.Layout.DeployPath, "nvke-deploy.yaml")); err != nil {
+		return nil, err
+	}
+	items, err := deploypath.Items(directory)
+	if err != nil {
+		return nil, fmt.Errorf("read exported deploy items: %w", err)
+	}
+	roles := make(map[string]string, len(items))
+	for _, item := range items {
+		if _, duplicate := roles[item.Name]; duplicate {
+			return nil, fmt.Errorf("exported deploy path repeats item %q", item.Name)
+		}
+		roles[item.Name] = item.Type
+	}
+	for _, item := range sortedKeys(charts) {
+		if roles[item] != deploypath.TypeHelm {
+			return nil, fmt.Errorf("chart override %q is not a helm item in exported deploy path %s", item, assets.Layout.DeployPath)
+		}
+		if metadataErr := checkDeployMetadata(root, path.Join(assets.Layout.DeployPath, item, "release.yaml")); metadataErr != nil {
+			return nil, metadataErr
+		}
+		release, readErr := deploypath.ReadRelease(filepath.Join(directory, item))
+		if readErr != nil {
+			return nil, fmt.Errorf("read exported release %s: %w", item, readErr)
+		}
+		if release.Chart == nil {
+			return nil, fmt.Errorf("exported helm item %s has no chart", item)
+		}
+		release.Chart.Repository = ""
+		release.Chart.Path = stagedChart(item)
+		releases[item] = release.Marshal()
+	}
+	return releases, nil
+}
+
+func checkDeployMetadata(root *os.Root, relative string) error {
+	info, err := root.Lstat(relative)
+	if err != nil {
+		return fmt.Errorf("exported deploy metadata %s: %w", relative, err)
+	}
+	if !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > 1<<20 {
+		return fmt.Errorf("exported deploy metadata %s must be a bounded regular file", relative)
 	}
 	return nil
 }
@@ -507,10 +681,6 @@ func (d Stack) commands(t DeployTarget, valuesDir string) []step {
 		return "--values-for " + shellQuote(release+"="+path.Join(valuesDir, valuesFile(release)))
 	}
 	defaultClass := `{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}`
-	var chartArgs string
-	for _, item := range sortedKeys(d.ChartOverrides) {
-		chartArgs += " --chart-override " + shellQuote(item+"="+stagedChart(item))
-	}
 	// The flag that names the deploy path is owned by the selected layout.
 	target := ""
 	for i, arg := range d.Assets.Layout.TargetArgs(assetsDir) {
@@ -531,7 +701,7 @@ func (d Stack) commands(t DeployTarget, valuesDir string) []step {
 			" " + values(releaseSpire) +
 			" " + values(releasePostgreSQL) +
 			" " + values(releaseTemporal) +
-			" --kubeconfig " + kc + chartArgs},
+			" --kubeconfig " + kc},
 		{"CAPI SPIFFE exec auth", env + "bash " + shellQuote(path.Join(assetsDir, hackDir, "apply-capi-spiffe-exec-auth.sh"))},
 	}
 }

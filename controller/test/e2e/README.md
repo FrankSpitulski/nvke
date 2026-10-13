@@ -568,16 +568,25 @@ NVKR's `publish image-export` produces this archive format. A tag-only
 `docker save` archive does not satisfy the digest contract. After import into
 both containerd namespaces, the suite checks each digest reference with CRI's
 image lookup and nerdctl's native image inspection before bootstrap. A missing
-local reference fails the run instead of relying on a registry pull. These
-checks establish local resolution, not artifact authenticity.
+local reference fails the run instead of relying on a registry pull. Native
+inspection must report the requested digest as its target and an OCI or Docker
+image manifest media type; image indexes are rejected before bootstrap. These
+checks bind the imported reference to local content, not artifact authenticity.
 
-`chartOverrides` is optional. Its supported keys are `controller`, `postgresql`,
-`temporal`, `spire`, `spire-crds`, and `nktp`; each supplied path names a nonempty
-packaged chart file on the runner. These packages are staged onto the node and
-passed through the deploy script's existing `--chart-override` option. Omitted
-keys retain the deploy path's existing chart selection. Relative chart and
+`chartOverrides` is optional. Its keys must name Helm items in the exported
+deploy path; the current NICo path includes `controller`, `postgresql`, `temporal`,
+`spire`, `spire-crds`, and `nktp`. Each supplied path names a nonempty packaged
+chart file on the runner. The suite stages the package onto the node and sets
+`chart.path` in that item's private exported `release.yaml` to the absolute
+staged archive. Other release fields and the exported executor are preserved.
+Omitted keys retain the deploy path's existing chart selection. Relative chart and
 archive paths resolve against the clone the suite runs from; `~` is expanded.
-Full-stage preflight checks chart keys and resolved paths before provisioning.
+Full-stage preflight checks chart keys, release metadata and resolved paths
+against the selected deployment ref before provisioning.
+Packaged inputs require that ref's executor to support an absolute archive
+`chart.path`. Preflight exercises its real dry-run contract and rejects an older
+executor that would treat the path as relative. Omitting `chartOverrides` retains
+the deployment ref's existing behavior.
 Deployment repeats these checks for direct stack callers. Provision and bootstrap
 stages do not consume chart overrides.
 

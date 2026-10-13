@@ -58,6 +58,8 @@
 #   # capi-provisioned tags are their -e2e.versions keys, so they take none
 #   # here. Optional digest values select repository@digest instead; version
 #   # flags still supply the expected version and other component inputs.
+#   # A digest requires a canonical registry-qualified repository and a native
+#   # image manifest digest, rather than an image index digest.
 #   images:
 #     controller:
 #       repository: ghcr.io/dsx-ai-factory/nvke/nke-controller   # or nvcr.io/<org>/nvke-controller
@@ -69,12 +71,13 @@
 #       archive: ~/.cache/nke-e2e/site/capi-provisioned.tar
 #     profiles:       # built from controller/test/fixtures, published nowhere
 #       repository: nke-e2e-profiles
-#       tag: local   # omit when supplying a digest
-#       # digest: "sha256:<manifest digest>"  # suppresses the default local tag
+#       tag: local   # informational when supplying a digest
+#       # digest: "sha256:<manifest digest>"  # also replace repository with its fully qualified name
 #       archive: ~/.cache/nke-e2e/site/profiles.tar
 #   # Optional packaged charts on the runner, verified by the caller. Omitted
-#   # keys retain deployment defaults. The supported keys are controller,
-#   # postgresql, temporal, spire, spire-crds, and nktp. Relative paths resolve
+#   # keys retain deployment defaults. Keys name Helm items in the exported
+#   # deploy path, currently controller, postgresql, temporal, spire, spire-crds,
+#   # and nktp. Relative paths resolve
 #   # against this clone. Deployment scripts and overlays still come from
 #   # deployPathRef; choose controller source compatible with the components.
 #   # chartOverrides:

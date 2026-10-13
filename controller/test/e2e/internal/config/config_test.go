@@ -80,6 +80,32 @@ func TestLoadRejectsAnUnknownKey(t *testing.T) {
 	}
 }
 
+func TestLocalVMCandidateSelection(t *testing.T) {
+	for _, test := range []struct {
+		name, profile, kube string
+		valid               bool
+	}{
+		{"legacy defaults", "", "", true},
+		{"plain candidate", "nvke-local-26-04-arm64-plain", "1.36.3", true},
+		{"profile without version", "nvke-local-26-04-arm64-plain", "", false},
+		{"version without profile", "", "1.36.3", false},
+		{"invalid profile", "../profile", "1.36.3", false},
+		{"mutable version", "profile", "latest", false},
+		{"version prefix", "profile", "v1.36.3", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			doc := fmt.Sprintf("cluster:\n  nicoVMSOSProfile: %q\n  kubernetesVersion: %q\n", test.profile, test.kube)
+			cfg, err := Load(write(t, doc))
+			if (err == nil) != test.valid {
+				t.Fatalf("candidate selection: %v", err)
+			}
+			if test.valid && (cfg.Cluster.NicoVMSOSProfile != test.profile || cfg.Cluster.KubernetesVersion != test.kube) {
+				t.Fatal("candidate selection replaced by a default")
+			}
+		})
+	}
+}
+
 // The keys this block used to carry. Each now lives in test code, in
 // -e2e.versions, in the environment file or under another block, so a config
 // still naming one is out of date and has to say so rather than be half
@@ -174,6 +200,7 @@ func TestLoadStagedArtifactReferences(t *testing.T) {
     capi-provisioned:
       digest: %s
     profiles:
+      repository: ghcr.io/example/profiles
       digest: %s
 `, digest, digest, digest)
 	cfg, err := Load(write(t, doc))
@@ -231,6 +258,7 @@ func TestLoadAcceptsOptionalImageDigests(t *testing.T) {
     capi-provisioned:
       digest: %q
     profiles:
+      repository: ghcr.io/example/profiles
       digest: %q
 `, tc.digest, tc.digest, tc.digest)
 			cfg, err := Load(write(t, doc))
@@ -250,6 +278,23 @@ func TestLoadAcceptsOptionalImageDigests(t *testing.T) {
 				t.Errorf("profiles tag = %q, want %q", cfg.Site.Images.Profiles.Tag, wantTag)
 			}
 		})
+	}
+}
+
+func TestLoadRequiresCanonicalQualifiedRepositoriesForDigestInputs(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	for _, image := range []string{"controller", "capi-provisioned", "profiles"} {
+		for _, repository := range []string{"nke-e2e-profiles", "team/profiles", "docker.io/profiles", "ghcr.io/team/profiles:local", "https://ghcr.io/team/profiles"} {
+			t.Run(image+"/"+repository, func(t *testing.T) {
+				doc := fmt.Sprintf("site:\n  images:\n    %s:\n      repository: %q\n      digest: %q\n", image, repository, digest)
+				if _, err := Load(write(t, doc)); err == nil || !strings.Contains(err.Error(), image) || !strings.Contains(err.Error(), "repository") {
+					t.Fatalf("Load = %v; want early repository error naming %s", err, image)
+				}
+			})
+		}
+	}
+	if _, err := Load(write(t, fmt.Sprintf("site:\n  images:\n    profiles:\n      digest: %q\n", digest))); err == nil {
+		t.Fatal("the legacy unqualified profiles default was admitted with a digest")
 	}
 }
 

@@ -213,7 +213,25 @@ func TestStackImageReferencesAgainstPackagedChart(t *testing.T) {
 				t.Fatal(err)
 			}
 			ordinary := helmInstalls(t, baseline)
-			args = append(args, "--chart-override", "controller="+packagedChart)
+			layout := CurrentLayout()
+			d.Assets = DeployAssets{Dir: assets, Layout: layout}
+			d.ChartOverrides = map[string]string{"controller": packagedChart}
+			projected, err := chartOverrideReleases(d.Assets, d.ChartOverrides)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The physical node stages the package at stagedChart(controller).
+			// For this local installer test, use its actual absolute runner path.
+			metadata := filepath.Join(assets, layout.DeployPath, "controller", "release.yaml")
+			original, err := os.ReadFile(metadata)
+			if err != nil {
+				t.Fatal(err)
+			}
+			local := bytes.ReplaceAll(projected["controller"], []byte(stagedChart("controller")), []byte(packagedChart))
+			if err = os.WriteFile(metadata, local, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.WriteFile(metadata, original, 0o600) })
 			withOverride, err := runTool(t, "bash", args...)
 			if err != nil {
 				t.Fatal(err)
@@ -231,10 +249,10 @@ func TestStackImageReferencesAgainstPackagedChart(t *testing.T) {
 				t.Fatalf("installer did not select packaged controller chart: %s", overridden[name])
 			}
 			for _, chart := range []struct {
-				name, install, appVersion string
+				name, install string
 			}{
-				{"checkout chart", ordinary[name], "0.0.0"},
-				{"packaged chart", overridden[name], "9.8.7"},
+				{"checkout chart", ordinary[name]},
+				{"packaged chart", overridden[name]},
 			} {
 				t.Run(chart.name, func(t *testing.T) {
 					manifest, err := helmTemplate(t, chart.install)
@@ -247,9 +265,9 @@ func TestStackImageReferencesAgainstPackagedChart(t *testing.T) {
 					wantController := d.Controller.Repository + ":" + d.Controller.Tag
 					wantProfiles := d.Profiles.Repository + ":" + d.Profiles.Tag
 					if tc.controllerDigest != "" {
-						// The controller chart retains an informational appVersion
-						// tag while the digest selects the container content.
-						wantController = d.Controller.Repository + ":" + chart.appVersion + "@" + tc.controllerDigest
+						// Preserve the selected version as information while the
+						// digest selects the container content for either chart.
+						wantController = d.Controller.Repository + ":" + d.Controller.Tag + "@" + tc.controllerDigest
 						wantProfiles = d.Profiles.Repository + "@" + tc.profilesDigest
 					}
 					if got := containers[0].(map[string]any)["image"]; got != wantController {

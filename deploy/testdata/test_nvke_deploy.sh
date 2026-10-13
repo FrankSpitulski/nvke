@@ -61,14 +61,6 @@ expect "spire from its index repository" 'helm upgrade --install spire spire --r
 expect "capnico.yaml applied as committed" "kubectl apply --server-side -f ${NICO}/capnico/capnico.yaml" "${out}"
 expect "a template item is rendered by the executor when --config is given" "kubectl apply --server-side -f .*/20-nico-credentials.yaml" "${out}"
 
-# Explicit packaged inputs retain precedence over ordinary chart lookup.
-printf 'chart fixture' >"${WORK}/controller.tgz"
-overridden="$(bash "${EXECUTOR}" install --deploy-path "${NICO}" --config "${CONFIG}" \
-  --chart-override "controller=${WORK}/controller.tgz" --dry-run 2>&1)" || fail "chart override dry run failed"
-expect "packaged controller overrides checkout chart" "helm upgrade --install nke-controller ${WORK}/controller.tgz " "${overridden}"
-expect "other items retain their chart selection" 'helm upgrade --install postgres oci://registry-1.docker.io/bitnamicharts/postgresql ' "${overridden}"
-reject "no dependency build for packaged override" 'helm dependency build .*controller' "${overridden}"
-
 # A deploy path rendered for a site: nvkectl render deploy-path writes the
 # site values and renders the template items, and the executor installs the
 # result with no --config and no knowledge of the site.

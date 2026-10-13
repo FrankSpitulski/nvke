@@ -5,13 +5,16 @@ package site
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/artifact"
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra"
 )
 
@@ -212,14 +215,73 @@ func (b bootstrap) importImages(ctx context.Context) error {
 	// CRI and nerdctl resolve names differently. Check both consumers before
 	// bootstrap can fall back to a registry pull for a digest-pinned image.
 	for _, reference := range []string{b.spec.ControllerImage, b.spec.CAPIProvisionedImage, b.spec.ProfilesImage} {
-		if !strings.Contains(reference, "@") {
+		_, digest, pinned := strings.Cut(reference, "@")
+		if !pinned {
 			continue
 		}
-		cmd := "crictl --runtime-endpoint unix:///run/containerd/containerd.sock inspecti --quiet " + shellQuote(reference) +
-			" > /dev/null && nerdctl --namespace default image inspect --mode=native " + shellQuote(reference) + " > /dev/null"
-		if err := b.run(ctx, asRoot(cmd)); err != nil {
+		lookup, cancel := context.WithTimeout(ctx, 30*time.Second)
+		cmd := "crictl --runtime-endpoint unix:///run/containerd/containerd.sock inspecti --quiet " + shellQuote(reference) + " > /dev/null"
+		err := b.run(lookup, asRoot(cmd))
+		cancel()
+		if err != nil {
 			return fmt.Errorf("imported digest image %s does not resolve locally: %w", reference, err)
 		}
+		lookup, cancel = context.WithTimeout(ctx, 30*time.Second)
+		out, err := b.session.Run(lookup, asRoot("nerdctl --namespace default image inspect --mode=native "+shellQuote(reference)))
+		cancel()
+		if err != nil {
+			return fmt.Errorf("imported digest image %s does not resolve locally: %w\n%s", reference, err, tail(out))
+		}
+		if err := validateNativeImage(out, reference, digest); err != nil {
+			return fmt.Errorf("imported digest image %s: %w", reference, err)
+		}
+	}
+	return nil
+}
+
+// validateNativeImage projects nerdctl's native JSON rather than Docker's image
+// ID (which is a config digest). The imported annotation is only a name: its
+// actual target must be the selected single image manifest. Native inspection
+// can return other aliases of that target, so select exactly one matching name.
+func validateNativeImage(output, reference, digest string) error {
+	if len(output) > 1<<20 {
+		return errors.New("native image inspection exceeds its metadata bound")
+	}
+	var inspected []struct {
+		Image struct {
+			Name   string `json:"Name"`
+			Target struct {
+				Digest    string `json:"digest"`
+				MediaType string `json:"mediaType"`
+			} `json:"Target"`
+		} `json:"Image"`
+	}
+	if err := json.Unmarshal([]byte(output), &inspected); err != nil {
+		return fmt.Errorf("invalid native image inspection: %w", err)
+	}
+	matches := 0
+	for _, entry := range inspected {
+		if entry.Image.Name != reference {
+			continue
+		}
+		matches++
+		if entry.Image.Target.Digest == "" {
+			return errors.New("native image target omits its digest")
+		}
+		if err := artifact.ValidateDigest(entry.Image.Target.Digest); err != nil {
+			return err
+		}
+		if entry.Image.Target.Digest != digest {
+			return fmt.Errorf("native target digest %q differs from configured digest %q", entry.Image.Target.Digest, digest)
+		}
+		switch entry.Image.Target.MediaType {
+		case "application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json":
+		default:
+			return fmt.Errorf("native image target media type %q must be a single OCI or Docker image manifest", entry.Image.Target.MediaType)
+		}
+	}
+	if matches != 1 {
+		return fmt.Errorf("native image inspection matched %d exact names; require one", matches)
 	}
 	return nil
 }

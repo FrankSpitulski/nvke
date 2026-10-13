@@ -21,6 +21,13 @@
 #   NKE_E2E_NVKECTL_SMOKE     run hack/ci/nvkectl-smoke.sh after the suite (default: true)
 #   KIND_CLUSTER_NAME        management cluster name    (default: cwe-nico-vms)
 #   NKE_E2E_KEEP             non-empty keeps kind, Tilt and the VMs running on exit
+#
+# Candidate mode is selected by NKE_E2E_CANDIDATE_RELEASE and implemented in
+# nico-vms-candidate.sh. It uses verified, supplied artifacts, never Tilt or
+# product builds. The first candidate contract is native Linux ARM64 with
+# NKE_E2E_LABEL_FILTER='(nico-vms && ovn) || health' and the explicit local plain profile.
+# Its caller owns publication verification, the exact-image HTTP service on
+# 172.30.0.1:18080, and the runtime lease across host setup and cleanup.
 
 set -Eeuo pipefail
 
@@ -312,6 +319,12 @@ collect_diagnostics() {
   fi
   exit "${rc}"
 }
+if [[ -n "${NKE_E2E_CANDIDATE_RELEASE:-}" ]]; then
+  # shellcheck source=controller/hack/ci/nico-vms-candidate.sh
+  source "${SCRIPT_DIR}/nico-vms-candidate.sh"
+  run_candidate_e2e
+  exit 0
+fi
 trap collect_diagnostics EXIT
 
 # ── Preflight ───────────────────────────────────────────────────────────────

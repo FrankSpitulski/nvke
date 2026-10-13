@@ -779,6 +779,9 @@ func newStack(cfg config.Config, arch string) (site.Stack, []string, error) {
 		return site.Stack{}, nil, err
 	}
 	DeferCleanup(cleanupAssets)
+	if chartErr := site.ValidateChartOverridesForAssets(context.Background(), assets, charts); chartErr != nil {
+		return site.Stack{}, nil, fmt.Errorf("site.chartOverrides for deployPathRef %s: %w", ref, chartErr)
+	}
 
 	images := cfg.Site.Images
 	profiles := site.Image{Repository: images.Profiles.Repository, Tag: images.Profiles.Tag, Digest: images.Profiles.Digest}

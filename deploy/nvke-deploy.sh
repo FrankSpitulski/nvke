@@ -30,7 +30,6 @@ PHASE_TIMEOUT="${PHASE_TIMEOUT:-15m}"
 REQUIRE_TIMEOUT="${REQUIRE_TIMEOUT:-180s}"
 PASSTHROUGH=()
 CONFIG=""
-CHART_OVERRIDES=()
 VALUES_FOR=()
 DEPLOY_PATH=""
 # CTR imports images into the node's containerd for a deploy path rendered
@@ -55,8 +54,6 @@ usage: nvke-deploy.sh install --deploy-path DIR [options] [-- helm args]
   --deploy-path DIR   the deploy path to install: a directory holding
                       nvke-deploy.yaml and one directory per item, e.g.
                       deploy/nico or controller/deploy/capd-e2e
-  --chart-override ITEM=PATH
-                      a packaged chart supplied for one item. Repeatable.
   --config PATH       BootstrapConfig, as JSON. Required by a template item;
                       its fields are the context those templates render against.
   --values-for ITEM=PATH
@@ -162,17 +159,6 @@ that is the nvke-base-config item, from controller/deploy/k8s/oidc-upstream-ca.y
   done
 }
 
-# chart_override prints the --chart-override value for an item, if one was given.
-chart_override() {
-  local entry
-  for entry in ${CHART_OVERRIDES[@]+"${CHART_OVERRIDES[@]}"}; do
-    if [[ "${entry%%=*}" == "$1" ]]; then
-      printf '%s' "${entry#*=}"
-      return
-    fi
-  done
-}
-
 # values_for prints the --values-for paths for an item, newline separated.
 values_for() {
   local entry
@@ -242,12 +228,8 @@ install_helm_item() {
   # or the archive a render put under charts/. A rendered deploy path writes a
   # committed chart.path absolute, so it installs from anywhere. Then the
   # repository the chart is published to.
-  local ref=() override
-  override="$(chart_override "${item}")"
-  if [[ -n "${override}" ]]; then
-    [[ -f "${override}" ]] || die "--chart-override ${item}: no such file: ${override}"
-    ref=("${override}")
-  elif [[ -n "${path}" ]]; then
+  local ref=()
+  if [[ -n "${path}" ]]; then
     if [[ "${path}" == /* ]]; then ref=("${path}"); else ref=("${DEPLOY_PATH}/${path}"); fi
     [[ "${path}" == *.tgz ]] || build_chart_dependencies "${ref[0]}"
   elif [[ "${repository}" == oci://* ]]; then
@@ -280,7 +262,7 @@ install_helm_item() {
     values_args+=(--set-file "${entry}")
   done
 
-  log "item ${item} -> release ${release} (${chart_name} ${version}) in ${namespace}"
+  log "item ${item} -> release ${release} (${chart_name}${version:+ ${version}}) in ${namespace}"
   helm_install "${release}" "${ref[@]}" \
     ${KUBECONFIG_PATH:+--kubeconfig "${KUBECONFIG_PATH}"} \
     --namespace "${namespace}" \
@@ -360,7 +342,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --deploy-path) DEPLOY_PATH="${2%/}"; shift 2 ;;
     --config) CONFIG="$2"; shift 2 ;;
-    --chart-override) CHART_OVERRIDES+=("$2"); shift 2 ;;
     --values-for) VALUES_FOR+=("$2"); shift 2 ;;
     --kubeconfig) KUBECONFIG_PATH="$2"; shift 2 ;;
     --timeout) PHASE_TIMEOUT="$2"; shift 2 ;;

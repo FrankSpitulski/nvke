@@ -87,7 +87,8 @@ func TestItemsAndReleases(t *testing.T) {
 
 func TestReadRelease_Problems(t *testing.T) {
 	cases := map[string]string{
-		"chart:\n  name: x\n": "chart.name and chart.version are required",
+		"chart:\n  version: \"1.0.0\"\n  repository: https://charts.example\n":  "chart.name is required",
+		"chart:\n  name: x\n  repository: https://charts.example\n":             "chart.version is required for a repository chart",
 		"chart:\n  name: x\n  version: \"1\"\n  path: a\n  repository: b\n":     "both repository and path",
 		"chart:\n  name: x\n  version: \"1\"\n  path: a\nrelease:\n  name: r\n": "release.name and release.namespace",
 		"chart:\n  name: x\n  version: \"1\"\n  colour: red\n":                  "field colour not found",
@@ -104,6 +105,43 @@ func TestReadRelease_Problems(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: want %q, got %v", text, want, err)
 		}
+	}
+}
+
+func TestMetadataReadersRejectTrailingDocuments(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		file  string
+		first string
+		read  func(string) error
+	}{
+		{name: "items", file: "nvke-deploy.yaml", first: "items:\n  - {name: controller, type: helm}\n", read: func(dir string) error {
+			_, err := Items(dir)
+			return err
+		}},
+		{name: "release", file: "release.yaml", first: "chart:\n  name: controller\n  path: /charts/controller.tgz\nrelease:\n  name: controller\n  namespace: controller\n", read: func(dir string) error {
+			_, err := ReadRelease(dir)
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, suffix := range []string{"---\n", "---\nunknown: true\n", "---\n" + test.first} {
+				dir := t.TempDir()
+				if err := os.WriteFile(filepath.Join(dir, test.file), []byte(test.first+suffix), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := test.read(dir); err == nil || !strings.Contains(err.Error(), "multiple YAML documents") {
+					t.Fatalf("trailing document accepted: %v", err)
+				}
+			}
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, test.file), []byte(test.first+"\n# trailing comment\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := test.read(dir); err != nil {
+				t.Fatalf("single document rejected: %v", err)
+			}
+		})
 	}
 }
 

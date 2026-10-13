@@ -45,6 +45,8 @@
 #   NICO_VMS_DHCP_HOSTS_DIR    dnsmasq hostsdir        (default /var/lib/nico-vms/dhcp-hosts)
 #   NICO_VMS_DHCP_LEASE_FILE   dnsmasq lease file      (default /var/run/nico-vms-dnsmasq.leases)
 #   NICO_VMS_DHCP_RANGE_END    last DHCP address       (default <prefix>.239)
+#   NKE_CI_HOST_EXTERNAL_DHCP  "true" leaves DHCP files/processes untouched;
+#                              the calling attempt must own their lifecycle.
 #   NKE_CI_HOST_FDE            "true" adds what the NVKE FDE node image needs on
 #                              top of the above: UEFI firmware, swtpm, debugfs,
 #                              the carbide-pxe.forge record, and a route from
@@ -364,6 +366,7 @@ fi
 # through dnsmasq on the bridge. Without it the VMs cannot resolve the apt repo
 # and never install kubeadm.
 
+if [[ "${NKE_CI_HOST_EXTERNAL_DHCP:-false}" != true ]]; then
 sudo mkdir -p "${DHCP_HOSTS_DIR}"
 sudo chmod 777 "${DHCP_HOSTS_DIR}"
 # The lease file must be writable by the (non-root) nico-sim process so it can
@@ -378,6 +381,7 @@ if [[ -f "${DNSMASQ_PID_FILE}" ]]; then
   sudo rm -f "${DNSMASQ_PID_FILE}"
 fi
 sudo pkill -f "dnsmasq.*--interface=${BRIDGE_NAME}" 2>/dev/null || true
+fi
 
 # Host firewalls commonly default INPUT to DROP. Allow only what nico-vms
 # exposes to guests on its own bridge (setup-linux.sh:429-440), minus 10179:
@@ -465,6 +469,7 @@ start_dnsmasq() {
     --dhcp-ignore-clid
 }
 
+if [[ "${NKE_CI_HOST_EXTERNAL_DHCP:-false}" != true ]]; then
 log "Starting dnsmasq on ${BRIDGE_NAME} (${DHCP_RANGE_START}-${DHCP_RANGE_END})..."
 DNSMASQ_ERR="$(mktemp)"
 if ! start_dnsmasq 2>"${DNSMASQ_ERR}"; then
@@ -500,6 +505,9 @@ if ! start_dnsmasq 2>"${DNSMASQ_ERR}"; then
 fi
 rm -f "${DNSMASQ_ERR}"
 log "dnsmasq started (pid=$(cat "${DNSMASQ_PID_FILE}"))"
+else
+  log "DHCP lifecycle is owned by the caller"
+fi
 
 # ── 6. Forwarding and NAT ───────────────────────────────────────────────────
 # ip_forward only. setup-linux.sh:498 also sets
@@ -563,6 +571,9 @@ if [[ "${FDE}" == true ]]; then
   # 4. The nico-vms API and file server on 18080: the fleet userData downloads
   #    nvke-agent from http://carbide-pxe.forge:18080/files/agent/nvke-agent.
   ensure_bridge_input_rule -p tcp --dport 18080
+  if [[ "${NKE_CI_HOST_EXTERNAL_DHCP:-false}" == true ]]; then
+    ensure_bridge_input_rule -p tcp --dport 18089
+  fi
   # 5. SPIRE and OIDC, which Tilt port-forwards onto the kind gateway address;
   #    the tenant nodes dial them from the bridge.
   ensure_bridge_input_rule -p tcp --dport 30440

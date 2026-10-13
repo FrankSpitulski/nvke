@@ -53,6 +53,27 @@ var stackCheckout = func() string {
 			panic(err)
 		}
 	}
+	items := "items:\n"
+	for _, item := range []string{"controller", "postgresql", "temporal", "spire", "spire-crds", "nktp"} {
+		items += "  - {name: " + item + ", type: helm}\n"
+		directory := filepath.Join(dir, "deploy", "nico", item)
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			panic(err)
+		}
+		metadata := "chart:\n  name: " + item + "\n  version: \"1.2.3\"\n  repository: https://charts.example\nrelease:\n  name: " + item + "\n  namespace: " + item + "\nvalues:\n  - values.yaml\n"
+		if err := os.WriteFile(filepath.Join(directory, "release.yaml"), []byte(metadata), 0o644); err != nil {
+			panic(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "deploy", "nico", "nvke-deploy.yaml"), []byte(items), 0o644); err != nil {
+		panic(err)
+	}
+	// Session unit tests model the executor admission output. Separate native
+	// executor tests exercise real current and historical deployment refs.
+	executor := "#!/usr/bin/env bash\nprintf '%s\\n' 'helm upgrade --install nvke-e2e-chart-admission /nvke-e2e-chart-admission.tgz --namespace fixture'\n"
+	if err := os.WriteFile(filepath.Join(dir, "deploy", "nvke-deploy.sh"), []byte(executor), 0o644); err != nil {
+		panic(err)
+	}
 	return dir
 }()
 
@@ -420,10 +441,16 @@ func TestStagedChartOverrides(t *testing.T) {
 	if got := s.puts[stagedChart("controller")]; !bytes.Equal(got.data, data) || got.mode != 0o600 {
 		t.Fatalf("staged chart = %+v, want exact payload with mode 0600", got)
 	}
-	want := "controller=" + stagedChart("controller")
 	commands := strings.Join(s.runs, "\n")
-	if !strings.Contains(commands, "--chart-override") || !strings.Contains(commands, want) {
-		t.Fatalf("installer did not receive chart override %s", want)
+	if strings.Contains(commands, "--chart-override") {
+		t.Fatalf("installer interface was changed: %s", commands)
+	}
+	metadata := decode(t, s.puts[path.Join(assetsDir, d.Assets.Layout.DeployPath, "controller", "release.yaml")].data)
+	if got := dig(t, metadata, "chart", "path"); got != stagedChart("controller") {
+		t.Fatalf("release chart path = %v, want staged archive", got)
+	}
+	if _, repository := metadata["chart"].(map[string]any)["repository"]; repository {
+		t.Fatal("projected release has two chart sources")
 	}
 	for _, tc := range []struct{ name, item, file string }{
 		{"unknown item", "unexpected", chart},
@@ -457,8 +484,12 @@ func TestImageDigestOverridesTag(t *testing.T) {
 		if got := dig(t, values, append(keys, "digest")...); got != digest {
 			t.Errorf("%v digest = %v, want %s", keys, got, digest)
 		}
-		if got := dig(t, values, append(keys, "tag")...); got != "" {
-			t.Errorf("%v tag = %v, want empty to avoid tag fallback", keys, got)
+		wantTag := d.Controller.Tag
+		if keys[0] == "profiles" {
+			wantTag = d.Profiles.Tag
+		}
+		if got := dig(t, values, append(keys, "tag")...); got != wantTag {
+			t.Errorf("%v informational tag = %v, want %s", keys, got, wantTag)
 		}
 	}
 	if got := d.Controller.Ref(); got != d.Controller.Repository+"@"+digest {
@@ -510,7 +541,7 @@ func TestValidateChartOverrides(t *testing.T) {
 		{"nil overrides", nil, ""},
 		{"empty overrides", map[string]string{}, ""},
 		{"known items", map[string]string{"controller": chart, "postgresql": chart, "temporal": chart, "spire": chart, "spire-crds": chart, "nktp": chart}, ""},
-		{"unknown item", map[string]string{"unexpected": chart}, "unexpected"},
+		{"role validated against assets later", map[string]string{"future-role": chart}, ""},
 		{"empty path", map[string]string{"controller": ""}, "controller"},
 		{"absent chart", map[string]string{"controller": chart + ".absent"}, "controller"},
 		{"empty chart", map[string]string{"controller": empty}, "nonempty regular file"},

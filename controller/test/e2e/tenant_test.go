@@ -1363,6 +1363,27 @@ func TestUnit_NicoVMSControlPlaneFitsKubeletReservation(t *testing.T) {
 	})
 }
 
+func TestUnit_NicoVMSCandidateSelectionOverridesDevelopmentFixture(t *testing.T) {
+	for _, candidate := range []bool{false, true} {
+		t.Run(fmt.Sprintf("candidate=%t", candidate), func(t *testing.T) {
+			cfg := config.Config{}
+			profile, kubernetesVersion := nicoVMSOSProfile, "1.34.2"
+			if candidate {
+				profile, kubernetesVersion = "nvke-local-26-04-arm64-plain", "1.36.3"
+				cfg.Cluster.NicoVMSOSProfile, cfg.Cluster.KubernetesVersion = profile, kubernetesVersion
+			}
+			spec := nicoVMSSpec(cfg, "unit", clusterShape{kubernetesVersion: "1.34.2", controlPlanePools: []nvke.NodePoolSpec{{DesiredNodeCount: 1}}, workerPools: []nvke.NodePoolSpec{{DesiredNodeCount: 1}}})
+			require.Equal(t, kubernetesVersion, spec.KubernetesVersion)
+			if spec.ControlPlane.Config != nil {
+				require.Equal(t, profile, spec.ControlPlane.Config.OSProfile)
+			} else {
+				require.Equal(t, profile, spec.ControlPlane.Pools[0].OSProfile)
+			}
+			require.Equal(t, profile, spec.Workers[0].OSProfile)
+		})
+	}
+}
+
 // builtControlPlaneInstanceType returns the instance type spec's control plane
 // runs on, in either control-plane shape.
 func builtControlPlaneInstanceType(spec nvke.ClusterSpec) string {
@@ -1711,11 +1732,19 @@ var nicoVMSOSProfile = "nvke-nico-vms-24.04-" + runtime.GOARCH + "-fde"
 // nicoVMSSpec builds a nico-vms topology using the local emulator's seed
 // identifiers. kube-vip is left enabled (the nico-vms BGP speaker advertises
 // the control-plane VIP), unlike the CAPD topology.
-func nicoVMSSpec(_ config.Config, name string, shape clusterShape) nvke.ClusterSpec {
+func nicoVMSSpec(cfg config.Config, name string, shape clusterShape) nvke.ClusterSpec {
+	profile := cmp.Or(cfg.Cluster.NicoVMSOSProfile, nicoVMSOSProfile)
+	if cfg.Cluster.NicoVMSOSProfile != "" && shape.controlPlaneConfig != nil {
+		// Table shapes are shared. Copy rather than mutating the development
+		// fixture when an explicit candidate replaces its profile.
+		candidate := *shape.controlPlaneConfig
+		candidate.OSProfile = profile
+		shape.controlPlaneConfig = &candidate
+	}
 	return applyControlPlaneMode(nvke.ClusterSpec{
 		Name:              name,
 		Backend:           nvke.BackendNicoVMS,
-		KubernetesVersion: cmp.Or(shape.kubernetesVersion, defaultKubernetesVersion),
+		KubernetesVersion: cmp.Or(cfg.Cluster.KubernetesVersion, shape.kubernetesVersion, defaultKubernetesVersion),
 		// OVN-Kubernetes unless the entry pins a CNI or NKE_E2E_NICO_VMS_CNI overrides it.
 		CNIPlugin: cmp.Or(shape.cniPlugin, os.Getenv("NKE_E2E_NICO_VMS_CNI"), CNIPluginOVN),
 		OrgID:     nicoVMSOrgID,
@@ -1727,13 +1756,13 @@ func nicoVMSSpec(_ config.Config, name string, shape clusterShape) nvke.ClusterS
 			// the pool's 250Mi, and that does not fit in 2 GiB.
 			Pools: nicoVMSNodePoolSpecs(
 				withDefaultInstanceType(shape.controlPlanePools, nicoVMSLargeInstanceID),
-				"control-plane", "cp", nicoVMSOSProfile, nicoVMSCPConfigProfile,
+				"control-plane", "cp", profile, nicoVMSCPConfigProfile,
 			),
 			ControlPlaneVIP: shape.controlPlaneVIP,
 			EtcdEncrypted:   shape.etcdEncrypted,
 			Config:          shape.controlPlaneConfig,
 		},
-		Workers: nicoVMSNodePoolSpecs(shape.workerPools, "worker", "w", nicoVMSOSProfile, nicoVMSWConfigProfile),
+		Workers: nicoVMSNodePoolSpecs(shape.workerPools, "worker", "w", profile, nicoVMSWConfigProfile),
 	})
 }
 

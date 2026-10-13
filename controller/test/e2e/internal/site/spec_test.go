@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -250,6 +251,11 @@ func TestBootstrapChecksImportedDigestReferences(t *testing.T) {
 				if tc.missing != "" && strings.Contains(cmd, tc.missing) {
 					return "no such image present", errors.New("image missing")
 				}
+				for _, ref := range []string{spec.ControllerImage, spec.CAPIProvisionedImage, spec.ProfilesImage} {
+					if strings.Contains(cmd, "nerdctl") && strings.Contains(cmd, ref) {
+						return nativeImageJSON(t, ref, "sha256:"+strings.Repeat("a", 64), "application/vnd.oci.image.manifest.v1+json"), nil
+					}
+				}
 				return "", nil
 			}
 			cluster, err := Bootstrap(context.Background(), testNode, session, testNvkectl(t), spec)
@@ -271,9 +277,104 @@ func TestBootstrapChecksImportedDigestReferences(t *testing.T) {
 				if index <= session.ran("ctr -n k8s.io images import") || index >= session.ran("bootstrap site") {
 					t.Fatalf("digest lookup %s did not run between import and bootstrap", ref)
 				}
-				if !strings.Contains(unquoted(session.runs[index]), "nerdctl --namespace default image inspect --mode=native "+ref) {
+				native := session.ran("nerdctl --namespace default image inspect --mode=native " + ref)
+				if native <= index || native >= session.ran("bootstrap site") {
 					t.Fatalf("bootstrap namespace lookup missing for %s", ref)
 				}
+			}
+		})
+	}
+}
+
+func nativeImageJSON(t *testing.T, ref, digest, mediaType string) string {
+	t.Helper()
+	encoded, err := json.Marshal([]any{map[string]any{
+		"Image": map[string]any{"Name": ref, "Target": map[string]any{"digest": digest, "mediaType": mediaType}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
+}
+
+func TestBootstrapRejectsUnboundOrIndexedNativeDigestImagesBeforeBootstrap(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	for _, tc := range []struct {
+		name, mediaType, targetDigest, output string
+	}{
+		{name: "OCI manifest", mediaType: "application/vnd.oci.image.manifest.v1+json", targetDigest: digest},
+		{name: "Docker manifest", mediaType: "application/vnd.docker.distribution.manifest.v2+json", targetDigest: digest},
+		{name: "forged A name points at B", mediaType: "application/vnd.oci.image.manifest.v1+json", targetDigest: "sha256:" + strings.Repeat("b", 64)},
+		{name: "OCI index", mediaType: "application/vnd.oci.image.index.v1+json", targetDigest: digest},
+		{name: "Docker manifest list", mediaType: "application/vnd.docker.distribution.manifest.list.v2+json", targetDigest: digest},
+		{name: "unknown media", mediaType: "application/octet-stream", targetDigest: digest},
+		{name: "missing media", targetDigest: digest},
+		{name: "missing target digest", mediaType: "application/vnd.oci.image.manifest.v1+json"},
+		{name: "malformed JSON", output: "not metadata"},
+		{name: "missing image", output: "[]"},
+		{name: "missing descriptor", output: `[{"Image":{"Name":"ghcr.io/example/controller@` + digest + `"}}]`},
+		{name: "trailing metadata", output: "[] {}"},
+		{name: "ambiguous exact name"},
+		{name: "different alias"},
+		{name: "unrelated alias plus exact name"},
+		{name: "oversized inspection", output: strings.Repeat(" ", 1<<20+1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := testSite(t)
+			spec.ControllerImage = "ghcr.io/example/controller@" + digest
+			out := tc.output
+			if out == "" {
+				out = nativeImageJSON(t, spec.ControllerImage, tc.targetDigest, tc.mediaType)
+			}
+			if tc.name == "ambiguous exact name" {
+				entry := nativeImageJSON(t, spec.ControllerImage, digest, "application/vnd.oci.image.manifest.v1+json")
+				out = entry[:len(entry)-1] + "," + entry[1:]
+			}
+			if tc.name == "different alias" {
+				out = nativeImageJSON(t, "ghcr.io/example/other@"+digest, digest, "application/vnd.oci.image.manifest.v1+json")
+			}
+			if tc.name == "unrelated alias plus exact name" {
+				alias := nativeImageJSON(t, "ghcr.io/example/other@"+digest, digest, "application/vnd.oci.image.manifest.v1+json")
+				exact := nativeImageJSON(t, spec.ControllerImage, digest, "application/vnd.oci.image.manifest.v1+json")
+				out = alias[:len(alias)-1] + "," + exact[1:]
+			}
+			session := newFakeSession()
+			session.fail = func(cmd string) (string, error) {
+				if strings.Contains(cmd, "nerdctl") {
+					return out, nil
+				}
+				return "", nil
+			}
+			cluster, err := Bootstrap(t.Context(), testNode, session, testNvkectl(t), spec)
+			valid := tc.name == "OCI manifest" || tc.name == "Docker manifest" || tc.name == "unrelated alias plus exact name"
+			if valid {
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(cluster.Kubeconfig)) })
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "imported digest image") {
+				t.Fatalf("Bootstrap = %v; want exact native target rejection", err)
+			}
+			if session.ran("generate sitespec") >= 0 || session.ran("bootstrap site") >= 0 || len(session.forwards) != 0 {
+				t.Fatal("bootstrap progressed after native image admission failed")
+			}
+		})
+	}
+}
+
+func TestBootstrapRejectsInvalidDigestRepositoryBeforeNodeWork(t *testing.T) {
+	for _, ref := range []string{"nke-e2e-profiles@sha256:" + strings.Repeat("a", 64), "ghcr.io/example/image@sha256:invalid", "ghcr.io/example/image@"} {
+		t.Run(ref, func(t *testing.T) {
+			spec := testSite(t)
+			spec.ProfilesImage = ref
+			session := newFakeSession()
+			if _, err := Bootstrap(t.Context(), testNode, session, testNvkectl(t), spec); err == nil {
+				t.Fatal("invalid digest reference was admitted")
+			}
+			if len(session.runs) != 0 || len(session.puts) != 0 {
+				t.Fatal("invalid digest reference performed node work")
 			}
 		})
 	}

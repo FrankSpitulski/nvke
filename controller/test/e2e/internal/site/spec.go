@@ -16,6 +16,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/artifact"
 )
 
 const (
@@ -78,6 +80,19 @@ func (s Spec) validate() error {
 	for _, image := range s.ImageArchives {
 		if _, err := os.Stat(image); err != nil {
 			problems = append(problems, fmt.Sprintf("image archive: %v", err))
+		}
+	}
+	for _, ref := range []string{s.ControllerImage, s.CAPIProvisionedImage, s.ProfilesImage} {
+		if repository, digest, pinned := strings.Cut(ref, "@"); pinned {
+			if digest == "" {
+				problems = append(problems, "image reference has an empty digest")
+			}
+			if err := artifact.ValidateDigest(digest); err != nil {
+				problems = append(problems, err.Error())
+			}
+			if err := artifact.ValidateRepository(repository, digest); err != nil {
+				problems = append(problems, err.Error())
+			}
 		}
 	}
 	if s.KubernetesVersion == "" || strings.HasPrefix(s.KubernetesVersion, "v") {

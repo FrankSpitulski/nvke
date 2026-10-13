@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/version"
 	"sigs.k8s.io/yaml"
 
 	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/artifact"
@@ -24,6 +26,10 @@ type Config struct {
 	} `json:"kube"`
 	Cluster struct {
 		CAPDNodeImage string `json:"capdNodeImage"` // default "cwe-capd-kindest-node:local"
+		// NicoVMSOSProfile and KubernetesVersion bind a supplied local VM
+		// candidate. Both must be explicit together; empty preserves development defaults.
+		NicoVMSOSProfile  string `json:"nicoVMSOSProfile"`
+		KubernetesVersion string `json:"kubernetesVersion"`
 	} `json:"cluster"`
 	Lifecycle struct {
 		// SkipDelete keeps what a run created, pass or fail. On a lane that
@@ -153,6 +159,9 @@ func (i SiteImages) validate() error {
 		if err := artifact.ValidateDigest(image.image.Digest); err != nil {
 			problems = append(problems, fmt.Sprintf("%s: %v", image.name, err))
 		}
+		if err := artifact.ValidateRepository(image.image.Repository, image.image.Digest); err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v", image.name, err))
+		}
 		switch {
 		case image.tag && image.image.Tag == "" && image.image.Digest == "":
 			problems = append(problems, image.name+" needs a tag or digest")
@@ -191,10 +200,31 @@ func Load(path string) (Config, error) {
 	}
 
 	cfg.applyDefaults()
+	if err := cfg.validateLocalVMSelection(); err != nil {
+		return Config{}, fmt.Errorf("config %s: %w", path, err)
+	}
 	if err := cfg.Site.Images.validate(); err != nil {
 		return Config{}, fmt.Errorf("config %s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+func (c Config) validateLocalVMSelection() error {
+	profile, kube := c.Cluster.NicoVMSOSProfile, c.Cluster.KubernetesVersion
+	if profile == "" && kube == "" {
+		return nil
+	}
+	if profile == "" || kube == "" {
+		return fmt.Errorf("cluster.nicoVMSOSProfile and cluster.kubernetesVersion must be supplied together")
+	}
+	if problems := validation.IsDNS1123Subdomain(profile); len(problems) != 0 {
+		return fmt.Errorf("cluster.nicoVMSOSProfile: %s", strings.Join(problems, "; "))
+	}
+	parsed, err := version.ParseSemantic(kube)
+	if err != nil || parsed.String() != kube {
+		return fmt.Errorf("cluster.kubernetesVersion must be a canonical semantic version without a v prefix")
+	}
+	return nil
 }
 
 func (c *Config) applyDefaults() {

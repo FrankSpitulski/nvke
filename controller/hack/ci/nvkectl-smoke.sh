@@ -45,6 +45,22 @@ NVKECTL_SMOKE_CLUSTER_DELETE_POLLS="${NVKECTL_SMOKE_CLUSTER_DELETE_POLLS:-120}"
 NVKECTL_SMOKE_DELETE_POLL_SECONDS="${NVKECTL_SMOKE_DELETE_POLL_SECONDS:-5}"
 
 nvkectl_smoke_build() {
+  if [[ -n "${NVKECTL_SMOKE_PREBUILT:-}" ]]; then
+    [[ -f "${NVKECTL_SMOKE_PREBUILT}" && ! -L "${NVKECTL_SMOKE_PREBUILT}" && -x "${NVKECTL_SMOKE_PREBUILT}" ]] || {
+      log "supplied nvkectl is not a regular executable" >&2; return 1;
+    }
+    [[ -n "${NVKECTL_SMOKE_SHA256:-}" ]] || { log "supplied nvkectl needs its exact SHA256 pin" >&2; return 1; }
+    local digest
+    digest="$(sha256sum <"${NVKECTL_SMOKE_PREBUILT}")" || return 1
+    [[ "sha256:${digest%% *}" == "${NVKECTL_SMOKE_SHA256}" ]] || {
+      log "supplied nvkectl differs from its exact byte pin" >&2; return 1;
+    }
+    NVKECTL_BIN="${NVKECTL_SMOKE_PREBUILT}"
+    return 0
+  fi
+  [[ -z "${NKE_E2E_CANDIDATE_RELEASE:-}" ]] || {
+    log "candidate mode requires a supplied nvkectl; source build is forbidden" >&2; return 1;
+  }
   log "compiling nvkectl for linux/${1}"
   (cd ../cli && CGO_ENABLED=0 GOOS=linux GOARCH="${1}" go build -o "${NVKECTL_BIN}" ./cmd/nvkectl)
 }
