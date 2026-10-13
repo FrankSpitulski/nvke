@@ -314,7 +314,7 @@ func (f *TenantClientFactory) tenantRESTConfigAs(ctx context.Context, clusterNam
 	if err != nil {
 		return nil, fmt.Errorf("reading SPIRE JWT audience from tenant kubeconfig for %q: %w", clusterName, err)
 	}
-	trustDomain, err := f.managementTrustDomain(ctx)
+	trustDomain, err := f.ManagementTrustDomain(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -387,7 +387,7 @@ func (f *TenantClientFactory) AdminKubeconfig(ctx context.Context, clusterName s
 	if err != nil {
 		return nil, fmt.Errorf("reading SPIRE JWT audience from tenant kubeconfig for %q: %w", clusterName, err)
 	}
-	trustDomain, err := f.managementTrustDomain(ctx)
+	trustDomain, err := f.ManagementTrustDomain(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -562,17 +562,43 @@ func (f *TenantClientFactory) mintJWT(ctx context.Context, trustDomain, audience
 }
 
 func (f *TenantClientFactory) mintJWTAs(ctx context.Context, trustDomain, audience, spiffePath string) (string, error) {
+	spiffeID := "spiffe://" + trustDomain + spiffePath
+	stdout, err := f.execSPIREServer(ctx, "minting tenant JWT", []string{
+		"bin/spire-server", "jwt", "mint",
+		"-spiffeID", spiffeID,
+		"-audience", audience,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	fields := strings.Fields(stdout)
+	if len(fields) != 1 {
+		return "", fmt.Errorf("SPIRE server returned %d whitespace-delimited fields while minting a tenant JWT", len(fields))
+	}
+	return fields[0], nil
+}
+
+// ShowSPIREAgent returns what the management cluster's SPIRE server reports for
+// the agent with spiffeID, and an error when it has no such agent.
+//
+// An agent is listed only once it has attested, so a nil error says a node
+// proved the identity to the server, not merely that an entry names it.
+func (f *TenantClientFactory) ShowSPIREAgent(ctx context.Context, spiffeID string) (string, error) {
+	return f.execSPIREServer(ctx, "showing SPIRE agent "+spiffeID, []string{
+		"bin/spire-server", "agent", "show", "-spiffeID", spiffeID,
+	})
+}
+
+// execSPIREServer runs command in the ready SPIRE server pod and returns its
+// stdout. what names the operation in an error, which carries the server's
+// stderr when it wrote any.
+func (f *TenantClientFactory) execSPIREServer(ctx context.Context, what string, command []string) (string, error) {
 	pod, err := f.readySPIREServerPod(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	spiffeID := "spiffe://" + trustDomain + spiffePath
-	command := []string{
-		"bin/spire-server", "jwt", "mint",
-		"-spiffeID", spiffeID,
-		"-audience", audience,
-	}
 	execRequest := f.coreREST.Post().
 		Namespace(spireServerNamespace).
 		Resource("pods").
@@ -597,19 +623,16 @@ func (f *TenantClientFactory) mintJWTAs(ctx context.Context, trustDomain, audien
 	}); err != nil {
 		message := strings.TrimSpace(stderr.String())
 		if message == "" {
-			return "", fmt.Errorf("minting tenant JWT in %s/%s: %w", spireServerNamespace, pod.Name, err)
+			return "", fmt.Errorf("%s in %s/%s: %w", what, spireServerNamespace, pod.Name, err)
 		}
-		return "", fmt.Errorf("minting tenant JWT in %s/%s: %w: %s", spireServerNamespace, pod.Name, err, message)
+		return "", fmt.Errorf("%s in %s/%s: %w: %s", what, spireServerNamespace, pod.Name, err, message)
 	}
-
-	fields := strings.Fields(stdout.String())
-	if len(fields) != 1 {
-		return "", fmt.Errorf("SPIRE server returned %d whitespace-delimited fields while minting a tenant JWT", len(fields))
-	}
-	return fields[0], nil
+	return stdout.String(), nil
 }
 
-func (f *TenantClientFactory) managementTrustDomain(ctx context.Context) (string, error) {
+// ManagementTrustDomain reads the SPIRE server's trust domain from its own
+// configuration, so it holds whatever the kubeconfig context is called.
+func (f *TenantClientFactory) ManagementTrustDomain(ctx context.Context) (string, error) {
 	configMap, err := f.coreClient.ConfigMaps(spireServerNamespace).Get(
 		ctx, spireServerConfigMapName(), metav1.GetOptions{},
 	)
