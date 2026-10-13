@@ -21,6 +21,37 @@ type Inputs struct {
 	// Evidence reports whether (and how) the release evidence was verified
 	// before the engine ran.
 	Evidence EvidenceStatus
+	// FS reads facts from inside the image (the guestfs tier). Nil means the
+	// tier is not enabled for this run: every method=guestfs check reports a
+	// visible skip rather than running or silently passing.
+	FS ImageFS
+	// SBOMPackages is the deb package set (name -> version) from the release's
+	// SBOM for this artifact, verified by digest against the attested
+	// checksums. Nil means no SBOM was available.
+	SBOMPackages map[string]string
+}
+
+// FileStat is the subset of stat facts checks assert on.
+type FileStat struct {
+	// Perm is the permission bits only (no type bits).
+	Perm uint32
+	UID  int
+	GID  int
+}
+
+// ImageFS reads facts from an image's filesystems, read-only. Implemented by
+// pkg/inspect/guestfs; faked in tests.
+type ImageFS interface {
+	// Exists reports whether a path exists (any file type).
+	Exists(path string) (bool, error)
+	// Cat returns a file's full contents.
+	Cat(path string) (string, error)
+	// ReadLink returns a symlink's target.
+	ReadLink(path string) (string, error)
+	// Stat returns permission bits and ownership for a path.
+	Stat(path string) (FileStat, error)
+	// HasLUKS reports whether the image carried a LUKS container.
+	HasLUKS() bool
 }
 
 // EvidenceStatus is the outcome of verifying the release evidence bundle.
@@ -67,6 +98,9 @@ func (e *Engine) Run(ctx context.Context, reg *Registry, t Target, in Inputs) []
 		case !def.AppliesTo.Matches(t):
 			res.Status = StatusSkip
 			res.Evidence = "target outside appliesTo"
+		case def.Method == MethodGuestfs && in.FS == nil:
+			res.Status = StatusSkip
+			res.Evidence = "guestfs tier not enabled for this run"
 		case !ok:
 			res.Status = StatusError
 			res.Evidence = fmt.Sprintf("no implementation bound for %s", def.ID)

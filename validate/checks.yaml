@@ -34,3 +34,70 @@ checks:
       Validating the wrong variant or architecture produces a verdict that
       does not describe the image a node will boot; identity must hold before
       any deeper check means anything.
+  - id: INT-004
+    family: integrity
+    severity: warn
+    method: guestfs
+    verifies: "The image's installed deb package set equals the release SBOM's package set, name and version."
+    why: >-
+      The SBOM is generated from the built image's own dpkg database and its
+      digest rides the attested checksums, so drift here means the bytes under
+      test differ from what the release described. Warn severity until
+      calibration against more real images earns promotion to blocking.
+  - id: HARD-001
+    family: hardening
+    severity: blocking
+    method: guestfs
+    verifies: "apt-daily.timer, apt-daily-upgrade.timer and unattended-upgrades.service are masked."
+    why: >-
+      Ubuntu's background apt runs minutes after first boot and restarts
+      journald/networkd/udevd; a daemon-reload in that window loses the node's
+      kubeadm init or join (SPEC.md "Background apt"). Nodes take updates
+      through a new image, never in place.
+  - id: HARD-002
+    family: hardening
+    severity: blocking
+    method: guestfs
+    verifies: "multipathd.service and multipathd.socket are masked."
+    why: >-
+      An unmasked multipathd claims Longhorn's iSCSI-exported volumes through
+      device-mapper and newly provisioned volumes never format (SPEC.md
+      "multipathd"). No NVKE node boots from a multipath-backed disk.
+  - id: HARD-003
+    family: hardening
+    severity: blocking
+    method: guestfs
+    verifies: "/var/lib/etcd exists at mode 0700 owned etcd:etcd."
+    why: >-
+      kubeadm reuses the directory rather than creating a root:root one, which
+      is what CIS 1.1.12 checks on the running node (SPEC.md "etcd data
+      directory"); asserting it at ship time catches the drift before a node
+      ever reports it.
+  - id: HARD-004
+    family: hardening
+    severity: blocking
+    method: guestfs
+    verifies: "The NVIDIA-tuned kernel flavor is installed: linux-nvidia on amd64, linux-nvidia-64k on arm64."
+    why: >-
+      The autoinstall sets the kernel flavor at image-build time so the
+      generic kernel never lands on disk (SPEC.md "Kernel"); an image with the
+      generic flavor is not the qualified configuration.
+  - id: SPEC-004
+    family: spec
+    severity: blocking
+    method: guestfs
+    verifies: "An nvke-cni-calico-manifests package (nke-cni-calico-manifests on pre-rename releases) is installed; the name carries its own version."
+    why: >-
+      The Calico manifests package is what bootstrap applies for pod
+      networking (SPEC.md "Calico manifests"); without it a node joins and
+      never gets a CNI.
+  - id: FDE-001
+    family: fde
+    severity: blocking
+    method: guestfs
+    appliesTo: {variant: [fde]}
+    verifies: "The image carries a LUKS container."
+    why: >-
+      An artifact named fde that boots an unencrypted root silently voids the
+      disk-encryption guarantee the variant name promises; the container's
+      presence is the cheapest ship-state assertion of that promise.

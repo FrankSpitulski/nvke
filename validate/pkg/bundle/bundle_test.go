@@ -113,3 +113,43 @@ func TestVerifyEvidenceFailsClosedOnMissingPieces(t *testing.T) {
 		})
 	}
 }
+
+// TestLoadSBOM parses the real vendored SBOM: digest-verified against the
+// checksums, and its deb package set extracted (calibrated: 729 of the 730
+// SPDX entries are deb packages; the one left out is the image root entry).
+func TestLoadSBOM(t *testing.T) {
+	b, err := Load(fixture)
+	require.NoError(t, err)
+
+	pkgs, err := b.LoadSBOM("nke-node-fde-ubuntu-24.04.5-amd64.qcow2")
+	require.NoError(t, err)
+	assert.Len(t, pkgs, 729)
+	assert.Contains(t, pkgs, "nke-cni-calico-manifests-3.30.1", "the calico package name carries its own version on real images")
+	assert.Contains(t, pkgs, "nke-agent")
+
+	missing, err := b.LoadSBOM("nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2")
+	require.NoError(t, err, "a missing SBOM file is a nil result, not an error")
+	assert.Nil(t, missing)
+}
+
+// TestLoadSBOMRejectsTamper pins that an SBOM whose bytes do not match the
+// checksums entry is an error — evidence the checksums do not vouch for is
+// never silently used.
+func TestLoadSBOMRejectsTamper(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{ChecksumsName} {
+		data, err := os.ReadFile(filepath.Join(fixture, name))
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0o644))
+	}
+	sbom := "nke-node-fde-ubuntu-24.04.5-amd64.spdx.json"
+	data, err := os.ReadFile(filepath.Join(fixture, sbom))
+	require.NoError(t, err)
+	data = append(data, ' ')
+	require.NoError(t, os.WriteFile(filepath.Join(dir, sbom), data, 0o644))
+
+	b, err := Load(dir)
+	require.NoError(t, err)
+	_, err = b.LoadSBOM("nke-node-fde-ubuntu-24.04.5-amd64.qcow2")
+	require.ErrorContains(t, err, "does not match the checksums entry")
+}

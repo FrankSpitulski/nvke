@@ -11,11 +11,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/dsx-ai-factory/nvke/validate/pkg/bundle"
 	"github.com/dsx-ai-factory/nvke/validate/pkg/checks"
+	"github.com/dsx-ai-factory/nvke/validate/pkg/checks/imagefs"
 	"github.com/dsx-ai-factory/nvke/validate/pkg/checks/static"
+	"github.com/dsx-ai-factory/nvke/validate/pkg/inspect/guestfs"
 	"github.com/dsx-ai-factory/nvke/validate/pkg/report"
 )
 
@@ -40,6 +43,8 @@ func run(args []string, stdout, stderr *os.File) int {
 	variant := fs.String("target-variant", "", "Target variant: fde | non-fde")
 	arch := fs.String("target-arch", "", "Target architecture: amd64 | arm64")
 	ubuntu := fs.String("target-ubuntu", "", "Target Ubuntu release, e.g. 24.04.5")
+	inspect := fs.String("inspect", "auto", "guestfs inspection tier: auto (on when guestfish is on PATH) | on | off")
+	luksKeyFile := fs.String("luks-passphrase-file", "", "File holding the LUKS passphrase for FDE images (never pass the passphrase itself on the command line)")
 	format := fs.String("format", "text", "Output format: text | json")
 	if err := fs.Parse(args); err != nil {
 		return report.ExitError
@@ -74,6 +79,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	}
 	var sums map[string]string
 	var evidence checks.EvidenceStatus
+	var evidenceBundle *bundle.Bundle
 	if *bundleDir != "" {
 		b, err := bundle.Load(*bundleDir)
 		if err != nil {
@@ -81,6 +87,7 @@ func run(args []string, stdout, stderr *os.File) int {
 			return report.ExitError
 		}
 		sums = b.Checksums
+		evidenceBundle = b
 		evidence.Checked = true
 		ev, err := b.VerifyEvidence(bundle.Identity{Issuer: *certIssuer, SANRegex: *certSANRegex})
 		if err != nil {
@@ -101,6 +108,46 @@ func run(args []string, stdout, stderr *os.File) int {
 		return report.ExitError
 	}
 
+	var imgFS checks.ImageFS
+	var sbom map[string]string
+	runInspection := false
+	switch *inspect {
+	case "on":
+		runInspection = true
+	case "auto":
+		runInspection = guestfs.Available()
+	case "off":
+	default:
+		fmt.Fprintf(stderr, "nvke-image-validate: unknown --inspect %q\n", *inspect)
+		return report.ExitError
+	}
+	if runInspection {
+		var passphrase string
+		if *luksKeyFile != "" {
+			raw, err := os.ReadFile(*luksKeyFile)
+			if err != nil {
+				fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
+				return report.ExitError
+			}
+			passphrase = strings.TrimRight(string(raw), "\n")
+		}
+		session, err := guestfs.Open(context.Background(), *image, guestfs.Options{LUKSPassphrase: passphrase})
+		if err != nil {
+			fmt.Fprintf(stderr, "nvke-image-validate: opening image for inspection: %v\n", err)
+			return report.ExitError
+		}
+		defer session.Close()
+		imgFS = session
+		if evidenceBundle != nil {
+			pkgs, err := evidenceBundle.LoadSBOM(*name)
+			if err != nil {
+				fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
+				return report.ExitError
+			}
+			sbom = pkgs
+		}
+	}
+
 	target := checks.Target{
 		ImagePath: *image,
 		ImageName: *name,
@@ -108,10 +155,13 @@ func run(args []string, stdout, stderr *os.File) int {
 		Arch:      *arch,
 		Ubuntu:    *ubuntu,
 	}
-	results := checks.NewEngine(static.Impls()).Run(context.Background(), reg, target, checks.Inputs{
-		ImageSHA256: digest,
-		Checksums:   sums,
-		Evidence:    evidence,
+	impls := imagefs.Merge(static.Impls(), imagefs.Impls())
+	results := checks.NewEngine(impls).Run(context.Background(), reg, target, checks.Inputs{
+		ImageSHA256:  digest,
+		Checksums:    sums,
+		Evidence:     evidence,
+		FS:           imgFS,
+		SBOMPackages: sbom,
 	})
 	rep := report.New(reg, target, digest, results, time.Now())
 
