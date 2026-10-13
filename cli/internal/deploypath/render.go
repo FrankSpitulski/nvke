@@ -30,8 +30,9 @@ type RenderOptions struct {
 	// Site is the site spec whose controllerStack section describes the
 	// site the stack is installed for. Optional.
 	Site *sitespec.SiteSpec
-	// Release is the NVKR release description, and ReleasePath where it was
-	// read from, copied into the output as nvkr-release.json. Optional.
+	// Release is the NVKR release description nvkr release export writes,
+	// and ReleasePath where it was read from, copied into the output as
+	// nvkr-release.json. Optional.
 	Release     *nvkrrelease.Release
 	ReleasePath string
 	// Arch selects release artifacts: linux/amd64 or linux/arm64.
@@ -360,14 +361,25 @@ func (r *renderer) helm(item string) {
 	case err != nil:
 		r.problem("%s: chart: %v", item, err)
 	default:
+		// The release decides the version of every chart it carries; the pin
+		// in release.yaml decides only for a repository chart the release
+		// lacks, and a path chart names none. A difference is said at once,
+		// not noted, because it points at values written for another chart.
+		if a.ChartVersion != "" && rel.Chart.Version != "" && a.ChartVersion != rel.Chart.Version {
+			fmt.Fprintf(r.opts.Log, "warning: %s: the release carries %s %s, release.yaml pins %s; the release decides, check the item's values against %s\n",
+				item, artifact, a.ChartVersion, rel.Chart.Version, a.ChartVersion)
+		}
 		file, err := r.chartArchive(item, rel.Chart.Name, a)
 		if err != nil {
 			r.problem("%s: chart %s: %v", item, a.Reference, err)
 		} else {
 			rel.Chart.Path = file
 			rel.Chart.Repository = ""
+			if a.ChartVersion != "" {
+				rel.Chart.Version = a.ChartVersion
+			}
 			changed = true
-			r.note("%s: chart from %s", item, a.Reference)
+			r.note("%s: chart %s from %s", item, firstNonEmpty(a.ChartVersion, rel.Chart.Version, "(unversioned)"), a.Reference)
 		}
 	}
 
@@ -628,4 +640,13 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
