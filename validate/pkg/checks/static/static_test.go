@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -178,4 +179,25 @@ func TestHashFile(t *testing.T) {
 
 	_, err = HashFile(filepath.Join(dir, "missing"))
 	require.Error(t, err)
+}
+
+func TestCheckEvidenceVerified(t *testing.T) {
+	tests := []struct {
+		name     string
+		evidence checks.EvidenceStatus
+		want     checks.Status
+		contains string
+	}{
+		{name: "not attempted is a visible skip", evidence: checks.EvidenceStatus{Checked: false}, want: checks.StatusSkip, contains: "digest-only"},
+		{name: "verification failure fails", evidence: checks.EvidenceStatus{Checked: true, Err: errors.New("subject mismatch")}, want: checks.StatusFail, contains: "subject mismatch"},
+		{name: "verified passes naming the signer", evidence: checks.EvidenceStatus{Checked: true, SignerSAN: "https://github.com/x/wf@tag"}, want: checks.StatusPass, contains: "wf@tag"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := checkEvidenceVerified(context.Background(), checks.Target{}, checks.Inputs{Evidence: tt.evidence})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, out.Status)
+			assert.Contains(t, out.Evidence, tt.contains)
+		})
+	}
 }

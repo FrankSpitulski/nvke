@@ -1,0 +1,17 @@
+49647c43aef002692f2c3f83333ee0b12e4fad482172887cc6afd103bbc4bf67  nke-node-fde-ubuntu-24.04.5-amd64.qcow2
+555fcfe58c157f2553ef0f33524e42929ad5689c172a5fb25e797ebeb0e75391  nke-node-fde-ubuntu-24.04.5-amd64.spdx.json
+c3767cc12725dfa62d321038bdbde8a9db7b0f0ec02a97c89ecf45ff5cab8160  nke-node-fde-ubuntu-24.04.5-arm64.qcow2
+da2eca774c8399ac895ba7dab2ab00fe9acd8bdb0bf0e8583610c33d3acdd518  nke-node-fde-ubuntu-24.04.5-arm64.spdx.json
+ac827027d597c6f142d6a3db798c5fc21c830700d2b58e541a57d79d8e45ace9  nke-node-fde-ubuntu-26.04.1-amd64.qcow2
+b0d40a31eccd8ae46a41af7ffa2bbddeec8c98022f32d8387426e22408344ed1  nke-node-fde-ubuntu-26.04.1-amd64.spdx.json
+0e90078c775144cf2c927973d23526c9f73dd9fd957101242abbc52dd702b885  nke-node-fde-ubuntu-26.04.1-arm64.qcow2
+d7d74b5c3e20ba298c47b3899a9768baac6201cfbb75d9a70e0734a4c2775c44  nke-node-fde-ubuntu-26.04.1-arm64.spdx.json
+537cb2afc837d742f6c286eacb964a5984c5cfb149d4900009b4b362db6bd305  nke-node-non-fde-ubuntu-24.04.5-amd64.qcow2
+fa0ecf6a1588d85a3b25dd5689fd36aac7ac61be3fd14b3bcf34ac76963415f5  nke-node-non-fde-ubuntu-24.04.5-amd64.spdx.json
+f00f2907645b6fa4d79d0fa60d96f6afaeaa153547e786727b5c1b68825ddf66  nke-node-non-fde-ubuntu-24.04.5-arm64.qcow2
+1e194c5b8ab03a5a6e35da7edb6f0d61077ed6c1db678df153454fb0d42f24c4  nke-node-non-fde-ubuntu-24.04.5-arm64.spdx.json
+c38acf6be1b39987619b61693504dfa2850333208890bdc5b7fae62b2fed6863  nke-node-non-fde-ubuntu-26.04.1-amd64.qcow2
+90f59c6514aafde63436c4feaefd745157e08e3e3993e283e9b07df3ea0de3b0  nke-node-non-fde-ubuntu-26.04.1-amd64.spdx.json
+2134835ea043b47c4c6c8db7842d206d61295e240a82145f6fefe69c378b1161  nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
+77c86693b2d996755b22f5b571b8b1f043836bb3ce60fd6eaf0c2f90c6d2034c  nke-node-non-fde-ubuntu-26.04.1-arm64.spdx.json
+c7c808a9e4db5bb8f6fa799daed585caacdff98995f6ef26661d4ece3a54f4d3  nke-os-image-check

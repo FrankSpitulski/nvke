@@ -18,6 +18,20 @@ type Inputs struct {
 	// Checksums maps artifact name to its bare-hex sha256, as parsed from the
 	// release's attested checksums.txt.
 	Checksums map[string]string
+	// Evidence reports whether (and how) the release evidence was verified
+	// before the engine ran.
+	Evidence EvidenceStatus
+}
+
+// EvidenceStatus is the outcome of verifying the release evidence bundle.
+type EvidenceStatus struct {
+	// Checked is false when the run never attempted verification (digest-only
+	// --checksums mode); INT-002 then reports a skip, not a pass.
+	Checked bool
+	// Err is the verification failure, nil on success.
+	Err error
+	// SignerSAN is the verified signer identity on success.
+	SignerSAN string
 }
 
 // Outcome is what a check implementation reports; the engine folds in the

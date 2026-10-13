@@ -124,3 +124,46 @@ func TestRunJSONFormat(t *testing.T) {
 	assert.Contains(t, string(data), `"schemaVersion": "1"`)
 	assert.Contains(t, string(data), `"INT-001"`)
 }
+
+const realBundle = "../../testdata/release-v0.2.0-rc.1"
+
+// TestRunBundleMode exercises the evidence-verifying path against the vendored
+// real release bundle: the evidence verifies (INT-002 pass), while a wrong
+// file posing as the image fails INT-001 — so the run exits 1 for the right
+// reason, which the JSON report distinguishes.
+func TestRunBundleMode(t *testing.T) {
+	image := filepath.Join(t.TempDir(), artifact)
+	require.NoError(t, os.WriteFile(image, []byte("wrong bytes"), 0o644))
+	out := filepath.Join(t.TempDir(), "out.json")
+	f, err := os.Create(out)
+	require.NoError(t, err)
+	code := run([]string{
+		"--image", image,
+		"--bundle", realBundle,
+		"--checks", filepath.Join("..", "..", "checks.yaml"),
+		"--target-variant", "fde", "--target-arch", "amd64", "--target-ubuntu", "24.04.5",
+		"--format", "json",
+	}, f, devNull(t))
+	require.NoError(t, f.Close())
+	assert.Equal(t, report.ExitFail, code)
+	data, err := os.ReadFile(out)
+	require.NoError(t, err)
+	assert.Regexp(t, `"id": "INT-002",\s*"status": "pass"`, string(data))
+	assert.Regexp(t, `"id": "INT-001",\s*"status": "fail"`, string(data))
+}
+
+func TestRunRequiresExactlyOneEvidenceSource(t *testing.T) {
+	base := fixture(t, false)
+	both := append(append([]string{}, base...), "--bundle", realBundle)
+	neither := make([]string, 0, len(base)-2)
+	for i := 0; i < len(base); i++ {
+		if base[i] == "--checksums" {
+			i++
+			continue
+		}
+		neither = append(neither, base[i])
+	}
+	sink := devNull(t)
+	assert.Equal(t, report.ExitError, run(both, sink, sink))
+	assert.Equal(t, report.ExitError, run(neither, sink, sink))
+}

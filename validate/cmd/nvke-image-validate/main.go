@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/dsx-ai-factory/nvke/validate/pkg/bundle"
 	"github.com/dsx-ai-factory/nvke/validate/pkg/checks"
 	"github.com/dsx-ai-factory/nvke/validate/pkg/checks/static"
 	"github.com/dsx-ai-factory/nvke/validate/pkg/report"
@@ -30,7 +31,10 @@ func run(args []string, stdout, stderr *os.File) int {
 	fs.SetOutput(stderr)
 	versionFlag := fs.Bool("version", false, "Print the version and exit")
 	image := fs.String("image", "", "Path to the qcow2 under validation")
-	checksums := fs.String("checksums", "", "Path to the release's checksums.txt (its signature is PR2's job; see AGENTS.md)")
+	bundleDir := fs.String("bundle", "", "Path to the release evidence bundle directory (checksums.txt + checksums.txt.sigstore.json + trusted-root.json); verifies the evidence before any check runs")
+	certIssuer := fs.String("cert-issuer", "https://token.actions.githubusercontent.com", "OIDC issuer the evidence signer's certificate must carry (bundle mode)")
+	certSANRegex := fs.String("cert-san-regex", `^https://github\.com/dsx-ai-factory/nvke/\.github/workflows/os-image-artifact\.yml@.+$`, "Regex the evidence signer's SubjectAlternativeName must match (bundle mode)")
+	checksums := fs.String("checksums", "", "Path to a bare checksums.txt: digest-only mode, no evidence verification — INT-002 reports a skip")
 	registryPath := fs.String("checks", "", "Path to checks.yaml")
 	name := fs.String("name", "", "Artifact release name; defaults to the image file's basename")
 	variant := fs.String("target-variant", "", "Target variant: fde | non-fde")
@@ -45,7 +49,7 @@ func run(args []string, stdout, stderr *os.File) int {
 		return report.ExitPass
 	}
 	for flagName, v := range map[string]string{
-		"image": *image, "checksums": *checksums, "checks": *registryPath,
+		"image": *image, "checks": *registryPath,
 		"target-variant": *variant, "target-arch": *arch, "target-ubuntu": *ubuntu,
 	} {
 		if v == "" {
@@ -53,6 +57,11 @@ func run(args []string, stdout, stderr *os.File) int {
 			fs.Usage()
 			return report.ExitError
 		}
+	}
+	if (*bundleDir == "") == (*checksums == "") {
+		fmt.Fprintln(stderr, "nvke-image-validate: exactly one of --bundle or --checksums is required")
+		fs.Usage()
+		return report.ExitError
 	}
 	if *name == "" {
 		*name = filepath.Base(*image)
@@ -63,10 +72,28 @@ func run(args []string, stdout, stderr *os.File) int {
 		fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
 		return report.ExitError
 	}
-	sums, err := static.ParseChecksums(*checksums)
-	if err != nil {
-		fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
-		return report.ExitError
+	var sums map[string]string
+	var evidence checks.EvidenceStatus
+	if *bundleDir != "" {
+		b, err := bundle.Load(*bundleDir)
+		if err != nil {
+			fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
+			return report.ExitError
+		}
+		sums = b.Checksums
+		evidence.Checked = true
+		ev, err := b.VerifyEvidence(bundle.Identity{Issuer: *certIssuer, SANRegex: *certSANRegex})
+		if err != nil {
+			evidence.Err = err
+		} else {
+			evidence.SignerSAN = ev.SignerSAN
+		}
+	} else {
+		sums, err = static.ParseChecksums(*checksums)
+		if err != nil {
+			fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
+			return report.ExitError
+		}
 	}
 	digest, err := static.HashFile(*image)
 	if err != nil {
@@ -84,6 +111,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	results := checks.NewEngine(static.Impls()).Run(context.Background(), reg, target, checks.Inputs{
 		ImageSHA256: digest,
 		Checksums:   sums,
+		Evidence:    evidence,
 	})
 	rep := report.New(reg, target, digest, results, time.Now())
 

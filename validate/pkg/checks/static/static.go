@@ -27,6 +27,7 @@ import (
 func Impls() map[string]checks.Func {
 	return map[string]checks.Func{
 		"INT-001":    checkImageDigest,
+		"INT-002":    checkEvidenceVerified,
 		"COMPAT-001": checkArtifactIdentity,
 	}
 }
@@ -162,5 +163,26 @@ func checkArtifactIdentity(_ context.Context, t checks.Target, _ checks.Inputs) 
 	return checks.Outcome{
 		Status:   checks.StatusPass,
 		Evidence: fmt.Sprintf("name declares %s/%s/ubuntu-%s, matching the target", id.Variant, id.Arch, id.Ubuntu),
+	}, nil
+}
+
+// checkEvidenceVerified (INT-002): the release evidence attestation verified
+// offline against the pinned trusted root, and its subject is this bundle's
+// checksums.txt. A digest-only run (no bundle) is an explicit caller choice
+// and reports a skip with the reason — visible in the report, never a pass.
+func checkEvidenceVerified(_ context.Context, _ checks.Target, in checks.Inputs) (checks.Outcome, error) {
+	ev := in.Evidence
+	if !ev.Checked {
+		return checks.Outcome{
+			Status:   checks.StatusSkip,
+			Evidence: "evidence verification not attempted: digest-only (--checksums) mode",
+		}, nil
+	}
+	if ev.Err != nil {
+		return checks.Outcome{Status: checks.StatusFail, Evidence: ev.Err.Error()}, nil
+	}
+	return checks.Outcome{
+		Status:   checks.StatusPass,
+		Evidence: fmt.Sprintf("attestation verified; signer %s", ev.SignerSAN),
 	}, nil
 }

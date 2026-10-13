@@ -15,6 +15,16 @@ checks:
       The checksums file is the attestation subject (SLSA provenance over
       checksums.txt binds every artifact it names); an image whose bytes do not
       match it is not the stamped release.
+  - id: INT-002
+    family: integrity
+    severity: blocking
+    method: static
+    verifies: "The release evidence attestation verifies offline against the pinned trusted root, with the expected signer identity, and its subject is this bundle's checksums.txt."
+    why: >-
+      Without a verified attestation the checksums file is just a text file
+      anyone could rewrite; this check is what turns "the digest matches" into
+      "the digest matches what the release signed". A digest-only run reports
+      a skip here, visibly, never a pass.
   - id: COMPAT-001
     family: compatibility
     severity: blocking
