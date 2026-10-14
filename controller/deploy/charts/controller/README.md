@@ -74,6 +74,8 @@ A Helm chart to deploy the NVKE controller service
 | nodeAgent.externalMTLS.secret.caBundleKey | string | `"ca.crt"` | Secret key containing the PEM-encoded issuing CA bundle. |
 | nodeAgent.externalMTLS.secret.certificateKey | string | `"tls.crt"` | Secret key containing the PEM-encoded client certificate chain. |
 | nodeAgent.externalMTLS.secret.name | string | `""` | Name of the externally managed Secret containing the client identity. |
+| nodeAgent.externalMTLS.secret.newCertificateKey | string | `""` | Optional Secret key containing the new-form PEM-encoded client certificate chain. Set together with newPrivateKeyKey; leave empty for nodes that only use the original identity. |
+| nodeAgent.externalMTLS.secret.newPrivateKeyKey | string | `""` | Optional Secret key containing the new-form PEM-encoded client private key. |
 | nodeAgent.externalMTLS.secret.privateKeyKey | string | `"tls.key"` | Secret key containing the PEM-encoded client private key. |
 | nodeAgent.readiness.workers | int | `8` | Maximum simultaneous node-agent readiness reconciles. |
 | nodeAgent.readiness.timeout | string | `"30s"` | Deadline for agent transport setup and version RPC. |
