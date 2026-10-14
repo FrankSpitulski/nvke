@@ -392,13 +392,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # One job per stream of the plan: validates everything that does not need a
-  # Forge credential, and builds the images and nvkectl the run stages. No
-  # environment, so this always runs the moment the plan is ready -- the cheap
-  # failures (a bad version, a missing OS image pair, an unbuildable image)
-  # surface here, before anyone is asked to approve anything in qualify-run
-  # below. A dry run never needs more than this job: it already builds and
-  # confirms every image and archive, which is what "dry run" promises.
+  # Validates and builds everything that does not need a Forge credential.
+  # No environment, so it always runs; a dry run needs nothing beyond this.
   qualify-validate:
     name: ${{ matrix.stream }} (validate)
     needs: plan
@@ -802,19 +797,15 @@ jobs:
           # .site-inputs is dot-prefixed, which this action otherwise excludes.
           include-hidden-files: true
           if-no-files-found: ignore
-          retention-days: 1
+          retention-days: 7
 
-  # Everything that reaches Forge or the jump host: one job per stream, same
-  # as qualify-validate, needing the matching stream's validation to have
-  # passed first. Re-resolves the same versions qualify-validate did --
-  # cheap, and the only way to read them back, since GitHub does not fan a
-  # matrix job's outputs out by matrix entry -- and downloads what
-  # qualify-validate already built rather than building it again.
+  # Everything that reaches Forge or the jump host. Waits on every
+  # qualify-validate stream, not just its own. Re-resolves the versions
+  # qualify-validate already resolved and downloads what it built, since
+  # GitHub does not fan a matrix job's outputs out by matrix entry.
   #
-  # Gated behind the forge environment, except on a dry run: a dry run joins
-  # no Teleport and takes no machine, so it has nothing here for a reviewer to
-  # approve, and the environment: expression below resolves to '' for one,
-  # which carries no protection rules.
+  # Gated behind the forge environment, except on a dry run, which never
+  # reaches Teleport or a machine.
   qualify-run:
     name: ${{ matrix.stream }}${{ needs.plan.outputs.dry-run == 'true' && ' (dry run)' || '' }}
     needs: [plan, qualify-validate]
@@ -823,9 +814,6 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: arc-amd64-cpu16
-    # The non-empty string has to be the true branch: `cond && '' || 'forge'`
-    # gives 'forge' back on a dry run, because '' is falsy and falls through
-    # the ||.
     environment: ${{ (needs.plan.outputs.dry-run != 'true' && 'forge') || (needs.plan.outputs.dry-run == 'true' && '') || '' }}
     timeout-minutes: 235
     permissions:
@@ -892,10 +880,6 @@ jobs:
       # identity -- but because GitHub prints job-level env in every step's
       # log header, and only a secret is masked there. A variable masked by a
       # step is still in the clear in every header before that step.
-      #
-      # Scoped to the forge environment, so this job is the only place it
-      # resolves to anything; qualify-validate and a dry run both read it as
-      # empty.
       FORGE_JUMP_HOST: ${{ secrets.FORGE_JUMP_HOST }}
       # Names a Teleport provision token resource, not a secret itself.
       FORGE_TELEPORT_JOIN_TOKEN: ${{ vars.FORGE_TELEPORT_JOIN_TOKEN }}
@@ -926,8 +910,7 @@ jobs:
       FORGE_YTL_VPC_ID: ${{ vars.FORGE_YTL_VPC_ID }}
       FORGE_YTL_VPC_PREFIX_ID: ${{ vars.FORGE_YTL_VPC_PREFIX_ID }}
       FORGE_YTL_SSH_KEY_GROUP_ID: ${{ vars.FORGE_YTL_SSH_KEY_GROUP_ID }}
-      # An environment secret, like FORGE_JUMP_HOST, so only this job can
-      # read it and the log masks it without being asked.
+      # A secret, like FORGE_JUMP_HOST, not a variable.
       FORGE_YTL_JUMP_HOST: ${{ secrets.FORGE_YTL_JUMP_HOST }}
       # root for the same reason as FORGE_TELEPORT_LOGIN: the same bot reaches
       # both jump hosts through rg-k8aas-bot-ssh-root, whose only login is
@@ -952,11 +935,8 @@ jobs:
             go.work.sum
             **/go.sum
 
-      # The same four resolve/check steps qualify-validate already ran for
-      # this stream. Re-running them here is cheap -- a git fetch and a couple
-      # of API calls, nothing that touches Forge -- and is the only way this
-      # job gets their values back: GitHub does not thread a matrix job's
-      # outputs through to another matrix job keyed by matrix entry.
+      # Re-resolves what qualify-validate already resolved for this stream;
+      # GitHub does not thread a matrix job's outputs to another matrix job.
       - name: Resolve the controller version
         shell: bash
         env:
@@ -1045,8 +1025,10 @@ jobs:
         run: |
           set -Eeuo pipefail
           if [ -z "${CLI_VERSION}" ]; then
+            version="$(git rev-parse --short=12 HEAD)"
             {
               echo "SITE_CLI_BUILD=1"
+              echo "CLI_VERSION=${version}"
               echo "SITE_NVKECTL=cli/dist/nvkectl-linux-${SITE_ARCH}"
             } >> "${GITHUB_ENV}"
             exit 0
@@ -1176,6 +1158,7 @@ jobs:
       # every secret is read from the environment by the suite itself -- see
       # the const block at the top of site_controller_test.go.
       - name: Write the e2e config
+        if: env.DRY_RUN != 'true'
         shell: bash
         run: |
           set -Eeuo pipefail
