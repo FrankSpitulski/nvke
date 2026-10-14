@@ -67,9 +67,10 @@ func TestTraceContinuesThroughOutbox(t *testing.T) {
 		OutboxBatchSize:         100,
 		SupportedInfraProviders: []string{"infra"},
 		ProvisionControlPlaneWithControlPlaneController: true,
-		// Enabled turns on the HTTP and Temporal tracing instrumentation. No
-		// endpoint is set, so nothing is exported; spans are recorded in memory.
-		Tracing: config.TracingConfig{Enabled: true},
+		// Export is off, the chart default: the trace ID on the logs and the span
+		// tree must not depend on it. This runs once because the controller
+		// registers its metrics on the process-global registry.
+		Tracing: config.TracingConfig{Enabled: false},
 	}
 
 	spans := installTracing(t)
@@ -242,10 +243,14 @@ func assertTrace(t *testing.T, ended []sdktrace.ReadOnlySpan, traceID string, cl
 	t.Helper()
 	counts := map[string]int{}
 	byName := map[string]sdktrace.ReadOnlySpan{}
+	var sqlSpans []string
 	for _, span := range ended {
 		if span.SpanContext().TraceID().String() == traceID {
 			counts[span.Name()]++
 			byName[span.Name()] = span
+			if hasQueryAttribute(span) {
+				sqlSpans = append(sqlSpans, span.Name())
+			}
 		}
 	}
 	enqueueSpanName := string(otelx.WorkflowEnqueue)
@@ -275,13 +280,20 @@ func assertTrace(t *testing.T, ended []sdktrace.ReadOnlySpan, traceID string, cl
 		attempts = 2
 	}
 	require.Equal(t, attempts, counts["RunActivity:ReadCluster"], "%v", counts)
-	var sqlSpans int
-	for name, count := range counts {
-		if strings.HasPrefix(name, "SELECT") || strings.HasPrefix(name, "INSERT") {
-			sqlSpans += count
+	// Per-query SQL spans need tracing.enabled, which is off here.
+	require.Empty(t, sqlSpans, "per-query SQL spans with export off: %v", counts)
+}
+
+// hasQueryAttribute reports whether span is a SQL query span, which the bun
+// hook marks with db.statement and db.operation whatever the SQL operation.
+func hasQueryAttribute(span sdktrace.ReadOnlySpan) bool {
+	for _, attr := range span.Attributes() {
+		// Not any db.* key: db.user is also set on spans that are not queries.
+		if key := string(attr.Key); key == "db.statement" || key == "db.operation" {
+			return true
 		}
 	}
-	require.Positive(t, sqlSpans, "no SQL spans in the trace: %v", counts)
+	return false
 }
 
 // assertLogs checks the structured logs written under the request's trace ID:
