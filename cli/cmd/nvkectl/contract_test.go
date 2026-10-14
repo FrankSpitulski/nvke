@@ -19,6 +19,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -571,8 +572,8 @@ func TestSignalCancelsAnInFlightCommand(t *testing.T) {
 // first signal lands, which is what this asserts.
 //
 // The spec comes from a FIFO rather than from a pipe on stdin so that the test
-// knows when to interrupt without guessing. Opening a FIFO for writing blocks
-// until a reader opens the other end, so the open below returns only once
+// knows when to interrupt without guessing. The writer is opened nonblocking and retried
+// until a reader opens the other end, so admission returns only once
 // nvkectl has reached its spec read, which is long past the point where main
 // installed the handler. A sleep here would instead race process startup, and
 // lose on a cold or loaded machine.
@@ -589,13 +590,22 @@ func TestASecondSignalKillsACommandThatIgnoresTheFirst(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("starting nvkectl: %v", err)
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	done := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(done)
+	}()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		<-done
+	})
 
-	// Blocks until nvkectl opens the FIFO to read the spec. Held open for the
+	// Waits until nvkectl opens the FIFO, or exits, with a bounded deadline. Held open for the
 	// rest of the test and never written to, so the read never completes and
 	// never sees EOF.
-	writer, err := os.OpenFile(fifo, os.O_WRONLY, 0)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	writer, err := openContractFIFO(ctx, fifo, done)
 	if err != nil {
 		_ = cmd.Process.Kill()
 		t.Fatalf("opening the fifo for writing: %v", err)
@@ -632,6 +642,35 @@ func TestASecondSignalKillsACommandThatIgnoresTheFirst(t *testing.T) {
 			t.Fatal("nvkectl never died despite repeated SIGINT")
 		case <-tick.C:
 			_ = cmd.Process.Signal(syscall.SIGINT)
+		}
+	}
+}
+
+// openContractFIFO waits for a reader while observing process exit and cancellation.
+func openContractFIFO(ctx context.Context, fifo string, exited <-chan struct{}) (*os.File, error) {
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-exited:
+			return nil, errors.New("nvkectl exited before opening the spec FIFO")
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		writer, err := os.OpenFile(fifo, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+		if err == nil {
+			return writer, nil
+		}
+		if !errors.Is(err, syscall.ENXIO) {
+			return nil, err
+		}
+		select {
+		case <-exited:
+			return nil, errors.New("nvkectl exited before opening the spec FIFO")
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-tick.C:
 		}
 	}
 }
