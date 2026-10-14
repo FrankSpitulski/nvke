@@ -186,6 +186,41 @@ make test-authn-spire
 `hack/nvke-auth-demo.sh` drives the same four credentials with `curl` and needs
 no Go at all.
 
+## Validation image
+
+`Dockerfile` packages the suite as an image that validates a running site from
+a pod inside its cluster, which is how TestWave runs it. The image carries
+every spec and runs those labelled `site-validate`: specs that create, change
+and install nothing on the site. Today that is the health specs. The
+authentication specs are not, because they mint tokens for the scaffolding
+identities in `deploy/k8s/nke-auth-dev.yaml`.
+
+```bash
+make -C controller/test/e2e validate-image   # VALIDATE_IMAGE, VALIDATE_PLATFORM
+```
+
+The pod needs no kubeconfig: with `KUBECONFIG` unset the suite uses its service
+account. In the controller's namespace that account needs `get` on Services,
+`list` on Pods and `create` on `pods/portforward`, and nothing else. Configure it with
+the [health spec variables](#health-specs); `NKE_CONTROLLER_NAMESPACE` matters
+wherever the controller is not installed in `nke-controller`. Set
+`NKE_CONTROLLER_EXPECTED_VERSION`, or the version spec is skipped and the run
+proves only that the controller is up.
+
+Results go to `/artifacts`, which the runner mounts:
+
+| File | Contents |
+| --- | --- |
+| `junit-test-report.xml` | The selected specs only (`-e2e.junit-report`). Ginkgo's own JUnit report lists every spec the filter left out as skipped. |
+| `report.json` | Ginkgo's JSON report, every spec. |
+
+To run it by hand against the current kube context:
+
+```bash
+docker run --rm -v "$PWD/artifacts:/artifacts" -v "$HOME/.kube/config:/kube/config:ro" \
+  -e KUBECONFIG=/kube/config -e NKE_CONTROLLER_EXPECTED_VERSION=v0.1.1 nvke-validate:local
+```
+
 ## Useful Ginkgo CLI Commands
 
 You can run these tests with `make test-e2e`, `go test`, or the `ginkgo` CLI.

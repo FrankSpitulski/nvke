@@ -93,7 +93,13 @@ func envOrDefault(key, def string) string {
 // they carry no NVKE credential and need none: all three paths are on the
 // anonymous surface in internal/auth/routes.go. If /api/version ever stops
 // being anonymous, this file goes red before anything else does.
-var _ = Describe("controller management-plane health", Label("health"), func() {
+//
+// site-validate marks what the validation image runs against a production
+// site: specs that create, change and install nothing, so they can run under a
+// read-only identity. The authn specs are not among them because they mint
+// tokens for the scaffolding identities in deploy/k8s/nke-auth-dev.yaml, which
+// a site does not install.
+var _ = Describe("controller management-plane health", Label("health", "site-validate"), func() {
 	var (
 		hc        healthConfig
 		forwarder *kube.ServiceForwarder
