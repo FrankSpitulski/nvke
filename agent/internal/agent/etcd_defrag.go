@@ -6,11 +6,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	nvkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -137,12 +135,18 @@ func (s *NodeAgentServer) GetEtcdDefragStatus(
 // transfer, the manifest move that restarts etcd, and verification that the
 // member came back.
 //
-// Note the asymmetry in how the two failure families are reported. A refusal
-// returns nil so the operation succeeds with OUTCOME_REFUSED: the agent
-// correctly declined and the node is untouched. A member that does not come
-// back returns an error so the operation lands in phase FAILED *and* carries
+// Note the asymmetry in how the failure families are reported, which follows
+// from whether the node is left needing a human. A refusal returns nil so the
+// operation succeeds with OUTCOME_REFUSED: the agent correctly declined and the
+// node is untouched. A failure that etcd verifiably recovered from also returns
+// nil, with OUTCOME_FAILED_RESTORED. Only a member that does not come back
+// returns an error, so the operation lands in phase FAILED *and* carries
 // OUTCOME_FAILED_NOT_RESTORED, because a caller polling only the phase must not
 // mistake that for a clean stop.
+//
+// The context here comes from the operation framework, not from the RPC, so
+// unlike PatchEtcdManifest this sequence is already immune to the caller
+// disconnecting partway through.
 func (s *NodeAgentServer) runEtcdDefrag(
 	ctx context.Context,
 	progress nodeAgentOperationProgress,
@@ -176,16 +180,22 @@ func (s *NodeAgentServer) runEtcdDefrag(
 		return s.recordEtcdDefragRefusal(progress, fmt.Sprintf("transfer etcd leadership away from local member: %v", err), sizeBefore)
 	}
 
-	// Past this point etcd is taken down. Any failure to bring it back is
-	// FAILED_NOT_RESTORED, not a refusal.
+	// Past this point etcd is taken down, so a failure is no longer a refusal.
+	//
+	// stopStaticPod moves the manifest aside *before* it waits for the container
+	// to exit, so a timeout here leaves etcd.yaml parked in the backup directory
+	// with etcd down and nothing scheduled to bring it back. Treating that as
+	// terminal would turn an optional optimization into an outage that needs a
+	// human, so the manifest goes back before anything is reported.
 	if err := s.stopStaticPod(ctx, runner, progress, staticPodStopSpec{
 		containerName: etcdContainerName,
 		manifestName:  etcdManifestName,
 		stoppingStep:  stepEtcdDefragStopping,
 		waitingStep:   stepEtcdDefragWaitingExit,
-		timeout:       time.Duration(defaultStaticPodExitTimeout) * time.Second,
+		timeout:       s.etcdExitTimeoutOrDefault(),
 	}); err != nil {
-		return s.recordEtcdDefragFailure(progress, fmt.Sprintf("stop etcd static pod: %v", err), sizeBefore)
+		return s.recoverEtcdAfterFailedStop(ctx, runner, progress, client, sizeBefore,
+			fmt.Sprintf("stop etcd static pod: %v", err))
 	}
 
 	if err := s.restoreStaticPod(ctx, runner, progress, staticPodRestoreSpec{
@@ -232,6 +242,43 @@ func (s *NodeAgentServer) runEtcdDefrag(
 	})
 }
 
+// recoverEtcdAfterFailedStop puts the parked manifest back after the stop phase
+// failed, then reports according to whether the member verifiably returned.
+//
+// The stop phase fails with the manifest already moved and etcd in an unknown
+// state, so putting it back and watching is the only way to learn which. A
+// member that returns healthy leaves the node in its pre-call state with no
+// defragmentation performed, which is FAILED_RESTORED and lets a rollout stop
+// cleanly. One that does not is FAILED_NOT_RESTORED and needs an operator.
+func (s *NodeAgentServer) recoverEtcdAfterFailedStop(
+	ctx context.Context,
+	runner nvkeutils.CommandRunner,
+	progress nodeAgentOperationProgress,
+	client etcdMemberClient,
+	sizeBefore int64,
+	failureMessage string,
+) error {
+	slog.ErrorContext(ctx, "etcd stop phase failed; putting the parked manifest back", "reason", failureMessage)
+
+	if err := s.restoreStaticPod(ctx, runner, progress, staticPodRestoreSpec{
+		containerName: etcdContainerName,
+		manifestName:  etcdManifestName,
+		restoringStep: stepEtcdDefragRestarting,
+		waitingStep:   stepEtcdDefragWaitingStart,
+		timeout:       s.etcdHealthTimeoutOrDefault(),
+	}); err != nil {
+		return s.recordEtcdDefragFailure(progress,
+			fmt.Sprintf("%s; putting the manifest back also failed: %v", failureMessage, err), sizeBefore)
+	}
+
+	progress.SetStep(stepEtcdDefragWaitingHealthy)
+	if _, err := s.waitForLocalEtcdHealthy(ctx, client); err != nil {
+		return s.recordEtcdDefragFailure(progress,
+			fmt.Sprintf("%s; etcd did not return healthy after the manifest was put back: %v", failureMessage, err), sizeBefore)
+	}
+	return recordEtcdDefragRestored(progress, failureMessage, sizeBefore)
+}
+
 // etcdDefragPreflight verifies every condition that must hold before the member
 // is taken down, and returns the pre-restart backend size. Every error it
 // returns is a refusal: nothing here mutates anything, so the caller can report
@@ -256,17 +303,11 @@ func (s *NodeAgentServer) etcdDefragPreflight(
 		)
 	}
 
-	localStatus, err := client.Status(ctx, etcdLocalEndpoint)
-	if err != nil {
-		return 0, fmt.Errorf("local etcd member status: %w", err)
-	}
-	if localStatus == nil || localStatus.Header == nil {
-		return 0, errors.New("local etcd status has no member ID")
+	localStatus, statusErr := client.Status(ctx, etcdLocalEndpoint)
+	if healthErr := etcdStatusHealthError(localStatus, statusErr); healthErr != nil {
+		return etcdStatusDbSize(localStatus), fmt.Errorf("local etcd member is unhealthy: %w", healthErr)
 	}
 	sizeBefore := localStatus.DbSize
-	if len(localStatus.Errors) > 0 {
-		return sizeBefore, fmt.Errorf("local etcd member is unhealthy: %v", localStatus.Errors)
-	}
 
 	members, err := client.MemberList(ctx)
 	if err != nil {
@@ -369,6 +410,24 @@ func (s *NodeAgentServer) recordEtcdDefragRefusal(
 	slog.Warn("refusing etcd defragmentation; etcd was not restarted", "reason", reason)
 	return recordEtcdDefragResult(progress, persistedEtcdDefragResult{
 		Outcome:      int32(pb.GetEtcdDefragStatusResponse_OUTCOME_REFUSED),
+		ErrorMessage: reason,
+		SizeBefore:   sizeBefore,
+	})
+}
+
+// recordEtcdDefragRestored persists a FAILED_RESTORED outcome and completes the
+// operation successfully. The attempt failed and nothing was defragmented, but
+// the member is verifiably back on its original manifest, so this is a clean
+// stop rather than a node needing intervention - the same reasoning that has
+// PatchEtcdManifest return FAILED_RESTORED with a nil error.
+func recordEtcdDefragRestored(
+	progress nodeAgentOperationProgress,
+	reason string,
+	sizeBefore int64,
+) error {
+	slog.Warn("etcd defragmentation failed but the member was put back and verified healthy", "reason", reason)
+	return recordEtcdDefragResult(progress, persistedEtcdDefragResult{
+		Outcome:      int32(pb.GetEtcdDefragStatusResponse_OUTCOME_FAILED_RESTORED),
 		ErrorMessage: reason,
 		SizeBefore:   sizeBefore,
 	})

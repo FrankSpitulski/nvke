@@ -103,10 +103,21 @@ service NodeAgent {
   // defragmentation. Re-running against an already-configured manifest returns
   // OUTCOME_UNCHANGED and does not restart etcd.
   //
-  // Callers are responsible for serialization. The agent verifies local member
-  // health and cluster quorum before and after the swap, but it cannot see
-  // whether a peer is mid-restart; running this concurrently across members
-  // risks quorum loss.
+  // Before the write the agent verifies that the local member is healthy and
+  // that at least min_voting_members voting members are present. Afterwards it
+  // verifies local member health only, because a restarted member rejoining is
+  // what the caller needs to know and a peer count cannot distinguish a peer
+  // that this call disturbed from one that was already gone.
+  //
+  // Callers remain responsible for serialization: the voting-member count is a
+  // snapshot, so two agents can each see a healthy quorum and restart together.
+  // The agent cannot see whether a peer is mid-restart.
+  //
+  // Callers are also responsible for steering API traffic away from this node
+  // first. kubeadm points each kube-apiserver at its own etcd over localhost,
+  // so while etcd is down this node's apiserver cannot serve, yet kube-vip
+  // keeps advertising the control-plane VIP toward it. Drain kube-vip before
+  // this call and restore it after.
   rpc PatchEtcdManifest(PatchEtcdManifestRequest) returns (PatchEtcdManifestResponse) {}
 
   // StartEtcdDefrag starts an asynchronous offline defragmentation of the local
@@ -127,9 +138,19 @@ service NodeAgent {
   //
   // The agent performs the full per-node sequence: health preflight, voting
   // member check, leadership transfer away from the local member if it is
-  // leader, the manifest swap, the wait for etcd to return healthy, and an
-  // atomic restore if it does not. The caller sequences members; it does not
-  // orchestrate within one.
+  // leader, the manifest move, the move back, and the wait for etcd to return
+  // healthy. The caller sequences members; it does not orchestrate within one.
+  //
+  // The manifest is put back before that health wait, so a member that then
+  // fails to return healthy is already running its original configuration and
+  // there is nothing left for the agent to restore. That case reports
+  // OUTCOME_FAILED_NOT_RESTORED and needs an operator: no agent-side action
+  // recovers an etcd that will not start from its own unmodified manifest.
+  //
+  // As with PatchEtcdManifest, the caller must steer API traffic away from this
+  // node first. This node's kube-apiserver reaches etcd over localhost and
+  // cannot serve while it is down, but kube-vip keeps advertising the VIP
+  // toward it. Drain kube-vip before this call and restore it after.
   //
   // The operation_id is an idempotency key; retrying with the same operation_id
   // returns the existing operation instead of restarting etcd a second time.
@@ -1212,14 +1233,21 @@ message GetEtcdStatusResponse {
   // Space defragmentation could reclaim: db_total_size - db_total_size_in_use.
   // Gate remediation on this, not on db_total_size.
   int64 reclaimable_bytes = 3;
-  // The --quota-backend-bytes value read from the etcd static-pod manifest, so
-  // a caller can express thresholds as a fraction of quota rather than an
-  // absolute size.
+  // The effective backend quota, so a caller can express thresholds as a
+  // fraction of quota rather than an absolute size.
   //
-  // Zero means the flag is absent and etcd's built-in default applies. Callers
-  // must treat zero as "unknown" and decline to act, not divide by it: a ratio
-  // computed against zero would make every member look infinitely over
-  // threshold and trigger remediation fleet-wide.
+  // Source precedence: StatusResponse.DbSizeQuota when the server reports a
+  // nonzero value, otherwise the --quota-backend-bytes flag from the
+  // static-pod manifest. etcd only began reporting DbSizeQuota in 3.6, so on
+  // etcd 3.5 (Kubernetes <= 1.33) the manifest is the live source. A nonzero
+  // value therefore does not imply the flag is set, and this field must not be
+  // used to infer manifest contents.
+  //
+  // Zero means neither source supplied a quota, so etcd's built-in default
+  // applies and the real value is unknown to the agent. Callers must treat
+  // zero as "unknown" and decline to act, not divide by it: a ratio computed
+  // against zero would make every member look infinitely over threshold and
+  // trigger remediation fleet-wide.
   int64 quota_backend_bytes = 4;
   // True when the local member is the cluster leader. Reported for visibility
   // and member ordering; StartEtcdDefrag transfers leadership away itself, so
@@ -1245,6 +1273,15 @@ message PatchEtcdManifestRequest {
   // (Kubernetes >= 1.34) uses bootstrap-defrag-threshold-megabytes. The agent
   // does not infer it, so one agent build serves both.
   repeated FlagOp flag_ops = 1;
+  // Refuse the restart when fewer than this many voting members are present.
+  // Zero means the agent's default of 3, the smallest topology in which
+  // restarting one member still leaves a quorum.
+  //
+  // Set it to 1 to patch a single-member or two-member control plane, where no
+  // value can preserve quorum and the restart is a deliberate brief outage.
+  // That is an explicit caller decision because, unlike StartEtcdDefrag, this
+  // RPC is a configuration path that has to work on every topology.
+  int32 min_voting_members = 2;
 }
 
 message PatchEtcdManifestResponse {
@@ -1308,6 +1345,11 @@ message GetEtcdDefragStatusResponse {
     OUTCOME_REFUSED = 3;
     // etcd was restarted but did not return healthy. Needs intervention.
     OUTCOME_FAILED_NOT_RESTORED = 4;
+    // The sequence failed after etcd was taken down, but the manifest was put
+    // back and the member verified healthy again. No defragmentation happened
+    // and the node is in its pre-call state, so a rollout may stop cleanly
+    // rather than treating this member as damaged.
+    OUTCOME_FAILED_RESTORED = 5;
   }
   NodeAgentOperationStatus operation = 1;
   Outcome outcome = 2;

@@ -37,6 +37,17 @@ const (
 
 	// defaultEtcdHealthPollInterval is the gap between health probes.
 	defaultEtcdHealthPollInterval = 2 * time.Second
+
+	// defaultEtcdExitTimeout bounds the wait for the etcd container to exit
+	// after its manifest is moved aside.
+	//
+	// The shutdown flow's 60s is not enough here. That budget has to cover
+	// kubelet noticing the manifest is gone, which is bounded by its
+	// file-check frequency rather than by anything the agent controls, and then
+	// the pod's full termination grace period. Overrunning it is not a benign
+	// timeout for this flow: the manifest is already parked, so the caller has
+	// to put it back, and every second of the overrun is etcd downtime.
+	defaultEtcdExitTimeout = 3 * time.Minute
 )
 
 func (s *NodeAgentServer) etcdHealthTimeoutOrDefault() time.Duration {
@@ -53,6 +64,25 @@ func (s *NodeAgentServer) etcdHealthPollIntervalOrDefault() time.Duration {
 	return defaultEtcdHealthPollInterval
 }
 
+func (s *NodeAgentServer) etcdExitTimeoutOrDefault() time.Duration {
+	if s != nil && s.etcdExitTimeout > 0 {
+		return s.etcdExitTimeout
+	}
+	return defaultEtcdExitTimeout
+}
+
+// etcdMutationBudgetOrDefault bounds the whole post-write phase as a backstop.
+//
+// It has to accommodate four sequential waits, each already capped at the health
+// timeout: the pod swap and health wait for the apply, and the same pair again
+// for a rollback. Those inner waits are bounded by wall-clock deadlines rather
+// than by this context, so nothing here can hang indefinitely; this exists so
+// the detached context cannot outlive the work, and it is deliberately not
+// tighter, because truncating a legitimate rollback is worse than a long wait.
+func (s *NodeAgentServer) etcdMutationBudgetOrDefault() time.Duration {
+	return 4 * s.etcdHealthTimeoutOrDefault()
+}
+
 // waitForLocalEtcdHealthy polls the local member until Status succeeds and
 // reports no errors, or the deadline passes. A freshly restarted etcd refuses
 // connections for a while and, when it defragments on the way up, stays
@@ -66,17 +96,10 @@ func (s *NodeAgentServer) waitForLocalEtcdHealthy(
 	client etcdMemberClient,
 ) (*clientv3.StatusResponse, error) {
 	deadline := time.Now().Add(s.etcdHealthTimeoutOrDefault())
-	var lastErr error
 	for {
 		st, err := client.Status(ctx, etcdLocalEndpoint)
-		switch {
-		case err != nil:
-			lastErr = err
-		case st == nil || st.Header == nil:
-			lastErr = errors.New("etcd status has no header")
-		case len(st.Errors) > 0:
-			lastErr = fmt.Errorf("etcd reports errors: %v", st.Errors)
-		default:
+		lastErr := etcdStatusHealthError(st, err)
+		if lastErr == nil {
 			return st, nil
 		}
 
@@ -128,6 +151,14 @@ func (s *NodeAgentServer) PatchEtcdManifest(
 		return nil, status.Errorf(codes.InvalidArgument, "patch etcd manifest: %v", err)
 	}
 
+	// Unlike StartEtcdDefrag this RPC is a configuration path, so a caller may
+	// legitimately need it on a topology where no value preserves quorum. The
+	// default still refuses those; passing 1 is the explicit opt-in.
+	minVoters := req.GetMinVotingMembers()
+	if minVoters <= 0 {
+		minVoters = defaultMinVotingMembersForDefrag
+	}
+
 	// Serialize against the other agent-owned static-pod transactions
 	// (graceful shutdown, certificate renewal) so two flows never have the etcd
 	// manifest in a half-applied state at the same time.
@@ -166,11 +197,27 @@ func (s *NodeAgentServer) PatchEtcdManifest(
 	// Refuse to restart a member that is not healthy now: the post-restart wait
 	// could not then distinguish damage this call caused from damage that
 	// predated it.
-	preStatus, err := client.Status(ctx, etcdLocalEndpoint)
-	if err != nil || preStatus == nil {
-		return s.etcdPatchCleanFailure("", fmt.Sprintf("local etcd member is not healthy before patch: %v", err)), nil
+	preStatus, statusErr := client.Status(ctx, etcdLocalEndpoint)
+	if healthErr := etcdStatusHealthError(preStatus, statusErr); healthErr != nil {
+		return s.etcdPatchCleanFailure("", fmt.Sprintf("local etcd member is not healthy before patch: %v", healthErr)), nil
 	}
 	sizeBefore := preStatus.DbSize
+
+	// Refuse to restart when the cluster could not survive losing this member.
+	// Restarting one of three voters leaves two, still a quorum; at two voters
+	// the restart costs quorum outright. The count is only a snapshot, so this
+	// does not make concurrent calls across members safe - the caller still
+	// sequences them - but it stops a patch from finishing off an already
+	// degraded cluster.
+	members, err := client.MemberList(ctx)
+	if err != nil {
+		return s.etcdPatchCleanFailure("", fmt.Sprintf("list etcd members: %v", err)), nil
+	}
+	if voters := votingMemberCount(members); voters < minVoters {
+		return s.etcdPatchCleanFailure("", fmt.Sprintf(
+			"refusing to restart etcd with %d voting members, minimum is %d", voters, minVoters,
+		)), nil
+	}
 
 	backupPath, err := s.snapshotStaticPodManifest(manifestPath, etcdManifestBackupPrefix, maxEtcdManifestBackups, manifestRaw)
 	if err != nil {
@@ -195,13 +242,25 @@ func (s *NodeAgentServer) PatchEtcdManifest(
 		return s.etcdPatchCleanFailure(backupPath, fmt.Sprintf("write merged etcd manifest %s: %v", manifestPath, err)), nil
 	}
 
-	if err := s.waitForEtcdRestart(ctx, runner, client, previousContainerIDs); err != nil {
+	// Past the write the node is mutated, so the wait and any rollback must not
+	// inherit the caller's cancellation. A client that disconnected during the
+	// health wait used to be read as a failed restart: that rewrote the
+	// manifest, swapping the pod a second time and possibly interrupting the
+	// defragmentation it had just triggered, then reported
+	// FAILED_NOT_RESTORED without having verified anything, because the rollback
+	// inherited the same dead context. The wait is minutes long by design, which
+	// is longer than a typical client deadline, so this was reachable in normal
+	// operation rather than only on an explicit cancel.
+	mutationCtx, cancelMutation := context.WithTimeout(context.WithoutCancel(ctx), s.etcdMutationBudgetOrDefault())
+	defer cancelMutation()
+
+	if err := s.waitForEtcdRestart(mutationCtx, runner, client, previousContainerIDs); err != nil {
 		slog.ErrorContext(ctx, "etcd did not come back healthy after manifest patch; restoring", "err", err)
-		return s.etcdPatchRestore(ctx, runner, client, backupPath, manifestPath, manifestRaw, sizeBefore,
+		return s.etcdPatchRestore(mutationCtx, runner, client, backupPath, manifestPath, manifestRaw, sizeBefore,
 			fmt.Sprintf("etcd restart after patch failed: %v", err)), nil
 	}
 
-	postStatus, err := client.Status(ctx, etcdLocalEndpoint)
+	postStatus, err := client.Status(mutationCtx, etcdLocalEndpoint)
 	sizeAfter := int64(0)
 	if err == nil && postStatus != nil {
 		sizeAfter = postStatus.DbSize

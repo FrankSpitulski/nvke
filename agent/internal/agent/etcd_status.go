@@ -5,6 +5,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -110,6 +111,39 @@ func etcdQuotaBackendBytes(st *clientv3.StatusResponse, manifestJSON []byte) (in
 		return 0, fmt.Errorf("parse --%s value %q: %w", etcdQuotaBackendBytesFlag, raw, err)
 	}
 	return quota, nil
+}
+
+// etcdStatusHealthError reports why a Status response does not describe a
+// healthy local member, or nil when it does.
+//
+// Every RPC that gates on member health shares it so the gates cannot drift.
+// They did: the pre-patch check once accepted a status carrying an alarm that
+// the post-restart wait rejected, so a member already reporting NOSPACE was
+// taken down, waited on for the full health timeout, rolled back and waited on
+// again, before failing for a condition that predated the call. A restart does
+// not clear an alarm, so such a member has to read as unhealthy up front.
+func etcdStatusHealthError(st *clientv3.StatusResponse, err error) error {
+	switch {
+	case err != nil:
+		return err
+	case st == nil:
+		return errors.New("etcd returned no status")
+	case st.Header == nil:
+		return errors.New("etcd status has no header")
+	case len(st.Errors) > 0:
+		return fmt.Errorf("etcd reports errors: %v", st.Errors)
+	default:
+		return nil
+	}
+}
+
+// etcdStatusDbSize is the backend size from a possibly-absent status, so a
+// caller can report the size it managed to observe alongside a health failure.
+func etcdStatusDbSize(st *clientv3.StatusResponse) int64 {
+	if st == nil {
+		return 0
+	}
+	return st.DbSize
 }
 
 // reclaimableBytes is the space a defragmentation could return to the

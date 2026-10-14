@@ -157,10 +157,21 @@ type NodeAgentClient interface {
 	// defragmentation. Re-running against an already-configured manifest returns
 	// OUTCOME_UNCHANGED and does not restart etcd.
 	//
-	// Callers are responsible for serialization. The agent verifies local member
-	// health and cluster quorum before and after the swap, but it cannot see
-	// whether a peer is mid-restart; running this concurrently across members
-	// risks quorum loss.
+	// Before the write the agent verifies that the local member is healthy and
+	// that at least min_voting_members voting members are present. Afterwards it
+	// verifies local member health only, because a restarted member rejoining is
+	// what the caller needs to know and a peer count cannot distinguish a peer
+	// that this call disturbed from one that was already gone.
+	//
+	// Callers remain responsible for serialization: the voting-member count is a
+	// snapshot, so two agents can each see a healthy quorum and restart together.
+	// The agent cannot see whether a peer is mid-restart.
+	//
+	// Callers are also responsible for steering API traffic away from this node
+	// first. kubeadm points each kube-apiserver at its own etcd over localhost,
+	// so while etcd is down this node's apiserver cannot serve, yet kube-vip
+	// keeps advertising the control-plane VIP toward it. Drain kube-vip before
+	// this call and restore it after.
 	PatchEtcdManifest(ctx context.Context, in *PatchEtcdManifestRequest, opts ...grpc.CallOption) (*PatchEtcdManifestResponse, error)
 	// StartEtcdDefrag starts an asynchronous offline defragmentation of the local
 	// etcd member by restarting it so etcd defragments during bootstrap. It never
@@ -180,9 +191,19 @@ type NodeAgentClient interface {
 	//
 	// The agent performs the full per-node sequence: health preflight, voting
 	// member check, leadership transfer away from the local member if it is
-	// leader, the manifest swap, the wait for etcd to return healthy, and an
-	// atomic restore if it does not. The caller sequences members; it does not
-	// orchestrate within one.
+	// leader, the manifest move, the move back, and the wait for etcd to return
+	// healthy. The caller sequences members; it does not orchestrate within one.
+	//
+	// The manifest is put back before that health wait, so a member that then
+	// fails to return healthy is already running its original configuration and
+	// there is nothing left for the agent to restore. That case reports
+	// OUTCOME_FAILED_NOT_RESTORED and needs an operator: no agent-side action
+	// recovers an etcd that will not start from its own unmodified manifest.
+	//
+	// As with PatchEtcdManifest, the caller must steer API traffic away from this
+	// node first. This node's kube-apiserver reaches etcd over localhost and
+	// cannot serve while it is down, but kube-vip keeps advertising the VIP
+	// toward it. Drain kube-vip before this call and restore it after.
 	//
 	// The operation_id is an idempotency key; retrying with the same operation_id
 	// returns the existing operation instead of restarting etcd a second time.
@@ -968,10 +989,21 @@ type NodeAgentServer interface {
 	// defragmentation. Re-running against an already-configured manifest returns
 	// OUTCOME_UNCHANGED and does not restart etcd.
 	//
-	// Callers are responsible for serialization. The agent verifies local member
-	// health and cluster quorum before and after the swap, but it cannot see
-	// whether a peer is mid-restart; running this concurrently across members
-	// risks quorum loss.
+	// Before the write the agent verifies that the local member is healthy and
+	// that at least min_voting_members voting members are present. Afterwards it
+	// verifies local member health only, because a restarted member rejoining is
+	// what the caller needs to know and a peer count cannot distinguish a peer
+	// that this call disturbed from one that was already gone.
+	//
+	// Callers remain responsible for serialization: the voting-member count is a
+	// snapshot, so two agents can each see a healthy quorum and restart together.
+	// The agent cannot see whether a peer is mid-restart.
+	//
+	// Callers are also responsible for steering API traffic away from this node
+	// first. kubeadm points each kube-apiserver at its own etcd over localhost,
+	// so while etcd is down this node's apiserver cannot serve, yet kube-vip
+	// keeps advertising the control-plane VIP toward it. Drain kube-vip before
+	// this call and restore it after.
 	PatchEtcdManifest(context.Context, *PatchEtcdManifestRequest) (*PatchEtcdManifestResponse, error)
 	// StartEtcdDefrag starts an asynchronous offline defragmentation of the local
 	// etcd member by restarting it so etcd defragments during bootstrap. It never
@@ -991,9 +1023,19 @@ type NodeAgentServer interface {
 	//
 	// The agent performs the full per-node sequence: health preflight, voting
 	// member check, leadership transfer away from the local member if it is
-	// leader, the manifest swap, the wait for etcd to return healthy, and an
-	// atomic restore if it does not. The caller sequences members; it does not
-	// orchestrate within one.
+	// leader, the manifest move, the move back, and the wait for etcd to return
+	// healthy. The caller sequences members; it does not orchestrate within one.
+	//
+	// The manifest is put back before that health wait, so a member that then
+	// fails to return healthy is already running its original configuration and
+	// there is nothing left for the agent to restore. That case reports
+	// OUTCOME_FAILED_NOT_RESTORED and needs an operator: no agent-side action
+	// recovers an etcd that will not start from its own unmodified manifest.
+	//
+	// As with PatchEtcdManifest, the caller must steer API traffic away from this
+	// node first. This node's kube-apiserver reaches etcd over localhost and
+	// cannot serve while it is down, but kube-vip keeps advertising the VIP
+	// toward it. Drain kube-vip before this call and restore it after.
 	//
 	// The operation_id is an idempotency key; retrying with the same operation_id
 	// returns the existing operation instead of restarting etcd a second time.

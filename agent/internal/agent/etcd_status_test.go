@@ -6,6 +6,7 @@ package agent
 import (
 	"context"
 	"os"
+	"os/user"
 	"path/filepath"
 	"testing"
 
@@ -31,6 +32,23 @@ func writeEtcdManifest(t *testing.T, manifest string) *NodeAgentServer {
 	return &NodeAgentServer{
 		RootPath:   root,
 		NodeStatus: &NodeStatus{Role: ControlPlaneRole},
+		// The manifest-writing paths resolve root's uid and gid, which a test
+		// environment's user database may not carry.
+		kubeadmFileOps: fileOps{
+			lookupUser: func(name string) (*user.User, error) {
+				if name == "root" {
+					return &user.User{Username: "root", Uid: "0"}, nil
+				}
+				return nil, user.UnknownUserError(name)
+			},
+			lookupGroup: func(name string) (*user.Group, error) {
+				if name == "root" {
+					return &user.Group{Name: "root", Gid: "0"}, nil
+				}
+				return nil, user.UnknownGroupError(name)
+			},
+			chown: func(string, int, int) error { return nil },
+		},
 	}
 }
 

@@ -6,9 +6,11 @@ package agent
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -149,6 +151,143 @@ spec:
 		require.Error(t, err)
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 	})
+}
+
+// etcdManifestBelowTarget differs from the 2048 the tests request, so the RPC
+// gets past the UNCHANGED short-circuit and into the restart path.
+const etcdManifestBelowTarget = `apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: etcd
+      command: ["etcd", "--bootstrap-defrag-threshold-megabytes=200"]
+`
+
+func patchEtcdTestServer(t *testing.T, client *fakeEtcdMemberClient) (*NodeAgentServer, *etcdCrictlRunner) {
+	t.Helper()
+	s := writeEtcdManifest(t, etcdManifestBelowTarget)
+	runner := &etcdCrictlRunner{t: t, manifestPath: s.etcdManifestPath()}
+	s.etcdClient = client
+	s.Runner = runner
+	s.etcdHealthTimeout = 100 * time.Millisecond
+	s.etcdHealthPollInterval = time.Millisecond
+	s.etcdExitTimeout = 100 * time.Millisecond
+	s.drainKubeVipPollInterval = time.Millisecond
+	return s, runner
+}
+
+func patchedThreshold(t *testing.T, s *NodeAgentServer) string {
+	t.Helper()
+	_, manifestJSON, err := s.readEtcdManifest()
+	require.NoError(t, err)
+	value, _, err := readFlagValue(manifestJSON, etcdContainerName, etcdBootstrapDefragFlag)
+	require.NoError(t, err)
+	return value
+}
+
+func TestPatchEtcdManifestPreconditions(t *testing.T) {
+	t.Run("a cluster that cannot survive the restart is refused", func(t *testing.T) {
+		// Two voters means restarting one costs quorum. StartEtcdDefrag already
+		// refused this; the patch RPC does the same destructive thing and used
+		// to go ahead.
+		client := &fakeEtcdMemberClient{members: testEtcdMembers(), localID: 2, leaderID: 1}
+		s, _ := patchEtcdTestServer(t, client)
+
+		resp, err := s.PatchEtcdManifest(context.Background(), &pb.PatchEtcdManifestRequest{
+			FlagOps: setBootstrapDefragOp("2048"),
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, pb.PatchEtcdManifestResponse_OUTCOME_FAILED_RESTORED, resp.GetOutcome())
+		assert.Contains(t, resp.GetErrorMessage(), "minimum is 3")
+		assert.Equal(t, "200", patchedThreshold(t, s), "a refusal must not write the manifest")
+	})
+
+	t.Run("min_voting_members lets a caller patch a topology that cannot preserve quorum", func(t *testing.T) {
+		// The configuration path has to work on single- and two-member control
+		// planes, where the restart is a deliberate brief outage.
+		client := &fakeEtcdMemberClient{members: testEtcdMembers(), localID: 2, leaderID: 1}
+		s, _ := patchEtcdTestServer(t, client)
+
+		resp, err := s.PatchEtcdManifest(context.Background(), &pb.PatchEtcdManifestRequest{
+			FlagOps:          setBootstrapDefragOp("2048"),
+			MinVotingMembers: 1,
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, pb.PatchEtcdManifestResponse_OUTCOME_APPLIED, resp.GetOutcome())
+		assert.Equal(t, "2048", patchedThreshold(t, s))
+	})
+
+	t.Run("a member already reporting an alarm is refused before the write", func(t *testing.T) {
+		// A restart does not clear an alarm, so proceeding would bounce the
+		// member, wait out the health timeout, roll it back, wait again, and
+		// then fail for a condition that predated the call.
+		client := &fakeEtcdMemberClient{
+			members:      testEtcdMembersThree(),
+			localID:      2,
+			leaderID:     1,
+			statusErrors: []string{"NOSPACE"},
+		}
+		s, runner := patchEtcdTestServer(t, client)
+
+		resp, err := s.PatchEtcdManifest(context.Background(), &pb.PatchEtcdManifestRequest{
+			FlagOps: setBootstrapDefragOp("2048"),
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, pb.PatchEtcdManifestResponse_OUTCOME_FAILED_RESTORED, resp.GetOutcome())
+		assert.Contains(t, resp.GetErrorMessage(), "NOSPACE")
+		assert.Equal(t, "200", patchedThreshold(t, s), "a refusal must not write the manifest")
+		assert.Zero(t, runner.calls, "etcd must not be restarted for a pre-existing alarm")
+	})
+
+	t.Run("an absent status header is refused rather than read as healthy", func(t *testing.T) {
+		client := &fakeEtcdMemberClient{
+			members: testEtcdMembersThree(),
+			localID: 2,
+			statusFn: func(int) (*clientv3.StatusResponse, error) {
+				return nil, nil //nolint:nilnil // models a client returning neither status nor error
+			},
+		}
+		s, runner := patchEtcdTestServer(t, client)
+
+		resp, err := s.PatchEtcdManifest(context.Background(), &pb.PatchEtcdManifestRequest{
+			FlagOps: setBootstrapDefragOp("2048"),
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, pb.PatchEtcdManifestResponse_OUTCOME_FAILED_RESTORED, resp.GetOutcome())
+		assert.Contains(t, resp.GetErrorMessage(), "etcd returned no status")
+		assert.Zero(t, runner.calls)
+	})
+}
+
+// The regression this exists for: the post-write wait used to run on the
+// caller's context. A client that disconnected during it was read as a failed
+// restart, which rewrote the manifest - swapping the pod a second time, possibly
+// interrupting the defragmentation it had just triggered - and then reported
+// FAILED_NOT_RESTORED without verifying anything, because the rollback inherited
+// the same dead context. The wait is minutes long by design, so an ordinary
+// client deadline was enough to trigger it.
+func TestPatchEtcdManifestSurvivesCallerCancellation(t *testing.T) {
+	client := &fakeEtcdMemberClient{members: testEtcdMembersThree(), localID: 2, leaderID: 1}
+	s, runner := patchEtcdTestServer(t, client)
+	// Make the replacement pod take a few probes to appear, so the restart wait
+	// genuinely sleeps. Without that it returns on the first probe and no
+	// cancellation could ever be observed.
+	runner.startDelay = 3
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	resp, err := s.PatchEtcdManifest(ctx, &pb.PatchEtcdManifestRequest{
+		FlagOps: setBootstrapDefragOp("2048"),
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, pb.PatchEtcdManifestResponse_OUTCOME_APPLIED, resp.GetOutcome())
+	assert.Equal(t, "2048", patchedThreshold(t, s), "the patch must survive the caller going away")
 }
 
 func TestApplyFlagOpsOnEtcdManifest(t *testing.T) {

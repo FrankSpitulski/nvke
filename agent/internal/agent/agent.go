@@ -226,6 +226,9 @@ type NodeAgentServer struct {
 	// etcdHealthPollInterval is the gap between local etcd health probes during
 	// that wait. Zero means the production default.
 	etcdHealthPollInterval time.Duration
+	// etcdExitTimeout bounds the wait for the etcd container to exit once its
+	// manifest has been moved aside. Zero means the production default.
+	etcdExitTimeout time.Duration
 }
 
 // Real implementations
