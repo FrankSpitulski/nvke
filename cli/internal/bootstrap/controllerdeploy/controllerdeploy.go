@@ -36,6 +36,8 @@ import (
 	"text/template"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/manifest"
 	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/sitespec"
 	"github.com/dsx-ai-factory/nvke/cli/internal/envalias"
@@ -172,6 +174,16 @@ var chartFetchServerError = regexp.MustCompile(`failed to fetch .*: 5\d\d\b`)
 
 const defaultTenantKubeconfigTimeout = 2 * time.Minute
 
+// oidcValues is the helms values file
+type oidcValues struct {
+	OIDC oidcProviders `yaml:"oidc"`
+}
+
+// oidcProviders is the helm chart's oidc.providers list.
+type oidcProviders struct {
+	Providers []sitespec.OIDCProvider `yaml:"providers"`
+}
+
 // Config describes a controller deployment.
 type Config struct {
 	// CWEImage is the image reference to deploy. Defaults to nke-controller:latest,
@@ -233,6 +245,10 @@ type Config struct {
 	// default (15005) alone. It comes from the site spec, because it describes
 	// how the site's hosts were configured long before this cluster existed.
 	NodeAgentPort string
+
+	// OIDCProviders are the external oidc providers site cluster kube-apiserver authenticates
+	// client requests against. Optional field.
+	OIDCProviders []sitespec.OIDCProvider
 
 	// CWEPort is the port the controller API uses for its Helm Service, Kubernetes
 	// NodePort, Kind host mapping, and host client. Zero uses DefaultCWEPort.
@@ -534,6 +550,15 @@ func (e *Engine) Deploy(ctx context.Context, kubeconfigPath string, cfg Config) 
 	}
 	defer cleanup()
 
+	oidcValues := ""
+	if len(cfg.OIDCProviders) > 0 {
+		oidcValues, cleanup, err = writeOIDCValues(cfg.OIDCProviders)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+	}
+
 	// tag and digest are always set, empty when unused: the chart reads an
 	// empty tag as "use appVersion" and an empty digest as "pull by tag".
 	imageRepo, imageTag, imageDigest := splitImageRef(cfg.CWEImage)
@@ -560,6 +585,9 @@ func (e *Engine) Deploy(ctx context.Context, kubeconfigPath string, cfg Config) 
 	}
 	cweArgs = append(cweArgs, cweEnvArgs(cfg)...)
 	cweArgs = append(cweArgs, "--wait", "--timeout", helmTimeout.String())
+	if oidcValues != "" {
+		cweArgs = append(cweArgs, "--values", oidcValues)
+	}
 	if _, err := e.helm(ctx, kubeconfigPath, cweArgs...); err != nil {
 		return fmt.Errorf("controllerdeploy: installing the controller: %w", err)
 	}
@@ -683,6 +711,16 @@ func (e *Engine) helm(ctx context.Context, kubeconfigPath string, args ...string
 		case <-time.After(helmFetchRetryInterval):
 		}
 	}
+}
+
+func writeOIDCValues(providers []sitespec.OIDCProvider) (path string, cleanup func(), err error) {
+	body, err := yaml.Marshal(oidcValues{
+		OIDC: oidcProviders{Providers: providers},
+	})
+	if err != nil {
+		return "", func() {}, fmt.Errorf("controllerdeploy: rendering oidc values: %w", err)
+	}
+	return writeTempFile("nvkectl-cwe-oidc-*.yaml", body)
 }
 
 // writeEmbeddedFile copies an embedded values file to a temporary file on
