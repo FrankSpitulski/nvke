@@ -81,6 +81,7 @@ You can configure the following aspects of the test execution:
 - `kube.kubeconfig`: Path to the kubeconfig file (defaults to standard loading rules like `$KUBECONFIG` or `~/.kube/config`).
 - `kube.context`: The kubeconfig context to use (defaults to the current context).
 - `cluster.capdNodeImage`: The Docker image to use for CAPD nodes (defaults to `cwe-capd-kindest-node:local`).
+- `cluster.nicoVMSOSProfile` and `cluster.kubernetesVersion`: Optional overrides for every `nico-vms` spec. Supply both together or leave both empty to retain development defaults. The profile must be a DNS-1123 subdomain, and the Kubernetes version must be canonical semantic version text without a `v` prefix (for example `1.36.3`). Other backends retain their own settings.
 - `lifecycle.skipDelete`: If `true`, leaves the freshly-created cluster running after the tests finish.
 - `lifecycle.preserveOnFailure`: If `true`, keeps the cluster running only if a test fails (useful for debugging).
 - `lifecycle.reuseCluster`: Provide a cluster name here to skip the "Create" and "Delete" phases entirely, running the validations against an existing cluster.

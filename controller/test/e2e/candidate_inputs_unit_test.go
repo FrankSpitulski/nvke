@@ -301,7 +301,7 @@ func TestUnit_CandidateNativeReportsRejectEmptyAndSkippedRuns(t *testing.T) {
 // to the nightly runner.
 const candidateCleanupContract = `
 source "$1"
-timeout(){ shift; "$@"; }
+timeout(){ while [[ "$1" == -* ]]; do shift; done; shift; "$@"; }
 candidate_stop_group(){ printf 'stop %s\n' "$1" >> "$STATE_DIR/actions"; }
 redact_diagnostics(){ [[ "$CASE" != redaction ]]; }
 virsh(){
@@ -334,7 +334,7 @@ candidate_api(){
 candidate_state_owned=true
 candidate_test_exit=0
 candidate_sim_pid=123
-candidate_monitor_pid='' candidate_suite_pid='' candidate_spire_pid='' candidate_oidc_pid='' candidate_dhcp_pid=''
+candidate_monitor_pid='' candidate_suite_pid='' candidate_spire_pid='' candidate_oidc_pid='' candidate_dhcp_pid='' candidate_controller_pid=456
 candidate_endpoint=http://owned-fixture
 NICO_VMS_ORG_ID=fixture NICO_VMS_TOKEN=fixture
 LIBVIRT_URI=qemu:///session KIND_CLUSTER_OWNED=true KIND_CLUSTER_NAME=owned-kind
@@ -387,6 +387,9 @@ func TestUnit_CandidateCleanupPreservesFailureAndOwnsExactInstances(t *testing.T
 			if scenario == "live" && !strings.Contains(string(actions), "/instance/owned-live") {
 				t.Fatalf("cleanup omitted its currently live instance: %s", actions)
 			}
+			if !strings.Contains(string(actions), "stop 456\n") {
+				t.Fatalf("cleanup omitted the owned controller forward: %s", actions)
+			}
 		})
 	}
 }
@@ -436,7 +439,7 @@ func TestUnit_CandidateImagePinsAndContainerdReadback(t *testing.T) {
 			cmd := exec.CommandContext(t.Context(), "bash", "-ec", `
 source "$1"
 fail(){ exit 1; }
-timeout(){ shift; "$@"; }
+timeout(){ while [[ "$1" == -* ]]; do shift; done; shift; "$@"; }
 docker(){
   if [[ "$*" == *'images import'* ]]; then
     cat >/dev/null
@@ -461,6 +464,146 @@ candidate_import_images
 				}
 			}
 		})
+	}
+}
+
+func TestUnit_CandidateServedDiskMatchesPin(t *testing.T) {
+	for _, scenario := range []string{"exact", "different bytes", "download failed"} {
+		t.Run(scenario, func(t *testing.T) {
+			payload := []byte("pinned candidate disk bytes")
+			served := filepath.Join(t.TempDir(), "served.qcow2")
+			if scenario == "different bytes" {
+				payload = []byte("another disk")
+			}
+			if err := os.WriteFile(served, payload, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			pin := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("pinned candidate disk bytes")))
+			cmd := exec.CommandContext(t.Context(), "bash", "-ec", `source "$1";
+timeout(){ while [[ "$1" == -* ]]; do shift; done; shift; "$@"; }
+curl(){ cat "$SERVED"; [[ "$CASE" != 'download failed' ]]; }
+candidate_verify_disk_service`, "contract", candidateLibrary(t))
+			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "SERVED=" + served, "CASE=" + scenario, "NKE_E2E_CANDIDATE_QCOW2_SHA256=" + pin}
+			out, err := cmd.CombinedOutput()
+			if (err == nil) != (scenario == "exact") {
+				t.Fatalf("served disk %s: %s %v", scenario, out, err)
+			}
+		})
+	}
+}
+
+func TestUnit_CandidateOwnershipObservationRequiresPinnedGuestBacking(t *testing.T) {
+	for _, scenario := range []string{"exact", "domain disappeared", "dump transient failure", "wrong backing", "non-KVM"} {
+		t.Run(scenario, func(t *testing.T) {
+			dir := t.TempDir()
+			base := filepath.Join(dir, "sim", "cache", "base.qcow2")
+			if err := os.MkdirAll(filepath.Dir(base), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			payload := []byte("pinned read-only base")
+			pin := fmt.Sprintf("sha256:%x", sha256.Sum256(payload))
+			if scenario == "wrong backing" {
+				payload = []byte("unselected guest base")
+			}
+			if err := os.WriteFile(base, payload, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			disk := filepath.Join(dir, "sim", "instances", "owned", "disk.qcow2")
+			chain, err := json.Marshal([]map[string]string{{"filename": disk, "format": "qcow2"}, {"filename": base, "format": "qcow2"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.CommandContext(t.Context(), "bash", "-ec", `source "$1"
+timeout(){ while [[ "$1" == -* ]]; do shift; done; shift; "$@"; }
+candidate_api(){ printf '[{"id":"owned"}]'; }
+virsh(){
+  case "$*" in
+    *dominfo*) return 0 ;;
+    *dumpxml*)
+      [[ "$CASE" != 'domain disappeared' && "$CASE" != 'dump transient failure' ]] || return 1
+      if [[ "$CASE" == non-KVM ]]; then printf "<domain type='qemu'/>"; else printf "<domain type='kvm'/>"; fi ;;
+    *'list --all --name'*) [[ "$CASE" == 'domain disappeared' ]] || printf 'nico-vm-owned\n' ;;
+  esac
+}
+qemu-img(){ printf '%s' "$CHAIN"; }
+candidate_record_instances`, "contract", candidateLibrary(t))
+			cmd.Env = []string{
+				"PATH=" + os.Getenv("PATH"), "STATE_DIR=" + dir, "CASE=" + scenario, "CHAIN=" + string(chain),
+				"LIBVIRT_URI=qemu:///session", "candidate_endpoint=http://owned", "NICO_VMS_ORG_ID=org", "NICO_VMS_TOKEN=fixture",
+				"NKE_E2E_CANDIDATE_QCOW2=" + base, "NKE_E2E_CANDIDATE_QCOW2_SHA256=" + pin,
+			}
+			out, runErr := cmd.CombinedOutput()
+			if (runErr == nil) != (scenario == "exact" || scenario == "domain disappeared") {
+				t.Fatalf("observation %s: %s %v", scenario, out, runErr)
+			}
+			_, statErr := os.Stat(filepath.Join(dir, "observed-domain-owned.xml"))
+			if (statErr == nil) != (scenario == "exact") {
+				t.Fatalf("failed/unverified observation became accepted KVM evidence: %s %v", out, statErr)
+			}
+			ledger, readErr := os.ReadFile(filepath.Join(dir, "owned-instance-ids"))
+			if readErr != nil || string(ledger) != "owned\n" {
+				t.Fatalf("ownership recovery ledger lost the exact ID: %s %v", ledger, readErr)
+			}
+		})
+	}
+}
+
+func TestUnit_CandidateOwnershipMonitorBoundsConsecutiveFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		sequence string
+		calls    string
+		wantOK   bool
+	}{
+		{"transient errors recover", "fail,fail,pass,done", "4", true},
+		{"persistent errors stop", "fail,fail,fail", "3", false},
+		{"known wrong image stops immediately", "wrong,pass,done", "1", false},
+		{"successful iteration resets budget", "fail,fail,pass,fail,fail,fail", "6", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.CommandContext(t.Context(), "bash", "-ec", `source "$1";
+calls=0
+IFS=, read -r -a attempts <<< "$SEQUENCE"
+candidate_record_instances(){
+  local result="${attempts[$calls]}"
+  calls=$((calls + 1))
+  printf 'call %s\n' "$calls"
+  [[ "$result" != done ]] || exit 0
+  [[ "$result" != wrong ]] || return 2
+  [[ "$result" == pass ]]
+}
+sleep(){ :; }
+candidate_monitor_instances`, "contract", candidateLibrary(t))
+			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "SEQUENCE=" + tc.sequence}
+			out, err := cmd.CombinedOutput()
+			if (err == nil) != tc.wantOK || !strings.Contains(string(out), "call "+tc.calls+"\n") {
+				t.Fatalf("bounded ownership monitor: %s %v", out, err)
+			}
+		})
+	}
+}
+
+func TestUnit_CandidateControllerSmokeOwnsForward(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.CommandContext(t.Context(), "bash", "-ec", `source "$1"
+fail(){ exit 1; }
+ss(){ return 0; }
+setsid(){ printf '%s\n' "$*" > "$STATE_DIR/forward"; }
+kill(){ return 0; }
+curl(){ return 0; }
+candidate_start_controller_forward
+[[ -n "$candidate_controller_pid" ]]
+wait "$candidate_controller_pid"`, "contract", candidateLibrary(t))
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"), "STATE_DIR=" + dir, "E2E_KUBECONFIG=/owned/kubeconfig", "NVKECTL_SMOKE_CONTROLLER_NAMESPACE=nke-controller",
+		"NVKECTL_SMOKE_CONTROLLER_SERVICE=nke-controller", "NVKECTL_SMOKE_CONTROLLER_PORT=8080",
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("controller forward did not become owned/ready: %s %v", out, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "forward"))
+	if err != nil || string(raw) != "kubectl --kubeconfig /owned/kubeconfig -n nke-controller port-forward --address 127.0.0.1 svc/nke-controller 8080:8080\n" {
+		t.Fatalf("wrong controller forwarding target: %s %v", raw, err)
 	}
 }
 
@@ -513,5 +656,58 @@ func TestUnit_CandidateCompletedLeaderStillStopsOwnedGroup(t *testing.T) {
 	}
 	if probeErr := syscall.Kill(-leader.Process.Pid, 0); probeErr != syscall.ESRCH {
 		t.Fatalf("group remained after cleanup: %v", probeErr)
+	}
+}
+
+func TestUnit_CandidateTimedObservationStopsWithMonitor(t *testing.T) {
+	if _, err := exec.LookPath("timeout"); err != nil {
+		t.Skip("GNU timeout is required by the Linux candidate monitor")
+	}
+	dir := t.TempDir()
+	childPID := filepath.Join(dir, "child.pid")
+	// qemu-img is a blocking subprocess fixture. It supplies no disk data:
+	// the real candidate helper must stop it when the owned monitor is stopped.
+	tool := filepath.Join(dir, "qemu-img")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\nprintf '%s' \"$$\" >\"$CHILD_PID\"\nexec sleep 120\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	monitor := exec.CommandContext(t.Context(), "bash", "-ec", `source "$1"; candidate_verify_guest_backing owned`, "fixture", candidateLibrary(t))
+	monitor.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"), "STATE_DIR="+dir, "CHILD_PID="+childPID)
+	monitor.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := monitor.Start(); err != nil {
+		t.Fatal(err)
+	}
+	joined := make(chan error, 1)
+	go func() { joined <- monitor.Wait() }()
+	t.Cleanup(func() {
+		_ = syscall.Kill(-monitor.Process.Pid, syscall.SIGKILL)
+		select {
+		case <-joined:
+		case <-time.After(5 * time.Second):
+			t.Error("owned timed observation was not joined")
+		}
+	})
+	deadline := time.Now().Add(5 * time.Second)
+	var child int
+	for child == 0 {
+		if raw, err := os.ReadFile(childPID); err == nil {
+			if _, scanErr := fmt.Sscan(string(raw), &child); scanErr != nil {
+				t.Fatal(scanErr)
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed observation did not launch its subprocess")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// Always reclaim the exact fixture child even if the ownership assertion
+	// fails; never leave a proof of failed cleanup running on the host.
+	t.Cleanup(func() { _ = syscall.Kill(child, syscall.SIGKILL) })
+	stop := exec.CommandContext(t.Context(), "bash", "-ec", `source "$1"; candidate_stop_group "$2"`, "fixture", candidateLibrary(t), fmt.Sprint(monitor.Process.Pid))
+	if out, err := stop.CombinedOutput(); err != nil {
+		t.Fatalf("nested timeout escaped owned monitor cleanup: %s %v", out, err)
+	}
+	if err := syscall.Kill(child, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("timed observation child remains after monitor cleanup: %v", err)
 	}
 }

@@ -5,8 +5,8 @@
 # file (or an empty one) runs zero-config against the current kube context. The
 # values below are the defaults; uncomment and edit as needed.
 #
-# Cluster shape (Kubernetes version, CNI plugin, name) and waiter timeouts live
-# in the test code, not here — this file only carries environment knobs.
+# Cluster shape and waiter timeouts normally live in test code. The paired
+# nico-vms profile/version overrides below select a supplied VM candidate.
 
 # kube:
 #   kubeconfig: ""   # "" -> default loading (KUBECONFIG / ~/.kube/config)
@@ -14,6 +14,10 @@
 
 # cluster:
 #   capdNodeImage: "cwe-capd-kindest-node:local"   # CAPD backend only
+#   # Both empty preserves development defaults. Supply both together to
+#   # override every nico-vms spec; other backends keep their own settings.
+#   nicoVMSOSProfile: ""      # DNS-1123 subdomain, e.g. nvke-local-26-04-arm64-plain
+#   kubernetesVersion: ""    # canonical semantic version without v, e.g. 1.36.3
 
 # lifecycle:
 #   skipDelete: false         # leave the tenant cluster running after the suite

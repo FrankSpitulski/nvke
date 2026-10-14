@@ -255,7 +255,7 @@ while run_priv iptables -t nat -D PREROUTING -i "${BRIDGE_NAME}" -d "${BRIDGE_GW
 while run_priv iptables -t nat -D PREROUTING -i "${BRIDGE_NAME}" -d "${BRIDGE_GW}" -p tcp --dport 179 -j REDIRECT --to-port 10179 2>/dev/null; do :; done
 while run_priv iptables -t nat -D PREROUTING -i "${BRIDGE_NAME}" -d 169.254.169.254 -p tcp --dport 7777 -j DNAT --to-destination "${BRIDGE_GW}:7777" 2>/dev/null; do :; done
 run_priv ip neigh del proxy 169.254.169.254 dev "${BRIDGE_NAME}" 2>/dev/null
-for spec in "-p udp --dport 67" "-p udp --dport 53" "-p tcp --dport 53" "-p tcp --dport 7777" "-p udp --dport 5353" "-p tcp --dport 5353" "-p tcp --dport 10179" "-p tcp --dport 18080" "-p tcp --dport 30440" "-p tcp --dport 30443"; do
+for spec in "-p udp --dport 67" "-p udp --dport 53" "-p tcp --dport 53" "-p tcp --dport 7777" "-p udp --dport 5353" "-p tcp --dport 5353" "-p tcp --dport 10179" "-p tcp --dport 18080" "-p tcp --dport 18089" "-p tcp --dport 30440" "-p tcp --dport 30443"; do
   # Word splitting is intended: each spec is a list of iptables arguments.
   # shellcheck disable=SC2086
   while run_priv iptables -D INPUT -i "${BRIDGE_NAME}" ${spec} -j ACCEPT 2>/dev/null; do :; done

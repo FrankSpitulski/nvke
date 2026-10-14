@@ -11,13 +11,18 @@
 # LAYOUT (complete published artifacts), NVKECTL,
 # SIMULATOR, SEED, QCOW2 (absolute files, each with an exact _SHA256 blob pin),
 # SITESPEC (private local deployment), RELEASES (owner-generated profile CRs),
-# OS_PROFILE, KUBERNETES_VERSION, CONTROLLER_VERSION, SIMULATOR_ENDPOINT,
+# OS_PROFILE, KUBERNETES_VERSION, CONTROLLER_VERSION, SIMULATOR_ADDRESS,
+# SIMULATOR_ENDPOINT (exactly http://<SIMULATOR_ADDRESS>:18089),
 # MIN_AVAILABLE_MIB, MIN_DISK_MIB and RUNTIME_LOCK (precreated owned file).
 # IMAGE_INPUTS is the owning consumer's JSON array of {name, reference,
 # manifestDigest, archive, archiveDigest}; VALUES holds spire.json,
 # postgresql.json and temporal.json derived from the same verified artifacts.
 # The parent holds the same lock on FD9 through setup and passes it to this
 # process. NKE_CI_HOST_EXTERNAL_DHCP=true leaves DHCP ownership to this attempt.
+# Optional NETWORK_OWNER=nvkr-network-guard instead uses the parent's owned
+# DHCP_HOSTS_DIR, DHCP_LEASE_FILE and DHCP_PID (all three required in that mode).
+# The parent serves QCOW2 at http://172.30.0.1:18080/nvke-node-image-arm64.qcow2;
+# this adapter checks the complete served bytes and observed guest backing files.
 # The supplied nvkectl must support inspect nvkr-release and render deploy-path
 # --nvkr-run-dir for the current release-description/v1 contract. Its inspection
 # admits metadata and platform selection only; it establishes no authentication.
@@ -119,19 +124,100 @@ candidate_api() {
     -H "Authorization: Bearer ${NICO_VMS_TOKEN}" "$@"
 }
 
+candidate_verify_disk_service() {
+  local digest
+  digest="$(set -o pipefail; curl --fail --silent --show-error --connect-timeout 5 --max-time 300 \
+    http://172.30.0.1:18080/nvke-node-image-arm64.qcow2 | timeout --foreground --kill-after=5s 300 sha256sum)" || return 1
+  [[ "sha256:${digest%% *}" == "${NKE_E2E_CANDIDATE_QCOW2_SHA256}" ]]
+}
+
+candidate_domain_gone() {
+  local domains
+  domains="$(timeout --foreground --kill-after=5s 15 virsh -c "${LIBVIRT_URI}" list --all --name)" || return 1
+  ! grep -Fxq "$1" <<<"${domains}"
+}
+
+candidate_verify_guest_backing() {
+  local id="$1" disk chain base digest
+  disk="${STATE_DIR}/sim/instances/${id}/disk.qcow2"
+  # Foreground timeout leaves timed tools inside the monitor's owned process
+  # group, so cancelling the monitor also stops and joins an in-flight hash.
+  chain="$(timeout --foreground --kill-after=5s 30 qemu-img info --force-share --backing-chain --output=json "${disk}")" || return 1
+  # The native simulator owner creates one qcow2 overlay over its read-only
+  # cached base. qemu-img owns interpretation of that chain, not an XML parser.
+  base="$(jq -er --arg disk "${disk}" 'select(type == "array" and length == 2 and
+    .[0].filename == $disk and all(.[]; .format == "qcow2")) | .[1].filename' <<<"${chain}")" || return 1
+  [[ "${base}" == "${NKE_E2E_CANDIDATE_QCOW2}" || "${base}" == "${STATE_DIR}/sim/cache/"*.qcow2 ]] || return 1
+  [[ -f "${base}" && ! -L "${base}" ]] || return 1
+  digest="$(timeout --foreground --kill-after=5s 300 sha256sum <"${base}")" || return 1
+  # A completed hash proving different content is terminal. Retrying a
+  # transient observation must never discard a known wrong boot image.
+  [[ "sha256:${digest%% *}" == "${NKE_E2E_CANDIDATE_QCOW2_SHA256}" ]] || return 2
+}
+
 candidate_record_instances() {
-  local rows id
+  local rows id domain observed status
   rows="$(candidate_api "${candidate_endpoint}/v2/org/${NICO_VMS_ORG_ID}/forge/instance")" || return 1
   jq -e 'type == "array" and all(.[]; (.id | type == "string" and length > 0))' <<<"${rows}" >/dev/null || return 1
   while IFS= read -r id; do
     [[ "${id}" != *[!a-zA-Z0-9-]* ]] || return 1
-printf '%s\n' "${id}" >>"${STATE_DIR}/owned-instance-ids"
-    if timeout 15 virsh -c "${LIBVIRT_URI}" dominfo "nico-vm-${id}" >/dev/null 2>&1; then
-      timeout 15 virsh -c "${LIBVIRT_URI}" dumpxml "nico-vm-${id}" >"${STATE_DIR}/observed-domain-${id}.xml" || return 1
-      grep -q "<domain type='kvm'" "${STATE_DIR}/observed-domain-${id}.xml" || return 1
+    printf '%s\n' "${id}" >>"${STATE_DIR}/owned-instance-ids"
+    domain="nico-vm-${id}"
+    observed="${STATE_DIR}/observed-domain-${id}.xml"
+    [[ ! -s "${observed}" ]] || continue
+    if ! timeout --foreground --kill-after=5s 15 virsh -c "${LIBVIRT_URI}" dominfo "${domain}" >/dev/null 2>&1; then
+      candidate_domain_gone "${domain}" && continue
+      return 1
     fi
+    if ! timeout --foreground --kill-after=5s 15 virsh -c "${LIBVIRT_URI}" dumpxml "${domain}" >"${observed}.partial"; then
+      candidate_domain_gone "${domain}" && continue
+      return 1
+    fi
+    grep -q "<domain type='kvm'" "${observed}.partial" || return 1
+    if candidate_verify_guest_backing "${id}"; then
+      :
+    else
+      status=$?
+      ((status != 2)) || return 2
+      candidate_domain_gone "${domain}" && continue
+      return 1
+    fi
+    mv "${observed}.partial" "${observed}" || return 1
   done < <(jq -r '.[].id' <<<"${rows}")
   sort -u "${STATE_DIR}/owned-instance-ids" -o "${STATE_DIR}/owned-instance-ids"
+}
+
+candidate_monitor_instances() {
+  local failures=0 status
+  while true; do
+    if candidate_record_instances; then
+      failures=0
+    else
+      status=$?
+      ((status != 2)) || return 2
+      failures=$((failures + 1))
+      printf 'ownership observation failed (%s/3 consecutive attempts)\n' "${failures}" >&2
+      ((failures < 3)) || return 1
+    fi
+    sleep 2
+  done
+}
+
+candidate_start_controller_forward() {
+  local inventory
+  inventory="$(ss -H -lnt "sport = :${NVKECTL_SMOKE_CONTROLLER_PORT}")" || return 1
+  [[ -z "${inventory}" ]] || fail "candidate controller smoke port is already owned"
+  setsid kubectl --kubeconfig "${E2E_KUBECONFIG}" -n "${NVKECTL_SMOKE_CONTROLLER_NAMESPACE}" \
+    port-forward --address 127.0.0.1 "svc/${NVKECTL_SMOKE_CONTROLLER_SERVICE}" \
+    "${NVKECTL_SMOKE_CONTROLLER_PORT}:${NVKECTL_SMOKE_CONTROLLER_PORT}" >"${STATE_DIR}/controller-forward.log" 2>&1 &
+  candidate_controller_pid=$!
+  for _ in $(seq 1 30); do
+    kill -0 "${candidate_controller_pid}" || return 1
+    if curl --fail --silent --show-error --connect-timeout 2 --max-time 5 \
+      "http://127.0.0.1:${NVKECTL_SMOKE_CONTROLLER_PORT}/healthz" >/dev/null; then return 0; fi
+    sleep 1
+  done
+  return 1
 }
 
 candidate_stop_group() {
@@ -166,6 +252,7 @@ candidate_cleanup() {
     # simulator records, so its controllers cannot create another instance.
     candidate_stop_group "${candidate_suite_pid}" || cleanup=1
     candidate_stop_group "${candidate_monitor_pid}" || cleanup=1
+    candidate_stop_group "${candidate_controller_pid}" || cleanup=1
     if [[ "${KIND_CLUSTER_OWNED}" == true ]]; then
       timeout 30 kubectl --kubeconfig "${E2E_KUBECONFIG}" get clusters,machines -A -o json >"${STATE_DIR}/final-capi.json" 2>"${STATE_DIR}/final-capi.err"
       if timeout 120 kind delete cluster --name "${KIND_CLUSTER_NAME}" >"${STATE_DIR}/kind-delete.log" 2>&1; then
@@ -281,7 +368,7 @@ candidate_admit() {
 run_candidate_e2e() {
   candidate_admit
   candidate_state_owned=false candidate_test_exit=null candidate_endpoint="${NKE_E2E_CANDIDATE_SIMULATOR_ENDPOINT}"
-  candidate_sim_pid="" candidate_dhcp_pid="" candidate_monitor_pid="" candidate_spire_pid="" candidate_oidc_pid="" candidate_suite_pid=""
+  candidate_sim_pid="" candidate_dhcp_pid="" candidate_monitor_pid="" candidate_spire_pid="" candidate_oidc_pid="" candidate_suite_pid="" candidate_controller_pid=""
   local bridge="${NICO_VMS_BRIDGE_NAME:-cwebr0}" gateway=172.30.0.1 available minimum disk inventory
   local simulator_executable="${NKE_E2E_CANDIDATE_SIMULATOR}"
   local vm_memory_mib=6144
@@ -306,7 +393,7 @@ run_candidate_e2e() {
   else
     [[ -z "${inventory}" ]] || fail "a DHCP server already owns this runtime"
   fi
-  curl --fail --silent --show-error --head --connect-timeout 5 --max-time 15 http://172.30.0.1:18080/nvke-node-image-arm64.qcow2 >/dev/null || fail "the owning candidate disk service is unavailable"
+  candidate_verify_disk_service || fail "served candidate disk differs from its exact byte pin or is unavailable"
   ip link show "${bridge}" >/dev/null || fail "host setup has not prepared the dedicated VM bridge"
   sudo -n true || fail "candidate DHCP and simulator networking require admitted passwordless sudo"
   available="$(awk '/MemAvailable:/{print int($2/1024)}' /proc/meminfo)"
@@ -374,9 +461,9 @@ run_candidate_e2e() {
   done
   candidate_api "${candidate_endpoint}/healthz" >/dev/null
   candidate_record_instances
-  export -f candidate_record_instances candidate_api
-  export candidate_endpoint NICO_VMS_ORG_ID NICO_VMS_TOKEN STATE_DIR LIBVIRT_URI
-  setsid bash -ec 'while true; do candidate_record_instances; sleep 2; done' >"${STATE_DIR}/ownership-monitor.log" 2>&1 &
+  export -f candidate_record_instances candidate_api candidate_domain_gone candidate_verify_guest_backing candidate_monitor_instances
+  export candidate_endpoint NICO_VMS_ORG_ID NICO_VMS_TOKEN STATE_DIR LIBVIRT_URI NKE_E2E_CANDIDATE_QCOW2 NKE_E2E_CANDIDATE_QCOW2_SHA256
+  setsid bash -ec 'candidate_monitor_instances' >"${STATE_DIR}/ownership-monitor.log" 2>&1 &
   candidate_monitor_pid=$!
   KIND_CLUSTER_OWNED=true
   kind create cluster --name "${KIND_CLUSTER_NAME}" --kubeconfig "${E2E_KUBECONFIG}" --config "${CONTROLLER_ROOT}/hack/controller-capi-kind.yaml" --wait 5m
@@ -427,7 +514,9 @@ run_candidate_e2e() {
   ((candidate_test_exit == 0)) || fail "candidate tenant suite failed"
   candidate_verify_reports
   compgen -G "${STATE_DIR}/observed-domain-*.xml" >/dev/null || fail "candidate suite never exercised a native KVM guest"
+  candidate_verify_disk_service || fail "served candidate disk changed during qualification"
   NVKECTL_SMOKE_KUBERNETES_VERSION="${NKE_E2E_CANDIDATE_KUBERNETES_VERSION}"
+  candidate_start_controller_forward || fail "owned candidate controller forwarding did not become ready"
   nvkectl_smoke
   e2e_wait_for_zero_tenant_clusters candidate_kubectl log || fail "candidate suite left tenant clusters"
 }

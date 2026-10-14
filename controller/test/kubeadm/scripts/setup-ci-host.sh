@@ -47,6 +47,8 @@
 #   NICO_VMS_DHCP_RANGE_END    last DHCP address       (default <prefix>.239)
 #   NKE_CI_HOST_EXTERNAL_DHCP  "true" leaves DHCP files/processes untouched;
 #                              the calling attempt must own their lifecycle.
+#                              With FDE also admits tcp/18089 from the bridge
+#                              for the candidate simulator's API listener.
 #   NKE_CI_HOST_FDE            "true" adds what the NVKE FDE node image needs on
 #                              top of the above: UEFI firmware, swtpm, debugfs,
 #                              the carbide-pxe.forge record, and a route from
