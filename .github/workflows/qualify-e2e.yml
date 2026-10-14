@@ -897,11 +897,8 @@ jobs:
       # resolves to anything; qualify-validate and a dry run both read it as
       # empty.
       FORGE_JUMP_HOST: ${{ secrets.FORGE_JUMP_HOST }}
-      # The tbot join token. Names a Teleport resource rather than granting
-      # anything on its own -- joining also requires this repository's OIDC
-      # identity, which is what the token is bound to. A secret for the same
-      # reason as the jump host.
-      FORGE_TELEPORT_JOIN_TOKEN: ${{ secrets.FORGE_TELEPORT_JOIN_TOKEN }}
+      # Names a Teleport provision token resource, not a secret itself.
+      FORGE_TELEPORT_JOIN_TOKEN: ${{ vars.FORGE_TELEPORT_JOIN_TOKEN }}
       # The jump host login, read by environments/forge.yaml beside
       # FORGE_JUMP_HOST. root because that is the only login the bot's role
       # grants, and the probe confirmed the certificate carries it. No
@@ -1280,6 +1277,7 @@ jobs:
           STREAM: ${{ matrix.stream }}
           COMBINATION: ${{ matrix.combination }}
           VAR_TELEPORT_PROXY: ${{ vars.FORGE_TELEPORT_PROXY }}
+          VAR_TELEPORT_JOIN_TOKEN: ${{ vars.FORGE_TELEPORT_JOIN_TOKEN }}
         run: |
           set -Eeuo pipefail
 
@@ -1299,7 +1297,7 @@ jobs:
             "NGC org|QUALIFY_E2E_NGC_ORG||VAR_NGC_ORG|QUALIFY_E2E_NGC_ORG"
             "Teleport proxy|FORGE_TELEPORT_PROXY||VAR_TELEPORT_PROXY|FORGE_TELEPORT_PROXY"
             "jump host|FORGE_JUMP_HOST|||"
-            "Teleport join token|FORGE_TELEPORT_JOIN_TOKEN|||"
+            "Teleport join token|FORGE_TELEPORT_JOIN_TOKEN||VAR_TELEPORT_JOIN_TOKEN|FORGE_TELEPORT_JOIN_TOKEN"
             "Forge org|FORGE_ORG_ID||FORGE_ORG_ID|FORGE_ORG_ID"
             "Forge site|FORGE_SITE_ID||FORGE_SITE_ID|FORGE_SITE_ID"
             "Forge VPC|FORGE_VPC_ID||FORGE_VPC_ID|FORGE_VPC_ID"
@@ -1390,7 +1388,7 @@ jobs:
               # from, both of which survive. Whether each was set is the part
               # that is diagnostic.
               case "${resolved}" in
-                FORGE_JUMP_HOST|FORGE_YTL_JUMP_HOST|FORGE_TELEPORT_JOIN_TOKEN) withhold=1 ;;
+                FORGE_JUMP_HOST|FORGE_YTL_JUMP_HOST) withhold=1 ;;
                 *) withhold=0 ;;
               esac
               if [ "${withhold}" = 1 ] && [ "${value}" != "<unset>" ]; then
