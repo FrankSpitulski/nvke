@@ -1414,9 +1414,11 @@ jobs:
               printf '  %-22s = %s\n' "${label}" "${value}"
               printf '  %-22s   [%s]\n' "" "${source}"
             done
-            echo
-            echo "--- e2e-config.yaml (what the suite reads) ---"
-            cat controller/test/e2e/e2e-config.yaml
+            if [ "${DRY_RUN}" != "true" ]; then
+              echo
+              echo "--- e2e-config.yaml (what the suite reads) ---"
+              cat controller/test/e2e/e2e-config.yaml
+            fi
           } | tee "${OUT}"
 
       # Three nested timeouts, shortest first, because only the shortest one
