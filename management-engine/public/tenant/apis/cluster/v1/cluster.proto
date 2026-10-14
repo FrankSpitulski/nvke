@@ -1,0 +1,105 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package cluster.v1;
+
+import "cluster/v1/spec.proto";
+
+option go_package = "github.com/dsx-ai-factory/nvke/management-engine/public/tenant/gen/cluster/v1;clusterv1";
+
+// ClusterService manages the supported tenant projection of workload clusters.
+service ClusterService {
+  // CreateCluster accepts one canonical IPv4 CIDR for pods and one for services.
+  // The two ranges must not overlap; broader CRD networking shapes are not supported.
+  rpc CreateCluster(CreateClusterRequest) returns (Cluster);
+  rpc GetCluster(GetClusterRequest) returns (Cluster);
+  rpc ListClusters(ListClustersRequest) returns (ListClustersResponse);
+  // ReplaceCluster replaces update-writable intent under a version precondition.
+  rpc ReplaceCluster(ReplaceClusterRequest) returns (Cluster);
+}
+
+message Cluster {
+  string name = 1;
+  string resource_version = 2 [json_name = "resource_version"];
+  ClusterSpec spec = 3;
+  ClusterStatus status = 4;
+  string uid = 5;
+  int64 generation = 6;
+}
+
+// ClusterStatus contains reviewed service-owned state and reason codes only.
+// These fields are output only; create and replace requests cannot set status.
+message ClusterStatus {
+  // State describes the current public lifecycle observation.
+  enum State {
+    // Default value, never returned by the service.
+    STATE_UNSPECIFIED = 0;
+    // Waiting for the controller to observe or reconcile the current generation.
+    STATE_PENDING = 1;
+    // The controller reports that the current generation is ready.
+    STATE_READY = 2;
+    // A reviewed failure prevents the current generation from becoming ready.
+    STATE_FAILED = 3;
+    // Deletion has been requested, including when cleanup is blocked.
+    STATE_DELETING = 4;
+    // The controller cannot currently determine the resource's readiness.
+    STATE_UNKNOWN = 5;
+  }
+
+  // Reason refines the lifecycle state without exposing private diagnostics.
+  enum Reason {
+    // Default value, never returned by the service.
+    REASON_UNSPECIFIED = 0;
+    // No current controller observation is available yet.
+    REASON_AWAITING_OBSERVATION = 1;
+    // The controller is reconciling the current generation.
+    REASON_RECONCILING = 2;
+    // The controller reports that the current generation is ready.
+    REASON_RECONCILED = 3;
+    // The create request was rejected by the provisioning service.
+    REASON_CREATE_REJECTED = 4;
+    // The configuration is not supported by the controller.
+    REASON_UNSUPPORTED_CONFIGURATION = 5;
+    // The requested update is not supported by the controller.
+    REASON_UNSUPPORTED_UPDATE = 6;
+    // Provisioning has failed.
+    REASON_PROVISIONING_FAILED = 7;
+    // Deletion has been requested.
+    REASON_DELETION_REQUESTED = 8;
+    // Cleanup is blocked because the create outcome is not known.
+    REASON_CLEANUP_BLOCKED = 9;
+    // Readiness cannot currently be observed due to an operational condition.
+    REASON_OBSERVATION_UNAVAILABLE = 10;
+  }
+
+  State state = 1;
+  Reason reason = 2;
+  int64 observed_generation = 3 [json_name = "observed_generation"];
+}
+
+message CreateClusterRequest {
+  string name = 1;
+  CreateClusterSpec spec = 2;
+}
+
+message GetClusterRequest {
+  string name = 1;
+}
+
+message ListClustersRequest {
+  int32 page_size = 1 [json_name = "page_size"];
+  string page_token = 2 [json_name = "page_token"];
+}
+
+message ListClustersResponse {
+  repeated Cluster clusters = 1;
+  string next_page_token = 2 [json_name = "next_page_token"];
+}
+
+message ReplaceClusterRequest {
+  string name = 1;
+  string resource_version = 2 [json_name = "resource_version"];
+  ReplaceClusterSpec spec = 3;
+}

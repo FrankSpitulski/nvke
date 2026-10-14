@@ -1,10 +1,7 @@
 # Third-Party Notices
 
-NVKE is a monorepo of independently built and independently released components.
-Each one links a different set of third-party Go modules, so the notices are
-generated **per component** rather than merged into a single file. Merging them
-would attach every module's attribution to every artifact, which misstates what
-each artifact actually contains.
+Third-party notices are generated to reflect the dependencies included in the
+distributed software, keeping attribution aligned with what we ship.
 
 This file is the index. It records which components have generated notices,
 where those notices are, and which do not yet — and why.
@@ -17,14 +14,12 @@ where those notices are, and which do not yet — and why.
 | `controller/` — the Cloud Workflow Engine | [controller/THIRD_PARTY_NOTICES.md](controller/THIRD_PARTY_NOTICES.md) — **151 modules** | the import closures of `./cmd/worker` and the provider's `./cmd/manager` for `linux/amd64` | the `Third-Party Notices` workflow, on every push |
 | `cli/` — the `nvkectl` CLI | [cli/THIRD_PARTY_NOTICES.md](cli/THIRD_PARTY_NOTICES.md) — **24 modules** | the import closure of `./cmd/nvkectl` for `linux/amd64` | the `Third-Party Notices` workflow, on every push |
 | `os-image/` — the `nvke-os-image-check` binary | [os-image/THIRD_PARTY_NOTICES.md](os-image/THIRD_PARTY_NOTICES.md) — **9 modules** | the import closure of `./cmd/nvke-os-image-check` for `linux/amd64` | the `Third-Party Notices` workflow, on every push |
+| `management-engine/` — the public and internal apis & controllers | [management-engine/THIRD_PARTY_NOTICES.md](management-engine/THIRD_PARTY_NOTICES.md) | the dependency closures configured by the module’s `notices` target | the `Third-Party Notices` workflow, on every push |
 
-Regenerate with:
+Regenerate all covered components from the repository root with:
 
 ```bash
-cd agent      && make notices
-cd controller && make notices
-cd cli        && make notices
-cd os-image   && make notices
+make notices
 ```
 
 ⚠️ **The controller, nvkectl and os-image generators need the workspace on** (do
@@ -39,8 +34,8 @@ the dependency tree without the build going red.
 
 ## Not yet covered
 
-The agent, controller, CLI and os-image binaries carry generated attribution,
-and CI regenerates and compares all four on every push.
+The agent, controller, CLI, os-image and tenant API binaries carry generated
+attribution, and CI regenerates and compares all five on every push.
 
 The `cluster-api-provider-provisioned` image, published by
 `image-provisioned-nvcr.yml`, ships `controller/THIRD_PARTY_NOTICES.md`. That file

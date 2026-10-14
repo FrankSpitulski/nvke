@@ -14,6 +14,7 @@ allow_k8s_contexts(context)
 local_resource(
     "management-state",
     cmd=["make", "dev-sync"],
+    allow_parallel=True,
     deps=[
         "apis", "controllers", "config/state", "config/crd", "config/rbac",
         "hack/dev.sh", "hack/boilerplate.go.txt", "hack/boilerplate.yaml.txt",
@@ -52,3 +53,38 @@ k8s_resource(
         link(controller_log_url + "nvkecluster%22", "NVKECluster logs"),
     ],
 )
+
+# The API remains an independent process and portable manifest component.
+if os.getenv("DEV_PUBLIC_API", "1") == "1":
+    local_resource(
+        "public-api-credentials",
+        cmd=["bash", "hack/dev.sh", "api-credentials"],
+        allow_parallel=True,
+        deps=["hack/dev.sh", "config/api/state", "config/api/cwe-state"],
+        resource_deps=["management-state"],
+        labels=["management-engine"],
+    )
+    docker_build("management-public-api", "..", dockerfile="Dockerfile.api")
+    api_overlay = "config/api/cwe" if os.getenv("DEV_CWE", "") == "1" else "config/api/base"
+    api_runtime = decode_yaml_stream(kustomize(api_overlay))
+    # The development helper owns namespaces; tilt down preserves credentials/state.
+    k8s_yaml(encode_yaml_stream([resource for resource in api_runtime if resource["kind"] != "Namespace"]))
+    k8s_resource(
+        "public-api",
+        objects=["public-api:serviceaccount", "public-api-settings:configmap"],
+        resource_deps=["public-api-credentials"],
+        port_forwards=[
+            os.getenv("API_HTTP_LOCAL_PORT", "18082") + ":8080",
+            os.getenv("API_GRPC_LOCAL_PORT", "19090") + ":9090",
+        ],
+        labels=["management-engine"],
+    )
+    local_resource(
+        "public-api-smoke-test",
+        cmd=["make", "test-public-api-dev"],
+        allow_parallel=True,
+        resource_deps=["public-api", "management-engine"],
+        trigger_mode=TRIGGER_MODE_MANUAL,
+        auto_init=False,
+        labels=["tests"],
+    )

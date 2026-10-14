@@ -4,36 +4,27 @@ The management engine is designed to manage NVKE workload clusters through
 declarative APIs and reconciliation built on Cluster API (CAPI) conventions.
 Its architecture separates user and operator APIs from internal Kubernetes
 resources and lifecycle controllers. This module provides the internal resource
-types, generated CRDs, and controller-manager runtime.
+types, generated CRDs, controller-manager runtime, and stateless tenant API.
 
 | Path | Purpose |
 | --- | --- |
-| `apis/v1` | Resource types and scheme registration |
+| `apis/v1` | Internal Kubernetes resource types and scheme registration |
 | `config/crd/bases` | Generated CRDs |
 | `cmd` | Connection configuration and manager startup |
 | `controllers` | Reconcilers |
+| `cmd/tenant`, `internal/public/tenant` | Independent stateless tenant API |
+| [`public/tenant`](public/tenant/README.md) | Tenant contract inputs in `apis/`; generated clients and references in `gen/` |
+| [`config/api`](config/api/README.md) | Portable API host/datastore manifests and security boundary |
+
+See [architecture decision records](docs/adrs/) for architectural choices and
+their rationale.
 
 ## Development
 
-See [Development](DEVELOPMENT.md) for setup, Tilt, tests, and scaffolding.
+See [Development](DEVELOPMENT.md) for setup, Tilt, tests, and scaffolding, and its
+[command summary](DEVELOPMENT.md#build-and-tests) for build and generation targets.
 Repository-wide guidance lives in [development conventions](../docs/development.md)
 and the [workspace guide](../docs/go-workspace.md).
-Run commands below from `management-engine/`.
-
-```sh
-make build test lint
-make generate manifests # after API or RBAC changes
-git diff --exit-code -- apis/v1 config/crd/bases config/rbac/role.yaml chart # check generated-file drift
-make test-controller # controller integration tests (envtest)
-make test-install # requires a prepared environment without Tilt
-make -C .. chart-crds # after changing MachineImage, ClusterRelease, or NodePoolRelease
-make -C .. chart-crds-check # verify the controller chart's generated CRDs
-make chart-check # generate, lint, and render the management-engine chart
-```
-
-For a drift check, start with a clean working tree before regeneration.
-`make test` includes `test-controller`; the separate command runs that suite alone.
-See [installation test setup](DEVELOPMENT.md#tests) before running `test-install`.
 
 ## Deployment topology
 
@@ -48,7 +39,8 @@ datastore election namespace in [runtime values](config/samples/runtime-values.y
 Local development provisions these credentials; other deployments must supply
 and renew them.
 
-Install datastore resources, then deploy through Kustomize or Helm:
+From `management-engine/`, install datastore resources, then deploy through
+Kustomize or Helm:
 
 ```sh
 make install-state STATE_CONTEXT=datastore
@@ -111,7 +103,7 @@ projections; do not expose internal structs directly.
 
 | Resource | Scope | Definition and example |
 | --- | --- | --- |
-| NVKECluster | Org namespace | [Cluster configuration](apis/v1/nvkecluster_types.go), [sample](config/samples/internal_v1_nvkecluster.yaml) |
+| NVKECluster | Namespace | [Cluster configuration](apis/v1/nvkecluster_types.go), [sample](config/samples/internal_v1_nvkecluster.yaml) |
 | MachineImage | Cluster | [Immutable image identity and NICo boot contract](apis/v1/machineimage_types.go) |
 | ClusterRelease | Cluster | [Control-plane image and initialization](apis/v1/clusterrelease_types.go) |
 | ClusterReleaseChannel | Cluster | [Release catalog](apis/v1/clusterreleasechannel_types.go), [sample](config/samples/internal_v1_clusterreleasechannel.yaml) |
@@ -119,11 +111,11 @@ projections; do not expose internal structs directly.
 
 | Concern | Contract |
 | --- | --- |
-| Tenancy | One namespace per org per datastore. Public APIs derive org identity from authentication and enforce resource and field authorization. |
+| Tenancy | See the [public contract](public/tenant/README.md#access-and-json) for evaluation scope and future authorization requirements. |
 | Identity | Immutable client-selected DNS-subdomain names (at most 253 characters); UIDs distinguish recreations. Provider names may have shorter limits. |
 | Concurrency | Preserve opaque `resourceVersion` and field ownership. Spec expresses desired state; controllers report progress through status. |
 | Conditions | Use `metav1.Condition` and `observedGeneration`. Missing or stale conditions do not establish readiness. Unknown counts are absent; observed zero counts are explicit. |
-| References | Resolve tenant references within the org namespace and pin lifecycle ownership by UID. Release references select operator-published configuration. |
+| References | Resolve namespaced references within the resource's namespace and pin lifecycle ownership by UID. Release references select operator-published configuration. |
 | Node pools | `spec.nodePools` embeds [worker configuration](apis/v1/nodepool_types.go) within NVKECluster; see the [cluster sample](config/samples/internal_v1_nvkecluster.yaml). |
 | Replicas | `spec.nodePools[].replicas` expresses desired worker count; zero requests zero workers. Rollout policy controls replacement. |
 | Deletion | Use deletion timestamps and controller-owned finalizers. |

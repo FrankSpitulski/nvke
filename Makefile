@@ -139,7 +139,7 @@ LICENSE_DESTS := controller/deploy/charts/controller
 LICENSE_ONLY_DESTS := nktp/deploy/charts/nktp
 
 # Redistributed binaries with generated third-party attribution.
-NOTICE_MODULES := agent controller cli os-image
+NOTICE_MODULES := agent controller cli os-image management-engine
 
 # Tool versions that CI pins, in one place. Included rather than repeated here so
 # `make show-versions` and the workflows read the same definitions.

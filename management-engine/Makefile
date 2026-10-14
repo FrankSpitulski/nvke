@@ -14,6 +14,7 @@ GO_TEST_FLAGS ?=
 
 # Image URL to use all building/pushing image targets
 IMG ?= management-engine:dev
+PUBLIC_API_IMG ?= management-public-api:dev
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -44,7 +45,22 @@ help: ## Display this help.
 license: ## Add the repository's license header to source files.
 	$(GO) run github.com/google/addlicense@v1.1.1 -f ../hack/license-header.tmpl -c "NVIDIA CORPORATION & AFFILIATES" -ignore 'bin/**' -ignore 'dist/**' .
 
-.PHONY: manifests-state manifests
+NOTICES_OUTPUT ?= $(CURDIR)/THIRD_PARTY_NOTICES.md
+.PHONY: notices notices-check
+notices: ## Generate third-party attribution for the public API image.
+	@$(MAKE) --no-print-directory -C ../controller go-licenses
+	@GOWORK=off MODULE_ROOT="$(CURDIR)" OUTPUT="$(NOTICES_OUTPUT)" PACKAGES="./cmd/tenant" \
+		NOTICE_PRODUCT="NVIDIA Kubernetes Engine Tenant API" \
+		NOTICE_SCOPE='the released `tenant-api` binary' \
+		GO_LICENSES="$(CURDIR)/../controller/bin/go-licenses" bash ../controller/hack/generate-notices
+
+notices-check: ## Verify the public API image's third-party attribution.
+	@expected=$$(mktemp); trap 'rm -f "$$expected"' EXIT; \
+		cp THIRD_PARTY_NOTICES.md "$$expected"; \
+		$(MAKE) --no-print-directory notices NOTICES_OUTPUT="$$expected"; \
+		diff -u THIRD_PARTY_NOTICES.md "$$expected"
+
+.PHONY: manifests-state manifests manifests-api
 manifests-state: controller-gen generate ## Generate datastore CRDs and RBAC.
 	"$(CONTROLLER_GEN)" crd:crdVersions=v1,headerFile=hack/boilerplate.yaml.txt paths=./apis/... output:crd:artifacts:config=config/crd/bases
 	"$(CONTROLLER_GEN)" rbac:roleName=manager-role,headerFile=hack/boilerplate.yaml.txt paths=./controllers/... output:rbac:artifacts:config=config/rbac
@@ -63,9 +79,24 @@ manifests: manifests-state kustomize kubebuilder ## Generate state, the runtime 
 	@rmdir .github/workflows .github 2>/dev/null || true
 	$(GO) run github.com/google/addlicense@v1.1.1 -f ../hack/license-header.tmpl -c "NVIDIA CORPORATION & AFFILIATES" chart
 
+manifests-api: kustomize ## Render standalone public API workloads and separate datastore RBAC.
+	mkdir -p dist
+	"$(KUSTOMIZE)" build config/api/base > dist/public-api.yaml
+	"$(KUSTOMIZE)" build config/api/state > dist/public-api-state.yaml
+
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	"$(CONTROLLER_GEN)" object:headerFile="hack/boilerplate.go.txt" paths="./..."
+
+.PHONY: public-api-tools generate-public-api check-public-api
+public-api-tools: ## Install the pinned public API generation tools.
+	bash hack/public-api/tools.sh
+
+generate-public-api: public-api-tools ## Generate the public Cluster contract and typed projections.
+	bash hack/public-api/generate.sh
+
+check-public-api: public-api-tools ## Check policy compatibility and reproducible public API output.
+	bash hack/public-api/generate.sh --check
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -78,7 +109,19 @@ vet: ## Run go vet against code.
 TEST_PROCS ?= 5
 
 .PHONY: test
-test: test-api test-controller ## Run API, client, startup, and controller tests.
+test: test-api test-controller test-public-api ## Run all unit, contract, and envtest suites.
+
+.PHONY: test-public-contract
+test-public-contract: check-public-api ## Test public contract generation, exposure and compatibility.
+	@$(COVERAGE_MKDIR)
+	$(GO) test $(GO_TEST_FLAGS) -race -coverprofile=$(call coverprofile,public-contract) -covermode=$(GO_COVER_MODE) ./public/... ./hack/public-api/...
+
+.PHONY: test-public-api
+test-public-api: test-unit test-public-contract setup-envtest ## Run shared units and public API contract, datastore, and concurrency tests.
+	@$(COVERAGE_MKDIR)
+	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" $(GO) test $(GO_TEST_FLAGS) -race \
+		-coverpkg=./internal/public/tenant/apis/cluster,./internal/public/tenant/apis/cluster/mapping,./controllers \
+		-coverprofile=$(call coverprofile,publicapi) -covermode=$(GO_COVER_MODE) ./test/public/...
 
 .PHONY: test-unit
 test-unit: fmt vet ## Run client and startup unit tests.
@@ -106,6 +149,12 @@ test-update: test-controller ## Run controller tests and update expected fixture
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run
 
+.PHONY: lint-public-api-security
+lint-public-api-security: golangci-lint ## Run focused SAST on the public API and its generator.
+	"$(GOLANGCI_LINT)" run --no-config --enable-only gosec --allow-parallel-runners --timeout 3m \
+		--max-issues-per-linter 0 --max-same-issues 0 \
+		./cmd/tenant/... ./internal/public/... ./public/... ./hack/public-api/...
+
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	"$(GOLANGCI_LINT)" run --fix
@@ -116,13 +165,16 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 ##@ Build
 
-.PHONY: build build-bin
-build: manifests generate fmt vet build-bin ## Build manager binary.
+.PHONY: build build-bin build-api-bin
+build: manifests generate fmt vet build-bin ## Generate manifests and build the manager and public API binaries.
 
 # The generate steps in `build` exceed the Go Build job timeout.
-build-bin: ## Compile the manager binary without regenerating.
+build-bin: build-api-bin ## Compile the manager and public API binaries without regenerating.
 	$(GO) build ./...
 	CGO_ENABLED=0 $(GO) build -buildvcs=false -trimpath -ldflags "$(MANAGER_LDFLAGS)" -o $(BIN_DIR)/management-engine ./cmd
+
+build-api-bin: ## Compile the standalone public API.
+	CGO_ENABLED=0 $(GO) build -buildvcs=false -trimpath -ldflags "$(MANAGER_LDFLAGS)" -o $(BIN_DIR)/tenant-api ./cmd/tenant
 
 .PHONY: run
 run: build ## Run against the management API selected by MANAGER_ARGS.
@@ -131,6 +183,10 @@ run: build ## Run against the management API selected by MANAGER_ARGS.
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -f Dockerfile --build-arg VERSION=$(VERSION) -t ${IMG} ..
+
+.PHONY: docker-build-api
+docker-build-api: ## Build the standalone public API image.
+	$(CONTAINER_TOOL) build -f Dockerfile.api --build-arg VERSION=$(VERSION) -t $(PUBLIC_API_IMG) ..
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -145,6 +201,7 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 ##@ Deployment
 HOST_CONTEXT ?=
 STATE_CONTEXT ?=
+API_STATE_OVERLAY ?= config/api/state
 
 .PHONY: require-host-context require-state-context
 require-host-context:
@@ -157,7 +214,9 @@ KIND_NODE_IMAGE ?= kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e5
 TILT_PORT ?= 10351
 export DEV_NAME KIND_NODE_IMAGE TILT_PORT
 
-.PHONY: dev-up dev dev-sync dev-refresh dev-down test-install
+DEV_TARGETS := dev-up dev dev-sync dev-refresh dev-down test-install test-public-api-dev \
+	dev-cwe dev-cwe-up dev-cwe-down test-cwe
+.PHONY: $(DEV_TARGETS)
 dev-up: ## Create or reuse the named development environment and prepare credentials.
 	bash hack/dev.sh up
 
@@ -178,11 +237,12 @@ dev-down: ## Delete this environment's clusters and local credentials; stop Tilt
 test-install: ## Test the runtime in the prepared environment; run before Tilt.
 	IMG="$(IMG)" bash hack/dev.sh test
 
-.PHONY: dev-cwe dev-cwe-up dev-cwe-down test-cwe
+test-public-api-dev: ## Smoke-test REST/gRPC persistence and controller status through the running Tilt API.
+	bash hack/dev.sh api-test
+
 dev-cwe dev-cwe-up dev-cwe-down test-cwe: DEV_NAME = nvke-cwe
 dev-cwe dev-cwe-up dev-cwe-down test-cwe: TILT_PORT = 10353
-dev-cwe: ## Start CWE and management-engine in one Tilt dashboard on dedicated Kind clusters.
-	CAPI_VERSION="$(CAPI_VERSION)" bash hack/dev.sh cwe-up
+dev-cwe: dev-cwe-up ## Start CWE and management-engine in one Tilt dashboard on dedicated Kind clusters.
 	bash hack/dev.sh cwe-tilt
 
 dev-cwe-up: ## Prepare the dedicated CWE integration environment without starting Tilt.
@@ -198,6 +258,10 @@ dev-cwe-down: ## Remove the dedicated CWE environment and credentials; stop Tilt
 install: install-state ## Install the datastore resources using STATE_CONTEXT.
 install-state: require-state-context manifests-state kustomize ## Install CRDs and identity/RBAC on the datastore cluster.
 	"$(KUSTOMIZE)" build config/state | "$(KUBECTL)" --context "$(STATE_CONTEXT)" apply --server-side --field-manager=management-engine-state -f -
+
+.PHONY: install-api-state
+install-api-state: require-state-context kustomize ## Install the separate namespace-scoped public API datastore identity.
+	"$(KUSTOMIZE)" build $(API_STATE_OVERLAY) | "$(KUBECTL)" --context "$(STATE_CONTEXT)" apply --server-side --field-manager=public-api-dev -f -
 
 .PHONY: deploy
 deploy: require-host-context kustomize ## Deploy the runtime and its namespace to HOST_CONTEXT; startup requires its kubeconfig Secret.
@@ -247,8 +311,8 @@ include ../make/coverage.mk
 kind: $(LOCALBIN) ## Install the pinned Kind CLI for the development environment.
 	$(call go-install-tool,$(KIND),sigs.k8s.io/kind,$(KIND_VERSION))
 
-dev-up dev dev-sync dev-refresh dev-down test-install dev-cwe dev-cwe-up dev-cwe-down test-cwe: kind
-dev-up dev dev-sync dev-refresh dev-down test-install dev-cwe dev-cwe-up dev-cwe-down test-cwe: export PATH := $(LOCALBIN):$(PATH)
+$(DEV_TARGETS): kind
+$(DEV_TARGETS): export PATH := $(LOCALBIN):$(PATH)
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.

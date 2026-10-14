@@ -36,7 +36,7 @@ chart, installs datastore resources, renews credentials, and starts Tilt:
 
 | Cluster | Contents |
 | --- | --- |
-| `nvke-management` | Manager and credential Secret in `management-engine-system` |
+| `nvke-management` | Manager, public API, and credential Secrets in `management-engine-system` |
 | `nvke-state` | CRDs/RBAC; identity and election Lease in `management-state-system` |
 
 Press **Space** to open [Tilt](http://localhost:10351/). Keep the command running;
@@ -67,6 +67,58 @@ export KUBECONFIG="$PWD/.local/dev/nvke/kubeconfig"
 kubectl --context kind-nvke-state get namespaces
 ```
 
+## Stateless public API in Tilt
+
+Both `make dev` and `make dev-cwe` include the separate `public-api` Tilt resource,
+which runs the `tenant-api` binary.
+The API serves REST on `http://localhost:18082` and gRPC on `localhost:19090`;
+override `API_HTTP_LOCAL_PORT` or `API_GRPC_LOCAL_PORT` to change the forwards.
+Set `DEV_PUBLIC_API=0` before starting Tilt to run the manager without the API.
+The normal environment uses datastore namespace `org-example`; the combined
+CWE environment uses its existing `cwe-integration` namespace. For example:
+
+```sh
+curl --fail http://localhost:18082/v1/clusters
+```
+
+Once Tilt reports the API and manager ready, verify the deployed REST/gRPC paths
+through datastore persistence, controller reconciliation, and public status reads
+from a second terminal:
+
+```sh
+make test-public-api-dev # make dev environment
+```
+
+Tilt's manual `public-api-smoke-test` resource in the **tests** group runs the same
+check. Pass any custom forwarding ports to the test command as well. It checks
+creation, replacement, reads/listing, private-field masking, and stale-version
+rejection. After create and replace, both HTTP and gRPC reads must report the
+controller's observation of the current spec generation, without a provisioning
+checkpoint. The test deletes its own resource without removing finalizers.
+Results and deployment details are recorded under
+`.local/dev/<DEV_NAME>/public-api/results/`.
+
+Ordinary `make dev` runs this boundary without CWE: the controller records that
+provisioning is not configured, which the API exposes as unavailable observation.
+The [combined environment](#local-integration-test) instead verifies unsupported
+configuration for the test's unique, unbound selection. That mode may contact CWE
+for lookups and cleanup; use ordinary `make dev` to validate without CWE.
+Neither mode proves workload provisioning. The smoke test runs only when requested.
+
+Restart a combined CWE environment with `make dev-cwe DEV_NAME=<name>`.
+The ordinary `make dev` entrypoint rejects CWE-owned environments because they
+require the combined Tiltfile and runtime settings.
+
+Tilt enables `--evaluation-no-auth` for this trusted local stack; do not expose
+its listeners to tenants. See the [public contract](public/tenant/README.md#access-and-json) for
+request examples, field restrictions, concurrency, and evaluation scope, and the
+[deployment guide](config/api/README.md) for manifests and security boundaries.
+Refresh datastore access through the shared [credential workflow](#credentials).
+
+Earlier MVP checkouts used `DEV_CLUSTER_API` and `cluster-api`; update local
+overrides to `DEV_PUBLIC_API` and `public-api`. Kubernetes does not rename
+resources in place, so existing environments can retain the old API objects.
+
 ## CWE integration
 
 The NVKECluster controller creates, observes, and deletes clusters through the
@@ -79,16 +131,26 @@ supported.
 Use the shared toolchain, including the Temporal CLI, with Docker running:
 
 ```sh
-make dev-cwe       # start the combined environment and keep Tilt running
-make test-cwe      # run from a second terminal once the services are ready
-make dev-cwe-down  # stop Tilt first, then remove the environment
+make dev-cwe                             # start the combined environment; keep Tilt running
+make test-public-api-dev DEV_NAME=nvke-cwe # public API, controller, and status smoke test (uses CWE)
+make test-cwe                            # CWE provisioning integration test
+make dev-cwe-down                        # stop Tilt first, then remove the environment
 ```
 
-This creates the dedicated `nke-cwe-management` and `nke-cwe-state` Kind clusters.
+This creates the dedicated `nvke-cwe-management` and `nvke-cwe-state` Kind clusters.
 The services cluster runs management-engine, CWE, Temporal, and CAPI; the state
 cluster stores NVKECluster resources. Open [Tilt](http://localhost:10353/) or the
-[Temporal UI](http://localhost:18081/). The manual `cwe-integration-test` resource
-under Tilt's **tests** group runs the same test command.
+[Temporal UI](http://localhost:18081/). Under Tilt's **tests** group, click the
+run button beside `public-api-smoke-test` or `cwe-integration-test` to run the
+corresponding command above. Both are manual; starting Tilt does not run them.
+Alternatively, run the test commands in a second terminal once their services
+are ready. The public API action also appears in the ordinary `make dev` setup.
+
+An older environment with Helm release `cwe` in `cloud-workflow-engine` cannot
+be adopted by the current `nke-controller` release. Preserve it by using a
+separate checkout and a new `DEV_NAME` for validation. Do not relabel resources
+owned by the old release. Each simultaneous environment also needs distinct
+Tilt, API and CWE forwarding ports.
 
 Use `make dev-cwe-up` for setup without Tilt. Pass the same `DEV_NAME` to each
 command when choosing another name. The launcher uses CWE's existing Tiltfile
@@ -204,11 +266,14 @@ Use `MANAGER_LOG_LEVEL=info make dev` for quieter output.
 ## Credentials
 
 ```sh
-make dev-refresh
+make dev-refresh # add DEV_NAME=nvke-cwe or your custom environment name
 ```
 
-Renew before the printed expiration. Setup also renews credentials; source edits
-do not. Restart the manager if it exited after losing leadership.
+This refreshes manager and enabled API datastore credentials while preserving
+the API pagination key. Local kubeconfigs, keys, and credentials remain under
+ignored `.local/` or in mounted Secrets. Renew before the printed expiration;
+setup also renews credentials, but source edits do not. Restart the manager if it
+exited after losing leadership.
 
 ## Sample resources
 
@@ -241,16 +306,33 @@ custom environment).
 
 ## Build and tests
 
-See the [command summary](README.md#development) for build, generation, drift
-checks, and test targets.
+```sh
+make build test lint
+make generate manifests # after internal API or RBAC changes
+git diff --exit-code -- apis/v1 config/crd/bases config/rbac/role.yaml chart # check generated-file drift
+make -C .. chart-crds # after changing MachineImage, ClusterRelease, or NodePoolRelease
+make -C .. chart-crds-check # verify the controller chart's generated CRDs
+make chart-check # generate, lint, and render the management-engine chart
+```
+
+For a drift check, start with a clean working tree before regeneration. Public
+contract changes use the separate [API generation workflow](public/tenant/README.md#generation-and-compatibility).
 
 Before a PR, run `make preflight MODULES=management-engine` from the repository
 root. Follow the [workspace guide](../docs/go-workspace.md) for dependency changes.
 
 ### Tests
 
-`make test` runs API tests and controller envtest fixtures; use `test-api` or
-`test-controller` separately. Envtest downloads matching API-server binaries.
+`make test` runs all unit, contract, and envtest suites. For public API work,
+`make test-public-api` runs the shared unit tests, public contract checks, and
+API storage/concurrency tests. Shared prerequisites run once per Make invocation.
+Use `make test-public-contract` for contract checks alone, or
+`make test-public-api-dev` for the deployed Tilt smoke test.
+The controller and public API storage suites use envtest, which downloads
+matching API-server binaries.
+
+The controller test policy covers the manager command and controller/CWE tests;
+public API tests run through the Make targets above without a test-name allowlist.
 See [Writing controller tests](docs/writing-tests.md) for fixture conventions and
 `make test-update` for regenerating goldens. For installation testing, use a
 separate environment without Tilt:

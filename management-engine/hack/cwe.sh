@@ -65,7 +65,7 @@ cwe_setup() (
     mv "$cwe_dir/credentials.env.tmp" "$cwe_dir/credentials.env"
   fi
   sed -e 's/--namespace=project-a/--namespace=cwe-integration/' \
-    -e 's|https://cwe.example.com/api|http://cloud-workflow-engine.cloud-workflow-engine.svc.cluster.local:8080/api|' \
+    -e 's|https://cwe.example.com/api|http://nke-controller.nke-controller.svc.cluster.local:8080/api|' \
     config/samples/cwe-values.yaml >"$cwe_dir/values.yaml"
   cwe_environment
   bash hack/dev.sh up

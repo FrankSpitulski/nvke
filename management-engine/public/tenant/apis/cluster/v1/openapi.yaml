@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+openapiOptions:
+  file:
+    - file: cluster/v1/cluster.proto
+      option: &public_api
+        info:
+          title: Tenant Cluster API
+          version: v1
+          description: >-
+            Tenant projection of workload clusters. The evaluation deployment is
+            unauthenticated and serves one configured datastore namespace.
+            Create accepts exactly one canonical IPv4 CIDR each for pods and
+            services; the ranges must not overlap. Internal CRD descriptions may
+            describe broader networking capabilities than this public version.
+            See public/tenant/README.md for admission, lifecycle, and strict JSON rules.
+          license:
+            name: Apache-2.0
+            url: https://www.apache.org/licenses/LICENSE-2.0
+    - file: cluster/v1/spec.proto
+      option: *public_api

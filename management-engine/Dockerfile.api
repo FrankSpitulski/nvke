@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+FROM golang:1.27.2@sha256:5bc7f572bbaa98885a3a1fd9c0aa76b59e3e14e8628bfc316bbfd0c701e4818c AS builder
+ARG VERSION=dev
+ARG TARGETOS
+ARG TARGETARCH
+WORKDIR /workspace/management-engine
+COPY management-engine/go.mod management-engine/go.sum ./
+COPY controller/api/go.mod controller/api/go.sum /workspace/controller/api/
+RUN go mod download
+COPY management-engine/ ./
+COPY controller/api/ /workspace/controller/api/
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -buildvcs=false -trimpath -ldflags "-X main.version=${VERSION} -s -w -buildid=" -o tenant-api ./cmd/tenant
+
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+COPY --from=builder /workspace/management-engine/tenant-api /tenant-api
+COPY --chmod=0644 LICENSE NOTICE /licenses/
+COPY --chmod=0644 management-engine/THIRD_PARTY_NOTICES.md /licenses/THIRD_PARTY_NOTICES.md
+COPY --from=builder --chmod=0644 /usr/local/go/LICENSE /licenses/GO-LICENSE
+LABEL org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="tenant-api" \
+      org.opencontainers.image.source="https://github.com/dsx-ai-factory/nvke" \
+      org.opencontainers.image.description="NVKE Management Engine public API"
+USER 65532:65532
+ENTRYPOINT ["/tenant-api"]

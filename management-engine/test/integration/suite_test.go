@@ -80,7 +80,7 @@ func loadEnvironment() environment {
 	return environment{
 		host: newLocalClient(kubeconfig, hostContext), state: newLocalClient(kubeconfig, stateContext),
 		cwe: cwe, temporal: temporal, temporalAddress: address,
-		temporalNamespace: envOr("TEMPORAL_NAMESPACE", "cloud-workflow-engine"),
+		temporalNamespace: envOr("TEMPORAL_NAMESPACE", "nke-controller"),
 		resultsDir:        requiredEnv("CWE_RESULTS_DIR"),
 	}
 }

@@ -19,7 +19,6 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,7 +61,8 @@ var _ = Describe("NVKECluster through the local CWE API", func() {
 		Expect(expected.ControlPlaneConfig).NotTo(BeNil())
 		Expect(expected.ControlPlaneConfig.Nico).To(BeNil())
 		Expect(expected.ControlPlaneConfig.Infra).NotTo(BeNil())
-		Expect(expected.ControlPlaneConfig.Infra.MachineTemplate).To(HaveKeyWithValue("apiVersion", "infrastructure.cluster.x-k8s.io/v1beta2"))
+		Expect(expected.ControlPlaneConfig.Infra.MachineTemplate).To(HaveKeyWithValue(
+			"apiVersion", "infrastructure.cluster.x-k8s.io/v1beta2"))
 		Expect(expected.ControlPlaneConfig.Infra.MachineTemplate).To(HaveKeyWithValue("kind", "DockerMachineTemplate"))
 		annotations, _, err := unstructured.NestedStringMap(expected.ControlPlaneConfig.Infra.MachineTemplate,
 			"spec", "template", "metadata", "annotations")
@@ -132,7 +132,14 @@ var _ = Describe("NVKECluster through the local CWE API", func() {
 		infra := infrastructureObject("DockerCluster")
 		Eventually(ctx, func(g Gomega) {
 			g.Expect(env.host.Get(ctx, capiKey, infra)).To(Succeed())
-			g.Expect(metav1.IsControlledBy(infra, &capiCluster)).To(BeTrue())
+			// Clusters without topology use a regular owner reference so external
+			// lifecycle controllers can hold the infrastructure's controller reference.
+			g.Expect(infra.GetOwnerReferences()).To(ContainElement(SatisfyAll(
+				HaveField("APIVersion", clusterv1.GroupVersion.String()),
+				HaveField("Kind", "Cluster"),
+				HaveField("Name", capiCluster.Name),
+				HaveField("UID", capiCluster.UID),
+			)))
 		}).WithTimeout(time.Minute).WithPolling(pollInterval).Should(Succeed())
 
 		By("checking that the control-plane machine remains paused before infrastructure provisioning")
@@ -149,7 +156,9 @@ var _ = Describe("NVKECluster through the local CWE API", func() {
 	}, SpecTimeout(10*time.Minute))
 })
 
-func (e environment) pausedControlPlaneMachine(ctx context.Context, clusterName string) (*unstructured.Unstructured, error) {
+func (e environment) pausedControlPlaneMachine(
+	ctx context.Context, clusterName string,
+) (*unstructured.Unstructured, error) {
 	var machines clusterv1.MachineList
 	if err := e.host.List(ctx, &machines, client.InNamespace("nke-system"),
 		client.MatchingLabels{clusterv1.ClusterNameLabel: clusterName}); err != nil {

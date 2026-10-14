@@ -60,6 +60,8 @@ case " ${PACKAGES[*]} " in
     *cluster-api-provider-provisioned/cmd/manager*)
         SCOPE=$'the released\n`cloud-workflow-engine` worker binary and the\n`cluster-api-provider-provisioned` manager binary' ;;
 esac
+SCOPE="${NOTICE_SCOPE:-${SCOPE}}"
+PRODUCT="${NOTICE_PRODUCT:-NVIDIA Cloud Workflow Engine (CWE)}"
 
 # Pinned, not inherited from the host — see the header. Matches the primary
 # architecture of the published image; the Dockerfile builds GOOS=linux.
@@ -324,9 +326,8 @@ DRAFT_FILE="$(mktemp "${TMPDIR:-/tmp}/cwe-notices-out.XXXXXX")"
     cat <<'EOF'
 # Third-Party Notices
 
-NVIDIA Cloud Workflow Engine (CWE)
-
 EOF
+    printf '%s\n\n' "${PRODUCT}"
     printf 'This file lists every third-party Go module statically linked into %s, along with the verbatim text of each\nmodule'\''s license.\n' "${SCOPE}"
     cat <<'EOF'
 

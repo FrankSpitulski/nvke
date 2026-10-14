@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: management-engine-system
+resources:
+- namespace.yaml
+- deployment.yaml
+- service.yaml
+- serviceaccount.yaml
+- settings.yaml
+- networkpolicy.yaml
+images:
+- name: management-public-api
+  newTag: dev

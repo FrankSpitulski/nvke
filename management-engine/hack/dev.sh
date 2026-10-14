@@ -16,6 +16,19 @@ host=(kubectl --context "$HOST_CONTEXT" --request-timeout=30s)
 state=(kubectl --context "$STATE_CONTEXT" --request-timeout=30s)
 clusters=("$DEV_NAME-management" "$DEV_NAME-state")
 umask 077
+: "${DEV_PUBLIC_API:=1}"
+[[ "$DEV_PUBLIC_API" == 0 || "$DEV_PUBLIC_API" == 1 ]] || fail "DEV_PUBLIC_API must be 0 or 1."
+
+api_namespace() {
+  if [[ ${DEV_CWE:-} == 1 || -f "$dev_dir/cwe/owned" ]]; then printf '%s' cwe-integration; else printf '%s' org-example; fi
+}
+
+sync_api_state() {
+  [[ "$DEV_PUBLIC_API" == 1 ]] || return 0
+  local overlay=config/api/state
+  if [[ ${DEV_CWE:-} == 1 || -f "$dev_dir/cwe/owned" ]]; then overlay=config/api/cwe-state; fi
+  make install-api-state STATE_CONTEXT="$STATE_CONTEXT" API_STATE_OVERLAY="$overlay"
+}
 
 check_tilt() {
   local version
@@ -74,9 +87,11 @@ connect() (
 sync_state() {
   make install-state STATE_CONTEXT="$STATE_CONTEXT"
   "${state[@]}" wait --for=condition=Established --timeout=60s -f config/crd/bases
+  sync_api_state
 }
 
-refresh_credentials() (
+refresh_identity() (
+  local identity_namespace=$1 identity=$2 secret_name=$3 mount_path=$4 page_key=${5:-}
   local node address ca token_response token expiration scratch
   "${host[@]}" create namespace "$HOST_NAMESPACE" --dry-run=client -o yaml | "${host[@]}" apply -f -
   # Pods use the state node's Docker IP and verify TLS against its certificate hostname.
@@ -91,23 +106,49 @@ refresh_credentials() (
   "${config[@]}" set-cluster management-state --server="https://$address:6443" --tls-server-name="$node" >/dev/null
   "${config[@]}" set clusters.management-state.certificate-authority-data "$ca" >/dev/null
   # client-go rereads this file when the mounted Secret is refreshed.
-  "${config[@]}" set users.management-engine.tokenFile /etc/management-api/token >/dev/null
-  "${config[@]}" set-context management-state --cluster=management-state --user=management-engine >/dev/null
+  "${config[@]}" set "users.$identity.tokenFile" "$mount_path/token" >/dev/null
+  "${config[@]}" set-context management-state --cluster=management-state --user="$identity" >/dev/null
   "${config[@]}" use-context management-state >/dev/null
-  token_response=$("${state[@]}" -n "$STATE_NAMESPACE" create token management-engine-controller-manager \
+  token_response=$("${state[@]}" -n "$identity_namespace" create token "$identity" \
     --duration=24h -o jsonpath='{.status.token}{"\n"}{.status.expirationTimestamp}')
   token=${token_response%%$'\n'*}
   expiration=${token_response#*$'\n'}
   [[ -n "$token" && -n "$expiration" && "$token" != "$expiration" ]] || fail "Token response is missing a token or expiration."
   printf '%s' "$token" >"$scratch/token"
-  "${host[@]}" -n "$HOST_NAMESPACE" create secret generic management-state-client \
-    --from-file=kubeconfig="$scratch/kubeconfig" --from-file=token="$scratch/token" \
+  local files=(--from-file=kubeconfig="$scratch/kubeconfig" --from-file=token="$scratch/token")
+  if [[ -n "$page_key" ]]; then files+=(--from-file=page-token-key="$page_key"); fi
+  "${host[@]}" -n "$HOST_NAMESPACE" create secret generic "$secret_name" "${files[@]}" \
     --dry-run=client -o yaml | "${host[@]}" apply --server-side --field-manager=management-engine-dev -f -
-  echo "Datastore credentials expire at $expiration; renew with make dev-refresh DEV_NAME=$DEV_NAME."
+  echo "$identity datastore credentials expire at $expiration; renew with make dev-refresh DEV_NAME=$DEV_NAME."
 )
 
+refresh_api_credentials() (
+  [[ "$DEV_PUBLIC_API" == 1 ]] || return 0
+  local key="$dev_dir/api-page-token-key" candidate
+  if [[ ! -f "$key" ]]; then
+    candidate=$(mktemp "$dev_dir/api-page-token-key.XXXXXX")
+    trap 'rm -f "$candidate"' EXIT
+    openssl rand 32 >"$candidate"
+    # Preserve the winner if concurrent refreshes initialize this environment.
+    ln "$candidate" "$key" 2>/dev/null || [[ -f "$key" ]]
+  fi
+  refresh_identity "$(api_namespace)" public-api public-api-state-client /etc/public-api "$key"
+)
+
+refresh_credentials() {
+  refresh_identity "$STATE_NAMESPACE" management-engine-controller-manager management-state-client /etc/management-api
+  refresh_api_credentials
+}
+
 case "${1:-}" in
-  check) check_tilt ;;
+  check|tilt)
+    [[ ! -f "$dev_dir/cwe/owned" ]] || fail "This environment belongs to the combined CWE stack; run make dev-cwe DEV_NAME=$DEV_NAME."
+    check_tilt
+    if [[ "$1" == tilt ]]; then
+      connect
+      start_tilt Tiltfile "${TILT_PORT:-10351}"
+    fi
+    ;;
   up)
     : "${KIND_NODE_IMAGE:?Run make dev-up to use the pinned node image}"
     existing=$(kind get clusters)
@@ -138,10 +179,26 @@ case "${1:-}" in
     ;;
   sync) connect; sync_state ;;
   refresh) connect; refresh_credentials ;;
-  tilt)
-    check_tilt
+  api-credentials) connect; sync_api_state; refresh_api_credentials ;;
+  api-test)
+    [[ "$DEV_PUBLIC_API" == 1 ]] || fail "The public API must be enabled in Tilt."
     connect
-    start_tilt Tiltfile "${TILT_PORT:-10351}"
+    "${host[@]}" -n "$HOST_NAMESPACE" rollout status deployment/public-api --timeout=120s
+    "${host[@]}" -n "$HOST_NAMESPACE" rollout status deployment/management-engine-controller-manager --timeout=120s
+    manager_args=$("${host[@]}" -n "$HOST_NAMESPACE" get deployment management-engine-controller-manager \
+      -o 'jsonpath={range .spec.template.spec.containers[?(@.name=="manager")].args[*]}{@}{"\n"}{end}')
+    export PUBLIC_API_CONTROLLER_MODE=unconfigured
+    if grep -Eq '^--cwe-endpoint(=.+)?$' <<<"$manager_args"; then export PUBLIC_API_CONTROLLER_MODE=cwe; fi
+    export PUBLIC_API_SMOKE=1
+    export PUBLIC_API_HTTP="http://127.0.0.1:${API_HTTP_LOCAL_PORT:-18082}"
+    export PUBLIC_API_GRPC="127.0.0.1:${API_GRPC_LOCAL_PORT:-19090}"
+    PUBLIC_API_NAMESPACE=$("${host[@]}" -n "$HOST_NAMESPACE" get configmap public-api-settings -o jsonpath='{.data.namespace}')
+    export PUBLIC_API_NAMESPACE
+    results="$dev_dir/public-api/results"
+    mkdir -p "$results"
+    "${host[@]}" -n "$HOST_NAMESPACE" get deployment public-api -o json >"$results/deployment.json"
+    "${host[@]}" -n "$HOST_NAMESPACE" get deployment management-engine-controller-manager -o json >"$results/controller.json"
+    go test -count=1 -timeout=3m -json -run '^TestDeployedPublicAPI$' ./test/public/tenant | tee "$results/smoke.json"
     ;;
   test)
     connect
@@ -155,7 +212,7 @@ case "${1:-}" in
     for cluster in "${clusters[@]}"; do
       kind delete cluster --name "$cluster" --kubeconfig "$KUBECONFIG"
     done
-    rm -f "$KUBECONFIG"
+    rm -f "$KUBECONFIG" "$dev_dir/api-page-token-key"
     # Integration runs retain diagnostics in this directory after teardown.
     rmdir "$dev_dir" 2>/dev/null || true
     ;;
@@ -164,5 +221,5 @@ case "${1:-}" in
     source hack/cwe.sh
     cwe_main "$1"
     ;;
-  *) fail "Usage: $0 {check|up|sync|refresh|tilt|test|down|cwe-up|cwe-tilt|cwe-test|cwe-credentials|cwe-down}" ;;
+  *) fail "Usage: $0 {check|up|sync|refresh|api-credentials|api-test|tilt|test|down|cwe-up|cwe-tilt|cwe-test|cwe-credentials|cwe-down}" ;;
 esac

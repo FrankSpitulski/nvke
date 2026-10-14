@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: public-api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: public-api
+  policyTypes:
+  - Ingress
+  ingress: []
