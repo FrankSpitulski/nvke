@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -109,7 +110,7 @@ spec:
 			},
 			minVoters:   3,
 			wantRefused: true,
-			wantReason:  "minimum is 3",
+			wantReason:  "2 of 2 voting members are available, need 3",
 		},
 		{
 			name:     "refuses when learners pad the member count",
@@ -124,9 +125,12 @@ spec:
 				dbSize:      500 * mib,
 				dbSizeInUse: 100 * mib,
 			},
-			minVoters:   3,
+			minVoters: 3,
+			// The learner is excluded from the registered count, and the one
+			// voting peer advertises no client URL so it cannot be probed and
+			// cannot serve clients either.
 			wantRefused: true,
-			wantReason:  "2 voting members",
+			wantReason:  "1 of 2 voting members are available, need 3",
 		},
 		{
 			name:     "refuses an unhealthy local member",
@@ -141,6 +145,49 @@ spec:
 			minVoters:   3,
 			wantRefused: true,
 			wantReason:  "unhealthy",
+		},
+		{
+			// etcd treats a threshold of zero as disabled. Reporting it as
+			// configured made the gate compare "reclaimable < 0", which is never
+			// true, so the member was restarted for a defragmentation etcd was
+			// never going to perform - the downtime-only restart this RPC exists
+			// to refuse.
+			name: "refuses an explicitly disabled threshold of zero",
+			manifest: `apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: etcd
+      command:
+        - etcd
+        - --bootstrap-defrag-threshold-megabytes=0
+`,
+			client: fakeEtcdMemberClient{
+				members:     testEtcdMembersThree(),
+				localID:     2,
+				dbSize:      500 * mib,
+				dbSizeInUse: 100 * mib,
+			},
+			minVoters:   3,
+			wantRefused: true,
+			wantReason:  "to a positive value",
+		},
+		{
+			// MemberList reports membership, not liveness. A registered count
+			// sees three voters here and allows the restart, which would leave
+			// one voter against a quorum of two.
+			name:     "refuses when a registered voter is offline",
+			manifest: etcdManifestThreshold100MiB,
+			client: fakeEtcdMemberClient{
+				members:          testEtcdMembersThree(),
+				localID:          2,
+				dbSize:           500 * mib,
+				dbSizeInUse:      100 * mib,
+				unavailablePeers: map[string]bool{"https://cp-3:2379": true},
+			},
+			minVoters:   3,
+			wantRefused: true,
+			wantReason:  "2 of 3 voting members are available, need 3",
 		},
 		{
 			name:     "refuses when the member cannot be reached",
@@ -163,7 +210,7 @@ spec:
 			client: fakeEtcdMemberClient{
 				members: testEtcdMembersThree(),
 				localID: 2,
-				statusFn: func(int) (*clientv3.StatusResponse, error) {
+				statusFn: func(context.Context, int) (*clientv3.StatusResponse, error) {
 					return &clientv3.StatusResponse{}, nil
 				},
 			},
@@ -329,6 +376,10 @@ type etcdCrictlRunner struct {
 	// which is the condition that times the stop phase out and would otherwise
 	// leave etcd parked.
 	stuck bool
+	// failAfterMove makes every probe fail once the manifest has been moved
+	// aside, modelling a single failed `crictl ps` during the exit wait. That
+	// aborts the stop phase at the point where the manifest is already parked.
+	failAfterMove bool
 	// startDelay is how many probes report nothing running after a swap,
 	// forcing the restart wait to actually sleep. Without it the replacement
 	// appears on the first probe and no cancellation could ever be observed.
@@ -350,10 +401,17 @@ func (r *etcdCrictlRunner) Run(name string, _ []string, _ *nvkeutils.CommandOpti
 	content, err := os.ReadFile(r.manifestPath)
 	if err != nil {
 		r.absent = true
+		if r.failAfterMove {
+			return nil, errors.New("crictl ps: connection to the container runtime failed")
+		}
 		if r.stuck {
 			return etcdCrictlPS(r.containerID()), nil
 		}
 		return etcdCrictlPS(), nil
+	}
+	if r.absent && r.failAfterMove {
+		// The runtime is still unreachable while the manifest is being put back.
+		return nil, errors.New("crictl ps: connection to the container runtime failed")
 	}
 	if !r.observed {
 		r.observed = true
@@ -413,8 +471,8 @@ func etcdRestartTestServer(t *testing.T, client *fakeEtcdMemberClient) (*NodeAge
 // etcdSizingStatus reports a shrinking backend: the probes before the restart
 // see sizeBefore and everything after sees sizeAfter, which is how the RPC
 // measures what the restart reclaimed.
-func etcdSizingStatus(sizeBefore, sizeInUse, sizeAfter int64, firstPostRestartCall int) func(int) (*clientv3.StatusResponse, error) {
-	return func(call int) (*clientv3.StatusResponse, error) {
+func etcdSizingStatus(sizeBefore, sizeInUse, sizeAfter int64, firstPostRestartCall int) func(context.Context, int) (*clientv3.StatusResponse, error) {
+	return func(_ context.Context, call int) (*clientv3.StatusResponse, error) {
 		dbSize := sizeBefore
 		if call >= firstPostRestartCall {
 			dbSize = sizeAfter
@@ -521,7 +579,9 @@ func TestRunEtcdDefragRestartSequence(t *testing.T) {
 			members:  testEtcdMembersThree(),
 			localID:  2,
 			leaderID: 1,
-			statusFn: func(call int) (*clientv3.StatusResponse, error) {
+			statusFn: func(_ context.Context, call int) (*clientv3.StatusResponse, error) {
+				// Calls 1 and 2 are the preflight and the leadership check;
+				// everything from 3 on is the post-restart health wait.
 				if call >= 3 {
 					return nil, errors.New("connection refused")
 				}
@@ -544,6 +604,104 @@ func TestRunEtcdDefragRestartSequence(t *testing.T) {
 		assert.Contains(t, result.ErrorMessage, "did not return healthy")
 		assert.True(t, etcdManifestIsActive(t, s))
 	})
+}
+
+// The regression this exists for: restoreStaticPod listed containers before
+// renaming the manifest back and returned on a listing error, so a single
+// failed `crictl ps` after the move left etcd.yaml parked with etcd down. The
+// listing is only the baseline for the new-container gate, so losing it has to
+// weaken that gate rather than skip the rename.
+func TestRunEtcdDefragPutsTheManifestBackWhenCrictlFailsAfterTheMove(t *testing.T) {
+	const mib = int64(1024 * 1024)
+	client := &fakeEtcdMemberClient{
+		members:     testEtcdMembersThree(),
+		localID:     2,
+		leaderID:    1,
+		dbSize:      500 * mib,
+		dbSizeInUse: 100 * mib,
+	}
+	s, runner := etcdRestartTestServer(t, client)
+	runner.failAfterMove = true
+	progress := &fakeOperationProgress{}
+
+	err := s.runEtcdDefrag(context.Background(), progress, 3)
+
+	// The member cannot be verified while the runtime is unreachable, so this
+	// is honestly FAILED_NOT_RESTORED - but the manifest is back, which is what
+	// decides whether etcd can come up at all.
+	require.Error(t, err)
+	result := decodeDefragResult(t, progress)
+	assert.Equal(t, int32(pb.GetEtcdDefragStatusResponse_OUTCOME_FAILED_NOT_RESTORED), result.Outcome)
+	assert.True(t, etcdManifestIsActive(t, s), "a crictl failure after the move must not leave etcd parked")
+}
+
+// The regression this exists for: clientv3 waits for the connection to become
+// ready instead of failing fast, and the defragmentation path runs on the
+// operation framework's deadline-free background context. One call against a
+// member that never serves blocked forever while holding staticPodMutationMu,
+// leaving the operation RUNNING and every other static-pod transaction -
+// certificate renewal, kube-vip restore, PatchEtcdManifest - stuck behind it
+// until the agent restarted. The health wait's own limit does not help, because
+// it is only consulted after a call returns.
+func TestRunEtcdDefragDoesNotBlockOnAnUnresponsiveMember(t *testing.T) {
+	client := &fakeEtcdMemberClient{
+		members:  testEtcdMembersThree(),
+		localID:  2,
+		leaderID: 1,
+		statusFn: func(ctx context.Context, _ int) (*clientv3.StatusResponse, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	s, _ := etcdRestartTestServer(t, client)
+	s.etcdCallTimeout = 20 * time.Millisecond
+	progress := &fakeOperationProgress{}
+
+	done := make(chan error, 1)
+	go func() { done <- s.runEtcdDefrag(context.Background(), progress, 3) }()
+
+	select {
+	case err := <-done:
+		// A member that will not answer is a refusal: nothing was touched.
+		require.NoError(t, err)
+		result := decodeDefragResult(t, progress)
+		assert.Equal(t, int32(pb.GetEtcdDefragStatusResponse_OUTCOME_REFUSED), result.Outcome)
+		assert.True(t, etcdManifestIsActive(t, s))
+	case <-time.After(10 * time.Second):
+		t.Fatal("runEtcdDefrag blocked on an etcd call; every call must carry its own deadline")
+	}
+}
+
+// The regression this exists for: a retry after an attempt died with the
+// manifest parked read an absent manifest in preflight and reported
+// OUTCOME_REFUSED, which states the node is untouched - while etcd was in fact
+// down and this RPC was the only thing that could put the manifest back.
+func TestRunEtcdDefragRecoversAParkedManifest(t *testing.T) {
+	const mib = int64(1024 * 1024)
+	client := &fakeEtcdMemberClient{
+		members:  testEtcdMembersThree(),
+		localID:  2,
+		leaderID: 1,
+		// Local Status calls in order: the health wait after recovery, the
+		// preflight, the leadership check, then the post-restart health wait.
+		statusFn: etcdSizingStatus(500*mib, 100*mib, 120*mib, 4),
+	}
+	s, _ := etcdRestartTestServer(t, client)
+
+	// Leave the manifest where a failed attempt would have left it.
+	parked := s.rootedPath(filepath.Join(defaultStaticPodBackupDir, etcdManifestName))
+	require.NoError(t, os.MkdirAll(filepath.Dir(parked), 0o700))
+	require.NoError(t, os.Rename(s.etcdManifestPath(), parked))
+	require.False(t, etcdManifestIsActive(t, s), "precondition: the manifest starts parked")
+
+	progress := &fakeOperationProgress{}
+	require.NoError(t, s.runEtcdDefrag(context.Background(), progress, 3))
+
+	result := decodeDefragResult(t, progress)
+	assert.Equal(t, int32(pb.GetEtcdDefragStatusResponse_OUTCOME_RECLAIMED), result.Outcome,
+		"a retry must recover and then do its job, not refuse")
+	assert.Contains(t, progress.steps, stepEtcdDefragRecovering)
+	assert.True(t, etcdManifestIsActive(t, s))
 }
 
 func testEtcdMembersThree() []*etcdserverpb.Member {

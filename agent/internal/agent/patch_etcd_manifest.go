@@ -38,6 +38,19 @@ const (
 	// defaultEtcdHealthPollInterval is the gap between health probes.
 	defaultEtcdHealthPollInterval = 2 * time.Second
 
+	// defaultEtcdCallTimeout bounds a single etcd API call.
+	//
+	// clientv3 waits for the connection to become ready rather than failing
+	// fast, so a call made on a context with no deadline blocks for as long as
+	// the member is unreachable. The defragmentation path runs on the operation
+	// framework's background context, which has no deadline, so one such call
+	// would hang the operation in RUNNING forever while it holds
+	// staticPodMutationMu - blocking certificate renewal, kube-vip restore and
+	// every other static-pod transaction until the agent process restarted. The
+	// outer health-wait deadline does not help, because it is only consulted
+	// after a call returns.
+	defaultEtcdCallTimeout = 15 * time.Second
+
 	// defaultEtcdExitTimeout bounds the wait for the etcd container to exit
 	// after its manifest is moved aside.
 	//
@@ -62,6 +75,19 @@ func (s *NodeAgentServer) etcdHealthPollIntervalOrDefault() time.Duration {
 		return s.etcdHealthPollInterval
 	}
 	return defaultEtcdHealthPollInterval
+}
+
+// etcdCallContext derives a context for one etcd API call. Every etcd call in
+// these RPCs goes through it, so none can block past its own deadline.
+func (s *NodeAgentServer) etcdCallContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, s.etcdCallTimeoutOrDefault())
+}
+
+func (s *NodeAgentServer) etcdCallTimeoutOrDefault() time.Duration {
+	if s != nil && s.etcdCallTimeout > 0 {
+		return s.etcdCallTimeout
+	}
+	return defaultEtcdCallTimeout
 }
 
 func (s *NodeAgentServer) etcdExitTimeoutOrDefault() time.Duration {
@@ -97,7 +123,9 @@ func (s *NodeAgentServer) waitForLocalEtcdHealthy(
 ) (*clientv3.StatusResponse, error) {
 	deadline := time.Now().Add(s.etcdHealthTimeoutOrDefault())
 	for {
-		st, err := client.Status(ctx, etcdLocalEndpoint)
+		probeCtx, cancel := s.etcdCallContext(ctx)
+		st, err := client.Status(probeCtx, etcdLocalEndpoint)
+		cancel()
 		lastErr := etcdStatusHealthError(st, err)
 		if lastErr == nil {
 			return st, nil
@@ -197,25 +225,32 @@ func (s *NodeAgentServer) PatchEtcdManifest(
 	// Refuse to restart a member that is not healthy now: the post-restart wait
 	// could not then distinguish damage this call caused from damage that
 	// predated it.
-	preStatus, statusErr := client.Status(ctx, etcdLocalEndpoint)
+	preStatusCtx, cancelPreStatus := s.etcdCallContext(ctx)
+	preStatus, statusErr := client.Status(preStatusCtx, etcdLocalEndpoint)
+	cancelPreStatus()
 	if healthErr := etcdStatusHealthError(preStatus, statusErr); healthErr != nil {
 		return s.etcdPatchCleanFailure("", fmt.Sprintf("local etcd member is not healthy before patch: %v", healthErr)), nil
 	}
 	sizeBefore := preStatus.DbSize
 
 	// Refuse to restart when the cluster could not survive losing this member.
-	// Restarting one of three voters leaves two, still a quorum; at two voters
-	// the restart costs quorum outright. The count is only a snapshot, so this
-	// does not make concurrent calls across members safe - the caller still
-	// sequences them - but it stops a patch from finishing off an already
+	// The count that matters is of members actually serving, not of members
+	// registered: see etcdRestartSafetyFloor. This is still only a snapshot, so
+	// it does not make concurrent calls across members safe - the caller
+	// sequences those - but it stops a patch from finishing off an already
 	// degraded cluster.
-	members, err := client.MemberList(ctx)
+	memberListCtx, cancelMemberList := s.etcdCallContext(ctx)
+	members, err := client.MemberList(memberListCtx)
+	cancelMemberList()
 	if err != nil {
 		return s.etcdPatchCleanFailure("", fmt.Sprintf("list etcd members: %v", err)), nil
 	}
-	if voters := votingMemberCount(members); voters < minVoters {
+	registeredVoters := votingMemberCount(members)
+	availableVoters := s.availableVotingMembers(ctx, client, members, preStatus.Header.MemberId)
+	if floor := etcdRestartSafetyFloor(registeredVoters, minVoters); availableVoters < floor {
 		return s.etcdPatchCleanFailure("", fmt.Sprintf(
-			"refusing to restart etcd with %d voting members, minimum is %d", voters, minVoters,
+			"refusing to restart etcd: %d of %d voting members are available, need %d",
+			availableVoters, registeredVoters, floor,
 		)), nil
 	}
 
@@ -260,7 +295,9 @@ func (s *NodeAgentServer) PatchEtcdManifest(
 			fmt.Sprintf("etcd restart after patch failed: %v", err)), nil
 	}
 
-	postStatus, err := client.Status(mutationCtx, etcdLocalEndpoint)
+	postStatusCtx, cancelPostStatus := s.etcdCallContext(mutationCtx)
+	postStatus, err := client.Status(postStatusCtx, etcdLocalEndpoint)
+	cancelPostStatus()
 	sizeAfter := int64(0)
 	if err == nil && postStatus != nil {
 		sizeAfter = postStatus.DbSize

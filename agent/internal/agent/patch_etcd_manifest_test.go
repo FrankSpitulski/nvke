@@ -199,7 +199,7 @@ func TestPatchEtcdManifestPreconditions(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, pb.PatchEtcdManifestResponse_OUTCOME_FAILED_RESTORED, resp.GetOutcome())
-		assert.Contains(t, resp.GetErrorMessage(), "minimum is 3")
+		assert.Contains(t, resp.GetErrorMessage(), "2 of 2 voting members are available, need 3")
 		assert.Equal(t, "200", patchedThreshold(t, s), "a refusal must not write the manifest")
 	})
 
@@ -246,7 +246,7 @@ func TestPatchEtcdManifestPreconditions(t *testing.T) {
 		client := &fakeEtcdMemberClient{
 			members: testEtcdMembersThree(),
 			localID: 2,
-			statusFn: func(int) (*clientv3.StatusResponse, error) {
+			statusFn: func(context.Context, int) (*clientv3.StatusResponse, error) {
 				return nil, nil //nolint:nilnil // models a client returning neither status nor error
 			},
 		}

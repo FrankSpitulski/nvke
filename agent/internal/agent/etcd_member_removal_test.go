@@ -37,22 +37,37 @@ type fakeEtcdMemberClient struct {
 	dbSizeQuota  int64
 	statusErrors []string
 
-	// statusFn, when set, replaces the canned Status response. It receives the
-	// 1-based call count so a test can model a member that is unreachable for
-	// the first few probes and then comes back, which is what a restart looks
-	// like to the health wait.
-	statusFn    func(call int) (*clientv3.StatusResponse, error)
+	// statusFn, when set, replaces the canned Status response for the *local*
+	// endpoint. It receives the context and the 1-based local call count, so a
+	// test can model a member that is unreachable for the first few probes and
+	// then comes back - what a restart looks like to the health wait - or one
+	// that blocks until its deadline expires.
+	statusFn    func(ctx context.Context, call int) (*clientv3.StatusResponse, error)
 	statusCalls int
+
+	// unavailablePeers marks peer client URLs that fail the availability probe,
+	// modelling a registered voter that is offline. Keyed by client URL because
+	// that is what the probe dials. Peer probes are counted separately from
+	// local ones so adding a peer does not shift statusFn's call numbering.
+	unavailablePeers map[string]bool
+	peerStatusCalls  int
 }
 
 func (f *fakeEtcdMemberClient) MemberList(context.Context, ...clientv3.OpOption) (*clientv3.MemberListResponse, error) {
 	return &clientv3.MemberListResponse{Members: f.members}, f.listErr
 }
 
-func (f *fakeEtcdMemberClient) Status(context.Context, string) (*clientv3.StatusResponse, error) {
+func (f *fakeEtcdMemberClient) Status(ctx context.Context, endpoint string) (*clientv3.StatusResponse, error) {
+	if endpoint != etcdLocalEndpoint {
+		f.peerStatusCalls++
+		if f.unavailablePeers[endpoint] {
+			return nil, errors.New("connection refused")
+		}
+		return &clientv3.StatusResponse{Header: &etcdserverpb.ResponseHeader{MemberId: f.localID}}, nil
+	}
 	f.statusCalls++
 	if f.statusFn != nil {
-		return f.statusFn(f.statusCalls)
+		return f.statusFn(ctx, f.statusCalls)
 	}
 	return &clientv3.StatusResponse{
 		Header:      &etcdserverpb.ResponseHeader{MemberId: f.localID},

@@ -6,8 +6,11 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 
 	nvkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
@@ -28,6 +31,7 @@ const (
 	// topologies rather than making the operator opt out of them.
 	defaultMinVotingMembersForDefrag = 3
 
+	stepEtcdDefragRecovering     = "etcd_defrag_recovering_parked_manifest"
 	stepEtcdDefragPreflight      = "etcd_defrag_preflight"
 	stepEtcdDefragTransferLeader = "etcd_defrag_transferring_leadership"
 	stepEtcdDefragStopping       = "etcd_defrag_stopping_etcd"
@@ -166,6 +170,15 @@ func (s *NodeAgentServer) runEtcdDefrag(
 	}
 	defer client.Close()
 
+	// Recover from an attempt that died with the manifest parked, before
+	// preflight gets a chance to misread it. Without this a retry reads an
+	// absent manifest, refuses, and reports OUTCOME_REFUSED - which states that
+	// the node is untouched, when in fact etcd is down and this RPC is the only
+	// thing that can put it back.
+	if err := s.ensureEtcdManifestActive(ctx, runner, progress, client); err != nil {
+		return s.recordEtcdDefragFailure(progress, err.Error(), 0)
+	}
+
 	progress.SetStep(stepEtcdDefragPreflight)
 	sizeBefore, err := s.etcdDefragPreflight(ctx, client, minVoters)
 	if err != nil {
@@ -242,6 +255,52 @@ func (s *NodeAgentServer) runEtcdDefrag(
 	})
 }
 
+// ensureEtcdManifestActive puts the manifest back when a previous attempt left
+// it parked in the backup directory, so a retry is in-band recovery rather than
+// a misleading refusal.
+//
+// The common case is that the manifest is where it belongs, which costs one
+// stat and no crictl call. When it is parked, etcd is down, so this has to run
+// before preflight: preflight would fail to read the manifest and report
+// OUTCOME_REFUSED, telling the caller the node was untouched.
+func (s *NodeAgentServer) ensureEtcdManifestActive(
+	ctx context.Context,
+	runner nvkeutils.CommandRunner,
+	progress nodeAgentOperationProgress,
+	client etcdMemberClient,
+) error {
+	if _, err := os.Stat(s.etcdManifestPath()); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat etcd manifest: %w", err)
+	}
+
+	parkedPath := s.rootedPath(filepath.Join(defaultStaticPodBackupDir, etcdManifestName))
+	if _, err := os.Stat(parkedPath); err != nil {
+		// Neither active nor parked. The agent did not put it here and has
+		// nothing to put back, so there is no recovery to attempt.
+		return fmt.Errorf("etcd manifest is neither active at %s nor parked at %s", s.etcdManifestPath(), parkedPath)
+	}
+
+	slog.WarnContext(ctx, "etcd manifest was left parked by an earlier attempt; restoring it before preflight",
+		"parked", parkedPath)
+	if err := s.restoreStaticPod(ctx, runner, progress, staticPodRestoreSpec{
+		containerName: etcdContainerName,
+		manifestName:  etcdManifestName,
+		restoringStep: stepEtcdDefragRecovering,
+		waitingStep:   stepEtcdDefragWaitingStart,
+		timeout:       s.etcdHealthTimeoutOrDefault(),
+	}); err != nil {
+		return fmt.Errorf("restore the parked etcd manifest: %w", err)
+	}
+
+	progress.SetStep(stepEtcdDefragWaitingHealthy)
+	if _, err := s.waitForLocalEtcdHealthy(ctx, client); err != nil {
+		return fmt.Errorf("etcd did not return healthy after restoring the parked manifest: %w", err)
+	}
+	return nil
+}
+
 // recoverEtcdAfterFailedStop puts the parked manifest back after the stop phase
 // failed, then reports according to whether the member verifiably returned.
 //
@@ -298,24 +357,31 @@ func (s *NodeAgentServer) etcdDefragPreflight(
 	}
 	if !found {
 		return 0, fmt.Errorf(
-			"etcd manifest sets neither --%s nor --%s, so a restart would not defragment at any size",
+			"etcd manifest sets neither --%s nor --%s to a positive value, so a restart would not defragment at any size",
 			etcdBootstrapDefragFlag, etcdExperimentalBootstrapDefragFlag,
 		)
 	}
 
-	localStatus, statusErr := client.Status(ctx, etcdLocalEndpoint)
+	statusCtx, cancelStatus := s.etcdCallContext(ctx)
+	localStatus, statusErr := client.Status(statusCtx, etcdLocalEndpoint)
+	cancelStatus()
 	if healthErr := etcdStatusHealthError(localStatus, statusErr); healthErr != nil {
 		return etcdStatusDbSize(localStatus), fmt.Errorf("local etcd member is unhealthy: %w", healthErr)
 	}
 	sizeBefore := localStatus.DbSize
 
-	members, err := client.MemberList(ctx)
+	memberListCtx, cancelMemberList := s.etcdCallContext(ctx)
+	members, err := client.MemberList(memberListCtx)
+	cancelMemberList()
 	if err != nil {
 		return sizeBefore, fmt.Errorf("list etcd members: %w", err)
 	}
-	if voters := votingMemberCount(members); voters < minVoters {
+	registeredVoters := votingMemberCount(members)
+	availableVoters := s.availableVotingMembers(ctx, client, members, localStatus.Header.MemberId)
+	if floor := etcdRestartSafetyFloor(registeredVoters, minVoters); availableVoters < floor {
 		return sizeBefore, fmt.Errorf(
-			"refusing to restart etcd with %d voting members, minimum is %d", voters, minVoters,
+			"refusing to restart etcd: %d of %d voting members are available, need %d",
+			availableVoters, registeredVoters, floor,
 		)
 	}
 
@@ -336,7 +402,9 @@ func (s *NodeAgentServer) etcdDefragPreflight(
 // local member is the leader, so the restart does not cost a leader election.
 // It is a no-op when the local member is already a follower.
 func (s *NodeAgentServer) transferEtcdLeadershipAway(ctx context.Context, client etcdMemberClient) error {
-	localStatus, err := client.Status(ctx, etcdLocalEndpoint)
+	statusCtx, cancelStatus := s.etcdCallContext(ctx)
+	localStatus, err := client.Status(statusCtx, etcdLocalEndpoint)
+	cancelStatus()
 	if err != nil {
 		return fmt.Errorf("local etcd member status: %w", err)
 	}
@@ -348,7 +416,9 @@ func (s *NodeAgentServer) transferEtcdLeadershipAway(ctx context.Context, client
 		return nil
 	}
 
-	members, err := client.MemberList(ctx)
+	memberListCtx, cancelMemberList := s.etcdCallContext(ctx)
+	members, err := client.MemberList(memberListCtx)
+	cancelMemberList()
 	if err != nil {
 		return fmt.Errorf("list etcd members: %w", err)
 	}
@@ -360,7 +430,9 @@ func (s *NodeAgentServer) transferEtcdLeadershipAway(ctx context.Context, client
 	if len(localEndpoints) == 0 {
 		localEndpoints = []string{etcdLocalEndpoint}
 	}
-	if err := client.TransferLeadership(ctx, localEndpoints, transfereeID); err != nil {
+	transferCtx, cancelTransfer := s.etcdCallContext(ctx)
+	defer cancelTransfer()
+	if err := client.TransferLeadership(transferCtx, localEndpoints, transfereeID); err != nil {
 		return err
 	}
 	slog.InfoContext(ctx, "transferred etcd leadership before defragmentation restart",

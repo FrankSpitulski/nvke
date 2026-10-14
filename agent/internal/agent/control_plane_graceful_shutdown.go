@@ -459,9 +459,17 @@ func (s *NodeAgentServer) restoreStaticPod(
 	spec staticPodRestoreSpec,
 ) error {
 	progress.SetStep(spec.restoringStep)
+	// Carry on when the listing fails rather than returning. The listing is only
+	// the baseline for the new-container gate below, so losing it weakens that
+	// gate; returning here would skip the rename entirely and leave a manifest
+	// that was moved aside parked, with nothing scheduled to put it back. For
+	// etcd that is the difference between a failed defragmentation and a member
+	// that stays down. PatchEtcdManifest's rollback already reasons this way.
 	containerIDs, err := listStaticPodContainerIDs(runner, spec.containerName)
 	if err != nil {
-		return fmt.Errorf("list existing %s containers: %w", spec.containerName, err)
+		slog.WarnContext(ctx, "failed to list containers before restoring static pod; restoring anyway",
+			"container", spec.containerName, "err", err)
+		containerIDs = nil
 	}
 	manifestRestored, err := s.restoreStaticPodManifest(spec.manifestName)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -66,8 +67,14 @@ func (s *NodeAgentServer) readEtcdManifest() ([]byte, []byte, error) {
 }
 
 // etcdBootstrapDefragThresholdBytes returns the configured bootstrap-defrag
-// threshold in bytes, accepting either spelling of the flag. found=false means
-// neither is set, so a restart would not defragment at any size.
+// threshold in bytes, accepting either spelling of the flag.
+//
+// found=false means no restart would defragment at any size, which covers two
+// cases that have to behave identically: the flag being absent, and the flag
+// being present but set to zero or less. etcd treats a threshold of zero as
+// disabled, so reporting it as configured would make the preflight comparison
+// "reclaimable < 0" - never true - and the member would be restarted for a
+// defragmentation that etcd was never going to perform.
 func etcdBootstrapDefragThresholdBytes(manifestJSON []byte) (int64, bool, error) {
 	for _, flag := range []string{etcdBootstrapDefragFlag, etcdExperimentalBootstrapDefragFlag} {
 		raw, found, err := readFlagValue(manifestJSON, etcdContainerName, flag)
@@ -80,6 +87,9 @@ func etcdBootstrapDefragThresholdBytes(manifestJSON []byte) (int64, bool, error)
 		megabytes, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil {
 			return 0, false, fmt.Errorf("parse --%s value %q: %w", flag, raw, err)
+		}
+		if megabytes <= 0 {
+			return 0, false, nil
 		}
 		return megabytes * mebibyte, true, nil
 	}
@@ -159,6 +169,10 @@ func reclaimableBytes(dbSize, dbSizeInUse int64) int64 {
 
 // votingMemberCount counts non-learner members. Learners do not vote, so they
 // do not count toward the quorum a restart has to preserve.
+//
+// This is a count of *registered* voters. MemberList reports membership, not
+// liveness, so an offline voter is still counted here and this must not be used
+// on its own to decide that a restart is safe - see availableVotingMembers.
 func votingMemberCount(members *clientv3.MemberListResponse) int32 {
 	if members == nil {
 		return 0
@@ -170,6 +184,73 @@ func votingMemberCount(members *clientv3.MemberListResponse) int32 {
 		}
 	}
 	return count
+}
+
+// availableVotingMembers counts the voting members that answer a Status probe,
+// including the local one, which the caller has already verified.
+//
+// Registered membership is not a safety signal. On a three-voter cluster with
+// one peer already offline, a count of registered voters sees three and allows
+// the restart, which leaves one voter against a quorum of two: writes fail for
+// the whole restart, and for however long a bootstrap defragmentation then
+// takes. Probing is what tells those two situations apart.
+//
+// A peer that fails to answer is counted as unavailable rather than treated as
+// an error, because that is the condition being measured. Each probe is bounded
+// separately so one unreachable peer cannot stall the preflight.
+func (s *NodeAgentServer) availableVotingMembers(
+	ctx context.Context,
+	client etcdMemberClient,
+	members *clientv3.MemberListResponse,
+	localID uint64,
+) int32 {
+	if members == nil {
+		return 0
+	}
+	available := int32(1) // the local member, whose health the caller checked
+	for _, m := range members.Members {
+		if m.GetID() == localID || m.GetIsLearner() {
+			continue
+		}
+		endpoints := m.GetClientURLs()
+		if len(endpoints) == 0 {
+			// A member that has not advertised a client URL cannot be probed and
+			// cannot serve clients either, so it is not available.
+			slog.WarnContext(ctx, "etcd voting member advertises no client URL; treating it as unavailable",
+				"member", fmt.Sprintf("%x", m.GetID()))
+			continue
+		}
+		probeCtx, cancel := s.etcdCallContext(ctx)
+		st, err := client.Status(probeCtx, endpoints[0])
+		cancel()
+		if healthErr := etcdStatusHealthError(st, err); healthErr != nil {
+			slog.WarnContext(ctx, "etcd voting member did not answer a status probe; treating it as unavailable",
+				"member", fmt.Sprintf("%x", m.GetID()), "err", healthErr)
+			continue
+		}
+		available++
+	}
+	return available
+}
+
+// etcdRestartSafetyFloor is how many voting members must be available before
+// the local one may be restarted.
+//
+// It is the larger of the caller's floor and what the registered membership
+// needs in order to keep a quorum once this member goes down. Those differ: a
+// five-member cluster with two already offline has three available, which
+// clears a floor of three but would leave two against a quorum of three.
+//
+// A minVoters of 1 is the documented opt-in for topologies where no value can
+// preserve quorum, so it disables the quorum term rather than overriding the
+// caller's explicit decision to accept a brief outage.
+func etcdRestartSafetyFloor(registeredVoters, minVoters int32) int32 {
+	if minVoters <= 1 {
+		return 1
+	}
+	// Quorum is registeredVoters/2+1; one more than that has to be available so
+	// the quorum survives the member that is about to go down.
+	return max(minVoters, registeredVoters/2+2)
 }
 
 // GetEtcdStatus reports the local etcd member's backend sizing and role so a
@@ -205,7 +286,9 @@ func (s *NodeAgentServer) GetEtcdStatus(
 	}
 	defer client.Close()
 
-	localStatus, err := client.Status(ctx, etcdLocalEndpoint)
+	statusCtx, cancelStatus := s.etcdCallContext(ctx)
+	localStatus, err := client.Status(statusCtx, etcdLocalEndpoint)
+	cancelStatus()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get etcd status: local member status: %v", err)
 	}
@@ -213,7 +296,9 @@ func (s *NodeAgentServer) GetEtcdStatus(
 		return nil, status.Error(codes.Internal, "get etcd status: local etcd status has no member ID")
 	}
 
-	members, err := client.MemberList(ctx)
+	memberListCtx, cancelMemberList := s.etcdCallContext(ctx)
+	members, err := client.MemberList(memberListCtx)
+	cancelMemberList()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get etcd status: list etcd members: %v", err)
 	}

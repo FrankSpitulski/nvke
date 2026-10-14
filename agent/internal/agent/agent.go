@@ -229,6 +229,9 @@ type NodeAgentServer struct {
 	// etcdExitTimeout bounds the wait for the etcd container to exit once its
 	// manifest has been moved aside. Zero means the production default.
 	etcdExitTimeout time.Duration
+	// etcdCallTimeout bounds a single etcd API call, so an unreachable member
+	// cannot block a call indefinitely. Zero means the production default.
+	etcdCallTimeout time.Duration
 }
 
 // Real implementations
