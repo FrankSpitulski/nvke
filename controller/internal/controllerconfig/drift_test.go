@@ -99,7 +99,13 @@ var stayEnv = map[string]string{
 
 // configMapOnly lists config.yaml keys that never had an environment variable,
 // because the ConfigMap is the first place they exist.
-var configMapOnly = []string{"oidc.providers"}
+var configMapOnly = []string{
+	"oidc.providers",
+	// New clusters default to OVN-Kubernetes. This is the switch internal
+	// fleets set when they still create Calico clusters.
+	"allowLegacyCalicoClusterCreation",
+	"nodeMetadataAllowlistedLabelKeys",
+}
 
 // chartDeployment is the template whose env block decides what the chart sets.
 const chartDeployment = "../../deploy/charts/controller/templates/deployment.yaml"
@@ -169,7 +175,7 @@ func TestEveryMigratedKeyHasOneConfigField(t *testing.T) {
 		if f.fileKey == "" {
 			continue
 		}
-		if !slices.Contains(slices.Collect(mapValues(migrated)), f.fileKey) {
+		if !slices.Contains(slices.Collect(mapValues(migrated)), f.fileKey) && !slices.Contains(configMapOnly, f.fileKey) {
 			t.Errorf("config.Config.%s takes %s from the file, which %s does not list", f.name, f.fileKey, migratedEnvFile)
 		}
 		if other, taken := fieldFor[f.fileKey]; taken {

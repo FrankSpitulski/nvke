@@ -480,6 +480,7 @@ func main() {
 		temporalClient,
 		k8sControllerManager.GetClient(),
 		managementK8sClient,
+		nodeAgentClient,
 	)
 	if err := controlPlaneController.SetupWithManager(k8sControllerManager); err != nil {
 		logger.Error("Failed to set up control plane controller", "error", err)
@@ -523,7 +524,16 @@ func main() {
 		logger.Info("Cert renewal controller disabled")
 	}
 
-	httpServer, err := server.NewServer(cfg, serverLogger, dbInstance, temporalClient, authenticator, managementK8sClient, server.WithFleetOIDC(&controllerCfg.OIDC))
+	httpServer, err := server.NewServer(
+		cfg,
+		serverLogger,
+		dbInstance,
+		temporalClient,
+		authenticator,
+		managementK8sClient,
+		server.WithFleetOIDC(&controllerCfg.OIDC),
+		server.WithAllowLegacyCalicoClusterCreation(controllerCfg.AllowLegacyCalicoClusterCreation),
+	)
 	if err != nil {
 		logger.Error("Failed to construct HTTP server", "error", err)
 		os.Exit(1)

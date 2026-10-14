@@ -36,12 +36,19 @@ const (
 type Option func(*options)
 
 type options struct {
-	fleetOIDC *controllerconfig.OIDCConfig
+	fleetOIDC                        *controllerconfig.OIDCConfig
+	allowLegacyCalicoClusterCreation bool
 }
 
 // WithFleetOIDC sets the nke-controller-config OIDC section new clusters are pinned from.
 func WithFleetOIDC(oidc *controllerconfig.OIDCConfig) Option {
 	return func(o *options) { o.fleetOIDC = oidc }
+}
+
+// WithAllowLegacyCalicoClusterCreation permits new tenant clusters to select Calico.
+// Existing Calico clusters stay manageable either way. The default is false.
+func WithAllowLegacyCalicoClusterCreation(allow bool) Option {
+	return func(o *options) { o.allowLegacyCalicoClusterCreation = allow }
 }
 
 // NewServer builds the API's HTTP server. A nil authn leaves the authentication
@@ -161,16 +168,14 @@ func NewServer(
 		handler = authn.Wrap(handler)
 	}
 	handler = otelx.ExposeTraceID(loggingMiddleware(handler, logger))
-	if cfg.Tracing.Enabled {
-		handler = otelhttp.NewHandler(handler, "cloud-workflow-engine",
-			otelhttp.WithFilter(func(r *http.Request) bool {
-				// Skip operational probes (/healthz, /readyz, /metrics). /metrics is
-				// served on a separate listen address today, but is excluded here too
-				// so it stays consistent with isOperationalPath.
-				return !isOperationalPath(pathpkg.Clean(r.URL.Path))
-			}),
-		)
-	}
+	handler = otelhttp.NewHandler(handler, "cloud-workflow-engine",
+		otelhttp.WithFilter(func(r *http.Request) bool {
+			// Skip operational probes (/healthz, /readyz, /metrics). /metrics is
+			// served on a separate listen address today, but is excluded here too
+			// so it stays consistent with isOperationalPath.
+			return !isOperationalPath(pathpkg.Clean(r.URL.Path))
+		}),
+	)
 
 	srv := &http.Server{
 		Addr:              cfg.ServerListenAddress,
@@ -235,6 +240,7 @@ func NewServerImpl(
 		cfg.SupportedInfraProviders,
 		cfg.UseControlPlaneControllerForControlPlane(),
 	)
+	nodePoolService.allowlistedLabelKeys = cfg.NodeMetadataAllowlistedLabelKeys
 
 	clusterService := NewClusterService(
 		logger,
@@ -243,8 +249,11 @@ func NewServerImpl(
 		cfg.Teleport,
 		cfg.NvkeOIDCAuth.Enabled,
 		cfg.SupportedInfraProviders,
+		o.allowLegacyCalicoClusterCreation,
 		cfg.UseControlPlaneControllerForControlPlane(),
+		cfg.NodeAgent.UpdateMethod,
 	)
+	clusterService.allowlistedLabelKeys = cfg.NodeMetadataAllowlistedLabelKeys
 	clusterService.fleetOIDC = o.fleetOIDC
 
 	return &serverImpl{

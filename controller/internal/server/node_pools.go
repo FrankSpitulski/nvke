@@ -21,6 +21,7 @@ import (
 	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 	"github.com/dsx-ai-factory/nvke/controller/internal/naming"
 	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/otelx"
 )
 
 var (
@@ -53,6 +54,7 @@ type nodePoolService struct {
 	// control-plane node pools are rejected on create/update because the control
 	// plane is provisioned from the cluster-level controlPlaneConfig instead.
 	useControlPlaneController bool
+	allowlistedLabelKeys      []string
 }
 
 func NewNodePoolService(
@@ -166,7 +168,14 @@ func (s *nodePoolService) CreateNodePool(
 		}
 
 		workflowID := constants.ProvisionNodePoolWorkflowPrefix + createdNodePool.ID.String()
-		_, err = tx.CreateWorkflowOutboxEntry(ctx, "ProvisionNodePool", workflowID, map[string]interface{}{
+		err = enqueueWorkflow(ctx, tx, otelx.WorkflowAttributes{
+			WorkflowType: "ProvisionNodePool",
+			WorkflowID:   workflowID,
+			ClusterID:    cluster.ID,
+			ClusterName:  cluster.Name,
+			NodePoolID:   createdNodePool.ID,
+			NodePoolName: createdNodePool.Name,
+		}, map[string]interface{}{
 			nodePoolIDConst: createdNodePool.ID,
 		})
 		if err != nil {
@@ -223,11 +232,14 @@ func validateCloudInitFiles(files []api.CloudInitFile) error {
 }
 
 func (s *nodePoolService) validateCreateNodePoolRequest(cluster db.Cluster, req *api.CreateNodePoolRequest) error {
-	if req.ControlPlane && len(req.NodeTaints) > 0 {
-		return newBadRequestErrorf("nodeTaints are not allowed on a control-plane pool")
-	}
 	if err := naming.ValidateNodeNamePrefix(cluster.Name, req.NodeNamePrefix); err != nil {
 		return err
+	}
+	if err := validateNodeLabels(req.NodeLabels, s.allowlistedLabelKeys); err != nil {
+		return newBadRequestErrorf("%s", err)
+	}
+	if err := validateNodeTaints(req.NodeTaints, req.ControlPlane); err != nil {
+		return newBadRequestErrorf("%s", err)
 	}
 
 	switch cluster.ProviderType {

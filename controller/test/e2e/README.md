@@ -269,11 +269,11 @@ profile can be validated independently:
 make test-e2e ARGS='--label-filter="os-profiles && nke-260625-24.04-x86-fde"'
 ```
 
-When adding an OS profile:
+When adding a release:
 
-1. Add its MachineImage and NodePoolRelease to the fleet releases (for
-   NVIDIA maintainers, the internal fleet repository; otherwise the directory
-   `$NKE_CONTROLLER_RELEASES_DIR` points at).
+1. Add its MachineImage, ClusterRelease and NodePoolRelease to the fleet
+   releases (for NVIDIA maintainers, the internal fleet repository; otherwise
+   the directory `$NKE_CONTROLLER_RELEASES_DIR` points at).
 2. For a tenant profile, no separate e2e list update is required; the matrix
    includes it automatically on a runner of its architecture.
 3. If nico-vms cannot support it, add it to
@@ -441,8 +441,7 @@ The node is torn down afterwards (tenants are deleted first). `-e2e.keep-site`, 
 `lifecycle.preserveOnFailure` with a failed spec, keeps it.
 
 Prerequisites: a way to reach the jump host (below), the jump host in
-`FORGE_JUMP_HOST` (read by `environments/forge.yaml`), `FORGE_API_KEY`, and for
-`full` `GHCR_USERNAME` and `GHCR_TOKEN`, which the node pulls CAPNICo with.
+`FORGE_JUMP_HOST` (read by `environments/forge.yaml`) and `FORGE_API_KEY`.
 Neither the proxy nor the jump host is checked in; secrets are read only from
 the environment. Build the inputs, then run; with the `site-inputs` defaults
 no `site:` block is needed at all:
@@ -636,3 +635,53 @@ This route is for a future site, and the CI lane no longer offers it. There is
 no network path from the ARC fleet to the site's jump host on port 22 at all —
 only the Teleport proxy reaches it — so `qualify-e2e.yml` always
 goes through `tsh`.
+
+The `node-agent-upgrade` label selects the controller-driven agent tests. These
+tests use real agent bundles and an isolated bundle mirror. They cover upgrades,
+downgrades, restoration after a failed installation, automatic retries, target
+changes, process restarts, deferred joins, and deletion drains. The tests also
+check the agent version before kubeadm and reject TLS clients without an identity.
+Workers keep the version baked into the image.
+
+To include the fixtures in a local run, set
+`LOCAL_NVKE_E2E_NODE_AGENT_UPGRADE=true`. Use a separate checkout at
+`92a3039bae7a12d10244263bff80776d83c2fe72` for the image's old agent. Set
+`NODE_AGENT_REPO_PATH` to that checkout's `agent/` directory and
+`NODE_AGENT_VERSION=v0.1.990`. The fixtures for the desired versions use the
+current checkout. Choose unique names for the management cluster, node image,
+and BGP container:
+
+```bash
+KIND_CLUSTER_NAME=nvke-agent-upgrade-e2e \
+CAPD_NODE_IMAGE=nvke-agent-upgrade-node:local \
+CAPD_KINDEST_NODE_IMAGE=nvke-agent-upgrade-node:local \
+BGP_CONTAINER_NAME=nvke-agent-upgrade-bgp \
+NODE_AGENT_REPO_PATH=/path/to/baseline/agent \
+NODE_AGENT_VERSION=v0.1.990 \
+LOCAL_NVKE_E2E_NODE_AGENT_UPGRADE=true \
+LOCAL_NKE_E2E_LABEL_FILTER=node-agent-upgrade \
+PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=true \
+flox activate -- bash controller/hack/local-backend-e2e.sh
+```
+
+If the Docker host already runs, set `LOCAL_NVKE_E2E_REUSE_DOCKER_HOST=true`
+to reuse it without changing the host configuration. The test repairs only its
+private fixture artifact. It does not change a released bundle.
+
+## OIDC acceptance
+
+From `controller/`, run `make test-oidc-reference` to check NVKE's rendered
+authentication config and RBAC against the pinned envtest API server.
+`make test-oidc-acceptance-live` verifies authentication and provider snapshot
+preservation during control-plane joins through CAPD/Tilt; successful runs delete
+their management Kind cluster, and failed runs retain it and artifacts for
+inspection. After changing agent or bundle sources, remove the cached CAPD image
+and CNI packages from `controller/` before rerunning, and delete retained
+management clusters when finished:
+
+```bash
+docker rmi cwe-capd-kindest-node:oidc-acceptance-jointoken
+rm -rf .local/cni
+kind get clusters
+kind delete cluster --name "nke-oidc-live-<run_id>"
+```

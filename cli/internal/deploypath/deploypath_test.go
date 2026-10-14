@@ -155,7 +155,7 @@ func filledSiteSpec(t *testing.T, withCA bool, extra map[string]string) *sitespe
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, content := range map[string]string{"nico-token": "nico-secret", "registry-token": "registry-secret", "tenant-password": "tenant-secret", "ca.crt": "CERT", "ca.key": "KEY", "db-password": "db-secret"} {
+	for name, content := range map[string]string{"nico-token": "nico-secret", "tenant-password": "tenant-secret", "ca.crt": "CERT", "ca.key": "KEY", "db-password": "db-secret"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -163,7 +163,6 @@ func filledSiteSpec(t *testing.T, withCA bool, extra map[string]string) *sitespe
 	values := map[string]string{
 		"REPLACE_ARCH": "arm64", "REPLACE_NICO_ENDPOINT": "https://nico.example.com", "REPLACE_NICO_ORG_ID": "org-1",
 		"REPLACE_NICO_API_NAME": "forge", "REPLACE_NICO_TOKEN_PATH": "nico-token",
-		"REPLACE_REGISTRY_SERVER": "ghcr.io", "REPLACE_REGISTRY_USERNAME": "robot", "REPLACE_REGISTRY_TOKEN_PATH": "registry-token",
 		"REPLACE_TENANT_USER": "nvke", "REPLACE_TENANT_PASSWORD_PATH": "tenant-password", "REPLACE_DB_PASSWORD_PATH": "db-password",
 	}
 	for k, v := range extra {
@@ -173,10 +172,12 @@ func filledSiteSpec(t *testing.T, withCA bool, extra map[string]string) *sitespe
 	for placeholder, value := range values {
 		body = strings.ReplaceAll(body, placeholder, value)
 	}
+	// The trust domain is the bootstrap's; set here so the render does not default it.
+	body += "spire:\n  trustDomain: my-tier0-site.nke.local\n"
 	if withCA {
 		// The bootstrap resolves the CA paths from the working directory, so
 		// they are absolute here.
-		body += "spire:\n  caCertFile: " + filepath.Join(dir, "ca.crt") + "\n  caKeyFile: " + filepath.Join(dir, "ca.key") + "\n"
+		body += "  caCertFile: " + filepath.Join(dir, "ca.crt") + "\n  caKeyFile: " + filepath.Join(dir, "ca.key") + "\n"
 	}
 	path := filepath.Join(dir, "sitespec.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
@@ -242,14 +243,17 @@ func TestRender_FromSiteSpec(t *testing.T) {
 		}
 	}
 	vip := spec.Cluster.ControlPlaneVIP
-	td := spec.ClusterName + ".nke.local"
+	td := spec.Spire.TrustDomain
 	ctl := readValues(t, filepath.Join(out, "controller", SiteValuesFile))
 	if dig(ctl, "spiffe", "trustDomain") != td || dig(ctl, "spiffe", "spire", "serverAddress") != vip ||
-		dig(ctl, "nkeOIDCAuth", "discoveryURL") != "https://"+vip+":30443/.well-known/openid-configuration" {
+		dig(ctl, "nvkeOIDCAuth", "discoveryURL") != "https://"+vip+":30443/.well-known/openid-configuration" {
 		t.Errorf("controller values: %v", ctl)
 	}
 	if _, has := ctl["image"]; has {
 		t.Error("controller image set without an override")
+	}
+	if dig(ctl, "secrets", "createDbSecret") != true {
+		t.Error("the controller does not take its connection string from a Secret")
 	}
 	if dig(ctl, "profiles", "image", "tag") != "v1" || dig(ctl, "profiles", "image", "digest") != "" {
 		t.Errorf("profiles image: %v", ctl["profiles"])
@@ -341,7 +345,7 @@ func TestRender_FromSiteSpec(t *testing.T) {
 	// rendered Secret manifests; spire's values hold none. The tree ignores
 	// itself for git.
 	want := []string{"controller/site-values.yaml", "postgresql/site-values.yaml", "temporal/site-values.yaml"}
-	for _, f := range []string{"20-nico-credentials.yaml", "30-ghcr-imagepull.yaml", "35-dgxc-tenant-credentials.yaml"} {
+	for _, f := range []string{"20-nico-credentials.yaml", "35-dgxc-tenant-credentials.yaml"} {
 		want = append(want, "nvke-base-config/"+f)
 	}
 	if strings.Join(result.Credentials, " ") != strings.Join(want, " ") {
@@ -408,7 +412,8 @@ func TestRender_DatabasePassword(t *testing.T) {
 	spec := filledSiteSpec(t, false, map[string]string{"REPLACE_DB_PASSWORD_PATH": "state/db-password"})
 	path := spec.ResolvePath("state/db-password")
 	out := filepath.Join(t.TempDir(), "rendered")
-	result, err := Render(context.Background(), RenderOptions{AllowTempOut: true, DeployPath: nico, Site: spec, Out: out})
+	var log strings.Builder
+	_, err := Render(context.Background(), RenderOptions{AllowTempOut: true, DeployPath: nico, Site: spec, Out: out, Log: &log})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,8 +430,8 @@ func TestRender_DatabasePassword(t *testing.T) {
 		dig(tp, "server", "config", "persistence", "visibility", "sql", "password") != password {
 		t.Errorf("generated password %q is not the one in the values", password)
 	}
-	if !contains(result.Notes, "database password generated and written to "+path) {
-		t.Errorf("notes: %v", result.Notes)
+	if !strings.Contains(log.String(), "database password generated and written to "+path) {
+		t.Errorf("log:\n%s", log.String())
 	}
 	if _, err := os.Stat(filepath.Join(out, "db-password")); err == nil {
 		t.Error("the rendered tree holds a password copy")
@@ -546,6 +551,31 @@ func TestRender_SiteSpecRefusals(t *testing.T) {
 		if _, statErr := os.Stat(out); statErr == nil {
 			t.Errorf("%s: output left behind", name)
 		}
+	}
+	// A malformed helm release.yaml is reported once, and a deploy path missing
+	// one of the items the site values go to is refused.
+	malformed := filepath.Join(t.TempDir(), "nico")
+	if err := copyTree(nico, malformed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(malformed, "temporal", "release.yaml"), []byte("chart:\n  name: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Render(context.Background(), RenderOptions{AllowTempOut: true, DeployPath: malformed, Site: filledSiteSpec(t, false, nil), Out: filepath.Join(t.TempDir(), "r")})
+	if err == nil || strings.Count(err.Error(), "temporal/release.yaml") != 1 {
+		t.Errorf("malformed release.yaml should be reported once: %v", err)
+	}
+	withoutTemporal := filepath.Join(t.TempDir(), "nico")
+	if err := copyTree(nico, withoutTemporal); err != nil {
+		t.Fatal(err)
+	}
+	itemList, _ := os.ReadFile(filepath.Join(withoutTemporal, "nvke-deploy.yaml"))
+	if err := os.WriteFile(filepath.Join(withoutTemporal, "nvke-deploy.yaml"), []byte(strings.Replace(string(itemList), "  - {name: temporal, type: helm}\n", "", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Render(context.Background(), RenderOptions{AllowTempOut: true, DeployPath: withoutTemporal, Site: filledSiteSpec(t, false, nil), Out: filepath.Join(t.TempDir(), "r")})
+	if err == nil || !strings.Contains(err.Error(), "no temporal helm item") {
+		t.Errorf("missing consumer item: %v", err)
 	}
 	// A template item with no template is refused, and `..` is not an item name.
 	broken := filepath.Join(t.TempDir(), "nico")
@@ -726,6 +756,23 @@ func TestRender_ReleaseChartVersionWins(t *testing.T) {
 		if got := strings.Contains(log.String(), "warning: temporal"); got != (tc.warning != "") || (tc.warning != "" && !strings.Contains(log.String(), tc.warning)) {
 			t.Errorf("%s: log:\n%s", name, log.String())
 		}
+	}
+}
+
+func TestRender_TrustDomainDefaultsWithAWarning(t *testing.T) {
+	spec := filledSiteSpec(t, false, nil)
+	spec.Spire.TrustDomain = ""
+	out := filepath.Join(t.TempDir(), "r")
+	var log strings.Builder
+	if _, err := Render(context.Background(), RenderOptions{AllowTempOut: true, DeployPath: nico, Site: spec, Out: out, Log: &log}); err != nil {
+		t.Fatal(err)
+	}
+	env, _ := os.ReadFile(filepath.Join(out, "site.env"))
+	if !strings.Contains(string(env), "SITE_TRUST_DOMAIN=nvkectl-bootstrap.nke.local\n") {
+		t.Errorf("site.env:\n%s", env)
+	}
+	if !strings.Contains(log.String(), "warning: spire.trustDomain is not set; using nvkectl-bootstrap.nke.local") {
+		t.Errorf("no warning in the log:\n%s", log.String())
 	}
 }
 

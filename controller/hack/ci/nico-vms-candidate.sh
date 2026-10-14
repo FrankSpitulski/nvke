@@ -477,8 +477,9 @@ run_candidate_e2e() {
     --control-plane "kubeadm:$(make -C "${WORKSPACE_ROOT}" --no-print-directory print-CAPI_VERSION)"
   "${NVKECTL_BIN}" render deploy-path --deploy-path "${WORKSPACE_ROOT}/deploy/nico" --sitespec "${NKE_E2E_CANDIDATE_SITESPEC}" \
     --release "${NKE_E2E_CANDIDATE_RELEASE}" --nvkr-run-dir "${NKE_E2E_CANDIDATE_LAYOUT}" --arch linux/arm64 --out "${STATE_DIR}/rendered"
-  # Matching resource documents are provided by the product osprofiles-to-crs owner.
-  jq -n '{tenantAccess:{enabled:true},nkeOIDCAuth:{enabled:true},apiAuth:{enabled:true,configMap:{name:"nke-auth-config"}}}' >"${STATE_DIR}/controller-values.json"
+  # Matching MachineImage, ClusterRelease and NodePoolRelease resources are
+  # supplied by the caller for the current internal.nvke.nvidia.com/v1 API.
+  jq -n '{tenantAccess:{enabled:true},nvkeOIDCAuth:{enabled:true},apiAuth:{enabled:true,configMap:{name:"nke-auth-config"}}}' >"${STATE_DIR}/controller-values.json"
   candidate_kubectl apply --server-side -f "${CONTROLLER_ROOT}/deploy/k8s/nke-auth-dev.yaml"
   CTR="docker exec -i ${KIND_CLUSTER_NAME}-control-plane ctr" bash "${WORKSPACE_ROOT}/deploy/nvke-deploy.sh" install \
     --deploy-path "${STATE_DIR}/rendered" --kubeconfig "${E2E_KUBECONFIG}" --values-for "controller=${STATE_DIR}/controller-values.json" \

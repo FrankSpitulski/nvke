@@ -49,7 +49,7 @@ func newTestClusterService(logger *slog.Logger, mockDB *mockDB) clusterService {
 // useControlPlaneController.
 func newTestClusterServiceWithControlPlaneController(logger *slog.Logger, mockDB *mockDB, useControlPlaneController bool) clusterService {
 	nodePoolService := server.NewNodePoolService(logger, mockDB, config.TeleportConfig{}, nil, useControlPlaneController)
-	return server.NewClusterService(logger, mockDB, nodePoolService, config.TeleportConfig{}, false, nil, useControlPlaneController)
+	return server.NewClusterService(logger, mockDB, nodePoolService, config.TeleportConfig{}, false, nil, true, useControlPlaneController, "")
 }
 
 func discardLogger() *slog.Logger {
@@ -717,6 +717,8 @@ func TestClusterService_CreateClusterRejectsUnsupportedInfraProvider(t *testing.
 		false,
 		[]string{config.InfraProviderNico},
 		false,
+		false,
+		"",
 	)
 
 	resp, err := service.CreateCluster(context.Background(), api.CreateClusterRequestObject{
@@ -2116,6 +2118,8 @@ func TestClusterService_UpdateCluster_ControlPlaneConfig_RejectsUnsupportedProvi
 		false,
 		[]string{config.InfraProviderInfra},
 		false,
+		false,
+		"",
 	)
 
 	resp, err := svc.UpdateCluster(context.Background(), api.UpdateClusterRequestObject{
@@ -2184,8 +2188,60 @@ func baseNicoClusterCreateRequest() *api.CreateClusterRequest {
 	}
 }
 
+func TestValidateCreateClusterRequestFields_LegacyCalicoCreationGate(t *testing.T) {
+	tests := []struct {
+		name        string
+		cni         api.CreateClusterRequestCniPlugin
+		allowCalico bool
+		wantErr     string
+	}{
+		{name: "omitted CNI defaults to OVN"},
+		{name: "explicit OVN", cni: api.CreateClusterRequestCniPluginOvnKubernetes},
+		{
+			name:    "unknown CNI only advertises OVN",
+			cni:     "flannel",
+			wantErr: "invalid CNI plugin: flannel, valid plugins: [ovn-kubernetes]",
+		},
+		{
+			name:    "Calico disabled by default",
+			cni:     api.CreateClusterRequestCniPluginCalico,
+			wantErr: "calico cluster creation is disabled by this controller deployment; use ovn-kubernetes",
+		},
+		{name: "Calico enabled for legacy fleet", cni: api.CreateClusterRequestCniPluginCalico, allowCalico: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := server.NewClusterService(discardLogger(), nil, nil, config.TeleportConfig{}, false, nil, tt.allowCalico, false, "")
+			req := baseNicoClusterCreateRequest()
+			req.CniPlugin = tt.cni
+
+			err := svc.ValidateCreateClusterRequestFields(req)
+
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestClusterService_CreateClusterRejectsCalicoBeforeTransaction(t *testing.T) {
+	mockDB := &mockDB{}
+	svc := server.NewClusterService(discardLogger(), mockDB, nil, config.TeleportConfig{}, false, nil, false, false, "")
+
+	resp, err := svc.CreateCluster(context.Background(), api.CreateClusterRequestObject{Body: baseNicoClusterCreateRequest()})
+
+	require.NoError(t, err)
+	badRequest, ok := resp.(api.CreateCluster400JSONResponse)
+	require.True(t, ok, "expected CreateCluster400JSONResponse, got %T", resp)
+	assert.Equal(t, "calico cluster creation is disabled by this controller deployment; use ovn-kubernetes", badRequest.Message)
+	mockDB.AssertNotCalled(t, "RunInTx", mock.Anything, mock.Anything)
+}
+
 func TestValidateCreateClusterRequestFields_RejectsTaintsOnControlPlanePool(t *testing.T) {
-	svc := server.NewClusterService(discardLogger(), nil, nil, config.TeleportConfig{}, false, nil, false)
+	svc := server.NewClusterService(discardLogger(), nil, nil, config.TeleportConfig{}, false, nil, true, false, "")
 	req := baseNicoClusterCreateRequest()
 	(*req.NodePools)[0].NodeTaints = []api.NodeTaint{{
 		Key:    "dedicated",
@@ -2194,11 +2250,21 @@ func TestValidateCreateClusterRequestFields_RejectsTaintsOnControlPlanePool(t *t
 
 	err := svc.ValidateCreateClusterRequestFields(req)
 
-	require.EqualError(t, err, `invalid node pool "cp": nodeTaints are not allowed on a control-plane pool`)
+	require.EqualError(t, err, `invalid node pool "cp": nodeTaints: not allowed on a control-plane pool`)
+}
+
+func TestValidateCreateClusterRequestFields_RejectsReservedNodeLabel(t *testing.T) {
+	svc := server.NewClusterService(discardLogger(), nil, nil, config.TeleportConfig{}, false, nil, true, false, "")
+	req := baseNicoClusterCreateRequest()
+	(*req.NodePools)[0].NodeLabels = map[string]string{"kubernetes.io/hostname": "n1"}
+
+	err := svc.ValidateCreateClusterRequestFields(req)
+
+	require.EqualError(t, err, `invalid node pool "cp": nodeLabels: key "kubernetes.io/hostname" is under reserved domain "kubernetes.io"; labels in this domain cannot be set`)
 }
 
 func TestValidateCreateClusterRequestFields_RequiresExactlyOneProvider(t *testing.T) {
-	svc := server.NewClusterService(discardLogger(), nil, nil, config.TeleportConfig{}, false, nil, false)
+	svc := server.NewClusterService(discardLogger(), nil, nil, config.TeleportConfig{}, false, nil, false, false, "")
 
 	t.Run("neither provider", func(t *testing.T) {
 		req := baseNicoClusterCreateRequest()
@@ -2221,7 +2287,7 @@ func TestValidateCreateClusterRequestFields_RequiresExactlyOneProvider(t *testin
 // The Forge identity fields are required, and they are only reachable through
 // the nested nico payload.
 func TestValidateCreateClusterRequestFields_NicoIdentityFieldsRequired(t *testing.T) {
-	svc := server.NewClusterService(discardLogger(), nil, nil, config.TeleportConfig{}, false, nil, false)
+	svc := server.NewClusterService(discardLogger(), nil, nil, config.TeleportConfig{}, false, nil, false, false, "")
 
 	cases := []struct {
 		name    string
