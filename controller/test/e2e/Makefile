@@ -138,3 +138,12 @@ endif
 	docker save --platform linux/$(SITE_ARCH) -o "$(SITE_INPUTS)/capi-provisioned.tar" $(SITE_PROVISIONED_IMAGE)
 	docker save --platform linux/$(SITE_ARCH) -o "$(SITE_INPUTS)/profiles.tar" $(SITE_PROFILES_IMAGE)
 	@echo "site inputs in $(SITE_INPUTS); see the site: block in e2e-config-example.yaml"
+
+# The validation image (Dockerfile). The context is the repository root;
+# Dockerfile.dockerignore limits it to what the build reads.
+VALIDATE_IMAGE ?= nvke-validate:local
+VALIDATE_PLATFORM ?= linux/amd64
+
+.PHONY: validate-image
+validate-image: ## Build the site validation image into the local docker image store.
+	docker buildx build --platform $(VALIDATE_PLATFORM) --load -t $(VALIDATE_IMAGE) -f Dockerfile "$(REPO_ROOT)"
