@@ -29,6 +29,24 @@ type Inputs struct {
 	// SBOM for this artifact, verified by digest against the attested
 	// checksums. Nil means no SBOM was available.
 	SBOMPackages map[string]string
+	// Boot runs probes inside a booted throwaway copy of the image (the boot
+	// tier). Nil means the tier is not enabled: every method=boot check
+	// reports a visible skip.
+	Boot Prober
+}
+
+// ProbeResult is one command's outcome inside the booted image.
+type ProbeResult struct {
+	Stdout   string
+	ExitCode int
+}
+
+// Prober executes a command inside the booted image and reports its output
+// and exit code. A non-zero exit is data, not an error; the error return is
+// for transport failures only. Implemented by pkg/inspect/qemu; faked in
+// tests.
+type Prober interface {
+	Probe(ctx context.Context, command string) (ProbeResult, error)
 }
 
 // FileStat is the subset of stat facts checks assert on.
@@ -101,6 +119,9 @@ func (e *Engine) Run(ctx context.Context, reg *Registry, t Target, in Inputs) []
 		case def.Method == MethodGuestfs && in.FS == nil:
 			res.Status = StatusSkip
 			res.Evidence = "guestfs tier not enabled for this run"
+		case def.Method == MethodBoot && in.Boot == nil:
+			res.Status = StatusSkip
+			res.Evidence = "boot tier not enabled for this run"
 		case !ok:
 			res.Status = StatusError
 			res.Evidence = fmt.Sprintf("no implementation bound for %s", def.ID)

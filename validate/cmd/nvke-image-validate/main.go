@@ -16,9 +16,11 @@ import (
 
 	"github.com/dsx-ai-factory/nvke/validate/pkg/bundle"
 	"github.com/dsx-ai-factory/nvke/validate/pkg/checks"
+	"github.com/dsx-ai-factory/nvke/validate/pkg/checks/boot"
 	"github.com/dsx-ai-factory/nvke/validate/pkg/checks/imagefs"
 	"github.com/dsx-ai-factory/nvke/validate/pkg/checks/static"
 	"github.com/dsx-ai-factory/nvke/validate/pkg/inspect/guestfs"
+	"github.com/dsx-ai-factory/nvke/validate/pkg/inspect/qemu"
 	"github.com/dsx-ai-factory/nvke/validate/pkg/report"
 )
 
@@ -44,6 +46,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	arch := fs.String("target-arch", "", "Target architecture: amd64 | arm64")
 	ubuntu := fs.String("target-ubuntu", "", "Target Ubuntu release, e.g. 24.04.5")
 	inspect := fs.String("inspect", "auto", "guestfs inspection tier: auto (on when guestfish is on PATH) | on | off")
+	bootTier := fs.String("boot", "off", "boot tier (boots a throwaway copy under QEMU, minutes): on | off")
 	luksKeyFile := fs.String("luks-passphrase-file", "", "File holding the LUKS passphrase for FDE images (never pass the passphrase itself on the command line)")
 	format := fs.String("format", "text", "Output format: text | json")
 	if err := fs.Parse(args); err != nil {
@@ -148,6 +151,42 @@ func run(args []string, stdout, stderr *os.File) int {
 		}
 	}
 
+	var prober checks.Prober
+	switch *bootTier {
+	case "off":
+	case "on":
+		if !qemu.Available(*arch) {
+			fmt.Fprintf(stderr, "nvke-image-validate: --boot on needs qemu-system for %s plus cloud-localds or genisoimage\n", *arch)
+			return report.ExitError
+		}
+		workDir, err := os.MkdirTemp("", "nvke-validate-boot-*")
+		if err != nil {
+			fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
+			return report.ExitError
+		}
+		defer os.RemoveAll(workDir)
+		keyPath, pubKey, err := qemu.GenerateSSHKey(workDir)
+		if err != nil {
+			fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
+			return report.ExitError
+		}
+		seed, err := qemu.MakeSeed(workDir, "nvkeprobe", pubKey)
+		if err != nil {
+			fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
+			return report.ExitError
+		}
+		vm, err := qemu.Boot(context.Background(), *image, qemu.Options{Arch: *arch, SeedISO: seed, SSHKeyPath: keyPath})
+		if err != nil {
+			fmt.Fprintf(stderr, "nvke-image-validate: boot tier: %v\n", err)
+			return report.ExitError
+		}
+		defer vm.Close()
+		prober = vm
+	default:
+		fmt.Fprintf(stderr, "nvke-image-validate: unknown --boot %q\n", *bootTier)
+		return report.ExitError
+	}
+
 	target := checks.Target{
 		ImagePath: *image,
 		ImageName: *name,
@@ -155,13 +194,14 @@ func run(args []string, stdout, stderr *os.File) int {
 		Arch:      *arch,
 		Ubuntu:    *ubuntu,
 	}
-	impls := imagefs.Merge(static.Impls(), imagefs.Impls())
+	impls := imagefs.Merge(static.Impls(), imagefs.Impls(), boot.Impls())
 	results := checks.NewEngine(impls).Run(context.Background(), reg, target, checks.Inputs{
 		ImageSHA256:  digest,
 		Checksums:    sums,
 		Evidence:     evidence,
 		FS:           imgFS,
 		SBOMPackages: sbom,
+		Boot:         prober,
 	})
 	rep := report.New(reg, target, digest, results, time.Now())
 

@@ -101,3 +101,50 @@ checks:
       An artifact named fde that boots an unencrypted root silently voids the
       disk-encryption guarantee the variant name promises; the container's
       presence is the cheapest ship-state assertion of that promise.
+  - id: SPEC-001
+    family: spec
+    severity: blocking
+    method: boot
+    verifies: "The node agent unit (nvke-agent.service; nke-agent.service on pre-rename releases) is enabled, as systemd resolves it in the booted image."
+    why: >-
+      The node agent is how the management plane drives the node (SPEC.md
+      "nke-agent"); an image whose agent unit is not enabled produces a node
+      that boots and is never manageable.
+  - id: SPEC-002
+    family: spec
+    severity: blocking
+    method: boot
+    verifies: "spire-agent.service is enabled, as systemd resolves it in the booted image."
+    why: >-
+      The agent authenticates through SPIFFE mTLS; without the SPIRE agent
+      enabled the node has no workload identity and the nke-agent handshake
+      can never succeed (SPEC.md "SPIRE agent").
+  - id: SPEC-003
+    family: spec
+    severity: blocking
+    method: boot
+    verifies: "Unit ordering holds: the SPIRE configure unit before spire-agent before the node agent, in systemd's resolved graph (nvke-* names, or nke-* on pre-rename releases)."
+    why: >-
+      The first-boot renderer must write agent.conf before the SPIRE agent
+      starts, and the workload API must exist before nke-agent execs (SPEC.md
+      "Unit ordering"); drop-ins decide this, so only the resolved graph — not
+      unit files read off disk — answers it truthfully.
+  - id: SPEC-005
+    family: spec
+    severity: blocking
+    method: boot
+    verifies: "The conntrack tuning is live in the booted kernel: TIME_WAIT timeout 60s with nf_conntrack loaded."
+    why: >-
+      The files can be present and still not applied if boot ordering breaks
+      (SPEC.md "Conntrack limits" documents exactly that service/sysctl
+      sequencing); asking the kernel is the only honest assertion.
+  - id: FDE-002
+    family: fde
+    severity: blocking
+    method: boot
+    appliesTo: {variant: [fde]}
+    verifies: "luks-tpm-firstboot.service is enabled in the booted image."
+    why: >-
+      The deferred TPM bind is what removes the shared build-time passphrase
+      on real hardware (SPEC.md "TPM binding"); an fde image without it stays
+      on the published default passphrase forever.

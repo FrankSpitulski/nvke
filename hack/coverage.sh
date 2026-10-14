@@ -96,6 +96,7 @@ untested_packages() {
 		controller/nico-sim/test/integration/qemu	behind `-tags integration`; needs QEMU and a node image
 		management-engine/test/integration	behind `-tags integration_test`; run by `make test-nvke-controller-integration` against the local Kind stack
 		validate/pkg/inspect/guestfs	behind `-tags guestfs`; needs libguestfs and a Linux kernel — run by validate/hack/test-guestfs-container.sh locally and the nightly image lane in CI (the package's untagged parse tests still collect)
+		validate/pkg/inspect/qemu	behind `-tags boot`; boots a VM, needs QEMU + UEFI firmware — run by validate/hack/test-boot-container.sh locally and the nightly image lane in CI (the package's untagged option/arg tests still collect)
 	EOF
 }
 
