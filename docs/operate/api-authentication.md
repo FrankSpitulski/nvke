@@ -90,6 +90,8 @@ NVKE does no authorization. Every caller that NVKE admits can call every endpoin
    - `algorithms`: the algorithms from step 1 that you accept.
    - `admit.groups`: a token is admitted if its `groups` claim contains any listed group.
 
+   `issuers` is a list. Add another entry for a second IdP. `name` and `issuer` are unique in the file. Set `audiences` on an issuer to replace the top-level `audiences` for that issuer.
+
    NVKE uses each value exactly as written. A value with leading or trailing whitespace stops NVKE from starting.
 
 2. If the IdP's certificate is signed by a private certificate authority (CA), add the CA certificate to the same file. The chart places it at `/etc/nke/auth/idp-ca.crt`.
