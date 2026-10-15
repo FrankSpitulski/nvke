@@ -1,5 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+# Bind public RPCs to HTTP routes so the gateway and OpenAPI share one routing contract.
 type: google.api.Service
 config_version: 3
 http:

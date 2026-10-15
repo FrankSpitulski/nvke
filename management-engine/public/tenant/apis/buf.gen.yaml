@@ -1,5 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+# Generate clients, gateway handlers and OpenAPI from the same reviewed public contract.
 version: v2
 plugins:
   - local: protoc-gen-go
@@ -18,8 +20,9 @@ plugins:
     strategy: all
     opt:
       - allow_merge=true
-      - merge_file_name=cluster/v1/cluster
+      - merge_file_name=cluster/v1/openapi
+      - output_format=yaml
       - grpc_api_configuration=cluster/v1/gateway.yaml
       - json_names_for_fields=true
       - omit_enum_default_value=true
-      - openapi_configuration=cluster/v1/openapi.yaml
+      - openapi_configuration=cluster/v1/openapi-options.yaml

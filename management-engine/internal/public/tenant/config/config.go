@@ -119,7 +119,7 @@ func loadStorage(path string) (*rest.Config, error) {
 	storage.Timeout = limits.StorageTimeout
 	storage.QPS = 20
 	storage.Burst = 40
-	storage.UserAgent = "nke-public-api"
+	storage.UserAgent = "tenant-api"
 	return storage, nil
 }
 

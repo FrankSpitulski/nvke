@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+// Private create defaults fill required stored fields without adding them to the public input surface.
+// Provisioning rationale is documented in public/tenant/README.md under "Private create values".
+
 package main
 
 import (
@@ -12,7 +15,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
-// compileDefaults accounts only for explicit service-owned literals, not CRD defaults or CEL evaluation.
+// compileDefaults checks explicit private create values so every required stored field has a known source.
 func compileDefaults(
 	model *model,
 	defaults []defaultValue,

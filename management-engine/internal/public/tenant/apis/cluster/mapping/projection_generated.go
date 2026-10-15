@@ -125,8 +125,8 @@ func CreateSpecToInternal(in *clusterv1.CreateClusterSpec) (map[string]any, erro
 	if in.ClusterNetwork.Pods == nil {
 		return nil, required("spec.cluster_network.pods")
 	}
-	if len(in.ClusterNetwork.Pods.CidrBlocks) < 1 || len(in.ClusterNetwork.Pods.CidrBlocks) > 2 {
-		return nil, &FieldError{Field: "spec.cluster_network.pods.cidr_blocks", Description: "has invalid item count"}
+	if err := validateListSize(len(in.ClusterNetwork.Pods.CidrBlocks), "spec.cluster_network.pods.cidr_blocks", 1, 1); err != nil {
+		return nil, err
 	}
 	{
 		values := make([]any, len(in.ClusterNetwork.Pods.CidrBlocks))
@@ -143,8 +143,8 @@ func CreateSpecToInternal(in *clusterv1.CreateClusterSpec) (map[string]any, erro
 	if in.ClusterNetwork.Services == nil {
 		return nil, required("spec.cluster_network.services")
 	}
-	if len(in.ClusterNetwork.Services.CidrBlocks) < 1 || len(in.ClusterNetwork.Services.CidrBlocks) > 2 {
-		return nil, &FieldError{Field: "spec.cluster_network.services.cidr_blocks", Description: "has invalid item count"}
+	if err := validateListSize(len(in.ClusterNetwork.Services.CidrBlocks), "spec.cluster_network.services.cidr_blocks", 1, 1); err != nil {
+		return nil, err
 	}
 	{
 		values := make([]any, len(in.ClusterNetwork.Services.CidrBlocks))

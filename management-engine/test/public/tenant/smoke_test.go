@@ -62,7 +62,7 @@ func TestDeployedPublicAPI(t *testing.T) {
 
 	conditionState, conditionReason := metav1.ConditionUnknown, "ProvisioningNotConfigured"
 	publicState := clusterv1.ClusterStatus_STATE_UNKNOWN
-	publicReason := clusterv1.ClusterStatus_REASON_OBSERVATION_UNAVAILABLE
+	publicReason := clusterv1.ClusterStatus_REASON_STATUS_UNAVAILABLE
 	switch mode := requiredEnv(t, "PUBLIC_API_CONTROLLER_MODE"); mode {
 	case "unconfigured":
 	case "cwe":

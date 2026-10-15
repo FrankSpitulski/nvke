@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+// Compiler tests guard exposure decisions and reproducible public API generation.
+
 package main
 
 import (
@@ -17,6 +19,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// fixture loads the reviewed schema and exposure policy.
+// Tests mutate copies so their cases stay grounded in the real contract.
 func fixture(t *testing.T) ([]byte, []byte) {
 	t.Helper()
 	crd, err := os.ReadFile("../../config/crd/bases/internal.nvke.nvidia.com_nvkeclusters.yaml")
@@ -26,10 +30,14 @@ func fixture(t *testing.T) ([]byte, []byte) {
 	return crd, policy
 }
 
+// TestReviewedContractReproduces checks the committed generated artifacts.
+// This catches drift between reviewed inputs and delivered output.
 func TestReviewedContractReproduces(t *testing.T) {
 	require.NoError(t, run("../..", true, false))
 }
 
+// policyField finds a fixture field by its internal path.
+// Named lookup keeps mutation cases independent of policy ordering.
 func policyField(t *testing.T, p *policy, path string) *field {
 	t.Helper()
 	for i := range p.Fields {
@@ -41,6 +49,8 @@ func policyField(t *testing.T, p *policy, path string) *field {
 	return nil
 }
 
+// publicAccessDefault finds the fixture's private access default.
+// Tests can change this admission requirement without relying on its position.
 func publicAccessDefault(t *testing.T, p *policy) *defaultValue {
 	t.Helper()
 	const path = "apiServerAccess.publicAccessEnabled"
@@ -53,6 +63,8 @@ func publicAccessDefault(t *testing.T, p *policy) *defaultValue {
 	return nil
 }
 
+// TestPolicyFailsClosed rejects invalid exposure policies and normalizes valid ordering.
+// This prevents ambiguous policy input from widening or changing the generated API.
 func TestPolicyFailsClosed(t *testing.T) {
 	crd, data := fixture(t)
 	tests := []struct {
@@ -107,6 +119,21 @@ func TestPolicyFailsClosed(t *testing.T) {
 		{"writable default", "invalid, duplicate, or create-writable default path", func(_ *testing.T, p *policy) {
 			p.Defaults = append(p.Defaults, defaultValue{Path: "release.channel.name", Value: json.RawMessage(`"stable"`)})
 		}},
+		{"input policy on read-only field", "requires a writable operation", func(t *testing.T, p *policy) {
+			policyField(t, p, "clusterNetwork.pods.cidrBlocks").Access = []string{modeRead}
+		}},
+		{"input collection limit on scalar", "requires an array", func(t *testing.T, p *policy) {
+			policyField(t, p, "controlPlaneClass").Input = &inputPolicy{MaxItems: new(int64(1))}
+		}},
+		{"input weakens stored limit", "must narrow the stored bounds", func(t *testing.T, p *policy) {
+			policyField(t, p, "clusterNetwork.pods.cidrBlocks").Input.MaxItems = new(int64(3))
+		}},
+		{"input contradicts stored minimum", "must narrow the stored bounds", func(t *testing.T, p *policy) {
+			policyField(t, p, "clusterNetwork.pods.cidrBlocks").Input.MaxItems = new(int64(0))
+		}},
+		{"empty input policy", "input policy on controlPlaneClass is empty", func(t *testing.T, p *policy) {
+			policyField(t, p, "controlPlaneClass").Input = &inputPolicy{}
+		}},
 	}
 	baseline, err := compile(crd, data)
 	require.NoError(t, err)
@@ -142,13 +169,17 @@ func TestPolicyFailsClosed(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestUnreviewedSchemaShapesFailClosed rejects shapes with undefined mapping behavior.
+// Generated clients must not imply support for values or presence the service cannot preserve.
 func TestUnreviewedSchemaShapesFailClosed(t *testing.T) {
 	tests := map[string]apiextensionsv1.JSONSchemaProps{
-		"numeric":  {Type: "number"},
-		"nullable": {Type: "string", Nullable: true},
-		"union":    {Type: "string", OneOf: []apiextensionsv1.JSONSchemaProps{{Type: "string"}}},
-		"map":      {Type: "object", AdditionalProperties: &apiextensionsv1.JSONSchemaPropsOrBool{Allows: true}},
-		"enum":     {Type: "string", Enum: []apiextensionsv1.JSON{{Raw: []byte(`"one"`)}}},
+		"numeric":             {Type: "number"},
+		"nullable":            {Type: "string", Nullable: true},
+		"union":               {Type: "string", OneOf: []apiextensionsv1.JSONSchemaProps{{Type: "string"}}},
+		"map":                 {Type: "object", AdditionalProperties: &apiextensionsv1.JSONSchemaPropsOrBool{Allows: true}},
+		"enum":                {Type: "string", Enum: []apiextensionsv1.JSON{{Raw: []byte(`"one"`)}}},
+		"empty-only string":   {Type: "string", MaxLength: new(int64(0))},
+		"inconsistent bounds": {Type: "string", MinLength: new(int64(2)), MaxLength: new(int64(1))},
 		"list without topology": {Type: "array", Items: &apiextensionsv1.JSONSchemaPropsOrArray{
 			Schema: &apiextensionsv1.JSONSchemaProps{Type: "string"},
 		}},
@@ -215,6 +246,8 @@ func TestUnreviewedSchemaShapesFailClosed(t *testing.T) {
 	}
 }
 
+// TestPrivateSchemaGrowthDoesNotExpandProjection adds unselected schema fields.
+// Public artifacts must remain unchanged until exposure is explicitly reviewed.
 func TestPrivateSchemaGrowthDoesNotExpandProjection(t *testing.T) {
 	crdData, policyData := fixture(t)
 	before, err := compile(crdData, policyData)
@@ -222,7 +255,11 @@ func TestPrivateSchemaGrowthDoesNotExpandProjection(t *testing.T) {
 	var crd apiextensionsv1.CustomResourceDefinition
 	require.NoError(t, yaml.UnmarshalStrict(crdData, &crd))
 	spec := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"]
-	spec.Properties["privateNewField"] = apiextensionsv1.JSONSchemaProps{Type: "string"}
+	spec.Properties["privateNewField"] = apiextensionsv1.JSONSchemaProps{
+		Type: "string", Description: "PRIVATE-DESCRIPTION", MinLength: new(int64(7)),
+		Pattern: "PRIVATE-PATTERN", Default: &apiextensionsv1.JSON{Raw: []byte(`"PRIVATE-DEFAULT"`)},
+		XValidations: []apiextensionsv1.ValidationRule{{Rule: "self != 'PRIVATE-CEL'"}},
+	}
 	spec.Properties["privateOptionalObject"] = apiextensionsv1.JSONSchemaProps{
 		Type: "object", Required: []string{"requiredOnlyWhenPresent"},
 		Properties: map[string]apiextensionsv1.JSONSchemaProps{"requiredOnlyWhenPresent": {Type: "string"}},
@@ -246,6 +283,8 @@ func TestPrivateSchemaGrowthDoesNotExpandProjection(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestAncestorAdmissionDriftRequiresReview changes rules above exposed fields.
+// Those rules can alter accepted requests even when the selected fields are unchanged.
 func TestAncestorAdmissionDriftRequiresReview(t *testing.T) {
 	for _, ancestor := range []string{"resource", "spec"} {
 		t.Run(ancestor, func(t *testing.T) {
@@ -280,6 +319,8 @@ func TestAncestorAdmissionDriftRequiresReview(t *testing.T) {
 	}
 }
 
+// TestRequiredPrivateSiblingDriftRequiresReview adds required unexposed fields.
+// Generation must reject requests whose private requirements cannot be satisfied.
 func TestRequiredPrivateSiblingDriftRequiresReview(t *testing.T) {
 	for _, ancestor := range []string{"spec", "release", "apiServerAccess"} {
 		t.Run(ancestor, func(t *testing.T) {
@@ -305,6 +346,8 @@ func TestRequiredPrivateSiblingDriftRequiresReview(t *testing.T) {
 	}
 }
 
+// TestRegistryCompatibility distinguishes allowed additions from contract changes.
+// Updating the registry must not silently approve changes that break existing clients.
 func TestRegistryCompatibility(t *testing.T) {
 	crd, data := fixture(t)
 	baseline, err := compile(crd, data)
@@ -335,6 +378,14 @@ func TestRegistryCompatibility(t *testing.T) {
 		{name: "changed schema", diagnostic: "frozen v1 contract changed",
 			mutate: func(_ *testing.T, m *model, _ map[string]record) {
 				m.nodes[0].Schema.Nullable = true
+			}},
+		{name: "changed input narrowing", diagnostic: "frozen v1 contract changed",
+			mutate: func(_ *testing.T, m *model, _ map[string]record) {
+				for _, field := range m.nodes {
+					if field.Path == "clusterNetwork.pods.cidrBlocks" {
+						field.Input.MaxItems = new(int64(2))
+					}
+				}
 			}},
 		{name: "changed private default", diagnostic: "frozen v1 contract changed",
 			mutate: func(_ *testing.T, m *model, _ map[string]record) {
@@ -397,6 +448,8 @@ func TestRegistryCompatibility(t *testing.T) {
 	}
 }
 
+// TestCheckDoesNotWriteChangedArtifacts verifies that drift checking preserves files.
+// A failed check must leave the evidence available for review.
 func TestCheckDoesNotWriteChangedArtifacts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "artifact")
 	require.NoError(t, os.WriteFile(path, []byte("original"), 0o600))
@@ -406,6 +459,8 @@ func TestCheckDoesNotWriteChangedArtifacts(t *testing.T) {
 	require.Equal(t, "original", string(current))
 }
 
+// TestOptionalWritableListsFailClosed checks list exposure against presence requirements.
+// Writes must not confuse omitted lists with explicitly empty values.
 func TestOptionalWritableListsFailClosed(t *testing.T) {
 	crdData, policyData := fixture(t)
 	before, err := compile(crdData, policyData)
@@ -414,10 +469,11 @@ func TestOptionalWritableListsFailClosed(t *testing.T) {
 	require.NoError(t, err)
 	for _, minimum := range []int64{0, 1} {
 		for _, test := range []struct {
-			name     string
-			access   []string
-			required bool
-			reject   bool
+			name           string
+			access         []string
+			required       bool
+			reject         bool
+			readOnlyParent bool
 		}{
 			{name: "optional create", access: []string{modeCreate}, reject: true},
 			{name: "optional replace", access: []string{modeReplace}, reject: true},
@@ -426,12 +482,22 @@ func TestOptionalWritableListsFailClosed(t *testing.T) {
 			{name: "optional read", access: []string{modeRead}},
 			{name: "required create", access: []string{modeCreate}, required: true},
 			{name: "required create and replace", access: []string{modeCreate, modeReplace}, required: true},
+			{name: "required read", access: []string{modeRead}, required: true, readOnlyParent: true},
 		} {
 			t.Run(fmt.Sprintf("%s/minItems=%d", test.name, minimum), func(t *testing.T) {
 				var crd apiextensionsv1.CustomResourceDefinition
 				require.NoError(t, yaml.UnmarshalStrict(crdData, &crd))
 				spec := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"]
 				release := spec.Properties["release"]
+				parent, path := "release", "release.futureNames"
+				if test.readOnlyParent {
+					// A required read field can live under an optional read-only
+					// object without changing the fields public create must supply.
+					parent, path = "futureRead", "futureRead.futureNames"
+					release = apiextensionsv1.JSONSchemaProps{
+						Type: schemaObject, Properties: map[string]apiextensionsv1.JSONSchemaProps{},
+					}
+				}
 				atomic := "atomic"
 				release.Properties["futureNames"] = apiextensionsv1.JSONSchemaProps{
 					Type: schemaArray, XListType: &atomic, MinItems: &minimum,
@@ -440,18 +506,25 @@ func TestOptionalWritableListsFailClosed(t *testing.T) {
 				if test.required {
 					release.Required = append(release.Required, "futureNames")
 				}
-				spec.Properties["release"] = release
+				spec.Properties[parent] = release
 				crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"] = spec
 				changedCRD, err := yaml.Marshal(crd)
 				require.NoError(t, err)
 				var exposure policy
 				require.NoError(t, json.Unmarshal(policyData, &exposure))
-				exposure.Fields = append(exposure.Fields, field{Path: "release.futureNames", Tag: 2, Access: test.access})
+				if test.readOnlyParent {
+					exposure.Fields = append(exposure.Fields, field{Path: parent, Tag: 4, Access: test.access})
+				}
+				exposure.Fields = append(exposure.Fields, field{Path: path, Tag: 2, Access: test.access})
 				changedPolicy, err := json.Marshal(exposure)
 				require.NoError(t, err)
 				after, err := compile(changedCRD, changedPolicy)
 				if test.reject {
 					require.ErrorContains(t, err, "optional writable array release.futureNames requires explicit presence semantics")
+					return
+				}
+				if test.required && minimum == 0 {
+					require.ErrorContains(t, err, "required array "+path+" needs positive minItems to preserve presence")
 					return
 				}
 				require.NoError(t, err)
@@ -464,10 +537,22 @@ func TestOptionalWritableListsFailClosed(t *testing.T) {
 	}
 }
 
+// TestSnakeCaseAcronyms checks word boundaries around capital runs.
+// Public names must remain predictable without guessing boundaries between consecutive acronyms.
 func TestSnakeCaseAcronyms(t *testing.T) {
 	for internal, public := range map[string]string{
-		"vpcID": "vpc_id", "vpcSubnetID": "vpc_subnet_id", "cidrBlocks": "cidr_blocks",
-		"apiURLValue": "api_url_value", "ipv6CIDR": "ipv6_cidr", "name": "name",
+		"vpcID":                      "vpc_id",
+		"vpcSubnetID":                "vpc_subnet_id",
+		"cidrBlocks":                 "cidr_blocks",
+		"apiURLValue":                "api_url_value",
+		"ipv6CIDR":                   "ipv6_cidr",
+		"name":                       "name",
+		"publicAccessID":             "public_access_id",
+		"publicAccessIDValue":        "public_access_id_value",
+		"acronymPreservingCamelCase": "acronym_preserving_camel_case",
+		"ID":                         "id",
+		"IPAddress":                  "ip_address",
+		"publicHTTPAPIURL":           "public_httpapiurl",
 	} {
 		t.Run(internal, func(t *testing.T) { require.Equal(t, public, snake(internal)) })
 	}

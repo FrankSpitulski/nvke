@@ -20,6 +20,7 @@ const (
 	generatedDir = "public/tenant/gen/cluster/v1"
 )
 
+// main dispatches generation or verification from CLI flags and reports failures to calling scripts.
 func main() {
 	root := flag.String("root", ".", "management-engine module directory")
 	check := flag.Bool("check", false, "compare generated artifacts without writing")
@@ -38,6 +39,7 @@ func main() {
 	}
 }
 
+// run compiles policy, verifies compatibility and renders artifacts so generation uses one checked model.
 func run(root string, check, updateLock bool) error {
 	if check && updateLock {
 		return fmt.Errorf("check and update-lock are mutually exclusive")
@@ -79,6 +81,7 @@ func run(root string, check, updateLock bool) error {
 	return nil
 }
 
+// writeOutput writes an artifact or checks its existing bytes so CI can detect generated drift without edits.
 func writeOutput(path string, data []byte, check bool) error {
 	if check {
 		current, err := os.ReadFile(path) // #nosec G304 -- Compare the generator's own output path.
@@ -96,6 +99,7 @@ func writeOutput(path string, data []byte, check bool) error {
 	return nil
 }
 
+// verifyLock compares current records with the reviewed baseline to reject incompatible contract changes.
 func verifyLock(model *model, data []byte, update bool) ([]byte, error) {
 	previous := map[string]record{}
 	if len(data) > 0 {
@@ -143,6 +147,7 @@ func verifyLock(model *model, data []byte, update bool) ([]byte, error) {
 	return append(encoded, '\n'), nil
 }
 
+// equalJSON compares canonical JSON encodings so registry records can be checked across decoded Go types.
 func equalJSON(a, b any) bool {
 	left, leftErr := json.Marshal(a)
 	right, rightErr := json.Marshal(b)

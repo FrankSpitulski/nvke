@@ -24,12 +24,14 @@ The diagram shows the current MVP connections; platform ingress is not included.
 ```mermaid
 flowchart LR
     HTTP["HTTP clients"] <--> Gateway
-    GRPC["gRPC clients"] <--> Service
+    GRPC["gRPC clients"] <--> RPC
     subgraph API["tenant-api process"]
-        Gateway["Generated HTTP gateway"] <--> Service["Cluster service"]
+        Gateway["HTTP guards + generated gateway"] <-->|"gRPC client"| RPC["gRPC server + shared interceptors"]
+        RPC <--> Service["Cluster service: validation + public projection"]
     end
-    Service <-->|"Verified HTTPS"| Store[("Datastore Kubernetes API: NVKECluster")]
-    Controller["Existing controller"] <-->|"Watch, reconcile, write status"| Store
+    Service <-->|"Create, get, list, guarded merge patch over HTTPS"| Store[("Datastore Kubernetes API: NVKECluster")]
+    Store -.->|"Watch resources"| Controller["Existing controller"]
+    Controller -->|"Write status and lifecycle metadata"| Store
     Controller -->|"Provisioning when configured"| CWE["Cloud Workflow Engine"]
 ```
 
@@ -37,7 +39,9 @@ The [entrypoint](../../cmd/tenant/main.go) composes a
 [server shared by both transports](../../internal/public/tenant/server/server.go)
 and one [resource service](../../internal/public/tenant/apis/cluster/service.go).
 The service owns validation and persistence of permitted desired state. The
-controller owns reconciliation, provisioning, and status; the API
+generated gateway uses a gRPC client so both transports share the RPC enforcement
+path. This provides a common boundary for future caller authentication and
+authorization. The controller owns reconciliation, provisioning, and status; the API
 [projects stored observations](../../internal/public/tenant/apis/cluster/projection.go)
 into the public representation. Persistence does not establish workload readiness.
 

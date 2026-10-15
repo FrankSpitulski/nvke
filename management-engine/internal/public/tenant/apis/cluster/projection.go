@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+// Stored resources are projected into public fields and reviewed lifecycle values.
 package cluster
 
 import (
@@ -14,6 +15,7 @@ import (
 	clusterv1 "github.com/dsx-ai-factory/nvke/management-engine/public/tenant/gen/cluster/v1"
 )
 
+// result validates stored data before returning the public resource projection.
 func (s *Service) result(ctx context.Context, operation, name string, object *unstructured.Unstructured, err error) (*clusterv1.Cluster, error) {
 	if err != nil {
 		return nil, s.storageError(ctx, operation, name, err)
@@ -35,18 +37,19 @@ func (s *Service) result(ctx context.Context, operation, name string, object *un
 	}, nil
 }
 
+// projectStatus translates current observations without exposing private diagnostics.
 func projectStatus(object *unstructured.Unstructured) *clusterv1.ClusterStatus {
-	out := &clusterv1.ClusterStatus{State: clusterv1.ClusterStatus_STATE_PENDING, Reason: clusterv1.ClusterStatus_REASON_AWAITING_OBSERVATION}
+	out := &clusterv1.ClusterStatus{State: clusterv1.ClusterStatus_STATE_PENDING, Reason: clusterv1.ClusterStatus_REASON_AWAITING_STATUS}
 	ready := condition(object, internalv1.ReadyCondition)
 	if ready != nil {
 		out.ObservedGeneration = ready.ObservedGeneration
 	}
 	if object.GetDeletionTimestamp() != nil {
-		out.State, out.Reason = clusterv1.ClusterStatus_STATE_DELETING, clusterv1.ClusterStatus_REASON_DELETION_REQUESTED
+		out.State, out.Reason = clusterv1.ClusterStatus_STATE_DELETING, clusterv1.ClusterStatus_REASON_UNSPECIFIED
 		for _, kind := range []string{internalv1.ReadyCondition, internalv1.SyncedCondition} {
 			if observed := condition(object, kind); observed != nil && observed.ObservedGeneration == object.GetGeneration() &&
 				observed.Status == metav1.ConditionFalse && observed.Reason == "CreateOutcomeUnknown" {
-				out.Reason, out.ObservedGeneration = clusterv1.ClusterStatus_REASON_CLEANUP_BLOCKED, observed.ObservedGeneration
+				out.Reason, out.ObservedGeneration = clusterv1.ClusterStatus_REASON_DELETION_BLOCKED, observed.ObservedGeneration
 				break
 			}
 		}
@@ -57,9 +60,9 @@ func projectStatus(object *unstructured.Unstructured) *clusterv1.ClusterStatus {
 	}
 	switch ready.Status {
 	case metav1.ConditionTrue:
-		out.State, out.Reason = clusterv1.ClusterStatus_STATE_READY, clusterv1.ClusterStatus_REASON_RECONCILED
+		out.State, out.Reason = clusterv1.ClusterStatus_STATE_READY, clusterv1.ClusterStatus_REASON_UNSPECIFIED
 	case metav1.ConditionFalse:
-		out.Reason = clusterv1.ClusterStatus_REASON_RECONCILING
+		out.Reason = clusterv1.ClusterStatus_REASON_UNSPECIFIED
 		for _, kind := range []string{internalv1.SyncedCondition, internalv1.ControlPlaneReadyCondition} {
 			observed := condition(object, kind)
 			if observed == nil || observed.ObservedGeneration != object.GetGeneration() || observed.Status != metav1.ConditionFalse {
@@ -69,17 +72,20 @@ func projectStatus(object *unstructured.Unstructured) *clusterv1.ClusterStatus {
 				out.State, out.Reason = clusterv1.ClusterStatus_STATE_FAILED, reason
 				break
 			}
+			if observed.Reason == "Provisioning" {
+				out.Reason = clusterv1.ClusterStatus_REASON_PROVISIONING
+			}
 		}
 	default:
 		if ready.Status != metav1.ConditionUnknown || !awaitingInitialObservation(object, ready) {
-			out.State, out.Reason = clusterv1.ClusterStatus_STATE_UNKNOWN, clusterv1.ClusterStatus_REASON_OBSERVATION_UNAVAILABLE
+			out.State, out.Reason = clusterv1.ClusterStatus_STATE_UNKNOWN, clusterv1.ClusterStatus_REASON_STATUS_UNAVAILABLE
 		}
 	}
 	return out
 }
 
-// ReadyUnknown also describes operational failures, so only treat an empty
-// controller observation as pending. Never inspect private condition messages.
+// awaitingInitialObservation distinguishes initial pending state from unavailable status.
+// It checks structured conditions without inspecting private messages.
 func awaitingInitialObservation(object *unstructured.Unstructured, ready *metav1.Condition) bool {
 	if ready.Reason != "ReadyUnknown" && ready.Reason != "NotYetReported" {
 		return false
@@ -98,10 +104,11 @@ func awaitingInitialObservation(object *unstructured.Unstructured, ready *metav1
 	return true
 }
 
+// failureReason allows only reviewed failure categories into public responses.
 func failureReason(reason string) clusterv1.ClusterStatus_Reason {
 	switch reason {
 	case "CreateRejected":
-		return clusterv1.ClusterStatus_REASON_CREATE_REJECTED
+		return clusterv1.ClusterStatus_REASON_CREATION_REJECTED
 	case "UnsupportedConfiguration":
 		return clusterv1.ClusterStatus_REASON_UNSUPPORTED_CONFIGURATION
 	case "UnsupportedUpdate":
@@ -113,6 +120,7 @@ func failureReason(reason string) clusterv1.ClusterStatus_Reason {
 	}
 }
 
+// condition reads lifecycle evidence without exposing the internal status structure.
 func condition(object *unstructured.Unstructured, kind string) *metav1.Condition {
 	value, _, err := unstructured.NestedFieldNoCopy(object.Object, "status", "conditions")
 	conditions, ok := value.([]any)

@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+// Rendering shares one checked model across protobuf, mappings and field documentation to prevent contract drift.
+
 package main
 
 import (
@@ -18,35 +20,62 @@ const generatedHeader = "// SPDX-FileCopyrightText: Copyright (c) 2026 " +
 
 const publicImport = "github.com/dsx-ai-factory/nvke/management-engine/public/tenant/gen/cluster/v1"
 
+// render produces protobuf, mappings and reference docs from one model so their exposure decisions agree.
 func render(model *model) (map[string][]byte, error) {
 	var proto bytes.Buffer
 	proto.WriteString(generatedHeader)
-	fmt.Fprintf(&proto, "syntax = \"proto3\";\n\npackage cluster.v1;\n\noption go_package = %q;\n\n",
-		publicImport+";clusterv1")
+	fmt.Fprintf(&proto, `syntax = "proto3";
+
+package cluster.v1;
+
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = %q;
+
+`, publicImport+";clusterv1")
 	for _, mode := range []string{modeRead, modeCreate, modeReplace} {
 		renderMessage(&proto, model.root, mode)
 	}
 	var mapping bytes.Buffer
 	mapping.WriteString(generatedHeader)
-	fmt.Fprintf(&mapping, "package mapping\n\nimport (\n\"fmt\"\n\"regexp\"\n\nclusterv1 %q\n)\n\n", publicImport)
+	fmt.Fprintf(&mapping, `package mapping
+
+import (
+	"fmt"
+	"regexp"
+
+	clusterv1 %q
+)
+
+`, publicImport)
 	renderPatterns(&mapping, model)
 	renderProjection(&mapping, model.root)
 	renderInput(&mapping, model, modeCreate, "CreateSpecToInternal")
 	renderInput(&mapping, model, modeReplace, "replacementValues")
-	mapping.WriteString("// Replacement holds validated, caller-independent replacement values.\n" +
-		"type Replacement struct { values map[string]any }\n\n" +
-		"// PrepareReplacement validates and maps the public replacement exactly once.\n" +
-		"func PrepareReplacement(in *clusterv1.ReplaceClusterSpec) (*Replacement, error) {\n" +
-		"values, err := replacementValues(in); if err != nil { return nil, err }; " +
-		"return &Replacement{values: values}, nil\n}\n\n" +
-		"// Apply replaces writable fields in a caller-owned spec copy, retaining private siblings.\n" +
-		"func (r *Replacement) Apply(dst map[string]any) error {\n" +
-		"if r == nil || r.values == nil || dst == nil { " +
-		"return fmt.Errorf(\"replacement and destination spec are required\") };\n")
+	mapping.WriteString(`// Replacement holds validated, caller-independent replacement values.
+type Replacement struct { values map[string]any }
+
+// PrepareReplacement validates and maps the public replacement exactly once.
+func PrepareReplacement(in *clusterv1.ReplaceClusterSpec) (*Replacement, error) {
+	values, err := replacementValues(in)
+	if err != nil {
+		return nil, err
+	}
+	return &Replacement{values: values}, nil
+}
+
+// Apply replaces writable fields in a caller-owned spec copy, retaining private siblings.
+func (r *Replacement) Apply(dst map[string]any) error {
+	if r == nil || r.values == nil || dst == nil {
+		return fmt.Errorf("replacement and destination spec are required")
+	}
+`)
 	for _, field := range model.nodes {
 		if field.Schema.Type != schemaObject && slices.Contains(field.Access, modeReplace) {
-			fmt.Fprintf(&mapping, "if err := replaceValue(dst, r.values, %s); err != nil { return err };\n",
-				pathArgs(field.Path))
+			fmt.Fprintf(&mapping, `if err := replaceValue(dst, r.values, %s); err != nil {
+	return err
+}
+`, pathArgs(field.Path))
 		}
 	}
 	mapping.WriteString("return nil\n}\n")
@@ -61,6 +90,7 @@ func render(model *model) (map[string][]byte, error) {
 	}, nil
 }
 
+// messageName assigns stable per-operation type names so read, create and replace shapes remain separate.
 func messageName(entry *node, mode string) string {
 	if entry.Path == "" {
 		if mode == modeRead {
@@ -71,8 +101,10 @@ func messageName(entry *node, mode string) string {
 	return title(mode) + title(entry.Path)
 }
 
+// renderMessage emits approved fields and annotations for one operation so each message reflects its policy.
 func renderMessage(out *bytes.Buffer, entry *node, mode string) {
 	fmt.Fprintf(out, "message %s {\n", messageName(entry, mode))
+	renderRequiredFields(out, entry, mode)
 	for _, child := range entry.children {
 		if !slices.Contains(child.Access, mode) {
 			continue
@@ -84,12 +116,22 @@ func renderMessage(out *bytes.Buffer, entry *node, mode string) {
 		case schemaArray:
 			fieldType = "repeated string"
 		}
-		for line := range strings.SplitSeq(strings.TrimSpace(child.description), "\n") {
+		for line := range strings.SplitSeq(strings.TrimSpace(child.publicDescription(mode)), "\n") {
 			if line != "" {
 				fmt.Fprintf(out, "  // %s\n", line)
 			}
 		}
-		fmt.Fprintf(out, "  %s %s = %d [json_name = %q];\n", fieldType, child.Name, child.Tag, child.Name)
+		constraints := fieldConstraints(child.publicSchema(mode))
+		if len(constraints) == 0 {
+			fmt.Fprintf(out, "  %s %s = %d [json_name = %q];\n", fieldType, child.Name, child.Tag, child.Name)
+			continue
+		}
+		options := "{" + constraints[0] + "}"
+		if len(constraints) > 1 {
+			options = "{\n      " + strings.Join(constraints, "\n      ") + "\n    }"
+		}
+		fmt.Fprintf(out, "  %s %s = %d [\n    json_name = %q,\n    (%sopenapiv2_field) = %s\n  ];\n",
+			fieldType, child.Name, child.Tag, child.Name, openAPIOptions, options)
 	}
 	out.WriteString("}\n\n")
 	for _, child := range entry.children {
@@ -99,14 +141,17 @@ func renderMessage(out *bytes.Buffer, entry *node, mode string) {
 	}
 }
 
+// renderProjection emits the read entry point so stored specs can be projected through approved fields.
 func renderProjection(out *bytes.Buffer, root *node) {
-	out.WriteString("// ProjectSpec reads only approved public fields, preserving optional scalar presence.\n")
-	out.WriteString("func ProjectSpec(src map[string]any) (*clusterv1.ClusterSpec, error) {\n")
-	out.WriteString("out := &clusterv1.ClusterSpec{}\n")
+	out.WriteString(`// ProjectSpec reads only approved public fields, preserving optional scalar presence.
+func ProjectSpec(src map[string]any) (*clusterv1.ClusterSpec, error) {
+	out := &clusterv1.ClusterSpec{}
+`)
 	renderReadChildren(out, root, "out")
 	out.WriteString("return out, nil\n}\n\n")
 }
 
+// renderReadChildren emits reads for approved descendants while preserving absent optional objects.
 func renderReadChildren(out *bytes.Buffer, parent *node, target string) {
 	for _, child := range parent.children {
 		if !slices.Contains(child.Access, modeRead) {
@@ -114,9 +159,11 @@ func renderReadChildren(out *bytes.Buffer, parent *node, target string) {
 		}
 		field := target + "." + title(child.Name)
 		if child.Schema.Type == schemaObject {
-			fmt.Fprintf(out, "if found, err := hasObject(src, %s); err != nil { return nil, err } else if found {\n",
-				pathArgs(child.Path))
-			fmt.Fprintf(out, "%s = &clusterv1.%s{}\n", field, messageName(child, modeRead))
+			fmt.Fprintf(out, `if found, err := hasObject(src, %s); err != nil {
+	return nil, err
+} else if found {
+	%s = &clusterv1.%s{}
+`, pathArgs(child.Path), field, messageName(child, modeRead))
 			renderReadChildren(out, child, field)
 			out.WriteString("}\n")
 			continue
@@ -125,27 +172,43 @@ func renderReadChildren(out *bytes.Buffer, parent *node, target string) {
 		if child.Schema.Type == schemaArray {
 			reader = "readStrings"
 		}
-		fmt.Fprintf(out, "{ value, err := %s(src, %s); if err != nil { return nil, err }; %s = value }\n",
-			reader, pathArgs(child.Path), field)
+		fmt.Fprintf(out, `{
+	value, err := %s(src, %s)
+	if err != nil {
+		return nil, err
+	}
+	%s = value
+}
+`, reader, pathArgs(child.Path), field)
 	}
 }
 
+// renderInput emits a create or replace converter so validated public values become a stored spec fragment.
 func renderInput(out *bytes.Buffer, model *model, mode, function string) {
 	if mode == modeCreate {
 		out.WriteString("// CreateSpecToInternal validates public scalar constraints and maps approved create fields.\n")
 	}
 	fmt.Fprintf(out, "func %s(in *clusterv1.%s) (map[string]any, error) {\n", function, messageName(model.root, mode))
-	out.WriteString("if in == nil { return nil, required(\"spec\") }; out := map[string]any{}\n")
+	out.WriteString(`if in == nil {
+	return nil, required("spec")
+}
+out := map[string]any{}
+`)
 	renderInputChildren(out, model.root, mode, "in")
 	if mode == modeCreate {
+		// Defaults cannot overlap public create fields, so these assignments never override tenant input.
+		// See public/tenant/README.md under "Private create values" for the provisioning rationale.
 		for _, value := range model.defaults {
-			fmt.Fprintf(out, "if err := putValue(out, %s, %s); err != nil { return nil, err };\n",
-				value.Value, pathArgs(value.Path))
+			fmt.Fprintf(out, `if err := putValue(out, %s, %s); err != nil {
+	return nil, err
+}
+`, value.Value, pathArgs(value.Path))
 		}
 	}
 	out.WriteString("return out, nil\n}\n\n")
 }
 
+// renderInputChildren emits presence checks and assignments so each operation accepts only its exposed fields.
 func renderInputChildren(out *bytes.Buffer, parent *node, mode, target string) {
 	for _, child := range parent.children {
 		if !slices.Contains(child.Access, mode) {
@@ -153,11 +216,14 @@ func renderInputChildren(out *bytes.Buffer, parent *node, mode, target string) {
 		}
 		field := target + "." + title(child.Name)
 		if child.Schema.Type == schemaArray {
-			renderListInput(out, child, field)
+			renderListInput(out, child, mode, field)
 			continue
 		}
 		if child.Required {
-			fmt.Fprintf(out, "if %s == nil { return nil, required(%q) };\n", field, "spec."+publicPath(child.Path))
+			fmt.Fprintf(out, `if %s == nil {
+	return nil, required(%q)
+}
+`, field, "spec."+publicPath(child.Path))
 		} else {
 			fmt.Fprintf(out, "if %s != nil {\n", field)
 		}
@@ -165,7 +231,10 @@ func renderInputChildren(out *bytes.Buffer, parent *node, mode, target string) {
 			renderInputChildren(out, child, mode, field)
 		} else {
 			renderStringValidation(out, child, "*"+field, false)
-			fmt.Fprintf(out, "if err := putValue(out, *%s, %s); err != nil { return nil, err };\n", field, pathArgs(child.Path))
+			fmt.Fprintf(out, `if err := putValue(out, *%s, %s); err != nil {
+	return nil, err
+}
+`, field, pathArgs(child.Path))
 		}
 		if !child.Required {
 			out.WriteString("}\n")
@@ -173,26 +242,27 @@ func renderInputChildren(out *bytes.Buffer, parent *node, mode, target string) {
 	}
 }
 
-func renderListInput(out *bytes.Buffer, child *node, field string) {
-	minItems := bound(child.Schema.MinItems, 0)
-	maxItems := bound(child.Schema.MaxItems, -1)
-	var checks []string
-	if minItems > 0 {
-		checks = append(checks, fmt.Sprintf("len(%s) < %d", field, minItems))
-	}
-	if maxItems >= 0 {
-		checks = append(checks, fmt.Sprintf("len(%s) > %d", field, maxItems))
-	}
-	if len(checks) > 0 {
-		fmt.Fprintf(out, "if %s { return nil, &FieldError{Field: %q, Description: \"has invalid item count\"} };\n",
-			strings.Join(checks, " || "), "spec."+publicPath(child.Path))
-	}
-	fmt.Fprintf(out, "{ values := make([]any, len(%s)); for i, value := range %s {\n", field, field)
+// renderListInput emits bounds checks and copied items so accepted lists obey the operation-specific limits.
+func renderListInput(out *bytes.Buffer, child *node, mode, field string) {
+	schema := child.publicSchema(mode)
+	fmt.Fprintf(out, `if err := validateListSize(len(%s), %q, %d, %d); err != nil {
+	return nil, err
+}
+`, field, "spec."+publicPath(child.Path), bound(schema.MinItems, 0), bound(schema.MaxItems, -1))
+	fmt.Fprintf(out, `{
+	values := make([]any, len(%s))
+	for i, value := range %s {
+`, field, field)
 	renderStringValidation(out, child, "value", true)
-	out.WriteString("values[i] = value };\n")
-	fmt.Fprintf(out, "if err := putValue(out, values, %s); err != nil { return nil, err }; }\n", pathArgs(child.Path))
+	out.WriteString("values[i] = value\n}\n")
+	fmt.Fprintf(out, `if err := putValue(out, values, %s); err != nil {
+	return nil, err
+}
+}
+`, pathArgs(child.Path))
 }
 
+// renderStringValidation emits shared string checks with public paths so clients can locate invalid values.
 func renderStringValidation(out *bytes.Buffer, child *node, value string, item bool) {
 	schema := &child.Schema
 	if item {
@@ -206,12 +276,16 @@ func renderStringValidation(out *bytes.Buffer, child *node, value string, item b
 	if item {
 		path = "fmt.Sprintf(" + strconv.Quote("spec."+publicPath(child.Path)+"[%d]") + ", i)"
 	}
-	fmt.Fprintf(out, "if err := validateString(%s, %s, %d, %d, %s); err != nil { return nil, err };\n",
-		value, path, bound(schema.MinLength, 0), bound(schema.MaxLength, -1), pattern)
+	fmt.Fprintf(out, `if err := validateString(%s, %s, %d, %d, %s); err != nil {
+	return nil, err
+}
+`, value, path, bound(schema.MinLength, 0), bound(schema.MaxLength, -1), pattern)
 }
 
+// patternName derives a stable variable name from the public path so emitted checks can reuse compiled patterns.
 func patternName(child *node) string { return "pattern" + title(publicPath(child.Path)) }
 
+// renderPatterns emits each writable string pattern once so generated validation avoids repeated compilation.
 func renderPatterns(out *bytes.Buffer, model *model) {
 	for _, child := range model.nodes {
 		schema := &child.Schema
@@ -225,6 +299,7 @@ func renderPatterns(out *bytes.Buffer, model *model) {
 	out.WriteString("\n")
 }
 
+// bound resolves an optional limit with a fallback so missing bounds remain distinct from an explicit zero.
 func bound(value *int64, fallback int64) int64 {
 	if value == nil {
 		return fallback
@@ -232,6 +307,7 @@ func bound(value *int64, fallback int64) int64 {
 	return *value
 }
 
+// pathArgs quotes stored path segments as Go arguments so generated mapping calls preserve their boundaries.
 func pathArgs(path string) string {
 	parts := strings.Split(path, ".")
 	for i, part := range parts {
@@ -240,6 +316,7 @@ func pathArgs(path string) string {
 	return strings.Join(parts, ", ")
 }
 
+// publicPath converts every path segment to snake_case so validation errors use the public field vocabulary.
 func publicPath(path string) string {
 	parts := strings.Split(path, ".")
 	for i, part := range parts {

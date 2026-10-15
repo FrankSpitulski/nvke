@@ -1,72 +1,82 @@
 # Tenant API contract
 
-`cluster/v1` is the tenant workload-cluster projection. Its public resource
-name is `Cluster`; its storage resource is the internal `NVKECluster`. The generated
-Go client uses package alias `clusterv1`; the gRPC service is `cluster.v1.ClusterService`.
+`cluster/v1` defines the public `Cluster` representation of the internal
+[`NVKECluster`](../../apis/v1/nvkecluster_types.go). The generated Go package is
+`clusterv1`; the gRPC service is `cluster.v1.ClusterService`. The
+[application service](../../internal/public/tenant/apis/cluster/service.go)
+implements the contract using generated bindings and spec mappings. The
+[standalone deployment](../../config/api/README.md) runs independently of the controller.
 
-See the generated [field reference](gen/cluster/v1/FIELDS.md) and
-[OpenAPI 2.0 description](gen/cluster/v1/cluster.swagger.json) for exposed
-fields, routes, and schemas. The field reference includes CRD constraints;
-admission, strict JSON, and lifecycle rules are described below. For setup, see the
-[development guide](../../DEVELOPMENT.md#stateless-public-api-in-tilt) and
-[deployment guide](../../config/api/README.md).
+Hand off the generated [OpenAPI 2.0 document](gen/cluster/v1/openapi.yaml) to API
+consumers. This standalone YAML includes routes, nested schemas, required fields,
+constraints, and lifecycle descriptions; its references resolve within the file.
+The gateway generator retains some path/query limits only in descriptions;
+those limits and cross-field rules remain part of the contract.
+The generated [field reference](gen/cluster/v1/FIELDS.md) also lists spec exposure.
+
+## Contract and ownership
+
+[`cluster.proto`](apis/cluster/v1/cluster.proto) defines create, get, list, and
+replace operations, request/resource envelopes, pagination, and public status
+enums. Public field names are snake_case. Create and replace use separate spec
+types; their requests cannot set status or arbitrary Kubernetes metadata.
+`resource_version` carries an opaque datastore concurrency token; it is not the
+public API version.
+
+The [exposure policy](apis/cluster/v1/exposure.json) selects internal spec paths,
+protobuf tags, and `create`/`read`/`replace` access. Unselected fields stay private.
+Its `input` options can narrow writable list bounds and provide a public
+description; read projections retain the internal schema's bounds.
+These operations describe field representation, not caller authorization.
+The contract defines no org/project resource or caller-selected storage namespace.
+
+| Location | Ownership |
+| --- | --- |
+| `apis/cluster/v1/` | Maintained `cluster.proto`, exposure policy, HTTP/OpenAPI configuration, compatibility lock, and contract tests |
+| `apis/cluster/v1/spec.proto` | Generated intermediate protobuf schema imported by `cluster.proto` |
+| `gen/cluster/v1/` | Generated protobuf/gRPC/gateway Go, route metadata, OpenAPI, and field reference |
+| [`mapping`](../../internal/public/tenant/apis/cluster/mapping) | Generated private spec mappings, maintained helpers, and projection tests |
+
+The compiler in [`hack/public-api`](../../hack/public-api) derives spec types,
+requiredness, descriptions, and validation constraints from the
+[internal CRD](../../config/crd/bases/internal.nvke.nvidia.com_nvkeclusters.yaml).
+[`gateway.yaml`](apis/cluster/v1/gateway.yaml) defines HTTP bindings;
+[`openapi-options.yaml`](apis/cluster/v1/openapi-options.yaml) configures OpenAPI
+output. Generated HTTP route metadata is checked against the compiled protobuf
+descriptors.
+
+Generated files have ownership headers and must be regenerated rather than
+edited. For spec schema review, read [`spec.proto`](apis/cluster/v1/spec.proto).
+The escaped `rawDesc` constants in generated Go encode that schema for the
+protobuf runtime.
+
+Future operator contracts can use `public/operator` and
+`internal/public/operator`; extract shared definitions or helpers when both
+audiences need them.
+
+## Runtime integration decision
+
+The [server](../../internal/public/tenant/server/server.go) connects the generated
+HTTP gateway to its gRPC listener through a generated client. HTTP and native gRPC
+share RPC admission and interceptors, with each call counted once. HTTP parsing
+guards remain before the gateway. Tilt and standalone deployments use this same
+wiring in one process. Authentication and authorization are still deferred, and
+future identity verification must cover both transports.
 
 ## Access and JSON
 
-REST and gRPC use the same resource service for validation and persistence.
-Only the tenant API is registered. It serves one configured datastore namespace
-under explicit `--evaluation-no-auth`, without validating bearer tokens or
-deriving scope from claims. Requests cannot select an org, project, or datastore
-namespace through a path, query, or body field; no org/project resource is defined.
-The exposure policy restricts representation, not caller access.
+The MVP requires `--evaluation-no-auth` and serves one deployment-configured
+namespace. It has no caller authentication or authorization and must remain in a
+trusted evaluation environment. Future scope must come from verified identity
+and an authorized storage mapping, never unverified claims or caller-selected
+namespace headers. See the [deployment security boundary](../../config/api/README.md).
 
-Future caller scope must come from verified authentication context and an
-authorized mapping to storage. The DSX organization/project contract is not yet
-confirmed, so this API does not assume its resource hierarchy or claim names.
-Unverified token claims and caller-supplied scope headers must not select storage.
+HTTP accepts snake_case field names and rejects unknown fields, camelCase aliases,
+explicit nulls, duplicate keys and unsupported body/query forms. Requests are
+bounded by size, deadlines and shared RPC admission. Protobuf JSON represents
+`int64` generation values as decimal strings.
 
-All JSON names are snake_case, including names configured on the protobuf
-descriptors. CamelCase aliases and unknown fields are rejected. Runtime guards
-also reject nulls and unsupported body/query forms before the generated gateway.
-Standard protobuf JSON represents `int64` generation values as decimal strings.
-Opaque `resource_version` is always a string used for concurrency, not an API
-schema version. Requests are limited to 64 KiB; application requests and
-datastore operations are bounded by five seconds. List pages contain at most
-100 objects.
-
-## Status
-
-`status.state` and `status.reason` are output-only protobuf enums with generated
-client constants and OpenAPI values. JSON uses their `UPPER_SNAKE_CASE` symbols,
-for example:
-
-```json
-{
-  "state": "STATE_PENDING",
-  "reason": "REASON_AWAITING_OBSERVATION",
-  "observed_generation": "2"
-}
-```
-
-The service always returns a concrete state and reason. The zero
-`STATE_UNSPECIFIED` and `REASON_UNSPECIFIED` values are protobuf defaults, never
-service outputs. `STATE_UNKNOWN` means an operational condition prevents a
-current readiness observation; it is distinct from initial or stale observations,
-which remain `STATE_PENDING`. Deletion stays `STATE_DELETING`, including when
-`REASON_CLEANUP_BLOCKED` reports an unknown create outcome. Private controller
-messages and unreviewed reason strings are never copied into these fields.
-Create and replace request types have no status field.
-
-Regenerate clients from earlier MVP drafts: status wire types and request field
-numbers changed. Clients must handle unrecognized future enum values rather than
-treating them as readiness or success.
-Binary protobuf and numeric ProtoJSON preserve unknown enum numbers, but strict
-ProtoJSON readers reject unknown enum names. New output values therefore require
-client compatibility review; Buf checks alone do not ensure older JSON clients
-can consume them. The server uses standard symbolic enum JSON, without a custom
-translation layer.
-
-## Create
+## Resource operations
 
 Create supplies `name` and `spec`, for example:
 
@@ -84,27 +94,11 @@ Create supplies `name` and `spec`, for example:
 }
 ```
 
-Channel/class selections and networks must also satisfy the application service's
-current controller capabilities. They are illustrative values, not configured
-provider bindings. Public create accepts exactly one canonical IPv4 CIDR each
-for pods and services; the two ranges must not overlap. Generated descriptions
-from the internal CRD also mention broader shapes such as dual-stack networking,
-which this public version does not support.
-The exposure policy supplies the private create defaults `cluster.local` and
-disabled public access to the workload API server.
+The channel and class must resolve to configured provisioning selections.
+Create accepts one canonical IPv4 CIDR per network, with no overlap. Worker VPC
+and subnet selections remain private until the provisioning integration supports them.
 
-This version exposes the currently supported control-plane subset. Worker
-network selection (`spec.network.vpcID`) and node pools
-(`spec.nodePools[].vpcSubnetID`) exist in the internal CRD, but the current
-controller rejects them and the public projection does not expose them. VPCs
-and subnets must eventually reference infrastructure created by Launch Layer;
-pod/service CIDRs do not replace those references. Adding worker provisioning
-requires controller support and a separate public contract review.
-
-## Replace
-
-Replace supplies the exact resource version last read and the complete
-update-writable spec:
+Replace supplies the last `resource_version` and the complete writable spec:
 
 ```json
 {
@@ -116,86 +110,61 @@ update-writable spec:
 }
 ```
 
-Replace is allowed only before the controller records a provisioning checkpoint
-and while the cluster is not deleting. It cannot change `cluster_network`.
-Omitting optional channel `version` removes that value; internal siblings and
-create-only fields are retained. The service uses a merge patch with a
-`resource_version` precondition, not an arbitrary caller-supplied patch. Generated
-mapping does not enforce lifecycle or concurrency. Successful persistence does
-not establish controller reconciliation or readiness.
+Replacement is allowed before a provisioning checkpoint exists and while the
+cluster is not deleting. It preserves create-only and private fields. Omitting
+optional channel `version` removes it. The service sends a merge patch guarded
+by the stored resource version, so concurrent status or metadata changes also
+produce a conflict. Read the current resource before retrying.
 
-A stale `resource_version` returns gRPC `ABORTED` / HTTP 409. Read the current
-resource and reconsider the change before retrying. A duplicate create returns
-`ALREADY_EXISTS` / HTTP 409. Lifecycle restrictions return `FAILED_PRECONDITION`
-/ HTTP 400 through the standard gateway mapping; invalid input also returns
-HTTP 400, with gRPC code `INVALID_ARGUMENT`.
+Duplicate create and stale replacement return HTTP 409 (`ALREADY_EXISTS` and
+`ABORTED`). Invalid input and lifecycle restrictions return HTTP 400
+(`INVALID_ARGUMENT` and `FAILED_PRECONDITION`). Persistence does not establish
+provisioning success. GET and LIST project stored configuration and status,
+without waiting for reconciliation.
 
-## Generation and compatibility
+`status.state` describes the current lifecycle assessment. `status.reason` is
+omitted when no reviewed detail applies, including ordinary READY and DELETING
+states. `REASON_PROVISIONING` requires an explicit provisioning observation.
+Missing or stale observations remain PENDING, and unavailable readiness is
+UNKNOWN. Private diagnostics never become public reasons. `Cluster.uid` is stable for
+the resource lifetime and distinguishes a later resource created with the same name.
 
-The internal CRD schema in
-`config/crd/bases/internal.nvke.nvidia.com_nvkeclusters.yaml` supplies field types,
-requiredness, descriptions, and validation constraints. Handwritten
-[`apis/cluster/v1/exposure.json`](apis/cluster/v1/exposure.json) selects
-paths, protobuf tags, and `create`/`read`/`replace` access; unselected fields stay private.
-
-The tenant contract lives under `public/tenant`, separately from the internal
-Kubernetes types in [`apis/v1`](../../apis/v1). Ownership is explicit:
-
-| Location | Ownership |
-| --- | --- |
-| `apis/cluster/v1/` | Maintained `cluster.proto`, exposure policy, HTTP/OpenAPI configuration, compatibility lock, and contract tests |
-| `apis/cluster/v1/spec.proto` | Generated intermediate protobuf schema; its header marks it as generated |
-| `gen/cluster/v1/` | Generated protobuf/gRPC/gateway Go, route metadata, OpenAPI, and field reference; regenerate rather than edit |
-| `../../internal/public/tenant/apis/cluster/mapping/projection_generated.go` | Generated private mappings, colocated with the helpers they use |
-
-`cluster.proto` defines resource/request envelopes, pagination, service methods,
-and public status. `gateway.yaml` defines HTTP bindings; `openapi.yaml` configures
-OpenAPI output. HTTP route metadata is derived from the bindings and validated
-against the compiled descriptors. The generated `spec.proto` stays beside its
-importing contract; generated client/server bindings stay under `gen/`. All
-packages remain in the management-engine Go module.
-
-The entrypoint is `cmd/tenant`. Resource operations and their mappings live in
-`internal/public/tenant/apis/cluster`; configuration, limits, and server startup
-live alongside `apis` under `internal/public/tenant`. Integration tests live in
-`test/public/tenant`.
-
-Future operator contracts and implementation belong under `public/operator` and
-`internal/public/operator`, with an entrypoint in `cmd/operator`. Shared contract
-definitions belong in `public/apis`, their generated bindings in `public/gen`,
-and reusable server support in focused packages under `internal/public`.
-Generation tooling remains in `hack/public-api`; extract shared packages when
-both audiences need them.
+## Generate and test
 
 Change the internal Go types, maintained proto, or configuration and regenerate.
-For internal Go type changes, first [regenerate the CRD](../../DEVELOPMENT.md#build-and-tests).
-
+For internal type changes, first [regenerate the CRD](../../DEVELOPMENT.md#build-and-tests).
 From `management-engine`:
 
 ```sh
 make generate-public-api
-make check-public-api
+make test-public-contract test-unit
 ```
 
-Both targets install pinned local tools through `make public-api-tools`, then
-run generation, Buf formatting, and lint checks. Buf uses the repository-wide
-pin; protobuf and gateway plugins follow their runtime versions in `go.mod`.
-Two documented Buf lint exceptions allow methods to return the shared `Cluster`
-resource. The drift check compares a clean temporary output tree, including
-stale artifacts after source removal. Normal generation does not update the
-compatibility registry.
+`test-public-contract` runs `check-public-api` before testing the descriptors,
+compiler, and HTTP bindings. `test-unit` includes the mapping tests; `make test`
+includes both suites. `check-public-api` can also be run alone to verify drift.
 
-This initial MVP has no published public-contract baseline. `check-public-api`
-checks reproducibility and the exposure/CRD lock, but does not run historical
-`buf breaking` comparisons; `buf.yaml` only configures those rules. Regeneration
-alone does not establish compatibility with older clients. After the first
-reviewed contract lands, CI should compare against an immutable committed
-contract, then the latest published API tag once available. Keep envelope
-descriptor assertions until that gate covers them, and retain the lock and
-behavior tests for constraints that protobuf descriptors cannot express.
+Generation installs pinned local tools, checks Buf formatting/lint, and generates
+clients, gateway handlers, and OpenAPI. Buf uses the repository-wide pin; protobuf
+and gateway plugins follow their runtime versions in `go.mod`. Annotation schemas
+come from that same pinned gateway module in the temporary generation tree. The
+drift check compares a clean temporary output tree and detects stale artifacts.
+Normal generation does not update the compatibility registry.
 
-For a reviewed compatible additive field, update `exposure.json`, inspect the
-internal schema and operation semantics, then explicitly register it:
+## Compatibility
+
+This initial contract has no published baseline. `check-public-api` verifies
+reproducibility and the exposure/CRD lock; it does not run historical `buf breaking`
+comparisons. `buf.yaml` configures those rules for a future baseline check.
+Envelope descriptor assertions cover field numbers until that gate is available.
+
+[`wire-lock.json`](apis/cluster/v1/wire-lock.json) records selected paths, public
+names, tags, operations, requiredness, schema constraints, ancestor admission
+rules, and private create defaults. Removing or changing an entry requires a new
+public version. The replacement field set is frozen: adding a field would let an
+older replacement client remove its stored value by omission. New required create
+fields are also rejected. Reviewed read-only and optional create additions can
+be registered explicitly:
 
 ```sh
 make public-api-tools
@@ -203,40 +172,46 @@ bash hack/public-api/generate.sh --update-lock
 make check-public-api
 ```
 
-`wire-lock.json` records selected paths, public names, tags, operations,
-requiredness, schema constraints, and ancestor admission rules. It also freezes
-private create defaults and their constraints. Removing or changing a registered
-entry fails even with `--update-lock` and requires a new API version; tags cannot
-be reused within a message. Additions require review of JSON/client compatibility,
-controller behavior, and deployment policy beyond protobuf wire decoding.
+Additions still require JSON/client and operation-semantics review. In particular,
+strict ProtoJSON readers reject unknown enum names even though binary protobuf
+preserves unknown numeric enum values. New status values need compatibility review.
 
-The v1 replacement field set is frozen: adding a replacement field would let an
-older client silently remove its stored value by omission. Newly exposed required
-create fields are also rejected, including with `--update-lock`. Read-only and
-optional create additions may be registered after review. Evolving replacement
-semantics requires a new public version or a separately reviewed operation with
-explicit field selection.
+## Mapping boundary
 
-## Exposure compiler
+The compiler supports objects, strings, and atomic string lists. Parents must be
+selected before children, and children cannot gain operations their parent lacks.
+Required fields beneath populated objects need create exposure or an explicit
+private default. Unpopulated optional private objects are not inspected, and CRD
+defaults are not interpreted.
 
-An object must be selected before its children, and a child cannot gain an
-operation its parent lacks. Required fields beneath populated objects need
-public create exposure or an explicit private default. The compiler does not
-inspect unpopulated optional private objects or interpret CRD defaults.
+Writable objects require a required child exposed for the same operation, and
+writable lists must be required. These restrictions preserve presence despite
+protobuf's inability to distinguish an absent repeated field from an empty one.
+Optional read-only lists are supported. Unsupported selected schema shapes fail
+generation; internal schema growth never exposes fields automatically.
 
-The compiler intentionally supports only objects, strings and atomic string
-lists needed by this version. Each writable object must have a required child
-exposed for the same operation; child objects follow this rule too. This ensures
-the mapped fields preserve object presence. Private defaults do not satisfy this
-conservative restriction. Objects that could be empty require separately defined
-presence semantics before exposure. Writable lists must be required: repeated
-protobuf fields cannot preserve absent versus empty input, so optional writable
-lists fail generation until their presence semantics are defined. Optional
-read-only lists remain supported. Selected unsupported shapes fail generation;
-unknown schema fields are never exposed automatically. It derives scalar
-requiredness, length/pattern limits and list cardinality validation. CEL rules
-are retained in the compatibility record, but are not executed by the mapper:
-the service checks supported domain behavior and the datastore remains
-authoritative for admission. Collection membership semantics for richer lists,
-operator contracts, general schema interpretation and OpenAPI 3 generation are
-outside this version's generator.
+Mappings validate scalar constraints and list cardinality, project selected spec
+fields, and retain private/create-only fields during replacement. They do not
+enforce authentication, authorization, networking semantics, lifecycle, or
+optimistic concurrency. CEL rules are recorded for compatibility review but are
+not evaluated by mappings; the datastore remains authoritative for admission.
+
+### Private create values
+
+The [exposure policy](apis/cluster/v1/exposure.json) supplies required internal
+configuration that tenants cannot set at this time. The compiler rejects defaults
+on public create fields, so these assignments never override tenant input.
+
+| Stored field | Value | Rationale |
+| --- | --- | --- |
+| `apiServerAccess.publicAccessEnabled` | `false` | Public API-server access configuration is unsupported by the management-engine provisioning integration at this time. |
+| `clusterNetwork.serviceDomain` | `cluster.local` | Matches the DNS domain configured by CWE's kubeadm renderer. Custom service domains are unsupported at this time. |
+
+The [provisioning validation](../../controllers/nvkecluster_resolve.go) rejects
+public access and domains other than `cluster.local`. CWE selects that domain in
+its [defaults](../../../controller/internal/kubeadmconfig/render.go) and applies it
+to [kubeadm networking](../../../controller/internal/kubeadmconfig/init.go).
+An empty service domain is invalid under the [CRD](../../config/crd/bases/internal.nvke.nvidia.com_nvkeclusters.yaml).
+
+These are service-selected spec values, not observations of a provisioned cluster.
+They are excluded from tenant reads and writes. Replacement preserves stored values.

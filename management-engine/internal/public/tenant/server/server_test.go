@@ -26,6 +26,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 
@@ -38,6 +40,7 @@ type testService struct {
 	calls   atomic.Int32
 	bounded atomic.Bool
 	observe func(proto.Message)
+	rpc     atomic.Bool
 }
 
 func (s *testService) record(request proto.Message) {
@@ -51,6 +54,8 @@ func (s *testService) CreateCluster(ctx context.Context, request *clusterv1.Crea
 	s.record(request)
 	deadline, ok := ctx.Deadline()
 	s.bounded.Store(ok && time.Until(deadline) <= limits.RequestTimeout)
+	_, fromRPC := peer.FromContext(ctx)
+	s.rpc.Store(fromRPC)
 	return &clusterv1.Cluster{Name: request.GetName(), ResourceVersion: "12"}, nil
 }
 
@@ -126,6 +131,7 @@ func TestGatewayRejectsAmbiguousAndUnboundedRequests(t *testing.T) {
 			service := &testService{}
 			server, err := New(Addresses{}, service, func(context.Context) error { return nil })
 			require.NoError(t, err)
+			startGateway(t, server)
 			if test.method == "" {
 				test.method = http.MethodPost
 			}
@@ -275,10 +281,11 @@ func TestGatewayRoutesAndSerializesRequests(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			var received proto.Message
-			service := &testService{observe: func(request proto.Message) { received = request }}
+			received := make(chan proto.Message, 1)
+			service := &testService{observe: func(request proto.Message) { received <- request }}
 			server, err := New(Addresses{}, service, func(context.Context) error { return nil })
 			require.NoError(t, err)
+			startGateway(t, server)
 			request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
 			request.Header.Set("Content-Type", "application/json; charset=utf-8")
 			response := httptest.NewRecorder()
@@ -287,21 +294,56 @@ func TestGatewayRoutesAndSerializesRequests(t *testing.T) {
 			require.Contains(t, response.Body.String(), test.wantBody)
 			require.NotContains(t, response.Body.String(), "resourceVersion")
 			require.Equal(t, int32(1), service.calls.Load())
-			require.True(t, proto.Equal(test.wantRequest, received), "decoded request: got %v, want %v", received, test.wantRequest)
+			got := <-received
+			require.True(t, proto.Equal(test.wantRequest, got), "decoded request: got %v, want %v", got, test.wantRequest)
 			if test.method == http.MethodPost {
 				require.True(t, service.bounded.Load())
+				require.True(t, service.rpc.Load(), "HTTP must use the real RPC transport")
 			}
 		})
 	}
 }
 
+// TestAdmissionRejectsExcessWithoutCallingService proves both transports share one admission budget.
 func TestAdmissionRejectsExcessWithoutCallingService(t *testing.T) {
-	admission := make(chan struct{}, 1)
-	admission <- struct{}{}
-	handler := limitHTTP(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("called exhausted handler") }), admission, &atomic.Bool{})
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
-	require.Equal(t, http.StatusTooManyRequests, response.Code)
+	service := &testService{}
+	server, err := New(Addresses{}, service, func(context.Context) error { return nil })
+	require.NoError(t, err)
+	client := clusterv1.NewClusterServiceClient(startGateway(t, server))
+	for range maxConcurrent - 1 {
+		server.admission <- struct{}{}
+	}
+	for _, full := range []bool{false, true} {
+		if full {
+			server.admission <- struct{}{}
+		}
+		response := httptest.NewRecorder()
+		server.http.Handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/clusters/sample", nil))
+		ctx, cancel := context.WithTimeout(t.Context(), limits.RequestTimeout)
+		_, err := client.GetCluster(ctx, &clusterv1.GetClusterRequest{Name: "sample"})
+		cancel()
+		if full {
+			require.Equal(t, http.StatusTooManyRequests, response.Code)
+			require.Equal(t, codes.ResourceExhausted, status.Code(err))
+		} else {
+			require.Equal(t, http.StatusOK, response.Code, "HTTP must consume only the last available RPC slot")
+			require.NoError(t, err)
+		}
+		require.Equal(t, int32(2), service.calls.Load(), "rejected requests must not reach the service")
+	}
+}
+
+// startGateway connects the production gateway to a real RPC listener for transport tests.
+func startGateway(t *testing.T, server *Server) *grpc.ClientConn {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(server.grpc.Stop)
+	go func() { _ = server.grpc.Serve(listener) }()
+	connection, err := server.connectGateway(listener.Addr())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = connection.Close() })
+	return connection
 }
 
 func TestListenersReadinessAndGracefulStop(t *testing.T) {

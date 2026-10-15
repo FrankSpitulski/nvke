@@ -12,6 +12,7 @@
 package clusterv1
 
 import (
+	_ "github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2/options"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -32,7 +33,7 @@ type ClusterSpec struct {
 	Release *ReadRelease `protobuf:"bytes,1,opt,name=release,proto3" json:"release,omitempty"`
 	// ControlPlaneClass names the class that determines control-plane sizing and configuration.
 	ControlPlaneClass *string `protobuf:"bytes,2,opt,name=control_plane_class,proto3,oneof" json:"control_plane_class,omitempty"`
-	// ClusterNetwork describes the pod/service networks and cluster DNS domain.
+	// ClusterNetwork describes the pod and service networks.
 	ClusterNetwork *ReadClusterNetwork `protobuf:"bytes,3,opt,name=cluster_network,proto3" json:"cluster_network,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -340,7 +341,7 @@ type CreateClusterSpec struct {
 	Release *CreateRelease `protobuf:"bytes,1,opt,name=release,proto3" json:"release,omitempty"`
 	// ControlPlaneClass names the class that determines control-plane sizing and configuration.
 	ControlPlaneClass *string `protobuf:"bytes,2,opt,name=control_plane_class,proto3,oneof" json:"control_plane_class,omitempty"`
-	// ClusterNetwork describes the pod/service networks and cluster DNS domain.
+	// ClusterNetwork describes the pod and service networks.
 	ClusterNetwork *CreateClusterNetwork `protobuf:"bytes,3,opt,name=cluster_network,proto3" json:"cluster_network,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -552,8 +553,7 @@ func (x *CreateClusterNetwork) GetServices() *CreateClusterNetworkServices {
 
 type CreateClusterNetworkPods struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// CIDRBlocks contains one address range, or one IPv4 and one IPv6 range for dual-stack.
-	// The first range selects the default IP family.
+	// Exactly one canonical IPv4 CIDR for pods. The pod and service ranges must not overlap.
 	CidrBlocks    []string `protobuf:"bytes,1,rep,name=cidr_blocks,proto3" json:"cidr_blocks,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -598,8 +598,7 @@ func (x *CreateClusterNetworkPods) GetCidrBlocks() []string {
 
 type CreateClusterNetworkServices struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// CIDRBlocks contains one address range, or one IPv4 and one IPv6 range for dual-stack.
-	// The first range selects the default IP family.
+	// Exactly one canonical IPv4 CIDR for services. The pod and service ranges must not overlap.
 	CidrBlocks    []string `protobuf:"bytes,1,rep,name=cidr_blocks,proto3" json:"cidr_blocks,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -800,56 +799,74 @@ var File_cluster_v1_spec_proto protoreflect.FileDescriptor
 const file_cluster_v1_spec_proto_rawDesc = "" +
 	"\n" +
 	"\x15cluster/v1/spec.proto\x12\n" +
-	"cluster.v1\"\xd9\x01\n" +
+	"cluster.v1\x1a.protoc-gen-openapiv2/options/annotations.proto\"\xe2\x02\n" +
 	"\vClusterSpec\x121\n" +
-	"\arelease\x18\x01 \x01(\v2\x17.cluster.v1.ReadReleaseR\arelease\x125\n" +
-	"\x13control_plane_class\x18\x02 \x01(\tH\x00R\x13control_plane_class\x88\x01\x01\x12H\n" +
-	"\x0fcluster_network\x18\x03 \x01(\v2\x1e.cluster.v1.ReadClusterNetworkR\x0fcluster_networkB\x16\n" +
-	"\x14_control_plane_class\"G\n" +
+	"\arelease\x18\x01 \x01(\v2\x17.cluster.v1.ReadReleaseR\arelease\x12\x84\x01\n" +
+	"\x13control_plane_class\x18\x02 \x01(\tBM\x92AJx\xfd\x01\x80\x01\x01\x8a\x01A^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$H\x00R\x13control_plane_class\x88\x01\x01\x12H\n" +
+	"\x0fcluster_network\x18\x03 \x01(\v2\x1e.cluster.v1.ReadClusterNetworkR\x0fcluster_network:7\x92A4\n" +
+	"2\xd2\x01\arelease\xd2\x01\x13control_plane_class\xd2\x01\x0fcluster_networkB\x16\n" +
+	"\x14_control_plane_class\"X\n" +
 	"\vReadRelease\x128\n" +
-	"\achannel\x18\x01 \x01(\v2\x1e.cluster.v1.ReadReleaseChannelR\achannel\"a\n" +
-	"\x12ReadReleaseChannel\x12\x17\n" +
-	"\x04name\x18\x01 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1d\n" +
-	"\aversion\x18\x02 \x01(\tH\x01R\aversion\x88\x01\x01B\a\n" +
+	"\achannel\x18\x01 \x01(\v2\x1e.cluster.v1.ReadReleaseChannelR\achannel:\x0f\x92A\f\n" +
+	"\n" +
+	"\xd2\x01\achannel\"\xc9\x01\n" +
+	"\x12ReadReleaseChannel\x12f\n" +
+	"\x04name\x18\x01 \x01(\tBM\x92AJx\xfd\x01\x80\x01\x01\x8a\x01A^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$H\x00R\x04name\x88\x01\x01\x12(\n" +
+	"\aversion\x18\x02 \x01(\tB\t\x92A\x06x\x80\x01\x80\x01\x01H\x01R\aversion\x88\x01\x01:\f\x92A\t\n" +
+	"\a\xd2\x01\x04nameB\a\n" +
 	"\x05_nameB\n" +
 	"\n" +
-	"\b_version\"\x90\x01\n" +
+	"\b_version\"\xa9\x01\n" +
 	"\x12ReadClusterNetwork\x126\n" +
 	"\x04pods\x18\x01 \x01(\v2\".cluster.v1.ReadClusterNetworkPodsR\x04pods\x12B\n" +
-	"\bservices\x18\x02 \x01(\v2&.cluster.v1.ReadClusterNetworkServicesR\bservices\":\n" +
-	"\x16ReadClusterNetworkPods\x12 \n" +
-	"\vcidr_blocks\x18\x01 \x03(\tR\vcidr_blocks\">\n" +
-	"\x1aReadClusterNetworkServices\x12 \n" +
-	"\vcidr_blocks\x18\x01 \x03(\tR\vcidr_blocks\"\xe3\x01\n" +
+	"\bservices\x18\x02 \x01(\v2&.cluster.v1.ReadClusterNetworkServicesR\bservices:\x17\x92A\x14\n" +
+	"\x12\xd2\x01\x04pods\xd2\x01\bservices\"\\\n" +
+	"\x16ReadClusterNetworkPods\x12-\n" +
+	"\vcidr_blocks\x18\x01 \x03(\tB\v\x92A\bx1\xa0\x01\x02\xa8\x01\x01R\vcidr_blocks:\x13\x92A\x10\n" +
+	"\x0e\xd2\x01\vcidr_blocks\"`\n" +
+	"\x1aReadClusterNetworkServices\x12-\n" +
+	"\vcidr_blocks\x18\x01 \x03(\tB\v\x92A\bx1\xa0\x01\x02\xa8\x01\x01R\vcidr_blocks:\x13\x92A\x10\n" +
+	"\x0e\xd2\x01\vcidr_blocks\"\xec\x02\n" +
 	"\x11CreateClusterSpec\x123\n" +
-	"\arelease\x18\x01 \x01(\v2\x19.cluster.v1.CreateReleaseR\arelease\x125\n" +
-	"\x13control_plane_class\x18\x02 \x01(\tH\x00R\x13control_plane_class\x88\x01\x01\x12J\n" +
-	"\x0fcluster_network\x18\x03 \x01(\v2 .cluster.v1.CreateClusterNetworkR\x0fcluster_networkB\x16\n" +
-	"\x14_control_plane_class\"K\n" +
+	"\arelease\x18\x01 \x01(\v2\x19.cluster.v1.CreateReleaseR\arelease\x12\x84\x01\n" +
+	"\x13control_plane_class\x18\x02 \x01(\tBM\x92AJx\xfd\x01\x80\x01\x01\x8a\x01A^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$H\x00R\x13control_plane_class\x88\x01\x01\x12J\n" +
+	"\x0fcluster_network\x18\x03 \x01(\v2 .cluster.v1.CreateClusterNetworkR\x0fcluster_network:7\x92A4\n" +
+	"2\xd2\x01\arelease\xd2\x01\x13control_plane_class\xd2\x01\x0fcluster_networkB\x16\n" +
+	"\x14_control_plane_class\"\\\n" +
 	"\rCreateRelease\x12:\n" +
-	"\achannel\x18\x01 \x01(\v2 .cluster.v1.CreateReleaseChannelR\achannel\"c\n" +
-	"\x14CreateReleaseChannel\x12\x17\n" +
-	"\x04name\x18\x01 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1d\n" +
-	"\aversion\x18\x02 \x01(\tH\x01R\aversion\x88\x01\x01B\a\n" +
+	"\achannel\x18\x01 \x01(\v2 .cluster.v1.CreateReleaseChannelR\achannel:\x0f\x92A\f\n" +
+	"\n" +
+	"\xd2\x01\achannel\"\xcb\x01\n" +
+	"\x14CreateReleaseChannel\x12f\n" +
+	"\x04name\x18\x01 \x01(\tBM\x92AJx\xfd\x01\x80\x01\x01\x8a\x01A^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$H\x00R\x04name\x88\x01\x01\x12(\n" +
+	"\aversion\x18\x02 \x01(\tB\t\x92A\x06x\x80\x01\x80\x01\x01H\x01R\aversion\x88\x01\x01:\f\x92A\t\n" +
+	"\a\xd2\x01\x04nameB\a\n" +
 	"\x05_nameB\n" +
 	"\n" +
-	"\b_version\"\x96\x01\n" +
+	"\b_version\"\xaf\x01\n" +
 	"\x14CreateClusterNetwork\x128\n" +
 	"\x04pods\x18\x01 \x01(\v2$.cluster.v1.CreateClusterNetworkPodsR\x04pods\x12D\n" +
-	"\bservices\x18\x02 \x01(\v2(.cluster.v1.CreateClusterNetworkServicesR\bservices\"<\n" +
-	"\x18CreateClusterNetworkPods\x12 \n" +
-	"\vcidr_blocks\x18\x01 \x03(\tR\vcidr_blocks\"@\n" +
-	"\x1cCreateClusterNetworkServices\x12 \n" +
-	"\vcidr_blocks\x18\x01 \x03(\tR\vcidr_blocks\"\x99\x01\n" +
+	"\bservices\x18\x02 \x01(\v2(.cluster.v1.CreateClusterNetworkServicesR\bservices:\x17\x92A\x14\n" +
+	"\x12\xd2\x01\x04pods\xd2\x01\bservices\"^\n" +
+	"\x18CreateClusterNetworkPods\x12-\n" +
+	"\vcidr_blocks\x18\x01 \x03(\tB\v\x92A\bx1\xa0\x01\x01\xa8\x01\x01R\vcidr_blocks:\x13\x92A\x10\n" +
+	"\x0e\xd2\x01\vcidr_blocks\"b\n" +
+	"\x1cCreateClusterNetworkServices\x12-\n" +
+	"\vcidr_blocks\x18\x01 \x03(\tB\v\x92A\bx1\xa0\x01\x01\xa8\x01\x01R\vcidr_blocks:\x13\x92A\x10\n" +
+	"\x0e\xd2\x01\vcidr_blocks\"\x90\x02\n" +
 	"\x12ReplaceClusterSpec\x124\n" +
-	"\arelease\x18\x01 \x01(\v2\x1a.cluster.v1.ReplaceReleaseR\arelease\x125\n" +
-	"\x13control_plane_class\x18\x02 \x01(\tH\x00R\x13control_plane_class\x88\x01\x01B\x16\n" +
-	"\x14_control_plane_class\"M\n" +
+	"\arelease\x18\x01 \x01(\v2\x1a.cluster.v1.ReplaceReleaseR\arelease\x12\x84\x01\n" +
+	"\x13control_plane_class\x18\x02 \x01(\tBM\x92AJx\xfd\x01\x80\x01\x01\x8a\x01A^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$H\x00R\x13control_plane_class\x88\x01\x01:%\x92A\"\n" +
+	" \xd2\x01\arelease\xd2\x01\x13control_plane_classB\x16\n" +
+	"\x14_control_plane_class\"^\n" +
 	"\x0eReplaceRelease\x12;\n" +
-	"\achannel\x18\x01 \x01(\v2!.cluster.v1.ReplaceReleaseChannelR\achannel\"d\n" +
-	"\x15ReplaceReleaseChannel\x12\x17\n" +
-	"\x04name\x18\x01 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1d\n" +
-	"\aversion\x18\x02 \x01(\tH\x01R\aversion\x88\x01\x01B\a\n" +
+	"\achannel\x18\x01 \x01(\v2!.cluster.v1.ReplaceReleaseChannelR\achannel:\x0f\x92A\f\n" +
+	"\n" +
+	"\xd2\x01\achannel\"\xcc\x01\n" +
+	"\x15ReplaceReleaseChannel\x12f\n" +
+	"\x04name\x18\x01 \x01(\tBM\x92AJx\xfd\x01\x80\x01\x01\x8a\x01A^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$H\x00R\x04name\x88\x01\x01\x12(\n" +
+	"\aversion\x18\x02 \x01(\tB\t\x92A\x06x\x80\x01\x80\x01\x01H\x01R\aversion\x88\x01\x01:\f\x92A\t\n" +
+	"\a\xd2\x01\x04nameB\a\n" +
 	"\x05_nameB\n" +
 	"\n" +
 	"\b_versionBYZWgithub.com/dsx-ai-factory/nvke/management-engine/public/tenant/gen/cluster/v1;clusterv1b\x06proto3"

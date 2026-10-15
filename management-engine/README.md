@@ -14,6 +14,7 @@ types, generated CRDs, controller-manager runtime, and stateless tenant API.
 | `controllers` | Reconcilers |
 | `cmd/tenant`, `internal/public/tenant` | Independent stateless tenant API |
 | [`public/tenant`](public/tenant/README.md) | Tenant contract inputs in `apis/`; generated clients and references in `gen/` |
+| `hack/public-api`, `internal/public/tenant/apis/cluster/mapping` | Exposure compiler and generated spec mappings with their helpers |
 | [`config/api`](config/api/README.md) | Portable API host/datastore manifests and security boundary |
 
 See [architecture decision records](docs/adrs/) for architectural choices and

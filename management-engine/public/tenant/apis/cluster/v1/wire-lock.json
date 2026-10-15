@@ -117,6 +117,9 @@
       "create",
       "read"
     ],
+    "input": {
+      "max_items": 1
+    },
     "name": "cidr_blocks",
     "required": true,
     "schema": {
@@ -169,6 +172,9 @@
       "create",
       "read"
     ],
+    "input": {
+      "max_items": 1
+    },
     "name": "cidr_blocks",
     "required": true,
     "schema": {

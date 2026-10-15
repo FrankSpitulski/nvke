@@ -18,6 +18,7 @@ import (
 	"golang.org/x/net/netutil"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/tap"
@@ -47,6 +48,10 @@ type Server struct {
 	grpc      *grpc.Server
 	health    *http.Server
 	draining  atomic.Bool
+	// Gateway routes bind after the RPC listener has its final address.
+	gateway *runtime.ServeMux
+	// Both transports consume the same budget at RPC admission.
+	admission chan struct{}
 }
 
 // New registers one tenant implementation on both transports. Ready checks storage.
@@ -54,8 +59,7 @@ func New(addresses Addresses, service clusterv1.ClusterServiceServer, ready func
 	if service == nil || ready == nil {
 		return nil, fmt.Errorf("cluster service and readiness check are required")
 	}
-	s := &Server{addresses: addresses}
-	admission := make(chan struct{}, maxConcurrent)
+	s := &Server{addresses: addresses, admission: make(chan struct{}, maxConcurrent)}
 	gateway := runtime.NewServeMux(
 		runtime.WithDisableHTTPMethodOverride(),
 		runtime.WithDisablePathLengthFallback(),
@@ -63,9 +67,6 @@ func New(addresses Addresses, service clusterv1.ClusterServiceServer, ready func
 			UseProtoNames: true, DiscardUnknown: false,
 		}}),
 	)
-	if err := clusterv1.RegisterClusterServiceHandlerServer(context.Background(), gateway, service); err != nil {
-		return nil, fmt.Errorf("register REST gateway: %w", err)
-	}
 	rpc := grpc.NewServer(
 		grpc.MaxRecvMsgSize(limits.RequestBytes), grpc.MaxSendMsgSize(maxResponseBytes),
 		grpc.MaxConcurrentStreams(16), grpc.MaxHeaderListSize(16<<10), grpc.ConnectionTimeout(5*time.Second),
@@ -80,8 +81,8 @@ func New(addresses Addresses, service clusterv1.ClusterServiceServer, ready func
 		}),
 		grpc.UnaryInterceptor(func(ctx context.Context, request any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 			select {
-			case admission <- struct{}{}:
-				defer func() { <-admission }()
+			case s.admission <- struct{}{}:
+				defer func() { <-s.admission }()
 			default:
 				return nil, status.Error(codes.ResourceExhausted, "too many concurrent requests")
 			}
@@ -108,12 +109,14 @@ func New(addresses Addresses, service clusterv1.ClusterServiceServer, ready func
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	s.http = httpServer(limitHTTP(handler, admission, &s.draining))
+	s.http = httpServer(limitHTTP(handler, &s.draining))
 	s.grpc = rpc
 	s.health = httpServer(probes)
+	s.gateway = gateway
 	return s, nil
 }
 
+// httpServer bounds connection lifetimes and headers for HTTP and probe listeners.
 func httpServer(handler http.Handler) *http.Server {
 	return &http.Server{
 		Handler: handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: limits.RequestTimeout,
@@ -121,18 +124,12 @@ func httpServer(handler http.Handler) *http.Server {
 	}
 }
 
-func limitHTTP(next http.Handler, admission chan struct{}, draining *atomic.Bool) http.Handler {
+// limitHTTP bounds parsing and rejects new requests during shutdown. RPC admission counts accepted calls once.
+func limitHTTP(next http.Handler, draining *atomic.Bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		if draining.Load() {
 			writeError(w, http.StatusServiceUnavailable, codes.Unavailable, "server is draining")
-			return
-		}
-		select {
-		case admission <- struct{}{}:
-			defer func() { <-admission }()
-		default:
-			writeError(w, http.StatusTooManyRequests, codes.ResourceExhausted, "too many concurrent requests")
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), limits.RequestTimeout)
@@ -162,6 +159,11 @@ func (s *Server) Run(ctx context.Context) error {
 
 // Serve accepts prebound listeners, also allowing tests to use ephemeral ports.
 func (s *Server) Serve(ctx context.Context, rest, rpc, health net.Listener) error {
+	connection, err := s.connectGateway(rpc.Addr())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = connection.Close() }()
 	rest = netutil.LimitListener(rest, 32)
 	rpc = netutil.LimitListener(rpc, 32)
 	health = netutil.LimitListener(health, 8)
@@ -181,6 +183,34 @@ func (s *Server) Serve(ctx context.Context, rest, rpc, health net.Listener) erro
 	return nil
 }
 
+// connectGateway sends HTTP calls through the same RPC controls as native gRPC clients.
+func (s *Server) connectGateway(address net.Addr) (*grpc.ClientConn, error) {
+	host, port, err := net.SplitHostPort(address.String())
+	if err != nil {
+		return nil, fmt.Errorf("resolve gateway RPC endpoint: %w", err)
+	}
+	if ip := net.ParseIP(host); ip.IsUnspecified() {
+		host = "::1"
+		if ip.To4() != nil {
+			host = "127.0.0.1"
+		}
+	}
+	// This connection stays in the process's network namespace and bypasses ambient proxies.
+	connection, err := grpc.NewClient("passthrough:///"+net.JoinHostPort(host, port),
+		grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithNoProxy(),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxResponseBytes), grpc.MaxCallSendMsgSize(limits.RequestBytes)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("connect REST gateway: %w", err)
+	}
+	if err := clusterv1.RegisterClusterServiceHandler(context.Background(), s.gateway, connection); err != nil {
+		_ = connection.Close()
+		return nil, fmt.Errorf("register REST gateway: %w", err)
+	}
+	return connection, nil
+}
+
+// shutdown drains accepted calls before closing the gateway's RPC connection.
 func (s *Server) shutdown() {
 	s.draining.Store(true)
 	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)

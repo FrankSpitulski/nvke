@@ -32,7 +32,7 @@ import (
 const (
 	// MaxPageSize bounds datastore work for one public list request.
 	MaxPageSize     = 100
-	fieldManager    = "nke-public-api"
+	fieldManager    = "tenant-api"
 	defaultPageSize = 50
 	specField       = "spec"
 )

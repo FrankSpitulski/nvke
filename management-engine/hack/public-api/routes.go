@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+// Route generation checks reviewed HTTP bindings against descriptors before publishing shared route metadata.
+
 package main
 
 import (
@@ -43,6 +45,7 @@ type httpRoute struct {
 
 var routePattern = regexp.MustCompile(`^/v1/[a-z][a-z_]*(/\{[a-z_]+\})?$`)
 
+// generateRoutes combines HTTP config with compiled descriptors so route metadata matches the public service.
 func generateRoutes(root, descriptorPath string, check bool) error {
 	data, err := os.ReadFile(descriptorPath) // #nosec G304 -- Descriptor path supplied by the local build command.
 	if err != nil {
@@ -66,11 +69,14 @@ func generateRoutes(root, descriptorPath string, check bool) error {
 	}
 	var source bytes.Buffer
 	source.WriteString(generatedHeader)
-	source.WriteString("package clusterv1\n\n" +
-		"// HTTPRoute describes one reviewed protobuf HTTP binding.\n" +
-		"type HTTPRoute struct { Method, Path, FullMethod, Body string }\n\n" +
-		"// HTTPRoutes is generated from gateway.yaml and the compiled protobuf service.\n" +
-		"var HTTPRoutes = []HTTPRoute{\n")
+	source.WriteString(`package clusterv1
+
+// HTTPRoute describes one reviewed protobuf HTTP binding.
+type HTTPRoute struct { Method, Path, FullMethod, Body string }
+
+// HTTPRoutes is generated from gateway.yaml and the compiled protobuf service.
+var HTTPRoutes = []HTTPRoute{
+`)
 	for _, route := range routes {
 		fmt.Fprintf(&source, "{Method: %q, Path: %q, FullMethod: %q, Body: %q},\n",
 			route.method, route.path, route.fullMethod, route.body)
@@ -83,6 +89,7 @@ func generateRoutes(root, descriptorPath string, check bool) error {
 	return writeOutput(filepath.Join(root, generatedDir, "routes_generated.go"), formatted, check)
 }
 
+// compileRoutes verifies complete, unique unary bindings so reviewed HTTP config cannot silently omit methods.
 func compileRoutes(data []byte, files *protoregistry.Files) ([]httpRoute, error) {
 	var config httpConfig
 	if err := yaml.UnmarshalStrict(data, &config); err != nil {
@@ -135,6 +142,7 @@ func compileRoutes(data []byte, files *protoregistry.Files) ([]httpRoute, error)
 	return routes, nil
 }
 
+// compileRoute checks one binding against its request shape so generated routes use supported HTTP semantics.
 func compileRoute(rule httpRule, method protoreflect.MethodDescriptor) (httpRoute, error) {
 	route := httpRoute{body: rule.Body,
 		fullMethod: "/" + string(method.Parent().FullName()) + "/" + string(method.Name())}

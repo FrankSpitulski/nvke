@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+// Route tests keep HTTP bindings aligned with the protobuf service contract.
+
 package main
 
 import (
@@ -14,6 +16,8 @@ import (
 	clusterv1 "github.com/dsx-ai-factory/nvke/management-engine/public/tenant/gen/cluster/v1"
 )
 
+// TestHTTPBindingsMatchProtobufContract validates routes and rejects ambiguous bindings.
+// Every public RPC must have one supported HTTP representation.
 func TestHTTPBindingsMatchProtobufContract(t *testing.T) {
 	data, err := os.ReadFile("../../public/tenant/apis/cluster/v1/gateway.yaml")
 	require.NoError(t, err)

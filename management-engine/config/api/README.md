@@ -50,9 +50,11 @@ datastore access, not controller or workload readiness. Liveness only checks the
 serving process. Readiness fails when shutdown begins, while active API requests
 have up to 30 seconds to drain within the Pod's 45-second termination grace period.
 
-Each evaluation replica accepts up to 32 connections per API listener. A shared
-limit admits up to 64 REST requests and decoded gRPC calls; each gRPC connection
-allows 16 concurrent streams. Both listeners close connections after 30 seconds
+Each evaluation replica accepts up to 32 connections per API listener. The HTTP
+gateway uses one connection to the local gRPC listener, sharing RPC controls with
+native clients. A shared limit admits up to 64 decoded calls across both transports,
+counting each call once. Each gRPC connection allows 16 concurrent streams.
+Both listeners close connections after 30 seconds
 without active requests, so idle clients eventually release the connection budget.
 Reuse client connections; review these fixed evaluation limits before broader
 multi-client use.
