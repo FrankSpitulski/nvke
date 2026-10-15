@@ -201,3 +201,90 @@ func TestCheckEvidenceVerified(t *testing.T) {
 		})
 	}
 }
+
+func TestParseBOM(t *testing.T) {
+	dir := t.TempDir()
+	tests := []struct {
+		name    string
+		content string
+		wantErr string
+		wantLen int
+	}{
+		{
+			name:    "two components",
+			content: "components:\n  nvke-agent: 0.4.0\n  spire-agent: 1.14.1+tpm1.9.0-2\n",
+			wantLen: 2,
+		},
+		{name: "empty document is rejected", content: "components: {}\n", wantErr: "no components"},
+		{name: "unknown field is rejected", content: "component:\n  nvke-agent: 0.4.0\n", wantErr: "field component not found"},
+		{name: "shell metacharacters are not a package name", content: "components:\n  \"nvke-agent; rm -rf /\": 0.4.0\n", wantErr: "not a deb package name"},
+		{name: "uppercase is not a package name", content: "components:\n  NVKE-Agent: 0.4.0\n", wantErr: "not a deb package name"},
+		{name: "version must start with a digit", content: "components:\n  nvke-agent: latest\n", wantErr: "not a deb version"},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(dir, fmt.Sprintf("bom-%d.yaml", i))
+			require.NoError(t, os.WriteFile(path, []byte(tt.content), 0o644))
+			bom, err := ParseBOM(path)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Len(t, bom, tt.wantLen)
+		})
+	}
+}
+
+func TestCheckBOMMatchesSBOM(t *testing.T) {
+	sbom := map[string]string{"nvke-agent": "0.4.0", "spire-agent": "1.14.1+tpm1.9.0-2", "dash": "0.5.12-6ubuntu5"}
+	tests := []struct {
+		name     string
+		in       checks.Inputs
+		want     checks.Status
+		contains string
+		wantErr  string
+	}{
+		{
+			name:     "no BOM is a visible skip",
+			in:       checks.Inputs{SBOMPackages: sbom},
+			want:     checks.StatusSkip,
+			contains: "--target-bom",
+		},
+		{
+			name:    "BOM without an SBOM cannot evaluate",
+			in:      checks.Inputs{BOM: map[string]string{"nvke-agent": "0.4.0"}},
+			wantErr: "no release SBOM",
+		},
+		{
+			name:     "all components at required versions pass",
+			in:       checks.Inputs{BOM: map[string]string{"nvke-agent": "0.4.0", "spire-agent": "1.14.1+tpm1.9.0-2"}, SBOMPackages: sbom},
+			want:     checks.StatusPass,
+			contains: "2 BOM components",
+		},
+		{
+			name:     "version drift fails naming the component and both versions",
+			in:       checks.Inputs{BOM: map[string]string{"nvke-agent": "0.5.0"}, SBOMPackages: sbom},
+			want:     checks.StatusFail,
+			contains: "nvke-agent: bom 0.5.0, sbom 0.4.0",
+		},
+		{
+			name:     "absent component fails naming it",
+			in:       checks.Inputs{BOM: map[string]string{"nvke-gpu-tools": "1.0"}, SBOMPackages: sbom},
+			want:     checks.StatusFail,
+			contains: "nvke-gpu-tools: bom 1.0, not in SBOM",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := checkBOMMatchesSBOM(context.Background(), checks.Target{}, tt.in)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, out.Status)
+			assert.Contains(t, out.Evidence, tt.contains)
+		})
+	}
+}

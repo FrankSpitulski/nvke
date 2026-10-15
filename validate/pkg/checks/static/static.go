@@ -2,14 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package static implements the T-static check tier: facts that need no image
-// introspection — digests, release-checksums membership, and artifact-name
-// identity. The inputs come from the release's attested checksums.txt, whose
-// own signature is verified by pkg/bundle (PR2); until then the caller decides
-// how much to trust the file it passes in.
+// introspection — digests, release-checksums membership, artifact-name
+// identity, and the target BOM against the release SBOM. The inputs come from
+// the release's attested checksums.txt, whose own signature pkg/bundle
+// verifies in --bundle mode; digest-only (--checksums) runs report that
+// unverified trust visibly through INT-002.
 package static
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,7 +19,10 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/dsx-ai-factory/nvke/validate/pkg/checks"
 )
@@ -29,6 +34,7 @@ func Impls() map[string]checks.Func {
 		"INT-001":    checkImageDigest,
 		"INT-002":    checkEvidenceVerified,
 		"COMPAT-001": checkArtifactIdentity,
+		"COMPAT-002": checkBOMMatchesSBOM,
 	}
 }
 
@@ -164,6 +170,97 @@ func checkArtifactIdentity(_ context.Context, t checks.Target, _ checks.Inputs) 
 		Status:   checks.StatusPass,
 		Evidence: fmt.Sprintf("name declares %s/%s/ubuntu-%s, matching the target", id.Variant, id.Arch, id.Ubuntu),
 	}, nil
+}
+
+// bomFile is the target BOM document: the component versions the validation
+// target expects on the image.
+type bomFile struct {
+	Components map[string]string `yaml:"components"`
+}
+
+// Deb package names are lowercase alphanumerics plus +.- (Debian policy §5.6.1,
+// minimum two characters); versions start with a digit or an epoch. Enforcing
+// the charsets here means a BOM entry can later be embedded in a probe command
+// without quoting concerns.
+var (
+	debName    = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]+$`)
+	debVersion = regexp.MustCompile(`^[0-9][A-Za-z0-9.+~:-]*$`)
+)
+
+// ParseBOM reads a target BOM YAML (`components: {name: version}`) into a
+// package name → required version map. Unknown fields, empty documents and
+// entries outside the deb name/version charsets are errors: a BOM that parses
+// partially would turn a missing requirement into a silent pass.
+func ParseBOM(path string) (map[string]string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading target BOM: %w", err)
+	}
+	var doc bomFile
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	if err := dec.Decode(&doc); err != nil {
+		return nil, fmt.Errorf("parsing target BOM %s: %w", path, err)
+	}
+	if len(doc.Components) == 0 {
+		return nil, fmt.Errorf("target BOM %s: no components", path)
+	}
+	for name, version := range doc.Components {
+		if !debName.MatchString(name) {
+			return nil, fmt.Errorf("target BOM %s: %q is not a deb package name", path, name)
+		}
+		if !debVersion.MatchString(version) {
+			return nil, fmt.Errorf("target BOM %s: component %s: %q is not a deb version", path, name, version)
+		}
+	}
+	return doc.Components, nil
+}
+
+// checkBOMMatchesSBOM (COMPAT-002): every component the target BOM names is in
+// the release SBOM at the required version. The image ships no kubeadm or
+// kubelet — the node agent installs the Kubernetes stack after provisioning —
+// so target compatibility is carried by the baked-in NVKE components, and the
+// attested SBOM is the release's own statement of their versions.
+func checkBOMMatchesSBOM(_ context.Context, _ checks.Target, in checks.Inputs) (checks.Outcome, error) {
+	if in.BOM == nil {
+		return checks.Outcome{
+			Status:   checks.StatusSkip,
+			Evidence: "no target BOM supplied (--target-bom)",
+		}, nil
+	}
+	if in.SBOMPackages == nil {
+		return checks.Outcome{}, fmt.Errorf("target BOM given but no release SBOM is available (needs --bundle with this artifact's SBOM)")
+	}
+	var drift []string
+	for _, name := range sortedKeys(in.BOM) {
+		want := in.BOM[name]
+		got, ok := in.SBOMPackages[name]
+		switch {
+		case !ok:
+			drift = append(drift, fmt.Sprintf("%s: bom %s, not in SBOM", name, want))
+		case got != want:
+			drift = append(drift, fmt.Sprintf("%s: bom %s, sbom %s", name, want, got))
+		}
+	}
+	if len(drift) > 0 {
+		return checks.Outcome{
+			Status:   checks.StatusFail,
+			Evidence: fmt.Sprintf("%d component(s) off the target BOM: %s", len(drift), strings.Join(drift, "; ")),
+		}, nil
+	}
+	return checks.Outcome{
+		Status:   checks.StatusPass,
+		Evidence: fmt.Sprintf("all %d BOM components are in the release SBOM at required versions", len(in.BOM)),
+	}, nil
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // checkEvidenceVerified (INT-002): the release evidence attestation verified

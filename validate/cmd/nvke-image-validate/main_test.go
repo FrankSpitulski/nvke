@@ -167,3 +167,40 @@ func TestRunRequiresExactlyOneEvidenceSource(t *testing.T) {
 	assert.Equal(t, report.ExitError, run(both, sink, sink))
 	assert.Equal(t, report.ExitError, run(neither, sink, sink))
 }
+
+// TestRunTargetBOM exercises --target-bom against the vendored real SBOM:
+// COMPAT-002 passes when the BOM names the versions the release SBOM records
+// and fails naming the drifted component otherwise — without any image
+// introspection.
+func TestRunTargetBOM(t *testing.T) {
+	image := filepath.Join(t.TempDir(), artifact)
+	require.NoError(t, os.WriteFile(image, []byte("wrong bytes"), 0o644))
+	for _, tt := range []struct {
+		name, agentVersion, wantStatus string
+	}{
+		{name: "matching BOM passes COMPAT-002", agentVersion: "0.3.0-rc.1", wantStatus: "pass"},
+		{name: "drifted BOM fails COMPAT-002", agentVersion: "9.9.9", wantStatus: "fail"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			bomPath := filepath.Join(t.TempDir(), "bom.yaml")
+			require.NoError(t, os.WriteFile(bomPath, []byte("components:\n  nke-agent: "+tt.agentVersion+"\n"), 0o644))
+			out := filepath.Join(t.TempDir(), "out.json")
+			f, err := os.Create(out)
+			require.NoError(t, err)
+			code := run([]string{
+				"--image", image,
+				"--bundle", realBundle,
+				"--checks", filepath.Join("..", "..", "checks.yaml"),
+				"--target-variant", "fde", "--target-arch", "amd64", "--target-ubuntu", "24.04.5",
+				"--target-bom", bomPath,
+				"--inspect", "off",
+				"--format", "json",
+			}, f, devNull(t))
+			require.NoError(t, f.Close())
+			assert.Equal(t, report.ExitFail, code, "wrong image bytes keep INT-001 failing regardless of the BOM")
+			data, err := os.ReadFile(out)
+			require.NoError(t, err)
+			assert.Regexp(t, `"id": "COMPAT-002",\s*"status": "`+tt.wantStatus+`"`, string(data))
+		})
+	}
+}

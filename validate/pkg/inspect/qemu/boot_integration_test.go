@@ -118,11 +118,12 @@ func TestNVKEChecksFailHonestlyOnForeignImage(t *testing.T) {
 	target := checks.Target{Variant: checks.VariantFDE}
 
 	want := map[string]checks.Status{
-		"SPEC-001": checks.StatusFail, // no nke-agent.service here
-		"SPEC-002": checks.StatusFail,
-		"SPEC-003": checks.StatusFail,
-		"FDE-002":  checks.StatusFail,
-		"SPEC-005": checks.StatusFail, // stock kernel default is 120, not 60
+		"SPEC-001":   checks.StatusFail, // no node agent unit here, either name generation
+		"SPEC-002":   checks.StatusFail,
+		"SPEC-003":   checks.StatusFail,
+		"FDE-002":    checks.StatusFail,
+		"SPEC-005":   checks.StatusFail, // stock kernel default is 120, not 60
+		"COMPAT-003": checks.StatusSkip, // no target BOM in these inputs
 	}
 	for id, impl := range bootchecks.Impls() {
 		out, err := impl(context.Background(), target, in)

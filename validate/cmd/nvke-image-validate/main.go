@@ -41,6 +41,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	certSANRegex := fs.String("cert-san-regex", `^https://github\.com/dsx-ai-factory/nvke/\.github/workflows/os-image-artifact\.yml@.+$`, "Regex the evidence signer's SubjectAlternativeName must match (bundle mode)")
 	checksums := fs.String("checksums", "", "Path to a bare checksums.txt: digest-only mode, no evidence verification — INT-002 reports a skip")
 	registryPath := fs.String("checks", "", "Path to checks.yaml")
+	bomPath := fs.String("target-bom", "", "Path to a target BOM YAML (components: {name: version}) naming the component versions the target expects; omitted, the COMPAT checks that consume it report a skip")
 	name := fs.String("name", "", "Artifact release name; defaults to the image file's basename")
 	variant := fs.String("target-variant", "", "Target variant: fde | non-fde")
 	arch := fs.String("target-arch", "", "Target architecture: amd64 | arm64")
@@ -110,6 +111,14 @@ func run(args []string, stdout, stderr *os.File) int {
 		fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
 		return report.ExitError
 	}
+	var bom map[string]string
+	if *bomPath != "" {
+		bom, err = static.ParseBOM(*bomPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
+			return report.ExitError
+		}
+	}
 
 	var imgFS checks.ImageFS
 	var sbom map[string]string
@@ -141,13 +150,15 @@ func run(args []string, stdout, stderr *os.File) int {
 		}
 		defer session.Close()
 		imgFS = session
-		if evidenceBundle != nil {
-			pkgs, err := evidenceBundle.LoadSBOM(*name)
-			if err != nil {
-				fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
-				return report.ExitError
-			}
-			sbom = pkgs
+	}
+	// The SBOM backs INT-004 (inspection) and COMPAT-002 (target BOM), so it
+	// loads whenever either consumer runs; in digest-only mode COMPAT-002
+	// reports the missing SBOM itself.
+	if evidenceBundle != nil && (runInspection || bom != nil) {
+		sbom, err = evidenceBundle.LoadSBOM(*name)
+		if err != nil {
+			fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
+			return report.ExitError
 		}
 	}
 
@@ -201,6 +212,7 @@ func run(args []string, stdout, stderr *os.File) int {
 		Evidence:     evidence,
 		FS:           imgFS,
 		SBOMPackages: sbom,
+		BOM:          bom,
 		Boot:         prober,
 	})
 	rep := report.New(reg, target, digest, results, time.Now())

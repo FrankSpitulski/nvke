@@ -4,7 +4,7 @@
 # The versioned check registry: WHAT each check verifies and WHY, never how.
 # Implementations are bound by id in the engine; a registry entry with no
 # implementation is reported as an error, not silently passed.
-version: 0.1.0
+version: 0.2.0
 checks:
   - id: INT-001
     family: integrity
@@ -34,6 +34,19 @@ checks:
       Validating the wrong variant or architecture produces a verdict that
       does not describe the image a node will boot; identity must hold before
       any deeper check means anything.
+  - id: COMPAT-002
+    family: compatibility
+    severity: blocking
+    method: static
+    verifies: "Every component the target BOM names appears in the release SBOM at the required version."
+    why: >-
+      The image ships no kubeadm or kubelet — the node agent installs the
+      Kubernetes stack after provisioning (SPEC.md "Out of scope") — so
+      compatibility with a management-plane target is carried by the NVKE
+      components baked in: node agent, SPIRE agent, CNI manifests. The attested
+      SBOM is the release's own statement of those versions; a mismatch means
+      the image was built for a different target, and the failure names the
+      incompatible component.
   - id: INT-004
     family: integrity
     severity: warn
@@ -138,6 +151,15 @@ checks:
       The files can be present and still not applied if boot ordering breaks
       (SPEC.md "Conntrack limits" documents exactly that service/sysctl
       sequencing); asking the kernel is the only honest assertion.
+  - id: COMPAT-003
+    family: compatibility
+    severity: blocking
+    method: boot
+    verifies: "The booted image's package database reports every target-BOM component installed at the required version."
+    why: >-
+      COMPAT-002 checks the release's paperwork; this asks the running system,
+      proving the bytes that actually boot carry the target's component set.
+      Together they close the chain target BOM → attested SBOM → booted image.
   - id: FDE-002
     family: fde
     severity: blocking

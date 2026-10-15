@@ -133,3 +133,45 @@ func TestTransportErrorIsAnError(t *testing.T) {
 	_, err := impl(context.Background(), checks.Target{}, checks.Inputs{Boot: &fakeProber{results: map[string]checks.ProbeResult{}}})
 	require.Error(t, err, "a transport failure must surface as StatusError, never as pass or fail")
 }
+
+func TestCheckBOMBooted(t *testing.T) {
+	bomQuery := func(name string) string {
+		return "dpkg-query -W -f='${db:Status-Status} ${Version}' " + name
+	}
+	withBOM := func(p *fakeProber, bom map[string]string) checks.Inputs {
+		return checks.Inputs{Boot: p, BOM: bom}
+	}
+
+	out, err := checkBOMBooted(context.Background(), checks.Target{}, checks.Inputs{Boot: healthyNode()})
+	require.NoError(t, err)
+	assert.Equal(t, checks.StatusSkip, out.Status, "no BOM is a visible skip")
+	assert.Contains(t, out.Evidence, "--target-bom")
+
+	p := healthyNode()
+	p.results[bomQuery("nvke-agent")] = checks.ProbeResult{Stdout: "installed 0.4.0\n"}
+	p.results[bomQuery("spire-agent")] = checks.ProbeResult{Stdout: "installed 1.14.1+tpm1.9.0-2\n"}
+	out, err = checkBOMBooted(context.Background(), checks.Target{}, withBOM(p, map[string]string{"nvke-agent": "0.4.0", "spire-agent": "1.14.1+tpm1.9.0-2"}))
+	require.NoError(t, err)
+	assert.Equal(t, checks.StatusPass, out.Status, out.Evidence)
+
+	p = healthyNode()
+	p.results[bomQuery("nvke-agent")] = checks.ProbeResult{Stdout: "installed 0.3.0-rc.1\n"}
+	out, err = checkBOMBooted(context.Background(), checks.Target{}, withBOM(p, map[string]string{"nvke-agent": "0.4.0"}))
+	require.NoError(t, err)
+	assert.Equal(t, checks.StatusFail, out.Status)
+	assert.Contains(t, out.Evidence, "nvke-agent: bom 0.4.0, booted image 0.3.0-rc.1")
+
+	p = healthyNode()
+	p.results[bomQuery("nvke-agent")] = checks.ProbeResult{Stdout: "", ExitCode: 1}
+	out, err = checkBOMBooted(context.Background(), checks.Target{}, withBOM(p, map[string]string{"nvke-agent": "0.4.0"}))
+	require.NoError(t, err)
+	assert.Equal(t, checks.StatusFail, out.Status)
+	assert.Contains(t, out.Evidence, "nvke-agent: not installed")
+
+	p = healthyNode()
+	p.results[bomQuery("nvke-agent")] = checks.ProbeResult{Stdout: "config-files 0.4.0\n"}
+	out, err = checkBOMBooted(context.Background(), checks.Target{}, withBOM(p, map[string]string{"nvke-agent": "0.4.0"}))
+	require.NoError(t, err)
+	assert.Equal(t, checks.StatusFail, out.Status, "removed-but-not-purged must not count as installed")
+	assert.Contains(t, out.Evidence, "dpkg state config-files")
+}

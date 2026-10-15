@@ -29,6 +29,11 @@ type Inputs struct {
 	// SBOM for this artifact, verified by digest against the attested
 	// checksums. Nil means no SBOM was available.
 	SBOMPackages map[string]string
+	// BOM is the target bill of materials: the component versions (deb package
+	// name -> version) the validation target expects on the image. Nil means
+	// the caller supplied none: the COMPAT checks that consume it report a
+	// visible skip.
+	BOM map[string]string
 	// Boot runs probes inside a booted throwaway copy of the image (the boot
 	// tier). Nil means the tier is not enabled: every method=boot check
 	// reports a visible skip.

@@ -6,14 +6,14 @@
 // read cannot honestly establish — unit enablement as systemd resolves it,
 // ordering, and runtime-applied sysctl values.
 //
-// Deferred (documented, not silently dropped): COMPAT-003 (agent version vs
-// the release BOM — needs BOM plumbing into Inputs) and FDE-004 (grub key
-// stripped after the TPM first-boot bind — needs the swtpm phase-2 harness).
+// Deferred (documented, not silently dropped): FDE-004 (grub key stripped
+// after the TPM first-boot bind — needs the swtpm phase-2 harness).
 package boot
 
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/dsx-ai-factory/nvke/validate/pkg/checks"
@@ -22,11 +22,12 @@ import (
 // Impls returns the boot-tier implementations keyed by check ID.
 func Impls() map[string]checks.Func {
 	return map[string]checks.Func{
-		"SPEC-001": checkAgentEnabled,
-		"SPEC-002": unitEnabledCheck("spire-agent.service"),
-		"SPEC-003": checkUnitOrdering,
-		"SPEC-005": checkConntrackApplied,
-		"FDE-002":  unitEnabledCheck("luks-tpm-firstboot.service"),
+		"SPEC-001":   checkAgentEnabled,
+		"SPEC-002":   unitEnabledCheck("spire-agent.service"),
+		"SPEC-003":   checkUnitOrdering,
+		"SPEC-005":   checkConntrackApplied,
+		"FDE-002":    unitEnabledCheck("luks-tpm-firstboot.service"),
+		"COMPAT-003": checkBOMBooted,
 	}
 }
 
@@ -133,6 +134,54 @@ func checkUnitOrdering(ctx context.Context, _ checks.Target, in checks.Inputs) (
 	return checks.Outcome{
 		Status:   checks.StatusPass,
 		Evidence: fmt.Sprintf("%s < spire-agent.service < %s ordering holds", configure, agent),
+	}, nil
+}
+
+// checkBOMBooted (COMPAT-003): the booted image's package database reports
+// every target-BOM component installed at the required version. COMPAT-002
+// checks the release's paperwork (the attested SBOM); this asks the running
+// system, so together they close the chain target BOM → SBOM → booted image.
+// BOM names are charset-validated at parse time (static.ParseBOM), so
+// embedding them in the probe command is safe.
+func checkBOMBooted(ctx context.Context, _ checks.Target, in checks.Inputs) (checks.Outcome, error) {
+	if in.BOM == nil {
+		return checks.Outcome{
+			Status:   checks.StatusSkip,
+			Evidence: "no target BOM supplied (--target-bom)",
+		}, nil
+	}
+	names := make([]string, 0, len(in.BOM))
+	for name := range in.BOM {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var drift []string
+	for _, name := range names {
+		res, err := in.Boot.Probe(ctx, "dpkg-query -W -f='${db:Status-Status} ${Version}' "+name)
+		if err != nil {
+			return checks.Outcome{}, err
+		}
+		if res.ExitCode != 0 {
+			drift = append(drift, name+": not installed")
+			continue
+		}
+		state, version, _ := strings.Cut(strings.TrimSpace(res.Stdout), " ")
+		switch {
+		case state != "installed":
+			drift = append(drift, fmt.Sprintf("%s: dpkg state %s, want installed", name, state))
+		case version != in.BOM[name]:
+			drift = append(drift, fmt.Sprintf("%s: bom %s, booted image %s", name, in.BOM[name], version))
+		}
+	}
+	if len(drift) > 0 {
+		return checks.Outcome{
+			Status:   checks.StatusFail,
+			Evidence: fmt.Sprintf("%d component(s) off the target BOM: %s", len(drift), strings.Join(drift, "; ")),
+		}, nil
+	}
+	return checks.Outcome{
+		Status:   checks.StatusPass,
+		Evidence: fmt.Sprintf("all %d BOM components installed at required versions in the booted image", len(in.BOM)),
 	}, nil
 }
 
