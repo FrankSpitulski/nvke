@@ -54,7 +54,7 @@
 # public half to `authorized_keys`, and the dialer authenticates with the
 # private half, which never leaves the runner.
 #
-# PLAN FIRST, THEN ONE JOB PER STREAM. The `plan` job runs `qualify plan` and
+# PLAN FIRST, THEN TWO JOBS PER STREAM. The `plan` job runs `qualify plan` and
 # writes plan.json: what to qualify, resolved once, with every stream in the
 # scope. `qualify-validate` and `qualify-run` then each run once per stream of
 # that plan, so every stream qualifies exactly the versions the plan named,
@@ -62,12 +62,17 @@
 # dispatch inputs and QUALIFY_E2E_* variables that name a version are
 # overrides of what the plan resolves, not a second source of versions.
 #
+# `qualify-run` is gated behind the `forge` GitHub environment: a real run
+# waits for a required reviewer before it can reach a Forge credential or a
+# machine. `qualify-validate` carries no such gate, so it starts the moment
+# the plan is ready, label or dispatch alone.
+#
 # DRY RUN. A `dry-run` dispatch input, or the `qualify-e2e-dry-run` label on a
 # pull request, does everything except join Teleport and run the suite: the
-# plan, each stream's job, the site inputs (so every image and archive is
-# confirmed to exist) and the e2e config. It takes no Forge machine, so it does
-# not queue behind a real run, and it prints the suite invocation it would have
-# made.
+# plan, each stream's two jobs, the site inputs (so every image and archive is
+# confirmed to exist) and the e2e config. It takes no Forge machine, so it
+# never reaches the `forge` environment gate, does not queue behind a real
+# run, and it prints the suite invocation it would have made.
 name: Qualify e2e
 
 on:
@@ -806,10 +811,16 @@ jobs:
       # with none of this. .site-inputs is every case; cli/dist only exists
       # when SITE_CLI_BUILD=1 built nvkectl there instead of staging a
       # published one into .site-inputs itself.
+      #
+      # run_attempt, not just run_id: artifacts outlive a single attempt, so a
+      # re-run whose validate fails before reaching here must not let
+      # qualify-run download the previous attempt's artifact instead. Naming
+      # it per attempt makes a missing upload a download failure rather than
+      # a silent stale one.
       - name: Upload the site inputs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: qualify-site-inputs-${{ matrix.stream }}-${{ github.run_id }}
+          name: qualify-site-inputs-${{ matrix.stream }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             .site-inputs/
             cli/dist/
@@ -999,11 +1010,13 @@ jobs:
 
       # What qualify-validate built for this exact stream -- the three image
       # archives, nvkectl wherever resolved.env's SITE_NVKECTL says it is, and
-      # resolved.env itself.
+      # resolved.env itself. Named per run_attempt to match the upload: a
+      # re-run whose qualify-validate has not re-uploaded yet fails here
+      # instead of silently pulling the previous attempt's inputs.
       - name: Download the site inputs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: qualify-site-inputs-${{ matrix.stream }}-${{ github.run_id }}
+          name: qualify-site-inputs-${{ matrix.stream }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ github.workspace }}
 
       # Written by qualify-validate's "Record the resolved environment" step:
@@ -1148,7 +1161,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           test -n "${FORGE_JUMP_HOST}" || {
-            echo "::error::the FORGE_JUMP_HOST repository secret is unset; the suite has no way to reach the node"
+            echo "::error::the FORGE_JUMP_HOST secret is unset; the suite has no way to reach the node"
             exit 1
           }
           # The repositories are the ones site-inputs pulled or tagged, so the
@@ -1383,7 +1396,7 @@ jobs:
                   ;;
               esac
               if [ "${withhold}" = 1 ]; then
-                source="repository secret ${resolved}"
+                source="secret ${resolved}"
               fi
               # A pull_request run has no inputs, so a dry run there came from
               # its label.

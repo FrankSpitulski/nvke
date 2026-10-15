@@ -65,18 +65,27 @@ deliberately not on a schedule or on push: it costs hardware, and a run nobody
 is watching is a run nobody acts on.
 
 A run starts with a `plan` job that runs `qualify plan` and uploads `plan.json`,
-and then runs one job for each stream of the plan's scope. The versions, the
-architecture and the GPU model of a job are the plan's, and the dispatch inputs
-that name a version override what the plan resolves.
+and then runs two jobs for each stream of the plan's scope: `qualify-validate`
+resolves versions and capabilities and builds the site inputs, then
+`qualify-run` reads what it built and reaches Forge and Teleport. The versions,
+the architecture and the GPU model of a job are the plan's, and the dispatch
+inputs that name a version override what the plan resolves.
+
+`qualify-run` is gated behind the `forge` GitHub environment, so a real run
+waits for a required reviewer's approval before it can touch Forge
+credentials or a machine. `qualify-validate` carries no such gate and starts
+as soon as the plan is ready, label or dispatch alone, which is what lets it
+give quick feedback on a pull request.
 
 A **dry run** does everything except join Teleport and run the suite, so it
-takes no Forge machine. It is the `dry-run` dispatch input, or the
-`qualify-e2e-dry-run` label on a pull request. Each stream job still builds the
-site inputs, which confirms every image and archive exists, and writes the e2e
-config. It then prints the `-e2e.versions` and `-e2e.capabilities` the suite
-would have been given into `qualify-e2e.log`. A dry run has its own concurrency
-group, so it does not wait behind a real run, and its jobs are named
-`<stream> (dry run)`.
+takes no Forge machine and never reaches the `forge` environment gate. It is
+the `dry-run` dispatch input, or the `qualify-e2e-dry-run` label on a pull
+request. Each stream's `qualify-validate` still builds the site inputs, which
+confirms every image and archive exists, and `qualify-run` still writes the
+e2e config. It then prints the `-e2e.versions` and `-e2e.capabilities` the
+suite would have been given into `qualify-e2e.log`. A dry run has its own
+concurrency group, so it does not wait behind a real run, and its jobs are
+named `<stream> (dry run)`.
 
 `-e2e.site-stage` chooses how far to go, so you can pay for the part you need:
 
