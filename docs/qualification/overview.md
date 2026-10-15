@@ -59,23 +59,52 @@ parts are the way they are.
 
 ## Running one
 
-The lane never starts on its own. It runs on a `workflow_dispatch`, or when
-the `qualify-e2e` label is applied to a pull request from this repository. It is
-deliberately not on a schedule or on push: it costs hardware, and a run nobody
-is watching is a run nobody acts on.
+The lane never starts on its own. It runs on a `workflow_dispatch`, when one of
+these labels is applied to a pull request from this repository, or when a
+`vX.Y.Z-beta.N` tag is pushed. It is deliberately not on a schedule or on every
+push: it costs hardware, and a run nobody is watching is a run nobody acts on.
+A beta tag is cut once a night, so it adds one run rather than a stream of them.
 
-A run starts with a `plan` job that runs `qualify plan` and uploads `plan.json`,
-and then runs two jobs for each stream of the plan's scope: `qualify-validate`
-resolves versions and capabilities and builds the site inputs, then
-`qualify-run` reads what it built and reaches Forge and Teleport. The versions,
-the architecture and the GPU model of a job are the plan's, and the dispatch
-inputs that name a version override what the plan resolves.
+| label | what it runs |
+|---|---|
+| `qualify-e2e` | `QUALIFY_E2E_SCOPE`, or `golden-path` when that is unset: Ubuntu 24.04 on GB200, both arches |
+| `qualify-e2e-dsx` | the `dsx` scope: the redstone-dev1-dh2 datahall, at stage `provision` |
+| `qualify-e2e-dry-run` | everything except joining Teleport and running the suite |
 
-`qualify-run` is gated behind the `forge` GitHub environment, so a real run
-waits for a required reviewer's approval before it can touch Forge
-credentials or a machine. `qualify-validate` carries no such gate and starts
-as soon as the plan is ready, label or dispatch alone, which is what lets it
-give quick feedback on a pull request.
+The DSX label names its scope and stage outright, where `qualify-e2e` takes
+whatever `QUALIFY_E2E_SCOPE` says. The stage is pinned to `provision` because
+that datahall has one CPU machine bound, which is enough to place a node and
+reach it; a `full` run places three at once, and its tenant half speaks Forge
+only, so it is refused before a machine is taken. The dsx stream is outside the
+`full` scope for that reason.
+
+A run starts with a `plan` job that runs `qualify plan` and uploads `plan.json`.
+A `verify` job then checks that everything the plan names is published, before
+any machine is taken, and two jobs run for each stream of the plan's scope:
+`qualify-validate` resolves versions and capabilities and builds the site
+inputs, then `qualify-run` reads what it built and reaches Forge, DSX or
+Teleport. The versions, the architecture and the GPU model of a job are the
+plan's, and the dispatch inputs that name a version override what the plan
+resolves.
+
+`qualify-run` is gated behind a GitHub environment, so a real run waits for
+approval before it can touch a credential or a machine. A `workflow_dispatch`
+or a labelled pull request resolves `forge`, which carries a required
+reviewer. A beta tag push instead resolves `forge-nightly`, which carries the
+same secrets but no required reviewer -- an unattended nightly cannot wait on
+a person, so the control there is the deployment tag policy (`v*-beta.*`)
+rather than a reviewer. `qualify-validate` carries no gate at all and starts
+as soon as the plan is ready, any trigger, which is what lets it give quick
+feedback on a pull request.
+
+**Qualifying a beta.** A beta tag names a commit and carries no component tags,
+so resolving the components from their own tags would answer with the last
+release rather than with what that commit built. A tag push therefore asks for
+`resolution: commitDescribe`, which describes each component at the commit the
+tag marks, and the commit is derived from the version being qualified rather
+than given. A dispatch can select the same resolution for an existing beta tag.
+The plan records the commit and, for each component, the strategy that answered,
+so a run says afterwards how every version was arrived at.
 
 A **dry run** does everything except join Teleport and run the suite, so it
 takes no Forge machine and never reaches the `forge` environment gate. It is
