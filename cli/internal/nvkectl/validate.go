@@ -13,12 +13,13 @@ import (
 	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/sitespec"
 )
 
-func newValidateCmd() *cobra.Command {
+func newValidateCmd(ver string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "validate",
 		Short: "Validate a file before acting on it",
 	}
 	cmd.AddCommand(newValidateSiteSpecCmd())
+	cmd.AddCommand(newValidateImageCmd(ver))
 	return cmd
 }
 

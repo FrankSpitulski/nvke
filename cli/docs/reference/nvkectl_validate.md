@@ -26,5 +26,6 @@ Validate a file before acting on it
 ### SEE ALSO
 
 * [nvkectl](nvkectl.md)	 - NVKE control-plane CLI
+* [nvkectl validate image](nvkectl_validate_image.md)	 - Check a node image against its release evidence
 * [nvkectl validate sitespec](nvkectl_validate_sitespec.md)	 - Check a site spec the way nvkectl bootstrap site reads it
 

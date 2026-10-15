@@ -39,6 +39,8 @@ pkg/checks/                  # registry loader + engine; implementations per tie
 pkg/inspect/guestfs/         # libguestfs session (read-only, LUKS-aware)
 pkg/inspect/qemu/            # throwaway QEMU boot + SSH probe channel
 pkg/report/                  # report.json schema v1, human renderer, exit policy
+pkg/runner/                  # the full run loop, shared by this module's CLI
+                             # and `nvkectl validate image`
 pkg/verify/                  # verdict DSSE sign/verify; self-contained so
                              # consumers vendor only this package
 docs/decisions.md            # design decisions and their reasons
