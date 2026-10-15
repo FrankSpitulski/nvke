@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/discovery"
@@ -185,8 +186,14 @@ var _ = Describe("Site controller", Ordered, ContinueOnFailure, Label("site-cont
 		// controller name, the tag it is exported from, the Forge API key and
 		// the registry credentials. Resolved here so a misconfigured run fails
 		// before a machine is provisioned rather than twenty minutes into one.
+		//
+		// Capacity is the same kind of check. CAPNICo will not create an
+		// instance while unusedUsable is zero, and the tenant wait then spends
+		// its whole provision timeout reporting that. The site node has not
+		// been asked for yet, so a shortfall here releases nothing.
 		if siteStage == siteStageFull {
 			stack, secrets = expectSucceed2(newStack(cfg, capabilities[infra.CapabilityArch]))
+			Expect(requireRunCapacity(context.Background(), provider)).To(Succeed())
 		}
 	})
 
@@ -286,6 +293,10 @@ var _ = Describe("Site controller", Ordered, ContinueOnFailure, Label("site-cont
 				"the controller should report the version the run deployed")
 		}, NodeTimeout(15*time.Minute))
 
+		validateSitePostDeploy(func() (site.Cluster, site.Spec, bool) {
+			return cluster, spec, deployed
+		})
+
 		It("delivers the site's telemetry through NKTP", func(ctx SpecContext) {
 			if !deployed {
 				Skip("the stack was not deployed")
@@ -315,10 +326,12 @@ var _ = Describe("Site controller", Ordered, ContinueOnFailure, Label("site-cont
 			if cluster.Kubeconfig == "" || session == nil {
 				return managementCluster{}, errors.New("the site controller was not built")
 			}
+			waiter, _ := provider.(terminationWaiter)
 			return managementCluster{
 				Kubeconfig:  cluster.Kubeconfig,
 				TrustDomain: site.TrustDomain(spec.Name),
 				Relay:       sessionRelay(session),
+				Instances:   waiter,
 			}, nil
 		}),
 			// Labeled nico-forge because it is: the same tenant the
@@ -417,6 +430,23 @@ func siteCapabilities(run map[string]string) map[string]string {
 	node[infra.CapabilityArch] = cmp.Or(node[infra.CapabilityArch], infra.DefaultArch)
 	node[infra.CapabilityMachineType] = infra.MachineTypeCPU
 	return node
+}
+
+// requireRunCapacity asks Forge whether the shapes this full run will create
+// have usable allocations: the site node and the tenant control plane on the
+// CPU shape, and one worker on the worker shape.
+func requireRunCapacity(ctx context.Context, provider infra.Provider) error {
+	checker, ok := provider.(interface {
+		RequireCapacity(ctx context.Context, selector map[string]string, cpu, workers int) error
+	})
+	if !ok {
+		return fmt.Errorf("provider %T cannot check Forge allocation stats", provider)
+	}
+	capabilities, err := runCapabilities()
+	if err != nil {
+		return err
+	}
+	return checker.RequireCapacity(ctx, capabilities, 2, 1)
 }
 
 // newInfraProvider builds what creates this run's site node, as the run's
@@ -1002,7 +1032,21 @@ func sweepSiteTenants(ctx context.Context, kubeconfig string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, sweepBudget)
 	defer cancel()
-	return site.SweepTenants(ctx, client)
+	return site.SweepTenants(ctx, terminatingAware{client})
+}
+
+// terminatingAware skips the wait for a tenant whose machines Forge already
+// reported Terminating. Releasing the site then strands nothing: Forge owns
+// those instances' release whether or not the controller that asked is still
+// there.
+type terminatingAware struct{ *nvke.Client }
+
+func (c terminatingAware) WaitForClusterDeleted(ctx context.Context, id openapi_types.UUID) error {
+	if terminatingTenants[id] {
+		GinkgoLogr.Info("tenant instances already Terminating; not waiting for the cluster to go", "cluster", id)
+		return nil
+	}
+	return c.Client.WaitForClusterDeleted(ctx, id)
 }
 
 func inRepo(repo, path string) string {
