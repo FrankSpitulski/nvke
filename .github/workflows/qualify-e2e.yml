@@ -1016,6 +1016,7 @@ jobs:
             echo "SITE_CONTROLLER_VERSION=${SITE_CONTROLLER_VERSION}"
             echo "SITE_IMAGES=${SITE_IMAGES}"
             echo "SITE_ARCH=${SITE_ARCH}"
+            echo "SITE_ENVIRONMENT=${SITE_ENVIRONMENT}"
             echo "CAPABILITIES=${CAPABILITIES}"
             echo "OS_IMAGE_VERSIONS=${OS_IMAGE_VERSIONS}"
             echo "SITE_CLI_BUILD=${SITE_CLI_BUILD}"
@@ -1294,9 +1295,10 @@ jobs:
 
       # Written by qualify-validate's "Record the resolved environment" step:
       # SITE_CONTROLLER_BUILD, SITE_CONTROLLER_VERSION, SITE_IMAGES, SITE_ARCH,
-      # CAPABILITIES, OS_IMAGE_VERSIONS, SITE_CLI_BUILD, CLI_VERSION,
-      # SITE_CLI_REF and SITE_NVKECTL, all for this stream. Read back here
-      # instead of re-deriving them, so there is one place that computes them.
+      # SITE_ENVIRONMENT, CAPABILITIES, OS_IMAGE_VERSIONS, SITE_CLI_BUILD,
+      # CLI_VERSION, SITE_CLI_REF and SITE_NVKECTL, all for this stream. Read
+      # back here instead of re-deriving them, so there is one place that
+      # computes them.
       - name: Load the resolved environment
         shell: bash
         run: cat "${SITE_INPUTS}/resolved.env" >> "${GITHUB_ENV}"
