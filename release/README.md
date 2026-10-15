@@ -128,10 +128,10 @@ $ go run ./release/cmd/qualify plan --subject nvke --scope full
   `QUALIFY_E2E_*` repository variables that name a version are passed as
   `--overrides`, so the plan records them and a job never has to guess which of
   the two it was handed. The plan is uploaded as an artifact.
-- The `qualify-matrix` job runs once for each stream of each combination. Its
-  versions, architecture and GPU model are that stream's entry in the plan, so
-  every stream qualifies exactly what the plan resolved. Each job is named by
-  its stream.
+- `qualify-validate` and `qualify-run` each run once for each stream of each
+  combination. Their versions, architecture and GPU model are that stream's
+  entry in the plan, so every stream qualifies exactly what the plan
+  resolved. Each job is named by its stream.
 
 The plan carries what a job needs, the versions to test and the capabilities of
 the stream to run on. The e2e suite requires every version a Forge run uses

@@ -56,11 +56,11 @@
 #
 # PLAN FIRST, THEN ONE JOB PER STREAM. The `plan` job runs `qualify plan` and
 # writes plan.json: what to qualify, resolved once, with every stream in the
-# scope. The `qualify-matrix` job then runs once per stream of that plan, so every stream
-# qualifies exactly the versions the plan named, and a run can say afterwards
-# what it qualified from plan.json alone. The dispatch inputs and QUALIFY_E2E_*
-# variables that name a version are overrides of what the plan resolves, not a
-# second source of versions.
+# scope. `qualify-validate` and `qualify-run` then each run once per stream of
+# that plan, so every stream qualifies exactly the versions the plan named,
+# and a run can say afterwards what it qualified from plan.json alone. The
+# dispatch inputs and QUALIFY_E2E_* variables that name a version are
+# overrides of what the plan resolves, not a second source of versions.
 #
 # DRY RUN. A `dry-run` dispatch input, or the `qualify-e2e-dry-run` label on a
 # pull request, does everything except join Teleport and run the suite: the
@@ -783,6 +783,25 @@ jobs:
             SITE_PROVISIONED_VERSION="${CAPI_PROVISIONED_VERSION}" \
             SITE_INPUTS="${SITE_INPUTS}"
 
+      # What the resolve steps above derived, for qualify-run to read back
+      # instead of re-deriving: GitHub does not fan a matrix job's outputs out
+      # by matrix entry, and the artifact below is keyed by stream already.
+      - name: Record the resolved environment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          {
+            echo "SITE_CONTROLLER_BUILD=${SITE_CONTROLLER_BUILD}"
+            echo "SITE_CONTROLLER_VERSION=${SITE_CONTROLLER_VERSION}"
+            echo "SITE_IMAGES=${SITE_IMAGES}"
+            echo "SITE_ARCH=${SITE_ARCH}"
+            echo "CAPABILITIES=${CAPABILITIES}"
+            echo "OS_IMAGE_VERSIONS=${OS_IMAGE_VERSIONS}"
+            echo "SITE_CLI_BUILD=${SITE_CLI_BUILD}"
+            echo "CLI_VERSION=${CLI_VERSION}"
+            echo "SITE_NVKECTL=${SITE_NVKECTL}"
+          } > "${SITE_INPUTS}/resolved.env"
+
       # Handed to qualify-run below, which is a separate runner and so starts
       # with none of this. .site-inputs is every case; cli/dist only exists
       # when SITE_CLI_BUILD=1 built nvkectl there instead of staging a
@@ -799,22 +818,43 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Everything that reaches Forge or the jump host. Waits on every
-  # qualify-validate stream, not just its own. Re-resolves the versions
-  # qualify-validate already resolved and downloads what it built, since
-  # GitHub does not fan a matrix job's outputs out by matrix entry.
+  # Everything that reaches Forge or the jump host. Reads qualify-validate's
+  # resolved values and downloads what it built, rather than re-deriving them,
+  # since GitHub does not fan a matrix job's outputs out by matrix entry.
+  #
+  # Runs even when qualify-validate failed: `if` below overrides the default
+  # skip-on-needs-failure so one stream's validation failure cannot block the
+  # others. A stream whose own validate entry failed has no artifact to
+  # download, and fails here at "Download the site inputs" instead -- its
+  # siblings are unaffected.
   #
   # Gated behind the forge environment, except on a dry run, which never
   # reaches Teleport or a machine.
   qualify-run:
     name: ${{ matrix.stream }}${{ needs.plan.outputs.dry-run == 'true' && ' (dry run)' || '' }}
     needs: [plan, qualify-validate]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     strategy:
+      # Never cancel a sibling. A cancelled lane dies before its teardown and
+      # leaks a bare-metal instance, so one stream failing must not take the
+      # others with it.
       fail-fast: false
       max-parallel: 3
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: arc-amd64-cpu16
-    environment: ${{ (needs.plan.outputs.dry-run != 'true' && 'forge') || (needs.plan.outputs.dry-run == 'true' && '') || '' }}
+    environment: ${{ needs.plan.outputs.dry-run != 'true' && 'forge' || '' }}
+    # Measured phases from the recorded SBOM run: ~17 min to create the instance,
+    # ~10 to stage assets, ~5 to bootstrap, ~8 to install the management
+    # plane, ~20 per tenant. Call it 60 for `full`, doubled for a cold run and
+    # for bootstrap's 30-45 minute worst case -- the missing-kubeadm failure
+    # runs its full 30 minutes before failing on NodePreflight.
+    #
+    # The go-test timeout below is 15 minutes shorter on purpose. Ginkgo
+    # unwinds and tears the node down when it fires; `timeout-minutes` kills
+    # the runner and leaks the instance. The gap is teardown's budget, and it
+    # is sized against the cleanup nodes' NodeTimeouts -- see the note on the
+    # three nested timeouts at the run step. This bound is only ever reached
+    # by a run that has already gone wrong; a healthy `full` is about an hour.
     timeout-minutes: 235
     permissions:
       contents: read
@@ -935,37 +975,15 @@ jobs:
             go.work.sum
             **/go.sum
 
-      # Re-resolves what qualify-validate already resolved for this stream;
-      # GitHub does not thread a matrix job's outputs to another matrix job.
-      - name: Resolve the controller version
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -Eeuo pipefail
-          if [ -n "${SITE_CONTROLLER_VERSION}" ]; then
-            echo "SITE_CONTROLLER_BUILD=0" >> "${GITHUB_ENV}"
-            tag="controller/${SITE_CONTROLLER_VERSION}"
-            auth="$(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w0)"
-            echo "::add-mask::${auth}"
-            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
-              fetch --no-tags --depth=1 origin "refs/tags/${tag}:refs/tags/${tag}" || {
-              echo "::error::no ${tag} release tag; the deploy path is exported from the controller's own commit"
-              exit 1
-            }
-            exit 0
-          fi
-          version="$(git rev-parse --short=12 HEAD)"
-          {
-            echo "SITE_CONTROLLER_BUILD=1"
-            echo "SITE_CONTROLLER_VERSION=${version}"
-          } >> "${GITHUB_ENV}"
-
+      # The Teleport join token's own allow rules, checked here because its
+      # failure names neither the ref nor the rule. qualify-validate checks
+      # the same expression before it ever builds an image, so a bad ref is
+      # already caught before this job starts; this is the live check for the
+      # job that actually joins.
       - name: Check the run is viable
         shell: bash
         env:
           REF: ${{ github.ref }}
-          NGC_TOKEN: ${{ secrets.NGC_API_KEY }}
         run: |
           set -Eeuo pipefail
           if [ "${DRY_RUN}" != "true" ]; then
@@ -978,73 +996,24 @@ jobs:
                 ;;
             esac
           fi
-          case "${SITE_IMAGE_REGISTRY}" in
-            ghcr) images="ghcr.io/dsx-ai-factory/nvke" ;;
-            nvcr)
-              if [ -z "${QUALIFY_E2E_NGC_ORG}" ] || [ -z "${NGC_TOKEN}" ]; then
-                echo "::error::image-registry nvcr needs the QUALIFY_E2E_NGC_ORG repository variable and the NGC_API_KEY secret"
-                exit 1
-              fi
-              images="nvcr.io/${QUALIFY_E2E_NGC_ORG}"
-              ;;
-            *)
-              echo "::error::image-registry ${SITE_IMAGE_REGISTRY} is not ghcr or nvcr"
-              exit 1
-              ;;
-          esac
-          echo "SITE_IMAGES=${images}" >> "${GITHUB_ENV}"
-
-      - name: Resolve the capabilities and the site architecture
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          arch="${ARCH:-amd64}"
-          echo "SITE_ARCH=${arch}" >> "${GITHUB_ENV}"
-          capabilities="arch=${arch}"
-          if [ -n "${GPU}" ]; then
-            capabilities="${capabilities},gpu=${GPU}"
-          fi
-          echo "CAPABILITIES=${capabilities}" >> "${GITHUB_ENV}"
-          versions=""
-          for pair_arch in amd64 arm64; do
-            eval "image=\${OS_IMAGE_${pair_arch^^}}"
-            eval "loader=\${OS_IMAGE_BOOTLOADER_${pair_arch^^}}"
-            if [ -z "${image}" ] || [ -z "${loader}" ]; then
-              continue
-            fi
-            versions="${versions},os-image-bootloader-${pair_arch}=${loader},os-image-${pair_arch}=${image}"
-          done
-          for pair in "kube=${KUBERNETES_VERSION}" "cni-ovn=${CNI_OVN_VERSION}" \
-              "kind=${KIND_VERSION}" "clusterctl=${CLUSTERCTL_VERSION}" "nerdctl=${NERDCTL_VERSION}"; do
-            versions="${versions},${pair}"
-          done
-          echo "OS_IMAGE_VERSIONS=${versions#,}" >> "${GITHUB_ENV}"
-
-      - name: Resolve the nvkectl version
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          if [ -z "${CLI_VERSION}" ]; then
-            version="$(git rev-parse --short=12 HEAD)"
-            {
-              echo "SITE_CLI_BUILD=1"
-              echo "CLI_VERSION=${version}"
-              echo "SITE_NVKECTL=cli/dist/nvkectl-linux-${SITE_ARCH}"
-            } >> "${GITHUB_ENV}"
-            exit 0
-          fi
-          {
-            echo "SITE_CLI_BUILD=0"
-            echo "SITE_NVKECTL=${SITE_INPUTS}/nvkectl/nvkectl-linux-${SITE_ARCH}"
-          } >> "${GITHUB_ENV}"
 
       # What qualify-validate built for this exact stream -- the three image
-      # archives, and nvkectl wherever SITE_NVKECTL above says it is.
+      # archives, nvkectl wherever resolved.env's SITE_NVKECTL says it is, and
+      # resolved.env itself.
       - name: Download the site inputs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: qualify-site-inputs-${{ matrix.stream }}-${{ github.run_id }}
           path: ${{ github.workspace }}
+
+      # Written by qualify-validate's "Record the resolved environment" step:
+      # SITE_CONTROLLER_BUILD, SITE_CONTROLLER_VERSION, SITE_IMAGES, SITE_ARCH,
+      # CAPABILITIES, OS_IMAGE_VERSIONS, SITE_CLI_BUILD, CLI_VERSION and
+      # SITE_NVKECTL, all for this stream. Read back here instead of
+      # re-deriving them, so there is one place that computes them.
+      - name: Load the resolved environment
+        shell: bash
+        run: cat "${SITE_INPUTS}/resolved.env" >> "${GITHUB_ENV}"
 
       # tsh is the relay: `teleport.Dialer` shells out to it to open a byte
       # stream to the node's sshd through the jump host. Pinned, and checked,
