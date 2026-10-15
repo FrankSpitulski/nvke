@@ -1015,6 +1015,22 @@ jobs:
         shell: bash
         run: cat "${SITE_INPUTS}/resolved.env" >> "${GITHUB_ENV}"
 
+      # The one thing resolved.env cannot carry: this is a separate checkout
+      # from qualify-validate's, and the deploy path reads the controller's
+      # release tag from it directly. A build from this commit needs no tag.
+      - name: Fetch the controller release tag
+        if: env.SITE_CONTROLLER_BUILD == '0'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          tag="controller/${SITE_CONTROLLER_VERSION}"
+          auth="$(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w0)"
+          echo "::add-mask::${auth}"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            fetch --no-tags --depth=1 origin "refs/tags/${tag}:refs/tags/${tag}"
+
       # tsh is the relay: `teleport.Dialer` shells out to it to open a byte
       # stream to the node's sshd through the jump host. Pinned, and checked,
       # because an unpinned client against a pinned cluster is a failure mode
