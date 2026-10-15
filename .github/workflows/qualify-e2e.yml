@@ -65,10 +65,13 @@
 # dispatch inputs and QUALIFY_E2E_* variables that name a version are
 # overrides of what the plan resolves, not a second source of versions.
 #
-# `qualify-run` is gated behind the `forge` GitHub environment: a real run
-# waits for a required reviewer before it can reach a Forge credential or a
-# machine. `qualify-validate` carries no such gate, so it starts the moment
-# the plan is ready, label or dispatch alone.
+# `qualify-run` is gated behind a GitHub environment: a dispatch or label run
+# waits for a required reviewer on `forge` before it can reach a Forge
+# credential or a machine. A beta tag push instead resolves `forge-nightly`,
+# which carries the same secrets and no required reviewers -- an unattended
+# nightly cannot wait on a person, so the control is the deployment tag
+# policy (`v*-beta.*`) rather than a reviewer. `qualify-validate` carries no
+# gate at all, so it starts the moment the plan is ready, any trigger.
 #
 # DRY RUN. A `dry-run` dispatch input, or the `qualify-e2e-dry-run` label on a
 # pull request, does everything except join Teleport and run the suite: the
@@ -1067,7 +1070,20 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: arc-amd64-cpu16
-    environment: ${{ needs.plan.outputs.dry-run != 'true' && 'forge' || '' }}
+    # A nightly beta tag qualifies itself unattended, so it cannot wait on a
+    # required reviewer the way every other real run does: forge-nightly
+    # carries the same secrets, no required reviewers, and a deployment tag
+    # policy of v*-beta.* -- the ref pattern is the control, not a person.
+    #
+    # dry-run's branch has to be the outermost `&& ... || ''`, not chained
+    # after another `||`: its "then" value is itself '', which is falsy, so a
+    # `||` after it would silently fall through to the next clause and defeat
+    # the dry-run short-circuit entirely. Nesting the push/forge choice inside
+    # the `&&` keeps every intermediate value non-empty until the final `||`.
+    environment: >-
+      ${{ needs.plan.outputs.dry-run != 'true'
+          && (github.event_name == 'push' && 'forge-nightly' || 'forge')
+          || '' }}
     # Measured phases from the recorded SBOM run: ~17 min to create the instance,
     # ~10 to stage assets, ~5 to bootstrap, ~8 to install the management
     # plane, ~20 per tenant. Call it 60 for `full`, doubled for a cold run and
