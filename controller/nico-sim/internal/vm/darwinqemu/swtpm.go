@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm/toolpath"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/vm/toolpath"
 )
 
 // swtpmPaths holds the on-disk locations for one instance's software TPM.

@@ -1,6 +1,6 @@
 # The Go workspace
 
-This repository holds eleven Go modules. The root `go.work` ties them together,
+This repository holds twelve Go modules. The root `go.work` ties them together,
 so one `make build` covers the whole tree and one Go toolchain version applies.
 `go.work`, `go.work.sum`, and the module manifests are committed; the generated
 `vendor/` tree is not. All dependencies, including
@@ -21,6 +21,7 @@ but no NVIDIA credentials.
 | `controller/test/e2e` | yes | end-to-end tests |
 | `management-engine` | yes | management services |
 | `os-image` | yes | node-image tooling |
+| `release` | yes | release qualification tooling |
 
 ## Everyday use
 
@@ -31,7 +32,7 @@ make work-check     # verify workspace and module manifests
 ```
 
 `make build` produces `bin/agent`, `bin/capd-reboot-controller`,
-`bin/controller`, `bin/nke-os-image-check`, `bin/nkectl`, and `bin/updater`.
+`bin/controller`, `bin/nvke-os-image-check`, `bin/nvkectl`, and `bin/updater`.
 
 ## Updating dependencies
 
@@ -50,6 +51,56 @@ cold cache, and CI does not silently skip the freshness check.
 The check also verifies that `go.work` and `go.work.sum` are tracked,
 `go.work` lists exactly the modules in the root `Makefile`, no workspace-level
 `replace` is present, and every `go.mod` belongs to a listed module.
+
+## The Go version
+
+**`go.work` owns it.** Its `go` directive is the one authoritative statement of
+which Go toolchain this repository builds and tests with, and everything else
+either derives from it or is checked against it.
+
+| Consumer | How it gets the version |
+|---|---|
+| CI | `go-version-file: go.work` on `actions/setup-go` |
+| The root and `controller/` Makefiles | `GOTOOLCHAIN` computed from `go.work` |
+| The `govulncheck` gate | `GOVULNCHECK_GO_VERSION` in `make/tool-versions.mk`, derived |
+| Every member's `go.mod` `go` directive | Hand-kept, checked, and rewritable with `make go-version-sync` |
+| The `golang` base images in the Dockerfiles | Hand-kept, checked |
+| The Flox manifest | Hand-kept in `.flox/env/manifest.toml`, checked — a static manifest cannot derive |
+
+The supported version is **exactly one patch release**, not a range. Every
+member module's `go` directive equals `go.work`'s, so a module never claims to
+build with a toolchain this repository does not test. That is stricter than Go
+requires — a directive is a minimum, and a lower one would still compile — but
+the three values that had accumulated here — 1.26.0, 1.26.5 and 1.26.6, under
+one workspace — were not a considered compatibility statement, they were drift
+nobody had a reason to notice.
+
+`make go-version-check` asserts the whole table. It reads files only, needs no
+toolchain, and runs in the **Go Build** workflow, so it covers fork and
+Dependabot pull requests.
+
+It takes the module list from the `Makefile`'s `WORK_MODULES` and
+`PRIVATE_MODULES` rather than rediscovering it, so there is no second list to
+drift — which is the failure the check exists to prevent. A tracked `go.mod`
+on neither list is an error: a new module cannot be added and go unchecked.
+`PRIVATE_MODULES` are listed but left alone, since `go.work` makes no claim
+about a module outside the workspace. Run it through `make`, which supplies
+those lists; the script rejects a bare invocation rather than guessing.
+
+### Moving it
+
+1. Edit the `go` directive in `go.work`.
+2. `make go-version-sync` — rewrites every member's `go.mod` directive.
+3. Update the `golang` tags and digests in the Dockerfiles, and the `go` entry
+   in `.flox/env/manifest.toml`. Neither can derive, so `go-version-sync`
+   reports them and exits non-zero rather than pretending it finished.
+4. `make go-version-check` to confirm, then `make work-sync`.
+
+A patch bump is that and nothing else. A **minor** bump is additionally a
+decision: it changes the language version every member compiles against and the
+minimum Go a consumer of `controller/api` needs, so it is made deliberately
+rather than by merging a Dependabot pull request. `.github/dependabot.yml`
+ignores minor and major `golang` image updates for this reason.
 
 ## Adding a module
 

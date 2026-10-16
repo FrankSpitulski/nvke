@@ -17,14 +17,14 @@ help: ## Show the available targets.
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel)
 
 # Module-level targets, matching the other workspace members. The root Makefile
-# builds nke-os-image-check into the repository's bin/ as part of `make build`;
+# builds nvke-os-image-check into the repository's bin/ as part of `make build`;
 # this file is for working inside os-image/ alone, and it is what the Lint
 # workflow invokes.
 #
 # Every dependency here is public, so these targets can run with GOWORK=off.
 
 GO ?= go
-BINARY := bin/nke-os-image-check
+BINARY := bin/nvke-os-image-check
 
 # Go tool install location (GOPATH/bin, unless GOBIN is set); matches the
 # sibling modules.
@@ -33,8 +33,11 @@ ifeq (,$(GOBIN))
 GOBIN = $(shell $(GO) env GOPATH)/bin
 endif
 
+# ADDLICENSE_VERSION comes from make/tool-versions.mk, which owns it.
+include ../make/tool-versions.mk
 # golangci-lint pin and bootstrap, shared with every other module.
 include ../make/golangci.mk
+include ../make/coverage.mk
 
 # Version stamping, mirroring cli/Makefile.
 #
@@ -58,15 +61,15 @@ GO_TEST_FLAGS ?=
 
 .PHONY: build compile test fmt lint license file-license-check clean boot-smoke run-vm
 
-build: ## Build nke-os-image-check into bin/.
-	$(GO) build -ldflags "$(CHECK_LDFLAGS)" -o $(BINARY) ./cmd/nke-os-image-check
+build: ## Build nvke-os-image-check into bin/.
+	$(GO) build -ldflags "$(CHECK_LDFLAGS)" -o $(BINARY) ./cmd/nvke-os-image-check
 	@# A wrong -X symbol is silently ignored by the linker, so the only way to
 	@# know the stamping worked is to ask the binary. Cheap, and it fails loudly.
 	@out="$$($(BINARY) --version)"; \
 	case "$$out" in \
 	  *dev*|*unknown*|*v0.0.0*) \
-	    echo "ERROR: nke-os-image-check was built without version information: $$out"; \
-	    echo "       The -X symbol in CHECK_LDFLAGS no longer matches the variable in cmd/nke-os-image-check."; \
+	    echo "ERROR: nvke-os-image-check was built without version information: $$out"; \
+	    echo "       The -X symbol in CHECK_LDFLAGS no longer matches the variable in cmd/nvke-os-image-check."; \
 	    exit 1;; \
 	  *) echo "  $$out";; \
 	esac
@@ -75,7 +78,8 @@ compile: ## Type-check every package, including the ones with no binary.
 	$(GO) build ./...
 
 test: test-qemu ## Run this module's tests. (run by the merge gate)
-	$(GO) test $(GO_TEST_FLAGS) ./...
+	@$(COVERAGE_MKDIR)
+	$(GO) test $(GO_TEST_FLAGS) $(GO_COVER_FLAGS) ./...
 
 fmt: ## Format the source with golangci-lint's formatters.
 	@$(GOLANGCI_LINT_RUN) fmt ./...
@@ -84,7 +88,7 @@ lint: ## Run golangci-lint over this module. (run by the merge gate)
 	@$(GOLANGCI_LINT_RUN) run --timeout 10m --max-same-issues 0 --max-issues-per-linter 0 ./...
 
 license: ## Ensure license headers at code.
-	$(GO) run github.com/google/addlicense@v1.1.1 -f $(REPO_ROOT)/hack/license-header.tmpl -c "NVIDIA CORPORATION & AFFILIATES" .
+	$(GO) run github.com/google/addlicense@$(ADDLICENSE_VERSION) -f $(REPO_ROOT)/hack/license-header.tmpl -c "NVIDIA CORPORATION & AFFILIATES" .
 
 file-license-check: license ## Verify all files have license headers.
 	@if ! git diff --exit-code -- . > /dev/null 2>&1; then \
@@ -104,19 +108,19 @@ clean:
 	rm -rf bin
 
 .PHONY: notices
-notices: ## Regenerate THIRD_PARTY_NOTICES.md for the nke-os-image-check binary.
+notices: ## Regenerate THIRD_PARTY_NOTICES.md for the nvke-os-image-check binary.
 	@# The tool and the script both live in controller/, a sibling of this
 	@# module. `go-licenses`, not `bin/go-licenses`: the real rule's target is an
 	@# absolute path, so a relative name does not match it.
 	@#
 	@# GOWORK is deliberately NOT set to off here, unlike the other targets in
-	@# this file. os-image requires github.com/dsx-ai-factory/nke/agent, which resolves
+	@# this file. os-image requires github.com/dsx-ai-factory/nvke/agent, which resolves
 	@# only through the workspace; with the workspace off, go-licenses cannot
 	@# load the module and fails before it collects anything.
 	@$(MAKE) --no-print-directory -C ../controller go-licenses
 	@MODULE_ROOT="$(CURDIR)" \
 		OUTPUT="$(CURDIR)/THIRD_PARTY_NOTICES.md" \
-		PACKAGES="./cmd/nke-os-image-check" \
+		PACKAGES="./cmd/nvke-os-image-check" \
 		GO_LICENSES="$(CURDIR)/../controller/bin/go-licenses" \
 		bash ../controller/hack/generate-notices
 

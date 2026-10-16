@@ -77,9 +77,10 @@ The E2E lane verifies these concrete mappings:
 
 | Workload | Tenant username |
 |---|---|
-| CWE | `spiffe://nke.capd.cloud-workflow-engine.nvid.id/bm/cwe` |
+| Controller | `spiffe://nke.capd.nke-controller.nvid.id/bm/cwe` |
 | CAPI manager | `spiffe://nke.capd.capi-manager.nvid.id/bm/cwe` |
 | Kubeadm control-plane manager | `spiffe://nke.capd.capi-kubeadm-control-plane-manager.nvid.id/bm/cwe` |
+| Kubeadm bootstrap manager | `spiffe://nke.capd.capi-kubeadm-bootstrap-manager.nvid.id/bm/cwe` |
 | CAPD manager | `spiffe://nke.capd.capd-manager.nvid.id/bm/cwe` |
 
 `region=capd` and `partition=nvid.id` are test inputs. The subject-rewrite code
@@ -116,7 +117,7 @@ backend harness with:
 - an amd64 CAPD runner.
 
 The workflow runs automatically for controller, agent, and Helm chart changes,
-plus changes to its supporting workflow files. It does not run for nkectl or
+plus changes to its supporting workflow files. It does not run for nvkectl or
 other CLI-only changes. It can also be started with `workflow_dispatch` after
 the workflow exists on the default branch.
 

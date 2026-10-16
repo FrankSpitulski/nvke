@@ -27,14 +27,14 @@ func TestLoadAcceptsShippedConfigs(t *testing.T) {
 	}
 }
 
-// The document forge-site-controller-e2e.yml generates. It is written by a
+// The document qualify-e2e.yml generates. It is written by a
 // heredoc in the workflow rather than from this struct, so nothing but a test
 // keeps the two in step.
 func TestLoadAcceptsTheGeneratedSiteConfig(t *testing.T) {
 	doc := `site:
   images:
     controller:
-      repository: nvcr.io/example-org/nke-controller
+      repository: nvcr.io/example-org/nvke-controller
       archive: /w/.site-inputs/controller.tar
     capi-provisioned:
       repository: nvcr.io/example-org/cluster-api-provider-provisioned

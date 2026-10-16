@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	forgesdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 )
 
 // ProductionImageURL is the default production FDE qcow2 image used by e2e tests.
@@ -27,7 +27,7 @@ const ProductionImageURL = "https://d3mq564cn7sth7.cloudfront.net/nke-isos/qcow/
 //
 // Only the qcow2s are fetched. ipxe.Parse drops the boot-loader URL and
 // engine.go downloads spec.ImageURL alone, so the EFI pins exist to keep these
-// scripts verbatim copies of the production osProfiles. Changing one cannot
+// scripts verbatim copies of the production releases. Changing one cannot
 // change what a test boots.
 const (
 	productionARM64ImageURL      = "https://d3mq564cn7sth7.cloudfront.net/nke-isos/qcow/images/24.04/aarch64/lvm/2026-03-04/1772595122/nke-24.04-aarch64-lvm-2026-03-04-1772595122.qcow2"
@@ -44,7 +44,7 @@ func RunCreatePollReadyAndDeleteFlow(t *testing.T, env *TestEnv, profile Runtime
 	createPayload := &forgesdk.InstanceCreateRequest{
 		Name:           instanceName,
 		TenantId:       "d282929f-49d5-4dec-8d27-21ceb30ade19",
-		InstanceTypeId: forgesdk.PtrString("itype-mock-001"),
+		InstanceTypeId: *forgesdk.NewNullableString(forgesdk.PtrString("itype-mock-001")),
 		VpcId:          "vpc-mock-001",
 		Labels:         map[string]string{"nke.nvidia.com/node-id": instanceName},
 		Interfaces: []forgesdk.InterfaceCreateRequest{
@@ -87,7 +87,7 @@ func RunPatchLabelsAndRebootFlow(t *testing.T, env *TestEnv, profile RuntimeProf
 	createPayload := &forgesdk.InstanceCreateRequest{
 		Name:           instanceName,
 		TenantId:       "d282929f-49d5-4dec-8d27-21ceb30ade19",
-		InstanceTypeId: forgesdk.PtrString("itype-mock-001"),
+		InstanceTypeId: *forgesdk.NewNullableString(forgesdk.PtrString("itype-mock-001")),
 		VpcId:          "vpc-mock-001",
 		Labels:         map[string]string{"nke.nvidia.com/node-id": instanceName},
 		Interfaces: []forgesdk.InterfaceCreateRequest{
@@ -172,7 +172,7 @@ func RunVMToVMConnectivityFlow(t *testing.T, env *TestEnv, profile RuntimeProfil
 		return &forgesdk.InstanceCreateRequest{
 			Name:           name,
 			TenantId:       "d282929f-49d5-4dec-8d27-21ceb30ade19",
-			InstanceTypeId: forgesdk.PtrString("itype-mock-001"),
+			InstanceTypeId: *forgesdk.NewNullableString(forgesdk.PtrString("itype-mock-001")),
 			VpcId:          "vpc-mock-001",
 			Labels:         map[string]string{"nke.nvidia.com/node-id": name},
 			Interfaces: []forgesdk.InterfaceCreateRequest{
@@ -271,8 +271,7 @@ func RunIPXEBootFlow(t *testing.T, env *TestEnv, profile RuntimeProfile) {
 
 	imageURL := imageServer.URL + "/nke-24.04-x86_64-lvm-2026-02-13-1771001403.qcow2"
 
-	// This iPXE script mirrors the real production FDE profile from
-	// profiles/osProfiles/nke-260213-24.04-amd64-fde/ipxeScript
+	// This iPXE script mirrors a fleet FDE MachineImage's spec.nico.ipxeScript
 	// with only the image-url replaced by the local test HTTP server.
 	ipxeScript := fmt.Sprintf(`#!ipxe
 # Generic qcow-imager iPXE script for x86_64 LVM-based cloud images
@@ -319,7 +318,7 @@ boot
 	createPayload := &forgesdk.InstanceCreateRequest{
 		Name:           instanceName,
 		TenantId:       "d282929f-49d5-4dec-8d27-21ceb30ade19",
-		InstanceTypeId: forgesdk.PtrString("itype-mock-001"),
+		InstanceTypeId: *forgesdk.NewNullableString(forgesdk.PtrString("itype-mock-001")),
 		VpcId:          "vpc-mock-001",
 		Labels:         map[string]string{"nke.nvidia.com/node-id": instanceName},
 		IpxeScript:     *forgesdk.NewNullableString(forgesdk.PtrString(ipxeScript)),
@@ -403,7 +402,7 @@ boot
 // RunIPXEProductionCloudInitFlow boots the production FDE image with a
 // rendered copy of the real production userData template. This verifies that
 // the cloud-init runcmd pipeline (kubeadm bundle download, OVN install,
-// nke-agent restart, etc.) works end-to-end inside our VM environment.
+// nvke-agent restart, etc.) works end-to-end inside our VM environment.
 //
 // Gated by NICO_VMS_TEST_PRODUCTION_IMAGE=true (same as the basic production
 // image test since it also requires the multi-GB image download).
@@ -456,7 +455,7 @@ boot
 	createPayload := &forgesdk.InstanceCreateRequest{
 		Name:             instanceName,
 		TenantId:         "d282929f-49d5-4dec-8d27-21ceb30ade19",
-		InstanceTypeId:   forgesdk.PtrString("itype-mock-001"),
+		InstanceTypeId:   *forgesdk.NewNullableString(forgesdk.PtrString("itype-mock-001")),
 		VpcId:            "vpc-mock-001",
 		Labels:           map[string]string{"nke.nvidia.com/node-id": instanceName},
 		IpxeScript:       *forgesdk.NewNullableString(forgesdk.PtrString(productionAMD64Script)),
@@ -523,9 +522,9 @@ boot
 	fetchLog := WaitForSSHCommand(t, ip, sshCfg, "cat /var/log/fetch-install.log 2>/dev/null || echo NO_LOG", 30*time.Second)
 	t.Logf("[%s] fetch-install.log:\n%s", profile.Name, fetchLog)
 
-	// Check nke-agent status (may fail, that's expected without full config).
-	nkeStatus := WaitForSSHCommand(t, ip, sshCfg, "systemctl is-active nke-agent 2>/dev/null || systemctl status nke-agent --no-pager 2>&1 | head -10", 30*time.Second)
-	t.Logf("[%s] nke-agent status: %s", profile.Name, strings.TrimSpace(nkeStatus))
+	// Check nvke-agent status (may fail, that's expected without full config).
+	nvkeStatus := WaitForSSHCommand(t, ip, sshCfg, "systemctl is-active nvke-agent 2>/dev/null || systemctl status nvke-agent --no-pager 2>&1 | head -10", 30*time.Second)
+	t.Logf("[%s] nvke-agent status: %s", profile.Name, strings.TrimSpace(nvkeStatus))
 
 	PreserveInstanceArtifacts(t, profile, created.GetId())
 	DeleteAndWait(t, env, profile, created.GetId(), ip)
@@ -538,8 +537,8 @@ func TestdataDir() string {
 	return filepath.Join(filepath.Dir(thisFile), "testdata")
 }
 
-// RunIPXEProductionImageFlow is like RunIPXEBootFlow but uses the verbatim
-// production iPXE script from profiles/osProfiles with the real CloudFront
+// RunIPXEProductionImageFlow is like RunIPXEBootFlow but uses a fleet FDE
+// MachineImage's spec.nico.ipxeScript verbatim, with the real CloudFront
 // image URL. The image is multi-GB so this test is skipped unless
 // NICO_VMS_TEST_PRODUCTION_IMAGE=true is set.
 //
@@ -574,7 +573,7 @@ func RunIPXEProductionImageFlow(t *testing.T, env *TestEnv, profile RuntimeProfi
 
 	instanceName := UniqueInstanceName("ipxe-prod")
 
-	// Verbatim production FDE iPXE scripts from profiles/osProfiles.
+	// Verbatim FDE iPXE scripts from the fleet MachineImage releases.
 	// Select based on host architecture so the test runs on both x86_64 and ARM64.
 	productionAMD64Script := fmt.Sprintf(`#!ipxe
 set boot-loader %s
@@ -625,7 +624,7 @@ boot
 	createPayload := &forgesdk.InstanceCreateRequest{
 		Name:             instanceName,
 		TenantId:         "d282929f-49d5-4dec-8d27-21ceb30ade19",
-		InstanceTypeId:   forgesdk.PtrString("itype-mock-001"),
+		InstanceTypeId:   *forgesdk.NewNullableString(forgesdk.PtrString("itype-mock-001")),
 		VpcId:            "vpc-mock-001",
 		Labels:           map[string]string{"nke.nvidia.com/node-id": instanceName},
 		IpxeScript:       *forgesdk.NewNullableString(forgesdk.PtrString(productionIPXEScript)),
@@ -798,7 +797,7 @@ func RunSSHVerificationFlow(t *testing.T, env *TestEnv, profile RuntimeProfile) 
 	createPayload := &forgesdk.InstanceCreateRequest{
 		Name:           instanceName,
 		TenantId:       "d282929f-49d5-4dec-8d27-21ceb30ade19",
-		InstanceTypeId: forgesdk.PtrString("itype-mock-001"),
+		InstanceTypeId: *forgesdk.NewNullableString(forgesdk.PtrString("itype-mock-001")),
 		VpcId:          "vpc-mock-001",
 		UserData:       *forgesdk.NewNullableString(forgesdk.PtrString(userData)),
 		Labels:         map[string]string{"nke.nvidia.com/node-id": instanceName},

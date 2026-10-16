@@ -5,12 +5,12 @@ package nodes
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/clients"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 // GetNodeContext resolves the effective node set and node pool for a node.
@@ -50,26 +50,14 @@ func GetNodeContext(ctx context.Context, queries db.Queries, node db.Node) (db.N
 		snapshotCfg = row.Config
 	}
 
-	nodeSet, nodePool := ControlPlaneConfigNodeContext(cluster, node, snapshotCfg)
-	return nodeSet, nodePool, nil
+	return ControlPlaneConfigNodeContext(cluster, node, snapshotCfg)
 }
 
-// ControlPlaneConfigNodeContext builds synthetic node set/pool records from cluster
-// control plane settings and the resolved node-level template snapshot.
-func ControlPlaneConfigNodeContext(cluster db.Cluster, node db.Node, snapshotCfg db.ControlPlaneConfigSpec) (db.NodeSet, db.NodePool) {
-	template := json.RawMessage(`{}`)
-	if snapshotCfg.Capi != nil && len(snapshotCfg.Capi.InfraMachineTemplatePreferences) > 0 {
-		template = append(json.RawMessage(nil), snapshotCfg.Capi.InfraMachineTemplatePreferences[0]...)
-	}
-
-	// default to smallest disk for control plane
-	nicoDiskSelectionStrategy := db.DiskSelectionStrategySmallest
-	if cluster.ProviderType == db.ProviderTypeNico &&
-		snapshotCfg.Nico != nil &&
-		snapshotCfg.Nico.DiskSelectionStrategy != "" {
-		nicoDiskSelectionStrategy = snapshotCfg.Nico.DiskSelectionStrategy
-	}
-
+// ControlPlaneConfigNodeContext builds synthetic node set/pool records from
+// cluster control plane settings and the resolved node-level template
+// snapshot. Provider-specific payload construction is delegated to
+// clients.ControlPlaneConfigNodeProvider so this stays provider-agnostic.
+func ControlPlaneConfigNodeContext(cluster db.Cluster, node db.Node, snapshotCfg db.ControlPlaneConfigSpec) (db.NodeSet, db.NodePool, error) {
 	nodeSet := db.NodeSet{
 		ID:                   uuid.Nil,
 		NodePoolID:           uuid.Nil,
@@ -78,34 +66,13 @@ func ControlPlaneConfigNodeContext(cluster db.Cluster, node db.Node, snapshotCfg
 		KubernetesVersion:    snapshotCfg.KubernetesVersion,
 		TeleportEnabled:      snapshotCfg.TeleportEnabled,
 	}
-
-	// Populate provider payloads from the snapshot, mirroring the nodePool population below,
-	// so downstream strict-getter reads on this synthetic NodeSet succeed.
-	if snapshotCfg.Nico != nil {
-		nodeSet.SetNico(db.NicoNodePoolProvider{
-			SubnetIDs:             append([]uuid.UUID(nil), snapshotCfg.Nico.SubnetIDs...),
-			VpcPrefixIDs:          append([]uuid.UUID(nil), snapshotCfg.Nico.VpcPrefixIDs...),
-			OSProfile:             snapshotCfg.Nico.OSProfile,
-			ConfigProfile:         snapshotCfg.Nico.ConfigProfile,
-			DiskSelectionStrategy: nicoDiskSelectionStrategy,
-		})
-	}
-	if snapshotCfg.Capi != nil {
-		nodeSet.SetCapi(db.CAPINodePoolProvider{
-			InfraMachineTemplate:   template,
-			SpireAttestationMethod: snapshotCfg.Capi.SpireAttestationMethod,
-			BootstrapFiles:         append([]db.CloudInitFile(nil), snapshotCfg.Capi.BootstrapFiles...),
-			PreKubeadmCommands:     append([]string(nil), snapshotCfg.Capi.PreKubeadmCommands...),
-		})
-	}
-
 	nodePool := db.NodePool{
 		ID:                          uuid.Nil,
 		ClusterID:                   cluster.ID,
 		Name:                        "control-plane-config",
 		NodeNamePrefix:              "cp",
 		ControlPlane:                true,
-		NodeLabels:                  append([]string(nil), snapshotCfg.NodeLabels...),
+		NodeLabels:                  db.CloneStringMap(snapshotCfg.NodeLabels),
 		KubernetesVersion:           snapshotCfg.KubernetesVersion,
 		MaxSurge:                    cluster.ControlPlaneConfig.MaxSurge,
 		SystemReservedMemory:        snapshotCfg.SystemReservedMemory,
@@ -114,27 +81,11 @@ func ControlPlaneConfigNodeContext(cluster db.Cluster, node db.Node, snapshotCfg
 		ProvisioningMonitorDisabled: snapshotCfg.ProvisioningMonitorDisabled,
 	}
 
-	// Populate provider payloads from the snapshot, so downstream strict-getter
-	// reads on this synthetic NodePool succeed.
-	if snapshotCfg.Nico != nil {
-		nodePool.SetNico(db.NicoNodePoolProvider{
-			InstanceTypeID:        node.NicoInstanceTypeID(),
-			SubnetIDs:             append([]uuid.UUID(nil), snapshotCfg.Nico.SubnetIDs...),
-			VpcPrefixIDs:          append([]uuid.UUID(nil), snapshotCfg.Nico.VpcPrefixIDs...),
-			SSHKeyGroupIDs:        append([]uuid.UUID(nil), snapshotCfg.Nico.SSHKeyGroupIDs...),
-			OSProfile:             snapshotCfg.Nico.OSProfile,
-			ConfigProfile:         snapshotCfg.Nico.ConfigProfile,
-			DiskSelectionStrategy: nicoDiskSelectionStrategy,
-		})
+	provider, err := clients.GetControlPlaneConfigNodeProvider(cluster)
+	if err != nil {
+		return db.NodeSet{}, db.NodePool{}, err
 	}
-	if snapshotCfg.Capi != nil {
-		nodePool.SetCapi(db.CAPINodePoolProvider{
-			InfraMachineTemplate:   template,
-			SpireAttestationMethod: snapshotCfg.Capi.SpireAttestationMethod,
-			BootstrapFiles:         append([]db.CloudInitFile(nil), snapshotCfg.Capi.BootstrapFiles...),
-			PreKubeadmCommands:     append([]string(nil), snapshotCfg.Capi.PreKubeadmCommands...),
-		})
-	}
+	provider.ApplyControlPlaneConfigPayloads(node, snapshotCfg, &nodeSet, &nodePool)
 
-	return nodeSet, nodePool
+	return nodeSet, nodePool, nil
 }

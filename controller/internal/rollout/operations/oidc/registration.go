@@ -6,22 +6,30 @@ package oidc
 import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout"
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout/nodeagent"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout/nodeagent"
 )
 
 // RegisterDefaults wires the enable-OIDC operation into reg with its runtime
 // dependencies: the agent dialer, the reflection-based capability checker
 // (verifies PatchAPIServerManifest support before any node is touched), the
-// management-cluster client (reads the issuer CA bundle), and the site OIDC
-// config.
-func RegisterDefaults(reg *rollout.Registry, dialer nodeagent.Dialer, checker nodeagent.MethodSupportChecker, k8sClient client.Client, oidc config.NkeOIDCAuth) {
+// management-cluster client (reads the issuer CA bundle and nke-rbac), the site
+// OIDC config, and the management SPIFFE trust domain.
+func RegisterDefaults(
+	reg *rollout.Registry,
+	dialer nodeagent.Dialer,
+	checker nodeagent.MethodSupportChecker,
+	k8sClient client.Client,
+	oidc config.NvkeOIDCAuth,
+	trustDomain string,
+) {
 	oidcConfig := oidc
 	reg.RegisterOperation(rollout.Compile(NewEnableOIDCOperation(
 		WithDialer(dialer),
 		WithMethodSupportChecker(checker),
 		WithClient(k8sClient),
 		WithOIDCConfig(&oidcConfig),
+		WithTrustDomain(trustDomain),
 	)))
 }

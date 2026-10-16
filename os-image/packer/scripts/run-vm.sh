@@ -17,14 +17,14 @@
 # itself down on its own — it's for manual, interactive use.
 #
 # Usage (QCOW filenames encode the Ubuntu version/arch -- see vm_name in
-# nke-node-fde.pkr.hcl / nke-node-non-fde.pkr.hcl -- check output-fde/ or
+# nvke-node-fde.pkr.hcl / nvke-node-non-fde.pkr.hcl -- check output-fde/ or
 # output-non-fde/ for the exact name). OVMF_CODE defaults per image architecture (both
 # variants are UEFI-only), so it's not usually needed:
-#   QCOW=packer/output-non-fde/nke-node-non-fde-ubuntu-26.04.1-amd64.qcow2 \
+#   QCOW=packer/output-non-fde/nvke-node-non-fde-ubuntu-26.04.1-amd64.qcow2 \
 #     ./packer/scripts/run-vm.sh
-#   QCOW=packer/output-fde/nke-node-fde-ubuntu-26.04.1-amd64.qcow2 \
+#   QCOW=packer/output-fde/nvke-node-fde-ubuntu-26.04.1-amd64.qcow2 \
 #     TPM=1 ./packer/scripts/run-vm.sh
-#   QCOW=packer/output-non-fde/nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2 \
+#   QCOW=packer/output-non-fde/nvke-node-non-fde-ubuntu-26.04.1-arm64.qcow2 \
 #     ./packer/scripts/run-vm.sh
 #
 # Env:
@@ -35,7 +35,7 @@
 #   SSH_KEY       ssh key to inject (default: packer/.ssh/id_ed25519)
 #   SSH_PORT      host port to forward to guest :22 (default: 2222)
 #   OVMF_CODE     defaults to the standard OVMF (amd64) / AAVMF (arm64) path
-#                 for this ARCH. NKE qcow2s are UEFI-only.
+#                 for this ARCH. NVKE qcow2s are UEFI-only.
 #   OVMF_VARS_TEMPLATE  default: /usr/share/OVMF/OVMF_VARS_4M.fd (amd64) or
 #                 /usr/share/AAVMF/AAVMF_VARS.fd (arm64)
 #                 Override OVMF_CODE and OVMF_VARS_TEMPLATE together as a matching pair.
@@ -53,7 +53,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT}/scripts/qemu-arch.sh"
 QCOW="${QCOW:-}"
 if [[ -z "${QCOW}" ]]; then
-  echo "run-vm: QCOW is required, e.g. QCOW=packer/output-non-fde/nke-node-non-fde-ubuntu-26.04.1-amd64.qcow2 $0" >&2
+  echo "run-vm: QCOW is required, e.g. QCOW=packer/output-non-fde/nvke-node-non-fde-ubuntu-26.04.1-amd64.qcow2 $0" >&2
   exit 1
 fi
 if [[ ! -f "${QCOW}" ]]; then
@@ -73,7 +73,7 @@ fi
 SSH_PORT="${SSH_PORT:-2222}"
 MEMORY="${MEMORY:-4096}"
 CPUS="${CPUS:-2}"
-nke_qemu_env "$(nke_arch_from_qcow "${QCOW}")"
+nvke_qemu_env "$(nke_arch_from_qcow "${QCOW}")"
 OVMF_CODE="${OVMF_CODE:-${EFI_CODE_DEFAULT}}"
 
 WORKDIR="$(mktemp -d)"

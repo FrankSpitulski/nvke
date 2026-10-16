@@ -10,36 +10,22 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
-	"go.temporal.io/sdk/client"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/workflows"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/workflows"
 )
 
 type nodeService struct {
-	logger         *slog.Logger
-	db             db.DB
-	temporalClient client.Client
-
-	// useControlPlaneController makes DeleteNode record a control-plane node
-	// delete as intent for the control-plane controller instead of starting the
-	// teardown inline. Worker deletes are unaffected either way.
-	useControlPlaneController bool
+	logger *slog.Logger
+	db     db.DB
 }
 
-func NewNodeService(
-	logger *slog.Logger,
-	database db.DB,
-	temporalClient client.Client,
-	useControlPlaneController bool,
-) *nodeService {
+func NewNodeService(logger *slog.Logger, database db.DB) *nodeService {
 	return &nodeService{
-		logger:                    logger,
-		db:                        database,
-		temporalClient:            temporalClient,
-		useControlPlaneController: useControlPlaneController,
+		logger: logger,
+		db:     database,
 	}
 }
 
@@ -109,7 +95,6 @@ func (s *nodeService) DeleteNode(ctx context.Context, req api.DeleteNodeRequestO
 			nodes.WithAllowCPNode(true),
 			nodes.WithMachineHealthIssue(machineHealthIssue),
 			nodes.WithForceUnreachable(forceUnreachable),
-			nodes.WithControlPlaneControllerDelete(s.useControlPlaneController),
 		)
 	})
 	if err != nil {
@@ -124,6 +109,9 @@ func (s *nodeService) DeleteNode(ctx context.Context, req api.DeleteNodeRequestO
 			return api.DeleteNode400JSONResponse{Message: quorumFloor.Error()}, nil
 		}
 		if errors.Is(err, nodes.ErrLastJoinedControlPlaneNode) {
+			return api.DeleteNode400JSONResponse{Message: err.Error()}, nil
+		}
+		if errors.Is(err, nodes.ErrControlPlaneVIPRequired) {
 			return api.DeleteNode400JSONResponse{Message: err.Error()}, nil
 		}
 		if errors.Is(err, db.ErrNotFound) || errors.Is(err, errClusterNotFound) {

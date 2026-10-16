@@ -53,6 +53,7 @@ set -uo pipefail
 
 log() { printf '[teardown-ci-host] %s\n' "$*"; }
 
+# Kept as cwebr0 until a follow-up rename: changing it leaves the old bridge behind on existing nico-vms hosts.
 BRIDGE_NAME="${NICO_VMS_BRIDGE_NAME:-cwebr0}"
 BRIDGE_CIDR="${NICO_VMS_BRIDGE_CIDR:-172.30.0.0/24}"
 DHCP_HOSTS_DIR="${NICO_VMS_DHCP_HOSTS_DIR:-/var/lib/nico-vms/dhcp-hosts}"
@@ -137,6 +138,9 @@ dhcp_leases() {
   dump "iptables -S" run_priv iptables -S
   dump "running QEMU processes" qemu_processes
   dump "running nico-sim / dnsmasq processes" nicovms_processes
+  # Tells a /dev/kvm mode reset from a libvirt fault after a failed define.
+  dump "/dev/kvm" ls -l /dev/kvm
+  dump "virsh domcapabilities --virttype kvm (${LIBVIRT_URI})" virsh -c "${LIBVIRT_URI}" domcapabilities --virttype kvm
   dump "virsh list --all (${LIBVIRT_URI})" virsh -c "${LIBVIRT_URI}" list --all
   dump "dnsmasq leases" dhcp_leases
 } 2>&1 | tee "${DIAG_FILE}"

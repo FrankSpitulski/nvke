@@ -13,20 +13,19 @@ const (
 	// LabelManagedBy is the label key. Its value is
 	// config.TeleportConfig.ManagedByLabelValue, not a constant -- it is
 	// per-install configurable.
-	LabelManagedBy             = "managed-by"
-	LabelResourceGroup         = "resource-group"
-	LabelResourceGroupNKEValue = "nke"
-	LabelSite                  = "site"
-	LabelNKESiteControllerName = "nke-site-controller-name"
-	LabelNodeID                = "node-id"
-	LabelCluster               = "cluster"
-	LabelClusterName           = "cluster-name"
-	LabelNodePool              = "node-pool"
-	LabelNodeName              = "node-name"
-	LabelNodeRole              = "node-role"
-	LabelNodeRoleControlPlane  = "control-plane"
-	LabelNodeRoleWorker        = "worker"
-	LabelEnvironment           = "environment"
+	LabelManagedBy              = "managed-by"
+	LabelResourceGroup          = "resource-group"
+	LabelSite                   = "site"
+	LabelNVKESiteControllerName = "nke-site-controller-name"
+	LabelNodeID                 = "node-id"
+	LabelCluster                = "cluster"
+	LabelClusterName            = "cluster-name"
+	LabelNodePool               = "node-pool"
+	LabelNodeName               = "node-name"
+	LabelNodeRole               = "node-role"
+	LabelNodeRoleControlPlane   = "control-plane"
+	LabelNodeRoleWorker         = "worker"
+	LabelEnvironment            = "environment"
 )
 
 // NodeRoleLabel returns the Teleport label value for the node's role.
@@ -37,7 +36,7 @@ func NodeRoleLabel(controlPlane bool) string {
 	return LabelNodeRoleWorker
 }
 
-var ErrNotOwnedByCWE = errors.New("token is not managed by this controller")
+var ErrNotOwnedByController = errors.New("token is not managed by this controller")
 
 // OwnershipLabels returns the standard ownership labels for tokens managed by
 // this controller, stamped with managedByValue (config.TeleportConfig.ManagedByLabelValue).
@@ -61,8 +60,8 @@ func MergeLabels(userLabels map[string]string, managedByValue string) map[string
 	return result
 }
 
-// IsOwnedByCWE checks if a token has the correct managed-by label.
-func IsOwnedByCWE(labels map[string]string, managedByValue string) bool {
+// IsOwnedByController checks if a token has the correct managed-by label.
+func IsOwnedByController(labels map[string]string, managedByValue string) bool {
 	return labels[LabelManagedBy] == managedByValue
 }
 

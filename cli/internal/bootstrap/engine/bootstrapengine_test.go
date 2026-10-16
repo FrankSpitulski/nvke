@@ -370,8 +370,8 @@ func TestRepoOfTaggedRef(t *testing.T) {
 	}{
 		{"ghcr.io/nvidia/nke/controller:v0.1.1-rc.2", "ghcr.io/nvidia/nke/controller", true},
 		{"cwe-profiles:local", "cwe-profiles", true},
-		{"localhost:5000/nke/controller:v1", "localhost:5000/nke/controller", true},
-		{"localhost:5000/nke/controller", "", false},
+		{"localhost:5000/nvke/controller:v1", "localhost:5000/nvke/controller", true},
+		{"localhost:5000/nvke/controller", "", false},
 		{"ghcr.io/nvidia/nke/controller", "", false},
 		{"ghcr.io/nvidia/nke/controller@" + hostManifestDigest, "", false},
 	}
@@ -428,13 +428,13 @@ func TestRenderKindConfig_OmitsEmptyOptionalFields(t *testing.T) {
 	}
 }
 
-// NKECTL_BOOTSTRAP_PROVIDER selected the container runtime front end before
+// NVKECTL_BOOTSTRAP_PROVIDER selected the container runtime front end before
 // the Docker provider was removed. A stale export of it must be inert rather
 // than steering the runtime, so a script that still sets it does not silently
 // bootstrap against a runtime this package no longer drives.
 func TestDefaultConfig_IgnoresBootstrapProviderEnv(t *testing.T) {
-	t.Setenv("NKECTL_BOOTSTRAP_PROVIDER", "docker")
-	t.Setenv("NKECTL_BOOTSTRAP_CLUSTER_NAME", "from-env")
+	t.Setenv("NVKECTL_BOOTSTRAP_PROVIDER", "docker")
+	t.Setenv("NVKECTL_BOOTSTRAP_CLUSTER_NAME", "from-env")
 
 	cfg := DefaultConfig()
 
@@ -452,7 +452,24 @@ func TestDefaultConfig_IgnoresBootstrapProviderEnv(t *testing.T) {
 		t.Fatalf("Exists returned error: %v", err)
 	}
 	if got := runner.calls[0].env[kindExperimentalProviderEnv]; got != RuntimeCLI {
-		t.Errorf("%s = %q, want %q (NKECTL_BOOTSTRAP_PROVIDER must not steer this)",
+		t.Errorf("%s = %q, want %q (NVKECTL_BOOTSTRAP_PROVIDER must not steer this)",
 			kindExperimentalProviderEnv, got, RuntimeCLI)
+	}
+}
+
+func TestRenderKindConfig_WritesTheListenAddress(t *testing.T) {
+	body, err := renderKindConfig(Config{
+		ClusterName: "test-cluster",
+		ExtraPortMappings: []PortMapping{
+			{ContainerPort: 30080, HostPort: 30080, ListenAddress: "127.0.0.1"},
+			{ContainerPort: 30081, HostPort: 30081},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(body)
+	if strings.Count(out, "listenAddress:") != 1 || !strings.Contains(out, "listenAddress: 127.0.0.1") {
+		t.Errorf("want listenAddress on the first mapping only; got:\n%s", out)
 	}
 }

@@ -20,9 +20,19 @@ endef
 
 ##@ Checks
 
+# The repository guard compares the id, never the slug. A renamed or
+# transferred repository keeps its id, while a slug guard that has gone false
+# skips every job without a failure. See .github/workflows/README.md,
+# "Repository guards". `github.repository_id` and `github.repository_owner`
+# do not match the pattern, and neither does `x == github.repository`.
 lint-workflows: ## Lint the GitHub Actions workflows. (run by the merge gate)
 	@$(call require_tool,actionlint,$(ACTIONLINT_VERSION))
 	@actionlint -color
+	@if git grep -n -E 'github\.repository[[:space:]]*[!=]=' -- .github >/dev/null; then \
+		echo "ERROR: a workflow compares github.repository to a string. Guard on github.repository_id instead:"; \
+		git grep -n -E 'github\.repository[[:space:]]*[!=]=' -- .github; \
+		exit 1; \
+	 fi
 	@echo "  workflows: no findings"
 
 # --severity=error matches shellcheck.yml. The tree is clean at error and is not
@@ -48,7 +58,53 @@ docs-check: ## Check the documented facts against the repository. (run by the me
 # for a public one, and an org, site, VPC or subnet id is a map of a real
 # account. Matched by digest so this check does not publish what it forbids.
 internal-config-check: ## Check the tree names no internal infrastructure. (run by the merge gate)
+	@python3 -B ./hack/test_internal_config_check.py
 	@./hack/internal-config-check.sh
+
+# A banned name, found as tokens rather than lines so that an English word or
+# a camel-case identifier does not hide the real token beside it. Fail mode
+# lists every hit outside hack/name-check-allowlist.txt and exits 1. Report
+# mode summarises and exits 0; the gate ran that way until 2026-10-11, while
+# the tree still carried the name. A dead allowlist entry fails in either mode.
+NAME_CHECK_MODE ?= fail
+name-check: ## Fail on tokens that carry a banned name outside the allowlist. (run by the merge gate)
+	@$(call require_command,python3)
+	@python3 -B ./hack/test_name_check.py
+	@python3 -B ./hack/name-check.py --mode $(NAME_CHECK_MODE)
+
+CHART_CRDS_KUSTOMIZE := controller/deploy/release-crds
+CHART_CRDS_FILE := $(CHART)/files/crds.yaml
+
+.PHONY: chart-crds chart-crds-check
+chart-crds: ## Regenerate the release CRDs the controller chart installs.
+	@# Pinned kubectl: the rendered bytes are compared, so the renderer has to
+	@# be the same one everywhere or the check below fails on version drift.
+	@$(call require_tool,kubectl,$(KUBECTL_VERSION))
+	@mkdir -p "$(dir $(CHART_CRDS_FILE))"
+	@{ \
+		printf '%s\n' \
+			'# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.' \
+			'# SPDX-License-Identifier: Apache-2.0' \
+			'#' \
+			'# GENERATED FILE -- do not edit. Regenerate with `make chart-crds`.' \
+			'#' \
+			'# `kubectl kustomize $(CHART_CRDS_KUSTOMIZE)`: the release CRDs from' \
+			'# management-engine/config/crd/bases plus the annotations only the chart needs.' \
+			'# Edit the Go types and regenerate there, or the overlay, then regenerate this.'; \
+		printf '%s\n' '---'; \
+		kubectl kustomize --load-restrictor=LoadRestrictionsNone $(CHART_CRDS_KUSTOMIZE); \
+	} > "$(CHART_CRDS_FILE)"
+	@echo "  wrote $(CHART_CRDS_FILE)"
+
+chart-crds-check: ## Verify the release CRDs in the controller chart are up to date.
+	@# Tracking first: git diff says nothing about an untracked path, so a
+	@# never-committed file would pass silently.
+	@git ls-files --error-unmatch "$(CHART_CRDS_FILE)" > /dev/null 2>&1 \
+		|| { echo "$(CHART_CRDS_FILE) is not tracked by git. Run 'make chart-crds' and commit it."; exit 1; }
+	@$(MAKE) --no-print-directory chart-crds
+	@git diff --exit-code -- "$(CHART_CRDS_FILE)" \
+		|| { echo "ERROR: $(CHART_CRDS_FILE) is stale. Run 'make chart-crds' and commit it."; exit 1; }
+	@echo "  $(CHART_CRDS_FILE) is up to date."
 
 # helm lint and helm template both pass on a manifest Kubernetes would reject, so
 # kubeconform parses what was rendered. A chart that renders nothing also passes
@@ -59,7 +115,7 @@ lint-chart: ## Lint and render the Helm chart, then validate it. (run by the mer
 	@helm lint $(CHART)
 	@# A directory, not `mktemp -t`: kubeconform selects files by extension, and
 	@# macOS mktemp appends random characters after the template, so a file named
-	@# nke-chart-XXXXXX.qlKjrjG4RL is skipped and the summary reads
+	@# nvke-chart-XXXXXX.qlKjrjG4RL is skipped and the summary reads
 	@# "0 resource found in 0 file" while the target reports success.
 	@set -eu; \
 	 dir=$$(mktemp -d); \
@@ -108,7 +164,15 @@ chart-identity-check: ## Assert the chart still renders the deployed identities 
 	 }
 	@python3 ./controller/hack/chart-identity-assertions.py --chart "$(CHART)"
 
-chart-check: lint-chart chart-rbac-check chart-package-check chart-identity-check ## Run every chart check enforced by CI.
+# helm lint and kubeconform cannot tell whether nke-controller-config agrees
+# with the controller's environment variables; this checks each key against them.
+chart-controller-config-check: ## Assert nke-controller-config loads and matches the controller's environment.
+	@$(call require_tool,helm,$(HELM_VERSION))
+	@$(call require_command,go)
+	@$(call require_command,yq)
+	@CHART="$(CHART)" ./controller/hack/chart-controller-config-assertions.sh
+
+chart-check: lint-chart chart-rbac-check chart-package-check chart-identity-check chart-controller-config-check ## Run every chart check enforced by CI.
 
 .PHONY: nktp-chart-deps nktp-chart-lint nktp-chart-check
 
@@ -168,6 +232,13 @@ vulncheck: ## Report vulnerabilities reachable from each module. (run by the mer
 	 [ $$fail -eq 0 ] || exit 1
 	@echo "  govulncheck gate passed"
 
+# tools-check asks what is installed. This asks whether the repository still
+# agrees with itself about what should be installed -- so it needs none of the
+# tools present and runs anywhere.
+.PHONY: tool-version-check
+tool-version-check: ## Verify every tool pin is declared once, in make/tool-versions.mk.
+	@./hack/tool-version-check.sh
+
 tools-check: ## Check the versions of tools used by local merge-gate targets.
 	@fail=0; \
 	 ./hack/check-tool-version.sh actionlint "$(ACTIONLINT_VERSION)" || fail=1; \
@@ -196,9 +267,12 @@ lint: ## Lint every module. (run by the merge gate)
 
 # One merge-gate job needs live services, and is listed below alongside the
 # advisory lanes that are not part of the gate at all.
+# WORK_MODULES and PRIVATE_MODULES are passed in rather than repeated in the
+# script: they are already the list the workspace and the sync are built from,
+# and a second copy is the drift this check exists to catch.
 .PHONY: go-version-check
 go-version-check: ## Verify every hand-kept Go version matches go.work.
-	@./hack/go-version-check.sh
+	@./hack/go-version-check.sh --modules "$(WORK_MODULES)" --private "$(PRIVATE_MODULES)"
 
 # A tag is mutable, so an image built from one is not reproducible and not the
 # thing that was scanned. The script also carries the list of development-only
@@ -208,11 +282,44 @@ go-version-check: ## Verify every hand-kept Go version matches go.work.
 base-image-check: ## Verify release-relevant Dockerfiles pin base images by digest.
 	@./hack/base-image-check.sh
 
+# The other half of the same policy. base-image-check keeps the digests
+# immutable; this follows the tags they were taken from, because Dependabot
+# cannot see an ARG-named base and a pin nothing bumps goes stale instead.
+# Deliberately NOT in `gate`: a republished upstream base is news, not a
+# reason to fail somebody's pull request. base-image-digests.yml runs it
+# weekly and opens a pull request with whatever moved.
+# Pass --check to the script directly to report without writing.
+.PHONY: base-image-update
+base-image-update: ## Re-resolve ARG-pinned base image digests in place (needs crane).
+	@./hack/base-image-update.sh
+
+# Not read-only. A Go bump moves go.work and then eleven `go` directives, and a
+# fix you have to apply by hand eleven times is a fix that gets applied ten
+# times.
+.PHONY: go-version-sync
+go-version-sync: ## Rewrite every go.mod `go` directive to match go.work.
+	@./hack/go-version-check.sh --fix --modules "$(WORK_MODULES)" --private "$(PRIVATE_MODULES)"
+
+# The scan that reads .grype.yaml needs a vulnerability database and a network.
+# This reads the file only, so the three rules its preamble states are checked
+# on a laptop and in the merge gate, not just in the weekly scan -- including
+# the review date, which is the one that goes off while nobody is looking.
+.PHONY: grype-ignore-check
+grype-ignore-check: ## Verify every .grype.yaml exception is scoped, owned and in date.
+	@./hack/grype-ignore-check.sh
+
+.PHONY: deploy-lists-check
+deploy-lists-check: ## Verify every nvke-deploy.yaml item has its directory.
+	@./hack/deploy-lists-check.sh
+
 gate: ## Run the merge-gate checks that work on a laptop.
+	@$(MAKE) --no-print-directory tool-version-check
 	@$(MAKE) --no-print-directory tools-check
 	@$(MAKE) --no-print-directory version-check
 	@$(MAKE) --no-print-directory go-version-check
 	@$(MAKE) --no-print-directory base-image-check
+	@$(MAKE) --no-print-directory grype-ignore-check
+	@$(MAKE) --no-print-directory deploy-lists-check
 	@CGO_ENABLED=1 $(MAKE) --no-print-directory GO_TEST_FLAGS=-race test
 	@$(MAKE) --no-print-directory test-compile
 	@$(MAKE) --no-print-directory lint
@@ -224,15 +331,18 @@ gate: ## Run the merge-gate checks that work on a laptop.
 	@$(MAKE) --no-print-directory lint-shell
 	@$(MAKE) --no-print-directory docs-check
 	@$(MAKE) --no-print-directory internal-config-check
+	@$(MAKE) --no-print-directory name-check
+	@$(MAKE) --no-print-directory -C deploy test
 	@$(MAKE) --no-print-directory chart-check
 	@$(MAKE) --no-print-directory nktp-chart-check
 	@$(MAKE) --no-print-directory -C controller generate-check
 	@$(MAKE) --no-print-directory -C cli provider-manifest-check
+	@$(MAKE) --no-print-directory chart-crds-check
 	@$(MAKE) --no-print-directory vulncheck
 	@echo
 	@echo "Merge-gate jobs not run locally:"
 	@echo "  gofail e2e             make -C controller e2e-gofail    PostgreSQL, envtest and Temporal"
 	@echo "Workspace re-derivation needs access to the internal provider; work-check reports if it skips."
 	@echo "CAPD backend e2e is advisory, not part of the merge gate: make test-e2e-backend-ci"
-	@echo "nkectl bootstrap e2e is advisory too, not part of the merge gate:"
+	@echo "nvkectl bootstrap e2e is advisory too, not part of the merge gate:"
 	@echo "  make -C cli test-e2e-bootstrap   (nerdctl, buildkitd, kind, and root)"

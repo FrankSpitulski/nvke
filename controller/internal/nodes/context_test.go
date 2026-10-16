@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 // nicoNode builds a node as a stored row looks: the instance type the scheduler
@@ -56,7 +56,7 @@ func TestGetNodeContext_NoNodePoolControlPlane(t *testing.T) {
 	// Empty DiskSelectionStrategy: ControlPlaneConfigNodeContext defaults it to smallest
 	// when populating the synthetic NodeSet Nico payload.
 	snapshotCfg.SetNico(db.NicoControlPlaneProvider{
-		OSProfile:             "os",
+		Release:               "os",
 		ConfigProfile:         "cfg",
 		DiskSelectionStrategy: "",
 	})
@@ -101,45 +101,35 @@ func TestGetNodeContext_NoNodePoolControlPlane(t *testing.T) {
 	assert.Equal(t, "250Mi", nodePool.KubeReservedMemory)
 }
 
-func TestControlPlaneConfigNodeContext_UsesSnapshotDiskStrategyOnlyForNicoProvider(t *testing.T) {
+func TestControlPlaneConfigNodeContext_UsesSnapshotDiskStrategyOverride(t *testing.T) {
 	node := nicoNode(uuid.New())
 	var snapshotCfg db.ControlPlaneConfigSpec
 	snapshotCfg.KubeReservedMemory = "250Mi"
 	snapshotCfg.SetNico(db.NicoControlPlaneProvider{
-		OSProfile:             "os",
+		Release:               "os",
 		ConfigProfile:         "cfg",
 		DiskSelectionStrategy: db.DiskSelectionStrategyLargest,
 	})
-
-	tests := []struct {
-		providerType db.ProviderType
-		wantStrategy db.DiskSelectionStrategy
-	}{
-		{providerType: db.ProviderTypeNico, wantStrategy: db.DiskSelectionStrategyLargest},
-		{providerType: db.ProviderTypeCAPI, wantStrategy: db.DiskSelectionStrategySmallest},
+	cluster := db.Cluster{
+		ID:           uuid.New(),
+		ProviderType: db.ProviderTypeNico,
+		ControlPlaneConfig: db.ControlPlaneConfig{
+			MaxSurge: 1,
+		},
 	}
-	for _, tt := range tests {
-		t.Run(string(tt.providerType), func(t *testing.T) {
-			cluster := db.Cluster{
-				ID:           uuid.New(),
-				ProviderType: tt.providerType,
-				ControlPlaneConfig: db.ControlPlaneConfig{
-					MaxSurge: 1,
-				},
-			}
-			nodeSet, nodePool := nodes.ControlPlaneConfigNodeContext(cluster, node, snapshotCfg)
 
-			nicoNodeSetProvider, err := nodeSet.NicoProvider()
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantStrategy, nicoNodeSetProvider.DiskSelectionStrategy)
+	nodeSet, nodePool, err := nodes.ControlPlaneConfigNodeContext(cluster, node, snapshotCfg)
+	require.NoError(t, err)
 
-			nicoNodePoolProvider, err := nodePool.NicoProvider()
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantStrategy, nicoNodePoolProvider.DiskSelectionStrategy)
-			assert.Equal(t, "250Mi", nodeSet.KubeReservedMemory)
-			assert.Equal(t, "250Mi", nodePool.KubeReservedMemory)
-		})
-	}
+	nicoNodeSetProvider, err := nodeSet.NicoProvider()
+	require.NoError(t, err)
+	assert.Equal(t, db.DiskSelectionStrategyLargest, nicoNodeSetProvider.DiskSelectionStrategy)
+
+	nicoNodePoolProvider, err := nodePool.NicoProvider()
+	require.NoError(t, err)
+	assert.Equal(t, db.DiskSelectionStrategyLargest, nicoNodePoolProvider.DiskSelectionStrategy)
+	assert.Equal(t, "250Mi", nodeSet.KubeReservedMemory)
+	assert.Equal(t, "250Mi", nodePool.KubeReservedMemory)
 }
 
 func TestControlPlaneConfigNodeContext_PreservesNicoProviderPayload(t *testing.T) {
@@ -150,18 +140,19 @@ func TestControlPlaneConfigNodeContext_PreservesNicoProviderPayload(t *testing.T
 
 	var snapshotCfg db.ControlPlaneConfigSpec
 	snapshotCfg.SetNico(db.NicoControlPlaneProvider{
-		OSProfile:             "os",
+		Release:               "os",
 		ConfigProfile:         "cfg",
 		DiskSelectionStrategy: db.DiskSelectionStrategyLargest,
 		SubnetIDs:             []uuid.UUID{subnetID},
 		SSHKeyGroupIDs:        []uuid.UUID{sshKeyGroupID},
 	})
 
-	nodeSet, nodePool := nodes.ControlPlaneConfigNodeContext(cluster, node, snapshotCfg)
+	nodeSet, nodePool, err := nodes.ControlPlaneConfigNodeContext(cluster, node, snapshotCfg)
+	require.NoError(t, err)
 
 	nicoNodeSetProvider, err := nodeSet.NicoProvider()
 	require.NoError(t, err)
-	assert.Equal(t, "os", nicoNodeSetProvider.OSProfile)
+	assert.Equal(t, "os", nicoNodeSetProvider.Release)
 	assert.Equal(t, "cfg", nicoNodeSetProvider.ConfigProfile)
 	assert.Equal(t, db.DiskSelectionStrategyLargest, nicoNodeSetProvider.DiskSelectionStrategy)
 	assert.Equal(t, []uuid.UUID{subnetID}, nicoNodeSetProvider.SubnetIDs)
@@ -169,7 +160,7 @@ func TestControlPlaneConfigNodeContext_PreservesNicoProviderPayload(t *testing.T
 	nicoNodePoolProvider, err := nodePool.NicoProvider()
 	require.NoError(t, err)
 	assert.Equal(t, node.NicoInstanceTypeID(), nicoNodePoolProvider.InstanceTypeID)
-	assert.Equal(t, "os", nicoNodePoolProvider.OSProfile)
+	assert.Equal(t, "os", nicoNodePoolProvider.Release)
 	assert.Equal(t, "cfg", nicoNodePoolProvider.ConfigProfile)
 	assert.Equal(t, db.DiskSelectionStrategyLargest, nicoNodePoolProvider.DiskSelectionStrategy)
 	assert.Equal(t, []uuid.UUID{subnetID}, nicoNodePoolProvider.SubnetIDs)
@@ -187,7 +178,8 @@ func TestControlPlaneConfigNodeContext_PreservesCapiProviderPayload(t *testing.T
 		BootstrapFiles:         []db.CloudInitFile{{Path: "/etc/test", Content: "ok"}},
 	})
 
-	nodeSet, nodePool := nodes.ControlPlaneConfigNodeContext(cluster, node, snapshotCfg)
+	nodeSet, nodePool, err := nodes.ControlPlaneConfigNodeContext(cluster, node, snapshotCfg)
+	require.NoError(t, err)
 
 	capiNodeSetProvider, err := nodeSet.CAPIProvider()
 	require.NoError(t, err)
@@ -200,29 +192,33 @@ func TestControlPlaneConfigNodeContext_PreservesCapiProviderPayload(t *testing.T
 	assert.Equal(t, db.SpireAttestationMethodJoinToken, capiNodePoolProvider.SpireAttestationMethod)
 	assert.Equal(t, []string{"echo hi"}, capiNodePoolProvider.PreKubeadmCommands)
 	assert.Equal(t, []db.CloudInitFile{{Path: "/etc/test", Content: "ok"}}, capiNodePoolProvider.BootstrapFiles)
+
+	// A CAPI cluster never populates a Nico payload, regardless of what the
+	// snapshot carries.
+	_, err = nodeSet.NicoProvider()
+	require.Error(t, err)
+	_, err = nodePool.NicoProvider()
+	require.Error(t, err)
 }
 
 func TestControlPlaneConfigNodeContext_DefaultsDiskStrategy(t *testing.T) {
 	node := nicoNode(uuid.New())
 	var snapshotCfg db.ControlPlaneConfigSpec
 	snapshotCfg.SetNico(db.NicoControlPlaneProvider{
-		OSProfile:             "os",
+		Release:               "os",
 		ConfigProfile:         "cfg",
 		DiskSelectionStrategy: "",
 	})
+	cluster := db.Cluster{ID: uuid.New(), ProviderType: db.ProviderTypeNico}
 
-	for _, providerType := range []db.ProviderType{db.ProviderTypeNico, db.ProviderTypeCAPI} {
-		t.Run(string(providerType), func(t *testing.T) {
-			cluster := db.Cluster{ID: uuid.New(), ProviderType: providerType}
-			nodeSet, nodePool := nodes.ControlPlaneConfigNodeContext(cluster, node, snapshotCfg)
+	nodeSet, nodePool, err := nodes.ControlPlaneConfigNodeContext(cluster, node, snapshotCfg)
+	require.NoError(t, err)
 
-			nicoNodeSetProvider, err := nodeSet.NicoProvider()
-			require.NoError(t, err)
-			assert.Equal(t, db.DiskSelectionStrategySmallest, nicoNodeSetProvider.DiskSelectionStrategy)
+	nicoNodeSetProvider, err := nodeSet.NicoProvider()
+	require.NoError(t, err)
+	assert.Equal(t, db.DiskSelectionStrategySmallest, nicoNodeSetProvider.DiskSelectionStrategy)
 
-			nicoNodePoolProvider, err := nodePool.NicoProvider()
-			require.NoError(t, err)
-			assert.Equal(t, db.DiskSelectionStrategySmallest, nicoNodePoolProvider.DiskSelectionStrategy)
-		})
-	}
+	nicoNodePoolProvider, err := nodePool.NicoProvider()
+	require.NoError(t, err)
+	assert.Equal(t, db.DiskSelectionStrategySmallest, nicoNodePoolProvider.DiskSelectionStrategy)
 }

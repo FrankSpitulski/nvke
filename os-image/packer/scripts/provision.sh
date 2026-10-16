@@ -9,8 +9,22 @@ set -euo pipefail
 SRC=/var/tmp/nke-image
 ROOT_FS_LABEL="${ROOT_FS_LABEL:?ROOT_FS_LABEL is required}"
 
-sudo install -d -m 0755 /usr/lib/nke /etc/nke /var/lib/nke /usr/local/bin
-sudo install -m 0755 "${SRC}/wait-spiffe-socket.sh" /usr/lib/nke/wait-spiffe-socket.sh
+sudo install -d -m 0755 /usr/lib/nvke /etc/nke /var/lib/nke /usr/local/bin
+sudo install -m 0755 "${SRC}/wait-spiffe-socket.sh" /usr/lib/nvke/wait-spiffe-socket.sh
+# Conntrack limits. conntrack-tune.service generates its sysctl.d file at
+# every boot from that node's RAM; nothing here computes it, so the build VM's
+# RAM never reaches the image. Only the RAM-independent TIME_WAIT file is
+# baked in.
+sudo install -m 0755 "${SRC}/configure-conntrack.sh" /usr/lib/nvke/configure-conntrack.sh
+sudo install -m 0644 "${SRC}/conntrack-tune.service" /etc/systemd/system/conntrack-tune.service
+sudo install -m 0644 "${SRC}/10-nke-conntrack-timeouts.conf" /etc/sysctl.d/10-nke-conntrack-timeouts.conf
+# Load nf_conntrack at boot, before systemd-sysctl.service, so its keys exist
+# when conntrack-tune.service compares against them and when systemd-sysctl
+# applies both conntrack files. Otherwise it loads on demand (a netfilter
+# rule, or the openvswitch module), after the boot pass. nvke-kubeadm-distro's
+# modules-load.d/k8s.conf lists it too, but only from cluster create on.
+echo 'nf_conntrack' | sudo tee /etc/modules-load.d/nf_conntrack.conf >/dev/null
+sudo systemctl enable conntrack-tune.service
 
 # Own the etcd data directory as etcd:etcd (CIS 1.1.12). kubeadm creates
 # /var/lib/etcd as root:root during `kubeadm init` and exposes no knob for its
@@ -29,29 +43,29 @@ id -u etcd >/dev/null 2>&1 || sudo useradd -r -s /bin/false -d /var/lib/etcd etc
 sudo install -d -m 0700 -o etcd -g etcd /var/lib/etcd
 
 # Keep image-specific identity ordering in a drop-in so agent upgrades retain it.
-sudo install -d -m 0755 /etc/systemd/system/nke-agent.service.d
-sudo install -m 0644 "${SRC}/nke-agent-spire.conf" /etc/systemd/system/nke-agent.service.d/10-spire.conf
+sudo install -d -m 0755 /etc/systemd/system/nvke-agent.service.d
+sudo install -m 0644 "${SRC}/nvke-agent-spire.conf" /etc/systemd/system/nvke-agent.service.d/10-spire.conf
 # The package enables the agent and creates the default environment file, but
 # the golden image has no instance identity yet: start only on first boot.
-sudo env NKE_AGENT_SKIP_START=1 dpkg -i "${SRC}/nke-agent.deb"
+sudo env NKE_AGENT_SKIP_START=1 dpkg -i "${SRC}/nvke-agent.deb"
 
 # Stage the CNI debs as a local flat apt repo, so cluster create's `apt-get
-# install nke-cni-...` resolves offline with apt's dependency handling intact.
+# install nvke-cni-...` resolves offline with apt's dependency handling intact.
 # trusted=yes: the content is already on this root fs.
 if [[ -d "${SRC}/debs" ]]; then
-  sudo install -d -m 0755 /usr/lib/nke/debs
-  sudo install -m 0644 "${SRC}"/debs/*.deb "${SRC}/debs/Packages" /usr/lib/nke/debs/
-  echo 'deb [trusted=yes] file:/usr/lib/nke/debs ./' | sudo tee /etc/apt/sources.list.d/nke-local.list >/dev/null
+  sudo install -d -m 0755 /usr/lib/nvke/debs
+  sudo install -m 0644 "${SRC}"/debs/*.deb "${SRC}/debs/Packages" /usr/lib/nvke/debs/
+  echo 'deb [trusted=yes] file:/usr/lib/nvke/debs ./' | sudo tee /etc/apt/sources.list.d/nke-local.list >/dev/null
 fi
 
 # Install the Calico manifest package for this image architecture.
-calico_manifest_deb="$(find "${SRC}/debs" -maxdepth 1 -type f -name 'nke-cni-calico-manifests-*.deb' -print -quit 2>/dev/null || true)"
+calico_manifest_deb="$(find "${SRC}/debs" -maxdepth 1 -type f -name 'nvke-cni-calico-manifests-*.deb' -print -quit 2>/dev/null || true)"
 if [[ -n "${calico_manifest_deb}" ]]; then
   sudo dpkg -i "${calico_manifest_deb}"
 fi
 
 # Install the spire-agent package. Unlike the CNI and kubeadm-distro debs --
-# which nke-agent installs by name at cluster create, choosing a variant and a
+# which nvke-agent installs by name at cluster create, choosing a variant and a
 # version then -- SPIRE is how a node gets an identity at all, so it is baked
 # in rather than staged for later. Its postinst creates the spire user, adds it
 # to tss and enables both units, so nothing here repeats that.
@@ -90,7 +104,7 @@ fi
 # never ran and multipathd stayed active from first boot, undetected for
 # months. An image that ships it off cannot regress that way.
 #
-# No NKE node boots from a multipath-backed disk -- the root filesystem is LVM
+# No NVKE node boots from a multipath-backed disk -- the root filesystem is LVM
 # (optionally over LUKS) on a single local NVMe device, per
 # cidata/autoinstall-lvm.pkrtpl -- so nothing here depends on multipathd.
 #
@@ -102,6 +116,16 @@ fi
 sudo systemctl disable --now multipathd.socket multipathd.service >/dev/null 2>&1 || true
 sudo systemctl mask multipathd.socket multipathd.service
 
+# No background apt on a node. Ubuntu's apt-daily timers run a few minutes
+# after first boot and, via needrestart and dpkg triggers, restart journald,
+# networkd, udevd and friends. kubeadm's kubelet-start phase runs
+# `systemctl daemon-reload` right then on a fresh node and gets exit 1, so the
+# kubelet never starts and init or join fails for good. unattended-upgrades
+# also holds the dpkg lock against cloud-init's package step. Nodes get updates
+# through a new image, not in place.
+sudo systemctl disable --now apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service >/dev/null 2>&1 || true
+sudo systemctl mask apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service unattended-upgrades.service
+
 # Golden image: next boot must look like a new instance, without the Packer
 # SSH key or a machine-id from this build VM.
 sudo cloud-init clean --logs --seed || true
@@ -110,6 +134,12 @@ if [[ -f /etc/machine-id ]]; then
 fi
 sudo rm -f /var/lib/dbus/machine-id
 sudo rm -f /home/ubuntu/.ssh/authorized_keys
+
+sudo install -d -m 0755 /etc/cloud/cloud.cfg.d /etc/netplan
+sudo install -m 0644 "${SRC}/99-disable-network-config.cfg" /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+sudo install -m 0600 "${SRC}/00-dhcp-all.yaml" /etc/netplan/00-dhcp-all.yaml
+# Remove the installer config so DHCP cannot also run on a bridged physical NIC.
+sudo rm -f /etc/netplan/50-cloud-init.yaml
 
 # cidata/autoinstall-lvm.pkrtpl sets kernel.package to the NVIDIA-tuned
 # flavor specifically so, per its own comment, "there's no generic kernel to
@@ -234,7 +264,7 @@ done
 # Smaller qcow2: apt's package cache and now-unreferenced blocks (deleted
 # files, old package versions) don't shrink the disk image on their own --
 # fstrim tells the guest kernel to discard them, which the disk_discard =
-# "unmap" builder setting (nke-node-fde.pkr.hcl / nke-node-non-fde.pkr.hcl)
+# "unmap" builder setting (nvke-node-fde.pkr.hcl / nvke-node-non-fde.pkr.hcl)
 # passes through to the backing qcow2 so Packer's own post-build compaction
 # ("Converting hard drive...") actually has free space to reclaim. Must run
 # last: any write after this leaves blocks un-trimmed again.

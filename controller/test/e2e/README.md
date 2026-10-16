@@ -1,6 +1,6 @@
-# NKE End-to-End Tests
+# NVKE End-to-End Tests
 
-This directory contains the end-to-end (E2E) tests for NKE.
+This directory contains the end-to-end (E2E) tests for NVKE.
 
 ## Test Structure
 
@@ -49,16 +49,16 @@ If your feature requires a specific cluster configuration (e.g., custom node poo
 2. Define your own cluster spec.
 3. Implement the flow that fits your use case. The most common one is create -> validate -> delete.
 
-## How the tests reach NKE
+## How the tests reach NVKE
 
-Every NKE call travels over a port-forward to a pod backing the
-`cloud-workflow-engine` Service, built by `internal/kube.ServiceForwarder`. It
+Every NVKE call travels over a port-forward to a pod backing the
+`nke-controller` Service, built by `internal/kube.ServiceForwarder`. It
 runs over the API server's own `pods/portforward` subresource, so it needs
 nothing the previous Service-proxy transport did: no ingress, no NodePort, no
 direct pod or Service IP reachability.
 
 What it buys is header control. Through the Service proxy one `Authorization`
-header had to satisfy two hops and the API server stripped it, so no NKE
+header had to satisfy two hops and the API server stripped it, so no NVKE
 credential survived. Over a port-forward the kubeconfig credential
 authenticates the tunnel and the request inside it is entirely the caller's.
 
@@ -94,8 +94,8 @@ deployment. They verify that:
 - `/readyz` responds, and
 - the reported version optionally matches the expected version.
 
-All HTTP GETs reach NKE over the port-forward described in [How the tests reach
-NKE](#how-the-tests-reach-nke); no direct NKE URL is required.
+All HTTP GETs reach NVKE over the port-forward described in [How the tests reach
+NVKE](#how-the-tests-reach-nvke); no direct NVKE URL is required.
 
 Run them from the repository root:
 
@@ -110,27 +110,27 @@ cd test/e2e
 go run github.com/onsi/ginkgo/v2/ginkgo@v2.27.2 run -v --label-filter=health .
 ```
 
-Only `CWE_EXPECTED_VERSION` and `CWE_HEALTH_TIMEOUT` are specific to the health
+Only `NKE_CONTROLLER_EXPECTED_VERSION` and `NKE_CONTROLLER_HEALTH_TIMEOUT` are specific to the health
 specs; the first four apply everywhere. The `NKE_E2E_*` group configures the
-credential `nke.NewClient` discovers and presents on every ordinary NKE call,
+credential `nvke.NewClient` discovers and presents on every ordinary NVKE call,
 not the authentication specs, which build their own token per case.
 
 | Variable | Description | Default |
 | --- | --- | --- |
 | `KUBECONFIG` | Kubeconfig used to reach the management cluster (clientcmd default loading rules). | Unset (falls back to in-cluster configuration) |
-| `CWE_NAMESPACE` | Namespace containing CWE. | `cloud-workflow-engine` |
-| `CWE_SERVICE` | NKE Service whose backing pod is port-forwarded to. | `cloud-workflow-engine` |
-| `CWE_SERVICE_PORT` | NKE Service port, by name or number; the pod-side port is resolved from its `targetPort`. | `8080` |
-| `CWE_EXPECTED_VERSION` | Required CWE version; when unset, the version spec is skipped. | Unset |
-| `CWE_HEALTH_TIMEOUT` | Per-spec context timeout. | `60s` |
-| `NKE_E2E_AUTH_DISABLE` | Turns the token source off, so the suite sends no `Authorization` header. Against an enforcing NKE every spec then fails with 401. | Unset |
-| `NKE_E2E_AUDIENCE` | Overrides the audience the suite mints for. Normally discovered from the `nke-auth-config` ConfigMap in `CWE_NAMESPACE`. | Discovered |
+| `NKE_CONTROLLER_NAMESPACE` | Namespace containing the controller. The old name `CWE_NAMESPACE` is deprecated and still read when this is unset, until [nvke#1399](https://github.com/dsx-ai-factory/nvke/issues/1399) removes it. | `nke-controller` |
+| `NKE_CONTROLLER_SERVICE` | Controller Service whose backing pod is port-forwarded to; also the name of its Deployment, container and ServiceAccount. The old name `CWE_SERVICE` is deprecated and still read when this is unset, until [nvke#1399](https://github.com/dsx-ai-factory/nvke/issues/1399) removes it. | `nke-controller` |
+| `NKE_CONTROLLER_SERVICE_PORT` | Controller Service port, by name or number; the pod-side port is resolved from its `targetPort`. The old name `CWE_SERVICE_PORT` is deprecated and still read when this is unset, until [nvke#1399](https://github.com/dsx-ai-factory/nvke/issues/1399) removes it. | `8080` |
+| `NKE_CONTROLLER_EXPECTED_VERSION` | Required controller version; when unset, the version spec is skipped. The old name `CWE_EXPECTED_VERSION` is deprecated and still read when this is unset, until [nvke#1399](https://github.com/dsx-ai-factory/nvke/issues/1399) removes it. | Unset |
+| `NKE_CONTROLLER_HEALTH_TIMEOUT` | Per-spec context timeout. The old name `CWE_HEALTH_TIMEOUT` is deprecated and still read when this is unset, until [nvke#1399](https://github.com/dsx-ai-factory/nvke/issues/1399) removes it. | `60s` |
+| `NKE_E2E_AUTH_DISABLE` | Turns the token source off, so the suite sends no `Authorization` header. Against an enforcing NVKE every spec then fails with 401. | Unset |
+| `NKE_E2E_AUDIENCE` | Overrides the audience the suite mints for. Normally discovered from the `nke-auth-config` ConfigMap in `NKE_CONTROLLER_NAMESPACE`. | Discovered |
 | `NKE_E2E_TOKEN_NAMESPACE` | Namespace of the service account the suite presents. | `nke-clients` |
 | `NKE_E2E_TOKEN_SERVICE_ACCOUNT` | Service account the suite presents. Point this pair at `nke-outsiders`/`nke-outsider` for the 403 case. | `nke-client` |
 | `NKE_E2E_TOKEN_TTL` | Minted token lifetime. The apiserver rejects anything under 10m. | `15m` |
 
 When the `nke-auth-config` ConfigMap does not exist, the suite sends no token,
-so an unauthenticated NKE needs no configuration here.
+so an unauthenticated NVKE needs no configuration here.
 
 Unfiltered runs, including `make test-e2e`, include the health specs. To exclude
 them, pass `--label-filter='!health'`.
@@ -141,24 +141,24 @@ Three labels, which do not all run against the same deployment.
 
 | Label | What it covers | Deployment it needs |
 |---|---|---|
-| `authn` | The negative cases: no token -> 401, wrong audience -> 401, an unadmitted identity -> 403, and the anonymous routes `internal/auth/routes.go` exempts staying reachable with no credential. Also selects `authn-spire`. | Enforcing (`AUTH_CONFIG_PATH` set, `PERMISSIVE_MODE` unset or false) |
-| `authn-spire` | A SPIRE JWT-SVID end to end: a pod the spec creates fetches an SVID over the Workload API and calls NKE with it, and with one that differs only in `aud`. | Enforcing, plus SPIFFE enabled on the NKE pod |
-| `authn-permissive` | That permissive mode counts what it would have rejected: all cases return 200 and `nke_auth_requests_total{outcome="would_reject"}` advances. It flips the deployment itself and puts it back. | Enforcing; it arranges permissive mode for its own duration |
+| `authn` | The negative cases: no token -> 401, wrong audience -> 401, an unadmitted identity -> 403, and the anonymous routes `internal/auth/routes.go` exempts staying reachable with no credential. Also selects `authn-spire`. | Enforcing (`AUTH_CONFIG_PATH` set, `permissiveMode` false) |
+| `authn-spire` | A SPIRE JWT-SVID end to end: a pod the spec creates fetches an SVID over the Workload API and calls NVKE with it, and with one that differs only in `aud`. | Enforcing, plus SPIFFE enabled on the NVKE pod |
+| `authn-permissive` | That permissive mode counts what it would have rejected: all cases return 200 and `nvke_auth_requests_total{outcome="would_reject"}` advances. It flips the deployment itself and puts it back. | Enforcing; it arranges permissive mode for its own duration |
 
 Each skips itself, with the reason, when the deployment is not in the state it
-needs, reading `AUTH_CONFIG_PATH` and `PERMISSIVE_MODE` off the live NKE
-Deployment. Set `NKE_E2E_REQUIRE_AUTHN=true` (as the CAPD lane does) to turn
+needs, reading `AUTH_CONFIG_PATH` off the live NVKE Deployment and
+`permissiveMode` from its `nke-controller-config`. Set `NKE_E2E_REQUIRE_AUTHN=true` (as the CAPD lane does) to turn
 "authentication is not deployed" from a skip into a failure; without it a
 cluster with authentication off produces `SUCCESS! -- 0 Passed | 0 Failed | N
 Skipped`, indistinguishable in a CI log from a suite that never had these specs.
 
 **Prerequisites.** `tilt up` applies `deploy/k8s/nke-auth-dev.yaml` (client
 namespaces, service accounts, token-minter RBAC and the `nke-auth-config`
-ConfigMap) and, for `authn-spire`, `deploy/k8s/nke-spire-client.yaml`. NKE's
+ConfigMap) and, for `authn-spire`, `deploy/k8s/nke-spire-client.yaml`. NVKE's
 permission to read the cluster JWKS comes from the chart
 (`apiAuth.clusterIssuerDiscovery`).
 
-`nkectl` uses the same admitted identity (`nke-clients/nke-client`) against a
+`nvkectl` uses the same admitted identity (`nke-clients/nke-client`) against a
 Tilt or E2E cluster. The token-minter RoleBinding in that file is for the
 `nke-e2e` ServiceAccount the suite impersonates; a cluster-admin kubeconfig
 (the usual Tilt user) can mint without it.
@@ -170,7 +170,7 @@ make test-authn
 make test-authn-spire
 ```
 
-`hack/nke-auth-demo.sh` drives the same four credentials with `curl` and needs
+`hack/nvke-auth-demo.sh` drives the same four credentials with `curl` and needs
 no Go at all.
 
 ## Useful Ginkgo CLI Commands
@@ -189,50 +189,66 @@ make test-e2e-core-nico-containers
 make test-e2e-happy-path
 make test-e2e-capd
 make test-e2e-nico-vms
-make test-e2e-nico-vms-os-profiles
+make test-e2e-nico-vms-releases
 make test-e2e E2E_TIMEOUT=3h ARGS='--label-filter=capd'
 ```
 
 The two `core` targets run one control-plane node and one worker through create,
 tenant-node readiness, delete, and tenant-access cleanup. Pull-request mirror
 branches use these rows for bounded feedback. Runs on `main`, scheduled runs,
-and manual runs keep the comprehensive backend rows, including both
-control-plane provisioning modes and the extended lifecycle validations.
+and manual runs keep the comprehensive backend rows, including the extended
+lifecycle validations.
+
+The CAPD `cp-controller` rows advertise failure domains through
+`DockerCluster.spec.failureDomains` and check that control-plane Machines land
+only in eligible domains and stay balanced through create, scale, rolling
+update, and delete. These rows reject `lifecycle.reuseCluster`, since each
+needs its own set of domains.
+
+To run only these scenarios locally:
+
+```bash
+make test-e2e ARGS='--label-filter="capd && cp-controller"'
+```
 
 ### Local CAPD e2e (`make test-e2e-capd-local`)
 
-`make test-e2e-capd-local` (Colima + kind + Tilt + CAPD) validates **both**
-control-plane paths on one cluster by default, mirroring CI: the
-controller-managed leg (`cp-controller`, deployed with
-`PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=true`) runs first, then a
-light CWE redeploy flips the flag off for the node-pool leg. The node-pool leg
-only starts once the cp-controller leg's tenant cluster is fully torn down.
+`make test-e2e-capd-local` (Colima + kind + Tilt + CAPD) runs the CAPD suite
+against a controller that provisions every control plane from the cluster-level
+`controlPlaneConfig`, cp-controller entries included. It skips the `nvkectl` row,
+which needs the CLI and `kubectl` that the local runner does not have, so the
+local run is not CLI coverage. An entry that describes its control plane as one
+node pool is sent as the equivalent `controlPlaneConfig`.
 
-To iterate faster, run a single leg instead:
+The CAPD node image uses Open vSwitch's kernel datapath. Geneve leaves through
+the kernel route on Docker's uplink, and `br-ex` stays a dummy gateway so OVN
+does not adopt that interface. `NKE_OVS_DATAPATH_TYPE=netdev` selects the
+userspace datapath instead. The existing DNS workload probe and networking
+scenarios exercise this setup.
+
+To iterate faster, run a single filter instead:
 
 ```bash
-# One explicit filter, single-mode (honors PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER):
 LOCAL_NKE_E2E_LABEL_FILTER="capd && cp-controller" make test-e2e-capd-local
-
-# Node-pool path only:
-LOCAL_NKE_E2E_SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES=false make test-e2e-capd-local
 ```
 
-### OS profile provisioning matrix
+### Release provisioning matrix
 
-The `nico-vms && os-profiles` matrix gives each supported active OS profile an
+The `nico-vms && releases` matrix gives each supported active release an
 isolated sanity lifecycle: create a one-control-plane/one-worker tenant cluster,
 wait for both nodes to become Ready in CWE, and delete the cluster. The matrix
-reads active profile names, architectures, and Kubernetes versions from fleet
-OS profile metadata, which is maintained outside this repository. Resolution order:
+reads active release names, architectures, and Kubernetes versions from the
+fleet releases (NodePoolReleases that are not deprecated, and the
+MachineImages they reference), which is maintained outside this repository.
+Resolution order:
 
-1. `$CWE_PROFILES_DIR/osProfiles/metadata.yaml`
-2. `$PROFILES_DIR/osProfiles/metadata.yaml`
-3. sibling `../nke-site-deploy/cwe-profiles/profiles/osProfiles/metadata.yaml`
+1. `$NKE_CONTROLLER_RELEASES_DIR`
+2. sibling `../nke-site-deploy/cwe-profiles/releases`
    (an NVIDIA-internal fleet repository; external contributors use the
-   environment variables above instead)
+   environment variable above instead)
+3. the stub mirror in `test/fixtures/fleet-releases`
 
-If fleet metadata is unavailable, nico-vms matrix table entries are skipped at
+If no releases are found, nico-vms matrix table entries are skipped at
 suite init (no panic) so CAPD and other label filters can still run.
 
 Profiles with an embedded Kubernetes version use that version for their
@@ -242,25 +258,25 @@ Run the complete matrix with a longer suite timeout because entries run
 sequentially:
 
 ```bash
-make test-e2e-nico-vms-os-profiles
+make test-e2e-nico-vms-releases
 ```
 
-Every entry also carries its full profile name as a label, so a new or failing
-profile can be validated independently:
+Every entry also carries its full release name as a label, so a new or failing
+release can be validated independently:
 
 ```bash
-make test-e2e ARGS='--label-filter="os-profiles && nke-260625-24.04-x86-fde"'
+make test-e2e ARGS='--label-filter="releases && nke-260625-24.04-x86-fde"'
 ```
 
-When adding an OS profile:
+When adding a release:
 
-1. Add its directory and active metadata entry to the fleet profiles
-   directory (for NVIDIA maintainers, the internal fleet repository; otherwise
-   the directory `$CWE_PROFILES_DIR` points at).
+1. Add its MachineImage, ClusterRelease and NodePoolRelease to the fleet
+   releases (for NVIDIA maintainers, the internal fleet repository; otherwise
+   the directory `$NKE_CONTROLLER_RELEASES_DIR` points at).
 2. For a tenant profile, no separate e2e list update is required; the matrix
    includes it automatically on a runner of its architecture.
 3. If nico-vms cannot support it, add it to
-   `nicoVMSOSProfileExclusions` in `test/e2e/os_profile_matrix_test.go` with
+   `nicoVMSReleaseExclusions` in `test/e2e/release_matrix_test.go` with
    the concrete reason and an owning follow-up ticket when one can remove the
    limitation.
 4. Run the focused matrix test and then the new profile's label before running
@@ -272,15 +288,15 @@ profile, so an amd64 runner boots the amd64 profiles and an arm64 runner boots
 the arm64 ones. A profile for the other architecture is left out without an
 exclusion entry.
 
-`nicoVMSOSProfileExclusions` holds the profiles no runner can boot:
+`nicoVMSReleaseExclusions` holds the profiles no runner can boot:
 
-- the arm64 `nke-local-dev-kindest` placeholder, because it is not a tenant OS
+- the arm64 `nvke-local-dev-kindest` placeholder, because it is not a tenant OS
   profile; and
 - legacy autoinstall profiles whose iPXE scripts boot a kernel, initrd, and ISO
   directly. nico-vms currently requires a `chain` to `qcow-imager.efi` with an
   `image_url` pointing to a qcow2 artifact.
 
-Use the `nke-nico-vms-*` profiles for the emulator's normal control-plane and
+Use the `nvke-nico-vms-*` profiles for the emulator's normal control-plane and
 worker defaults, or for an emulator-specific compatibility scenario such as
 the old node-agent profile. Use production `nke-*` profiles as explicit worker
 profiles when validating the real image, iPXE, cloud-init, or node-agent
@@ -369,12 +385,12 @@ make test-e2e ARGS='--label-filter="oidc-enable"'
 enqueues the `EnableOIDC` workflow via the outbox, then waits for the lock to clear.
 
 **Constructing the OIDC-off precondition.** A cluster created on an OIDC-enabled
-site is always born OIDC-on (`OIDCAuthEnabled` follows the CWE `NKE_OIDC_AUTH_ENABLED`
-create default), which would make `UpdateCluster{enableOidc}` a no-op — there is no
+site is always born OIDC-on (`OIDCAuthEnabled` follows
+`oidc.managementOIDCAuth.enabled` in `nke-controller-config`), which would make `UpdateCluster{enableOidc}` a no-op — there is no
 supported way to create an OIDC-off cluster on such a site. So the brownfield entry
 creates its cluster with the CWE create-default flipped **off**
-(`nke.SetOIDCEnabled(false)` — a live env override on the CWE deployment, leaving the
-OIDC issuer/discovery/CA env intact), then flips it back **on** before enabling. This
+(`nvke.SetOIDCEnabled(false)` — a live edit of `nke-controller-config` and a controller
+restart, leaving the OIDC issuer/discovery/CA settings intact), then flips it back **on** before enabling. This
 mirrors a real brownfield cluster: one created before its site turned OIDC on. The
 flag is restored in the entry's `AfterAll`; the CAPD suite runs serially so this does
 not race other entries.
@@ -382,7 +398,7 @@ not race other entries.
 **Prerequisites.** The control-plane agent must be `>= v0.1.29`
 (`PatchAPIServerManifest`; `EnableOIDC.Validate` fails closed below it — the CAPD
 node image is pinned accordingly). The CAPD deploy stands up the OIDC substrate
-(config env + SPIRE discovery provider + tenant-access controller) by default
+(the `oidc.managementOIDCAuth` settings + SPIRE discovery provider + tenant-access controller) by default
 (`NKE_OIDC_AUTH_ENABLED` / `TENANT_ACCESS_ENABLED` default true in the Tiltfile), so
 the flip-on has everything it needs.
 
@@ -402,8 +418,9 @@ management cluster in the kube context. `-e2e.site-stage` picks how far it goes;
 without it the lane is skipped:
 
 - `provision`: provision the node over the site's jump host and check its egress.
-- `bootstrap`: also run `nkectl bootstrap site` and wait for the API server.
-- `full`: also deploy the SBOM stack, wait for CWE, then create and delete a tenant.
+- `bootstrap`: also run `nvkectl bootstrap site` and wait for the API server.
+- `full`: also deploy the SBOM stack, wait for CWE, check that NKTP delivers the
+  site's telemetry (below), then create and delete a tenant.
 
 Both lanes create the same `nico-forge` tenant and both entries carry that
 label, so pick between them with `site-controller`, which only the lane that
@@ -412,22 +429,56 @@ builds a site carries. Measured against this tree with `-ginkgo.dry-run` and
 
 | label filter | specs | which |
 |---|---|---|
-| `nico-forge && !site-controller` | 4 | the tenant, against the site controller in the kube context |
-| `site-controller` | 7 | the lane that builds a site, tenant included |
-| `nico-forge` | 8 | both |
+| `nico-forge && !site-controller` | 5 | the tenant, against the site controller in the kube context |
+| `site-controller` | 12 | the lane that builds a site, tenant included |
+| `nico-forge` | 10 | both |
 
 `-e2e.site-stage`, not the label, is what decides whether a machine is
 provisioned: the site lane's tenant entries are built only when it is set, so
-a bare `nico-forge` without it selects 4 specs and reaches no hardware.
+a bare `nico-forge` without it selects 5 specs and reaches no hardware.
 
 The node is torn down afterwards (tenants are deleted first). `-e2e.keep-site`, or
 `lifecycle.preserveOnFailure` with a failed spec, keeps it.
 
 Prerequisites: a way to reach the jump host (below), the jump host in
-`FORGE_JUMP_HOST` (read by `environments/forge.yaml`), `FORGE_API_KEY`, and for
-`full` `GHCR_USERNAME` and `GHCR_TOKEN`, which the node pulls CAPNICo with.
+`FORGE_JUMP_HOST` (read by `environments/forge.yaml`) and `FORGE_API_KEY`.
 Neither the proxy nor the jump host is checked in; secrets are read only from
-the environment. Build the inputs, then run; with the `site-inputs` defaults
+the environment.
+
+**On DSX** (`-e2e.environment=dsx`) the credential is different and the stage
+is limited. Each datahall carries its own SSA client, named for the key it is
+filed under in `environments/dsx.yaml`:
+
+```bash
+export SSA_ISSUER=…                                  # issuer BASE url; the
+export DSX_REDSTONE_DEV1_DH2_SSA_CLIENT_ID=…         # suite appends /token
+export DSX_REDSTONE_DEV1_DH2_SSA_CLIENT_SECRET=…     # 15-minute TTL
+export DSX_REDSTONE_DEV1_DH2_JUMP_HOST=…             # the rest are identifiers
+export DSX_REDSTONE_DEV1_DH2_SITE_ID=… DSX_REDSTONE_DEV1_DH2_TENANT_ID=…
+export DSX_REDSTONE_DEV1_DH2_VPC_ID=… DSX_REDSTONE_DEV1_DH2_VPC_PREFIX_ID=…
+export DSX_REDSTONE_DEV1_DH2_SSH_KEY_GROUP_ID=… DSX_REDSTONE_DEV1_DH2_INSTANCE_TYPE_ID=…
+```
+
+There is no cluster fallback: an unset client fails the run naming both
+variables. The names derive from the datahall key, so a credential scoped to
+one datahall cannot be picked up by a run against another.
+
+Use `-e2e.site-stage=provision` or `bootstrap`. `full` is refused before a
+machine is taken: its tenant half decodes the environment as a Forge
+declaration, which a DSX one is not.
+
+redstone-dev1-dh2 is **arm64 only**, and an absent `arch` capability defaults
+to amd64, so a hand-run has to ask for arm64 and stage arm64 OS images --- the
+command above passes no `-e2e.capabilities` and would fail in `Resolve` with
+"no declared site offers a amd64 CPU shape":
+
+```bash
+go test -timeout 5h . -args \
+  -ginkgo.label-filter=site-controller -ginkgo.v \
+  -e2e.config=e2e-config.yaml -e2e.environment=dsx -e2e.site-stage=provision \
+  -e2e.capabilities=arch=arm64 \
+  -e2e.versions=controller=<…>,os-image=<arm64 url>,os-image-bootloader=<arm64 url>,…
+``` Build the inputs, then run; with the `site-inputs` defaults
 no `site:` block is needed at all:
 
 ```bash
@@ -435,8 +486,23 @@ gmake site-inputs SITE_CONTROLLER_VERSION=$(git rev-parse --short=12 HEAD)
 go test -timeout 5h . -args \
   -ginkgo.label-filter=site-controller -ginkgo.v \
   -e2e.config=e2e-config.yaml -e2e.environment=forge -e2e.site-stage=full \
-  -e2e.versions=controller=<the same value>,os-image-bootloader=<url>,os-image=<url>
+  -e2e.versions=controller=<the same value>,os-image-bootloader=<url>,os-image=<url>,capi-provisioned=<version>,kube=<version>,cni-ovn=<version>,kind=<version>,clusterctl=<version>,nerdctl=<version>
 ```
+
+A Forge run requires every one of those versions and fails before a machine
+exists when one is missing, naming the ones it did not get. The suite carries no
+default for them. A qualification run gets them from the plan, and the tool
+versions (`kind`, `clusterctl` and `nerdctl`) are the pins in
+`make/tool-versions.mk`.
+
+The two OS-image keys may carry an architecture, as `os-image-arm64`. That is
+how one run boots two: a GB200 tenant puts arm64 workers behind a control plane
+of whatever `-e2e.capabilities` asked for under `arch`, and each machine takes
+the pair built for it. The unsuffixed keys above are what a run on a single
+architecture passes, and are used for any architecture that has no suffixed
+pair. The CI workflow always passes suffixed pairs, from the
+`QUALIFY_E2E_OS_IMAGE_<ARCH>` and `QUALIFY_E2E_OS_IMAGE_BOOTLOADER_<ARCH>`
+repository variables.
 
 `SITE_CONTROLLER_VERSION` and `-e2e.versions=controller=` have to be the same
 string, because they name one image: the archive `site-inputs` writes, and the
@@ -459,12 +525,37 @@ gmake site-inputs SITE_IMAGE_REGISTRY=nvcr.io/<org> SITE_CONTROLLER_VERSION=...
 The node still pulls CAPNICo from GHCR either way: its release asset names a
 GHCR image, and nothing else on the node pulls at all.
 
-`site-inputs` builds that image from the checkout. nkectl is built here too and
+`site-inputs` builds that image from the checkout. nvkectl is built here too and
 is a client of the CWE it bootstraps, so the two have to be one commit; the
-newest CWE on GHCR predates #850 and rejects this checkout's nkectl at
+newest CWE on GHCR predates #850 and rejects this checkout's nvkectl at
 "creating the site cluster". `SITE_CONTROLLER_BUILD=0` pulls
 `SITE_CONTROLLER_VERSION` as a published tag instead, for qualifying a release
 once one is cut past #850.
+
+To stage a published nvkectl instead, set `SITE_CLI_BUILD=0` and name the
+artifact. `site-inputs` pulls `nvkectl-linux-$(SITE_ARCH)` out of it into
+`$(SITE_INPUTS)/nvkectl/` and, when the binary is for the host it runs on,
+checks it reports `SITE_CLI_VERSION`. The pull checks each blob against the
+manifest the registry served for that tag, which catches a corrupted transfer
+but does not pin the tag.
+
+nvkectl is published per alias and platform, so the reference is
+`<registry>/nvkectl:<alias>-linux-<arch>`, where the alias is a version for a
+release and `sha-<commit>` for a commit between releases. It needs `oras` and a
+`docker login` to the registry:
+
+```bash
+gmake site-inputs SITE_CLI_BUILD=0 SITE_CONTROLLER_VERSION=... \
+  SITE_CLI_VERSION=v0.1.0 SITE_CLI_REF=nvcr.io/<org>/nvkectl:v0.1.0-linux-amd64
+# and in e2e-config.yaml, site.nvkectl: <SITE_INPUTS>/nvkectl/nvkectl-linux-<arch>
+# and on the suite, -e2e.versions=...,cli=<version>
+```
+
+The Forge workflow does all of this when given a `cli-version` input or the
+`QUALIFY_E2E_CLI_VERSION` repository variable, and stops if the binary does not
+report the version it was asked for. Pick a CLI and a controller that agree on
+the cluster API; the pairing is not checked until the bootstrap reaches
+"creating the site cluster".
 
 The deploy path is exported from the controller's own commit, tracked files
 only, so nothing in the working tree reaches the node. It carries the
@@ -473,15 +564,36 @@ commit when the controller was built from one, else its `controller/<version>`
 release tag, which has to be fetched in a shallow clone. Set
 `site.deployPathRef` only when developing the deploy path itself.
 
+### NKTP on the built site
+
+The `full` stage checks that NKTP delivers the site's telemetry by querying its
+backend, not by reading Pod status: a Collector can be Ready and export nothing.
+`internal/nktp` runs the same checks as `nktp/hack/e2e-validate.sh` does on
+Kind, a span it pushes through the node Collector itself, and what only a site
+wires up: the control plane, controller, Temporal and SPIRE metrics and logs,
+the API server's audit log, a trace of a request the spec itself makes to the
+controller, and the site's name on every signal.
+`siteTelemetry` in `site_nktp_test.go` lists the site-specific checks by
+component, one line per expectation.
+
+The checks run in two stages, each polling its checks concurrently. First
+every signal has to arrive, within eight minutes. Then the checks that nothing
+bad arrives, which pass trivially on an empty backend, have three minutes to
+hold and must keep holding for one more. The spec therefore takes the slowest
+check of each stage in turn: a few minutes when healthy, and at most about
+twelve when a signal never arrives. The failure names every check that did not
+hold and what it last saw.
+
 ### Reaching the jump host
 
 Teleport is the intended route. Locally that is a `tsh login` to the cluster
 the jump host is enrolled in. In CI it is a bot identity in `TELEPORT_PROXY`
 and `TELEPORT_IDENTITY_FILE`, which
-`.github/workflows/forge-site-controller-e2e.yml` obtains by joining with the
+`.github/workflows/qualify-e2e.yml` obtains by joining with the
 repository's GitHub OIDC token — nothing is stored. The bot's login is `root`,
-so the workflow sets `FORGE_TELEPORT_LOGIN=root`, which the site's
-`teleportLogin` in `environments/forge.yaml` reads. Unset is tsh's default.
+so the workflow sets `FORGE_TELEPORT_LOGIN=root` and
+`FORGE_YTL_TELEPORT_LOGIN=root`, which each site's `teleportLogin` in
+`environments/forge.yaml` reads. Unset is tsh's default.
 
 For a site whose jump host is *not* enrolled, set `JUMP_HOST_PASSWORD` and the
 harness logs into it over plain SSH and asks its sshd to forward, instead of
@@ -501,5 +613,54 @@ is reached with the ed25519 key the run generates, never with a password.
 
 This route is for a future site, and the CI lane no longer offers it. There is
 no network path from the ARC fleet to the site's jump host on port 22 at all —
-only the Teleport proxy reaches it — so `forge-site-controller-e2e.yml` always
+only the Teleport proxy reaches it — so `qualify-e2e.yml` always
 goes through `tsh`.
+
+The `node-agent-upgrade` label selects the controller-driven agent tests. These
+tests use real agent bundles and an isolated bundle mirror. They cover upgrades,
+downgrades, restoration after a failed installation, automatic retries, target
+changes, process restarts, deferred joins, and deletion drains. The tests also
+check the agent version before kubeadm and reject TLS clients without an identity.
+Workers keep the version baked into the image.
+
+To include the fixtures in a local run, set
+`LOCAL_NVKE_E2E_NODE_AGENT_UPGRADE=true`. Use a separate checkout at
+`92a3039bae7a12d10244263bff80776d83c2fe72` for the image's old agent. Set
+`NODE_AGENT_REPO_PATH` to that checkout's `agent/` directory and
+`NODE_AGENT_VERSION=v0.1.990`. The fixtures for the desired versions use the
+current checkout. Choose unique names for the management cluster, node image,
+and BGP container:
+
+```bash
+KIND_CLUSTER_NAME=nvke-agent-upgrade-e2e \
+CAPD_NODE_IMAGE=nvke-agent-upgrade-node:local \
+CAPD_KINDEST_NODE_IMAGE=nvke-agent-upgrade-node:local \
+BGP_CONTAINER_NAME=nvke-agent-upgrade-bgp \
+NODE_AGENT_REPO_PATH=/path/to/baseline/agent \
+NODE_AGENT_VERSION=v0.1.990 \
+LOCAL_NVKE_E2E_NODE_AGENT_UPGRADE=true \
+LOCAL_NKE_E2E_LABEL_FILTER=node-agent-upgrade \
+flox activate -- bash controller/hack/local-backend-e2e.sh
+```
+
+If the Docker host already runs, set `LOCAL_NVKE_E2E_REUSE_DOCKER_HOST=true`
+to reuse it without changing the host configuration. The test repairs only its
+private fixture artifact. It does not change a released bundle.
+
+## OIDC acceptance
+
+From `controller/`, run `make test-oidc-reference` to check NVKE's rendered
+authentication config and RBAC against the pinned envtest API server.
+`make test-oidc-acceptance-live` verifies authentication and provider snapshot
+preservation during control-plane joins through CAPD/Tilt; successful runs delete
+their management Kind cluster, and failed runs retain it and artifacts for
+inspection. After changing agent or bundle sources, remove the cached CAPD image
+and CNI packages from `controller/` before rerunning, and delete retained
+management clusters when finished:
+
+```bash
+docker rmi cwe-capd-kindest-node:oidc-acceptance-jointoken
+rm -rf .local/cni
+kind get clusters
+kind delete cluster --name "nke-oidc-live-<run_id>"
+```

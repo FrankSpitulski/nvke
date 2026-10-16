@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package siteconfig loads and validates the declarative site spec file that
-// drives "nkectl bootstrap site".
+// drives "nvkectl bootstrap site".
 //
 // The site spec file describes a set of pre-provisioned nodes and the vanilla
 // Kubernetes cluster to build on them. It is the single source of truth for a
@@ -21,22 +21,35 @@
 package sitespec
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/go-viper/mapstructure/v2"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/spf13/viper"
+	"k8s.io/apimachinery/pkg/util/version"
+	"k8s.io/client-go/util/cert"
+
+	"github.com/dsx-ai-factory/nvke/cli/internal/deploypath/stackconfig"
+	"github.com/dsx-ai-factory/nvke/cli/internal/envalias"
 )
 
 const (
-	// DefaultNodeAgentPort is the gRPC port nke-agent listens on when the
+	// DefaultNodeAgentPort is the gRPC port nvke-agent listens on when the
 	// site spec does not set cluster.nodeAgentPort.
 	DefaultNodeAgentPort = "15005"
+
+	// DefaultCNIName is the CNI installed when cluster.cniName is omitted.
+	DefaultCNIName = "ovn-kubernetes"
 
 	// DefaultEtcdEncryption is what cluster.etcdEncryption means when the site
 	// spec leaves it unset.
@@ -45,7 +58,12 @@ const (
 	// SiteSpec field paths — the single source of truth for the dotted paths
 	// shared by the environment bindings and the validator messages.
 	pathClusterName          = "clusterName"
+	pathInfraProvider        = "infra.provider"
 	pathNodes                = "cluster.nodes"
+	pathNico                 = "infra.nico"
+	pathNicoRemote           = "infra.nico.remote"
+	pathNicoControlPlane     = "infra.nico.controlPlane"
+	pathNicoReleases         = "infra.nico.releases"
 	pathK8sVersion           = "cluster.k8sVersion"
 	pathCniName              = "cluster.cniName"
 	pathCniVersion           = "cluster.cniVersion"
@@ -55,15 +73,60 @@ const (
 	pathSystemReservedMemory = "cluster.kubeletConfig.systemReservedMemory"
 	pathNodeAgentPort        = "cluster.nodeAgentPort"
 	pathEtcdEncryption       = "cluster.etcdEncryption"
-	pathBootstrapRepo        = "registry.bootstrapRepo"
-	pathBootstrapChart       = "registry.bootstrapChart"
-	pathAPIKey               = "registry.apiKey"
 	pathSpireTrustDomain     = "spire.trustDomain"
-	pathSpireCACertFile      = "spire.caCertFile"
-	pathSpireCAKeyFile       = "spire.caKeyFile"
+	pathSpireUpstreamCA      = "spire.upstreamCA"
+	pathOIDCProviders        = "cluster.oidcProviders"
+
+	// maxOIDCProviders matches controllerconfig.MaxOIDCProviders.
+	maxOIDCProviders = 5
+
+	// oidcAuthConfigMinVersion is the first Kubernetes release that can read the
+	// AuthenticationConfiguration the controller renders. Below it the controller
+	// pins an empty provider list and the site API server never sees the ones
+	// the site spec asked for.
+	oidcAuthConfigMinVersion = "1.34.0"
+
+	// Identity namespaces a fleet-wide OIDC provider must not use as a
+	// usernamePrefix or groupsPrefix. kube-apiserver rejects system, kubeadm,
+	// nke, and nvidia; nvke is reserved the same way.
+	oidcPrefixSystem  = "system:"
+	oidcPrefixKubeadm = "kubeadm:"
+	oidcPrefixNKE     = "nke:"
+	oidcPrefixNVKE    = "nvke:"
+	oidcPrefixNVIDIA  = "nvidia:"
+
+	pathSpireExternalAddress = "spire.externalAddress"
+
+	// The SPIRE CA comes from the environment, so the site spec can be committed.
+	EnvSpireCACertFile = "NVKECTL_SPIRE_CA_CERT_FILE" //nolint:gosec // G101: an env var name, not a credential
+	EnvSpireCAKeyFile  = "NVKECTL_SPIRE_CA_KEY_FILE"  //nolint:gosec // G101: an env var name, not a credential
 )
 
+// removedSpireCAEnv pairs the CA variables main bound to the removed spec fields
+// with their replacements. Setting one is refused, so a script that still
+// exports it does not get a self-signed SPIRE.
+var removedSpireCAEnv = [][2]string{
+	{"SPIRE_CA_CERT_FILE", EnvSpireCACertFile},
+	{"SPIRE_CA_KEY_FILE", EnvSpireCAKeyFile},
+}
+
+// removedFields maps each removed field to what replaced it.
+var removedFields = map[string]string{
+	"registry":          "the bootstrap takes its images from --controller-image and --provisioned-provider-image; log in to a private registry with nerdctl login",
+	"spire.caCertFile":  "set " + EnvSpireCACertFile + " and spire.upstreamCA: true",
+	"spire.caKeyFile":   "set " + EnvSpireCAKeyFile + " and spire.upstreamCA: true",
+	"infra.nico.tenant": "set " + stackconfig.EnvNodeUser + " and " + stackconfig.EnvNodePassword,
+}
+
 var (
+	oidcReservedPrefixes = []string{
+		oidcPrefixSystem,
+		oidcPrefixKubeadm,
+		oidcPrefixNKE,
+		oidcPrefixNVKE,
+		oidcPrefixNVIDIA,
+	}
+
 	// k8sVersionRE matches a plain semantic version like "1.32.0". A leading
 	// "v" is not accepted — the bootstrap flow passes this string straight to
 	// kubeadm.
@@ -79,68 +142,98 @@ var (
 
 // SupportedCNIs returns the CNI plugins the bootstrap flow can install.
 func SupportedCNIs() []string {
-	return []string{"calico", "ovn-kubernetes"}
+	return []string{DefaultCNIName}
 }
 
 // SiteSpec is the declarative bootstrap input file.
 type SiteSpec struct {
 	// ClusterName is the name of the Kubernetes cluster to create.
 	ClusterName string `yaml:"clusterName"`
+	// Infra selects where the cluster's machines come from and holds what that
+	// provider needs. Omitting it is the provisioned provider.
+	Infra Infra `yaml:"infra,omitempty"`
 	// Cluster holds the node inventory and Kubernetes settings.
 	Cluster Cluster `yaml:"cluster"`
-	// Registry holds the container-registry settings for the bootstrap engine
-	// image. The field names are registry-agnostic so the file can be
-	// open-sourced (tier-0 used NVIDIA-specific "ngcApiKey"/"sweImageTag").
-	Registry Registry `yaml:"registry"`
 	// Spire holds the identity-plane settings for the bootstrap.
 	Spire Spire `yaml:"spire"`
+
+	// dir is the directory the file was loaded from, which relative paths in
+	// infra.nico.releases are resolved against. Empty for a spec that was
+	// built rather than loaded.
+	dir string `yaml:"-"`
 }
 
-// Spire describes the identity plane `nkectl bootstrap site` stands up.
+// ResolvePath returns path made absolute: as given when absolute, else joined
+// onto the directory the site spec was loaded from, else onto the working
+// directory.
+func (inv *SiteSpec) ResolvePath(path string) string {
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	if inv.dir != "" {
+		return filepath.Join(inv.dir, path)
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
+}
+
+// Spire describes the identity plane `nvkectl bootstrap site` stands up.
 type Spire struct {
 	// TrustDomain is the SPIFFE trust domain used for all identities that the
 	// bootstrap SPIRE server issues. It must also be used by the permanent
 	// site SPIRE server that replaces it.
 	TrustDomain string `yaml:"trustDomain,omitempty"`
 
-	// CACertFile and CAKeyFile point at a CA the operator brings to the
-	// bootstrap. SPIRE chains its own CA to it, so a node that was given the
-	// certificate ahead of time can verify the server the first time it speaks
-	// to it, instead of trusting whatever answers.
+	// UpstreamCA records that the site's SPIRE chains to an operator CA, so
+	// every run requires the CA variables instead of falling back to a
+	// self-signed root.
+	UpstreamCA bool `yaml:"upstreamCA,omitempty"`
+
+	// CACertFile and CAKeyFile are a CA the operator brings to the bootstrap,
+	// from NVKECTL_SPIRE_CA_CERT_FILE and NVKECTL_SPIRE_CA_KEY_FILE. SPIRE
+	// chains its own CA to it, so a node given the certificate ahead of time
+	// verifies the server on first contact. Both with UpstreamCA, neither
+	// without it; neither leaves SPIRE self-signed.
+	CACertFile string `yaml:"-"`
+	CAKeyFile  string `yaml:"-"`
+
+	// ExternalAddress is the address nodes use to reach the bootstrap SPIRE
+	// server: the host that runs the bootstrap, as seen from the network the
+	// nodes are on. An IP address or a DNS name.
 	//
-	// They are paths rather than inline PEM for two reasons: a private key does
-	// not belong in a file meant to be committed, and the same certificate has
-	// to be delivered to each node by whatever provisions it — for DSX, the
-	// ansible runbook over SSH — so it already exists as a file.
-	//
-	// Both or neither. Omitting them leaves SPIRE self-signed, which is fine
-	// when nothing outside the cluster has to verify it, and means nodes cannot
-	// be given a trust anchor in advance.
-	CACertFile string `yaml:"caCertFile,omitempty"`
-	CAKeyFile  string `yaml:"caKeyFile,omitempty"`
+	// Required with ProviderNico, where CWE writes the SPIRE server's
+	// address into each node's userdata, so it has to be one the node can reach
+	// before anything in the cluster exists. Not used with
+	// ProviderProvisioned: those hosts were given the address when they
+	// were provisioned.
+	ExternalAddress string `yaml:"externalAddress,omitempty"`
 }
 
 // Cluster describes the target Kubernetes cluster and its nodes.
 type Cluster struct {
 	// Nodes are the pre-provisioned control-plane nodes. The site spec does not
-	// select which node runs kubeadm init.
+	// select which node runs kubeadm init. Used only with
+	// ProviderProvisioned.
 	Nodes []Node `yaml:"nodes"`
 	// K8sVersion is the Kubernetes version to install, e.g. "1.32.0".
 	K8sVersion string `yaml:"k8sVersion"`
-	// CniName selects the CNI plugin; see SupportedCNIs.
+	// CniName selects the CNI plugin; see SupportedCNIs. Empty means DefaultCNIName.
 	CniName string `yaml:"cniName"`
-	// CniVersion is an optional CNI plugin version (e.g. "3.31.4" for Calico).
+	// CniVersion is an optional OVN-Kubernetes version (for example "1.4.0").
 	// Empty lets the node-agent use its compiled-in default.
 	CniVersion string `yaml:"cniVersion"`
-	// ControlPlaneVIP is an optional IPv4 API endpoint advertised by kube-vip
-	// over BGP. Empty uses the IP of the node that initializes the cluster.
+	// ControlPlaneVIP is an IPv4 API endpoint advertised by kube-vip over BGP.
+	// It may be empty only for a single-node control plane, which then uses the
+	// initializing node's IP as its fixed endpoint.
 	ControlPlaneVIP string `yaml:"controlPlaneVIP,omitempty"`
 	// PodCidr is the pod network CIDR. Multiple CIDRs may be given as a
 	// comma-separated string.
 	PodCidr string `yaml:"podCidr"`
 	// ServiceCidr is the service network CIDR.
 	ServiceCidr string `yaml:"serviceCidr"`
-	// NodeAgentPort is the gRPC port nke-agent listens on. Defaults to
+	// NodeAgentPort is the gRPC port nvke-agent listens on. Defaults to
 	// DefaultNodeAgentPort when unset.
 	NodeAgentPort string `yaml:"nodeAgentPort"`
 	// EtcdEncryption enables encryption at rest for the Kubernetes API's etcd
@@ -150,12 +243,38 @@ type Cluster struct {
 	EtcdEncryption *bool `yaml:"etcdEncryption,omitempty"`
 	// KubeletConfig holds optional kubelet resource reservations.
 	KubeletConfig KubeletConfig `yaml:"kubeletConfig"`
+	// OIDC providers the bootstrap controller
+	// pins onto the site cluster apiservers. Optional.
+	OIDCProviders []OIDCProvider `yaml:"oidcProviders,omitempty"`
+}
+
+// OIDCProvider is one fleet-wide OIDC provider. Field names match the
+// controller chart's oidc.providers entries.
+type OIDCProvider struct {
+	Name           string            `yaml:"name"`
+	IssuerURL      string            `yaml:"issuerURL"`
+	Audiences      []string          `yaml:"audiences"`
+	UsernameClaim  string            `yaml:"usernameClaim"`
+	UsernamePrefix string            `yaml:"usernamePrefix"`
+	GroupsClaim    string            `yaml:"groupsClaim,omitempty"`
+	GroupsPrefix   string            `yaml:"groupsPrefix,omitempty"`
+	RequiredClaims map[string]string `yaml:"requiredClaims,omitempty"`
+	CABundle       string            `yaml:"caBundle"`
 }
 
 // EtcdEncryptionEnabled reports whether the cluster's etcd data is encrypted
 // at rest. Unset means enabled; see EtcdEncryption.
 func (c Cluster) EtcdEncryptionEnabled() bool {
 	return c.EtcdEncryption == nil || *c.EtcdEncryption
+}
+
+// ControlPlaneSchedulable reports whether the control-plane NoSchedule taint
+// is removed from every node after bootstrap. It is removed when the site spec
+// declares no worker nodes.
+func (c Cluster) ControlPlaneSchedulable() bool {
+	// The site spec cannot declare worker nodes yet. Derive this from that
+	// list once it exists.
+	return true
 }
 
 // Node is a single pre-provisioned host.
@@ -198,30 +317,13 @@ type KubeletConfig struct {
 	SystemReservedMemory string `yaml:"systemReservedMemory"`
 }
 
-// Registry holds the settings for pulling the bootstrap engine chart. The
-// version (chart tag) is baked into the nkectl build, so it is not part of the
-// sitespec. The controller image the chart deploys is published separately, to
-// <registry>/<org>/controller, and is not addressed by these fields.
-type Registry struct {
-	// BootstrapRepo is the OCI repository that holds the bootstrap engine chart
-	// (e.g. "nvcr.io/org").
-	BootstrapRepo string `yaml:"bootstrapRepo"`
-	// BootstrapChart is the bootstrap engine chart name within BootstrapRepo
-	// (e.g. "controller-chart" on NVCR, which has no path segment to keep the
-	// chart from colliding with the controller image's repository).
-	BootstrapChart string `yaml:"bootstrapChart"`
-	// APIKey is an optional registry credential. It is never defaulted: a
-	// secret is only ever used when the operator supplies one, via this field,
-	// a CLI flag, or an environment variable. See the SetDefaults note.
-	APIKey string `yaml:"apiKey,omitempty"`
-}
-
 // envBindings maps environment variable names to their site spec field paths.
 // A set variable overrides the matching field from the file, so existing
 // tier-0 / DS9 scripts can drive the site spec through the environment.
 func envBindings() map[string]string {
 	return map[string]string{
 		"CLUSTER_NAME":                   pathClusterName,
+		"NVKECTL_INFRA_PROVIDER":         pathInfraProvider,
 		"CLUSTER_K8S_VERSION":            pathK8sVersion,
 		"CLUSTER_CNI_NAME":               pathCniName,
 		"CLUSTER_CNI_VERSION":            pathCniVersion,
@@ -231,13 +333,25 @@ func envBindings() map[string]string {
 		"CLUSTER_SYSTEM_RESERVED_MEMORY": pathSystemReservedMemory,
 		"CLUSTER_NODE_AGENT_PORT":        pathNodeAgentPort,
 		"CLUSTER_ETCD_ENCRYPTION":        pathEtcdEncryption,
-		"REGISTRY_BOOTSTRAP_REPO":        pathBootstrapRepo,
-		"REGISTRY_BOOTSTRAP_CHART":       pathBootstrapChart,
-		"REGISTRY_API_KEY":               pathAPIKey,
-		"NKECTL_SPIFFE_TRUST_DOMAIN":     pathSpireTrustDomain,
-		"SPIRE_CA_CERT_FILE":             pathSpireCACertFile,
-		"SPIRE_CA_KEY_FILE":              pathSpireCAKeyFile,
+		"NVKECTL_SPIFFE_TRUST_DOMAIN":    pathSpireTrustDomain,
+		"NVKECTL_SPIRE_EXTERNAL_ADDRESS": pathSpireExternalAddress,
 	}
+}
+
+// Settings is every NVKECTL_* variable this package reads; each is also read
+// under its previous NKECTL_* name for one release (see envalias). The one
+// exception is NicoInsecureEndpointEnv, which turns a safety check off and so
+// answers only to its own name.
+var Settings = []string{
+	"NVKECTL_SPIFFE_TRUST_DOMAIN",
+	"NVKECTL_CLUSTER_NODES",
+	"NVKECTL_INFRA_PROVIDER",
+	"NVKECTL_SPIRE_EXTERNAL_ADDRESS",
+	EnvSpireCACertFile,
+	EnvSpireCAKeyFile,
+	NicoCredentialsEnv,
+	stackconfig.EnvNodeUser,
+	stackconfig.EnvNodePassword,
 }
 
 // newInventoryViper returns a Viper that reads a YAML site spec file with the
@@ -248,7 +362,13 @@ func newInventoryViper() *viper.Viper {
 	v := viper.New()
 	v.SetConfigType("yaml")
 	for env, path := range envBindings() {
-		_ = v.BindEnv(path, env)
+		// A setting the rename touched is also read under its previous name,
+		// for one release; the current name wins when both are set.
+		if old := envalias.Old(env); old != "" {
+			_ = v.BindEnv(path, env, old)
+		} else {
+			_ = v.BindEnv(path, env)
+		}
 	}
 	return v
 }
@@ -264,10 +384,10 @@ func Load(path string) (*SiteSpec, error) {
 		return nil, fmt.Errorf("read site spec file %s: %w", path, err)
 	}
 
-	// NKECTL_CLUSTER_NODES="name:ip,name:ip" supplies the flat node list when
+	// NVKECTL_CLUSTER_NODES="name:ip,name:ip" supplies the flat node list when
 	// the file lists none. A malformed entry fails loudly rather than being
 	// silently dropped.
-	if nodesEnv := os.Getenv("NKECTL_CLUSTER_NODES"); nodesEnv != "" && !v.IsSet(pathNodes) {
+	if nodesEnv := envalias.Get("NVKECTL_CLUSTER_NODES"); nodesEnv != "" && !v.IsSet(pathNodes) {
 		nodes, err := parseNodesEnv(nodesEnv)
 		if err != nil {
 			return nil, err
@@ -283,10 +403,18 @@ func Load(path string) (*SiteSpec, error) {
 			path, pathEtcdEncryption, raw)
 	}
 
-	var inv SiteSpec
-	if err := v.Unmarshal(&inv, useYAMLTags, rejectUnknownFields); err != nil {
+	if err := rejectRemovedFields(v); err != nil {
 		return nil, fmt.Errorf("site spec file %s: %w", path, err)
 	}
+
+	var inv SiteSpec
+	if err := v.Unmarshal(&inv, useYAMLTags, decodeTextValues, rejectUnknownFields); err != nil {
+		return nil, fmt.Errorf("site spec file %s: %w", path, err)
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		inv.dir = filepath.Dir(abs)
+	}
+	inv.Spire.CACertFile, inv.Spire.CAKeyFile = envalias.Get(EnvSpireCACertFile), envalias.Get(EnvSpireCAKeyFile)
 
 	inv.SetDefaults()
 
@@ -301,14 +429,41 @@ func Load(path string) (*SiteSpec, error) {
 	return &inv, nil
 }
 
-// useYAMLTags makes viper decode using the structs' existing yaml tags.
-func useYAMLTags(dc *mapstructure.DecoderConfig) { dc.TagName = "yaml" }
+// rejectRemovedFields names the replacement for each removed field the file sets.
+func rejectRemovedFields(v *viper.Viper) error {
+	var errs []string
+	for field, instead := range removedFields {
+		if v.InConfig(field) {
+			errs = append(errs, fmt.Sprintf("%s is no longer accepted: %s", field, instead))
+		}
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	sort.Strings(errs)
+	return fmt.Errorf("validation failed:\n  - %s", strings.Join(errs, "\n  - "))
+}
+
+// useYAMLTags makes viper decode using the structs' existing yaml tags. Embedded
+// structs are squashed, as yaml.v3's ",inline" does when the spec is written
+// back out, since mapstructure does not read that tag option.
+func useYAMLTags(dc *mapstructure.DecoderConfig) {
+	dc.TagName = "yaml"
+	dc.Squash = true
+}
+
+// decodeTextValues lets a string decode into a type that parses itself, which
+// is how the API's UUID fields read from the file. It adds to viper's own
+// hooks rather than replacing them.
+func decodeTextValues(dc *mapstructure.DecoderConfig) {
+	dc.DecodeHook = mapstructure.ComposeDecodeHookFunc(dc.DecodeHook, mapstructure.TextUnmarshallerHookFunc())
+}
 
 // rejectUnknownFields makes decoding fail on an unknown field, so a typo in a
 // field name surfaces immediately instead of being silently ignored.
 func rejectUnknownFields(dc *mapstructure.DecoderConfig) { dc.ErrorUnused = true }
 
-// parseNodesEnv parses NKECTL_CLUSTER_NODES="name:ip,name:ip" into node maps,
+// parseNodesEnv parses NVKECTL_CLUSTER_NODES="name:ip,name:ip" into node maps,
 // returning an error on any malformed entry.
 func parseNodesEnv(s string) ([]map[string]string, error) {
 	var nodes []map[string]string
@@ -320,7 +475,7 @@ func parseNodesEnv(s string) ([]map[string]string, error) {
 		name, ip, ok := strings.Cut(entry, ":")
 		name, ip = strings.TrimSpace(name), strings.TrimSpace(ip)
 		if !ok || name == "" || ip == "" {
-			return nil, fmt.Errorf("NKECTL_CLUSTER_NODES entry %q: expected \"name:ip\"", entry)
+			return nil, fmt.Errorf("NVKECTL_CLUSTER_NODES entry %q: expected \"name:ip\"", entry)
 		}
 		nodes = append(nodes, map[string]string{"name": name, "ip": ip})
 	}
@@ -335,8 +490,14 @@ func parseNodesEnv(s string) ([]map[string]string, error) {
 // it can be supplied explicitly (flag or environment variable) rather than
 // silently falling back to a shared default.
 func (inv *SiteSpec) SetDefaults() {
+	if inv.Infra.Provider == "" {
+		inv.Infra.Provider = ProviderProvisioned
+	}
 	if inv.Cluster.NodeAgentPort == "" {
 		inv.Cluster.NodeAgentPort = DefaultNodeAgentPort
+	}
+	if inv.Cluster.CniName == "" {
+		inv.Cluster.CniName = DefaultCNIName
 	}
 	if inv.Cluster.EtcdEncryption == nil {
 		enabled := DefaultEtcdEncryption
@@ -361,15 +522,17 @@ func (inv *SiteSpec) Validate() error {
 // caller that runs more than one check set still reports one aggregated error.
 func (inv *SiteSpec) appendDataChecks(v *validator) {
 	v.checkClusterName(inv.ClusterName)
-	v.checkNodes(inv.Cluster)
+	v.checkInfra(inv)
 	v.checkK8sVersion(inv.Cluster.K8sVersion)
 	v.checkCNI(inv.Cluster.CniName)
 	v.checkCIDR(pathPodCidr, inv.Cluster.PodCidr, true)
 	v.checkCIDR(pathServiceCidr, inv.Cluster.ServiceCidr, false)
-	v.checkControlPlaneVIP(inv.Cluster)
+	v.checkCIDRsDisjoint(inv.Cluster)
+	v.checkControlPlaneVIP(inv)
 	v.checkNodeAgentPort(inv.Cluster.NodeAgentPort)
-	v.checkRegistry(inv.Registry)
 	v.checkSpire(inv.Spire)
+	v.checkOIDCProviders(inv.Cluster)
+	v.checkSpireExternalAddress(inv)
 }
 
 // ValidateReferences checks that the files the site spec names can be read,
@@ -387,7 +550,25 @@ func (inv *SiteSpec) ValidateReferences() error {
 // appendReferenceChecks runs every check that reads the filesystem, adding each
 // problem to v. See appendDataChecks for why it takes the validator.
 func (inv *SiteSpec) appendReferenceChecks(v *validator) {
-	v.checkSpireFiles(inv.Spire)
+	v.checkSpireCA(inv.Spire)
+}
+
+// ValidateBootstrapReferences checks what the bootstrap reads besides the site
+// spec: that the infra.nico.releases manifests can be read and hold the release
+// the control plane's release names, with relative paths resolved from the site
+// spec's directory; that NVKECTL_NICO_CREDENTIALS names a readable NICo token
+// file; and that NVKECTL_NODE_USER and NVKECTL_NODE_PASSWORD are set.
+//
+// Load does not call it, because Load also serves commands that never run the
+// bootstrap: the controller stack install on the site node, through
+// render deploy-path, has no use for these files and may not have them. Call it
+// from the commands that run, or vet, the bootstrap. It reads nothing with
+// the provisioned provider.
+func (inv *SiteSpec) ValidateBootstrapReferences() error {
+	v := &validator{}
+	v.checkNicoFiles(inv)
+	v.checkNicoCredentials(inv)
+	return v.err()
 }
 
 // validator accumulates field-level errors so the caller sees every problem
@@ -413,6 +594,20 @@ func (v *validator) checkClusterName(name string) {
 		v.addf("clusterName is required")
 	case !dnsLabelRE.MatchString(name):
 		v.addf("clusterName %q must be a lowercase RFC 1123 label (letters, digits, hyphens)", name)
+	}
+}
+
+func (v *validator) checkUUID(path string, value openapi_types.UUID) {
+	if value == (openapi_types.UUID{}) {
+		v.addf("%s is required", path)
+	}
+}
+
+func (v *validator) checkUUIDs(path string, values []openapi_types.UUID) {
+	for i, value := range values {
+		if value == (openapi_types.UUID{}) {
+			v.addf("%s[%d] is the nil UUID", path, i)
+		}
 	}
 }
 
@@ -474,6 +669,75 @@ func (v *validator) checkNode(path string, n Node, names, ips map[string]int) {
 	}
 }
 
+func (v *validator) checkOIDCProviders(c Cluster) {
+	if len(c.OIDCProviders) == 0 {
+		return
+	}
+	if got, err := version.ParseGeneric(c.K8sVersion); err == nil && got.LessThan(version.MustParseGeneric(oidcAuthConfigMinVersion)) {
+		v.addf("%s requires %s %s or newer, got %q", pathOIDCProviders, pathK8sVersion, oidcAuthConfigMinVersion, c.K8sVersion)
+	}
+	if len(c.OIDCProviders) > maxOIDCProviders {
+		v.addf("%s has %d entries, more than the %d-entry cap", pathOIDCProviders, len(c.OIDCProviders), maxOIDCProviders)
+	}
+
+	seenNames := map[string]int{}
+	seenIssuers := map[string]int{}
+	for i, p := range c.OIDCProviders {
+		path := fmt.Sprintf("%s[%d]", pathOIDCProviders, i)
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			v.addf("%s.name is required", path)
+		} else if prev, dup := seenNames[name]; dup {
+			v.addf("%s.name %q is already used by %s[%d]", path, name, pathOIDCProviders, prev)
+		} else {
+			seenNames[name] = i
+		}
+		issuerURL := strings.TrimSpace(p.IssuerURL)
+		if issuerURL == "" {
+			v.addf("%s.issuerURL is required", path)
+		} else {
+			if u, err := url.Parse(issuerURL); err != nil || u.Scheme != "https" || u.Host == "" {
+				v.addf("%s.issuerURL %q must be an https URL", path, issuerURL)
+			}
+			if prev, dup := seenIssuers[issuerURL]; dup {
+				v.addf("%s.issuerURL %q is already used by %s[%d]", path, issuerURL, pathOIDCProviders, prev)
+			} else {
+				seenIssuers[issuerURL] = i
+			}
+		}
+		if strings.TrimSpace(p.UsernameClaim) == "" {
+			v.addf("%s.usernameClaim is required", path)
+		}
+		if strings.TrimSpace(p.UsernamePrefix) == "" {
+			v.addf("%s.usernamePrefix is required", path)
+		}
+		v.checkOIDCPrefix(path+".usernamePrefix", p.UsernamePrefix)
+		v.checkOIDCPrefix(path+".groupsPrefix", p.GroupsPrefix)
+		if len(p.Audiences) == 0 {
+			v.addf("%s.audiences is required", path)
+		}
+		for j, aud := range p.Audiences {
+			if strings.TrimSpace(aud) == "" {
+				v.addf("%s.audiences[%d] must not be empty", path, j)
+			}
+		}
+		if strings.TrimSpace(p.CABundle) == "" {
+			v.addf("%s.caBundle is required", path)
+		} else if _, err := cert.ParseCertsPEM([]byte(p.CABundle)); err != nil {
+			v.addf("%s.caBundle must contain a PEM-encoded certificate", path)
+		}
+	}
+}
+
+func (v *validator) checkOIDCPrefix(path, prefix string) {
+	for _, reserved := range oidcReservedPrefixes {
+		if strings.HasPrefix(prefix, reserved) {
+			v.addf("%s %q is inside the reserved %q namespace", path, prefix, reserved)
+			return
+		}
+	}
+}
+
 func (v *validator) checkK8sVersion(ver string) {
 	switch {
 	case ver == "":
@@ -519,10 +783,15 @@ func (v *validator) checkCIDR(path, value string, allowList bool) {
 	}
 }
 
-// checkControlPlaneVIP requires an optional IPv4 VIP to avoid node IPs and
-// pod and service CIDRs.
-func (v *validator) checkControlPlaneVIP(c Cluster) {
+// checkControlPlaneVIP requires a stable endpoint for multi-node control planes
+// and validates a configured IPv4 VIP against cluster CIDRs.
+func (v *validator) checkControlPlaneVIP(inv *SiteSpec) {
+	c := inv.Cluster
 	if c.ControlPlaneVIP == "" {
+		if inv.ControlPlaneCount() > 1 {
+			v.addf("%s is required when the cluster has more than one control-plane node (%s or %s) because kube-vip provides "+
+				"a stable control-plane endpoint", pathControlPlaneVIP, pathNodes, pathNicoControlPlane+".count")
+		}
 		return
 	}
 
@@ -531,7 +800,7 @@ func (v *validator) checkControlPlaneVIP(c Cluster) {
 		v.addf("%s %q is not a valid IP address", pathControlPlaneVIP, c.ControlPlaneVIP)
 		return
 	}
-	// Match CWE's rejection of IPv4-mapped IPv6 addresses.
+	// Match the controller's rejection of IPv4-mapped IPv6 addresses.
 	if !vip.Is4() {
 		v.addf("%s %q must be an IPv4 address", pathControlPlaneVIP, c.ControlPlaneVIP)
 		return
@@ -544,32 +813,57 @@ func (v *validator) checkControlPlaneVIP(c Cluster) {
 		return
 	}
 
-	// Compare equivalent address forms. checkNode reports malformed node IPs.
-	for _, n := range c.Nodes {
-		nodeAddr, err := netip.ParseAddr(n.IP)
-		if err != nil {
-			continue
-		}
-		if vip == nodeAddr.Unmap() {
-			v.addf("%s %q must not equal a node IP (%s.ip)", pathControlPlaneVIP, c.ControlPlaneVIP, pathNodes)
-		}
-	}
-
 	for _, cidr := range strings.Split(c.PodCidr, ",") {
 		v.checkVIPOutsideCIDR(vip, c.ControlPlaneVIP, pathPodCidr, cidr)
 	}
 	v.checkVIPOutsideCIDR(vip, c.ControlPlaneVIP, pathServiceCidr, c.ServiceCidr)
 }
 
+// checkCIDRsDisjoint refuses a pod CIDR that overlaps the service CIDR.
+// kubeadm accepts the pair and the cluster then fails to route. Malformed
+// CIDRs are reported by checkCIDR and skipped here.
+func (v *validator) checkCIDRsDisjoint(c Cluster) {
+	svc, ok := parsePrefix(c.ServiceCidr)
+	if !ok {
+		return
+	}
+	for _, p := range strings.Split(c.PodCidr, ",") {
+		p = strings.TrimSpace(p)
+		pod, ok := parsePrefix(p)
+		if !ok {
+			continue
+		}
+		if pod.Overlaps(svc) {
+			v.addf("%s %q overlaps %s %q", pathPodCidr, p, pathServiceCidr, c.ServiceCidr)
+		}
+	}
+}
+
 // checkVIPOutsideCIDR reports when the VIP falls inside cidr. A malformed or
 // empty cidr is left to checkCIDR; nothing is reported here for it.
+// parsePrefix parses a CIDR the way checkCIDR accepts it, with net.ParseCIDR,
+// and returns it as a netip.Prefix. net.ParseCIDR allows a prefix length with
+// a leading zero; netip.ParsePrefix does not, so parsing with netip alone would
+// skip a CIDR that checkCIDR had accepted.
+func parsePrefix(cidr string) (netip.Prefix, bool) {
+	_, ipnet, err := net.ParseCIDR(strings.TrimSpace(cidr))
+	if err != nil {
+		return netip.Prefix{}, false
+	}
+	prefix, err := netip.ParsePrefix(ipnet.String())
+	if err != nil {
+		return netip.Prefix{}, false
+	}
+	return prefix, true
+}
+
 func (v *validator) checkVIPOutsideCIDR(vip netip.Addr, vipText, path, cidr string) {
 	cidr = strings.TrimSpace(cidr)
 	if cidr == "" {
 		return
 	}
-	prefix, err := netip.ParsePrefix(cidr)
-	if err != nil {
+	prefix, ok := parsePrefix(cidr)
+	if !ok {
 		return
 	}
 	if prefix.Contains(vip) {
@@ -587,27 +881,72 @@ func (v *validator) checkNodeAgentPort(port string) {
 	}
 }
 
-func (v *validator) checkRegistry(r Registry) {
-	v.checkRegistryRef(pathBootstrapRepo, r.BootstrapRepo)
-	v.checkRegistryRef(pathBootstrapChart, r.BootstrapChart)
-}
-
-// checkSpire validates the shape of the bootstrap CA, if one was given: both
-// files or neither. Whether the files exist is checkSpireFiles' concern.
+// checkSpire validates the trust domain.
 func (v *validator) checkSpire(s Spire) {
 	if s.TrustDomain != "" {
 		v.checkTrustDomain(s.TrustDomain)
 	}
+}
 
-	switch {
-	case s.CACertFile == "" && s.CAKeyFile == "":
+// checkSpireExternalAddress checks the address nodes reach SPIRE on when CAPNICo
+// creates them, and refuses it otherwise so a value that nothing reads is not
+// mistaken for one that does. Whether it is required depends on whether mTLS is
+// on, which the site spec does not know; nvkectl bootstrap site checks that.
+func (v *validator) checkSpireExternalAddress(inv *SiteSpec) {
+	address := inv.Spire.ExternalAddress
+	if !inv.IsNico() {
+		if address != "" {
+			v.addf("%s is only valid with %s: %q", pathSpireExternalAddress, pathInfraProvider, ProviderNico)
+		}
 		return
-	case s.CACertFile == "":
-		v.addf("%s is required when %s is set", pathSpireCACertFile, pathSpireCAKeyFile)
-	case s.CAKeyFile == "":
-		v.addf("%s is required when %s is set: SPIRE needs the key to sign with, "+
-			"not just the certificate to chain to", pathSpireCAKeyFile, pathSpireCACertFile)
 	}
+	if address == "" {
+		return
+	}
+	if ip, err := netip.ParseAddr(address); err == nil {
+		// Loopback and the unspecified address mean nothing from another machine.
+		// A zone means nothing either, and its text is not validated: it reaches
+		// helm --set-string, where a comma would set another value.
+		if !ip.IsGlobalUnicast() || ip.Zone() != "" {
+			v.addf("%s %q must be a routable unicast address without a zone", pathSpireExternalAddress, address)
+		}
+		return
+	}
+	for _, label := range strings.Split(address, ".") {
+		if len(label) == 0 || len(label) > 63 || !dnsLabelRE.MatchString(label) {
+			v.addf("%s %q must be an IP address or a lowercase DNS name", pathSpireExternalAddress, address)
+			return
+		}
+	}
+	// localhost names the loopback interface (RFC 6761), as 127.0.0.1 does.
+	if address == "localhost" || strings.HasSuffix(address, ".localhost") {
+		v.addf("%s %q names the loopback interface, which means nothing from another machine", pathSpireExternalAddress, address)
+	}
+}
+
+// CheckBootstrapMode applies the rules that depend on how the bootstrap will
+// run, which Validate cannot know. With CAPNICo creating the nodes and mTLS on,
+// the nodes read the SPIRE server's address from their userdata, so
+// spire.externalAddress is required; with disableMTLS nothing reads it.
+func (inv *SiteSpec) CheckBootstrapMode(disableMTLS bool) error {
+	if inv.IsNico() && !disableMTLS && inv.Spire.ExternalAddress == "" {
+		return fmt.Errorf("%s is required with %s: %q unless mTLS is disabled: nodes created by CAPNICo "+
+			"need an address that reaches the bootstrap host's SPIRE server", pathSpireExternalAddress, pathInfraProvider, ProviderNico)
+	}
+	return nil
+}
+
+// NicoVIPWarning returns a warning for a nico site spec that leaves
+// cluster.controlPlaneVIP unset, or "" for any other site spec. The bootstrap
+// builds such a site cluster, but the controller stack install refuses the spec,
+// and the VIP cannot be added once the site cluster exists.
+func (inv *SiteSpec) NicoVIPWarning() string {
+	if !inv.IsNico() || inv.Cluster.ControlPlaneVIP != "" {
+		return ""
+	}
+	return pathControlPlaneVIP + " is not set: the bootstrap can build this one-node site cluster, but the controller stack " +
+		"install needs the VIP, and it cannot be added once the site cluster exists (kube-vip is set up only when the cluster " +
+		"is created with one); set it now unless this site will not get the controller stack"
 }
 
 // checkTrustDomain validates the DNS-name form required for a SPIFFE trust
@@ -626,38 +965,90 @@ func (v *validator) checkTrustDomain(domain string) {
 	}
 }
 
-// checkSpireFiles reports a bootstrap CA that cannot be read.
-//
-// Existence is checked before the bootstrap rather than left to the deploy
-// because this is the last point at which nothing has been touched. A missing
-// or unreadable CA otherwise surfaces several minutes in, as a helm failure
-// that names a temporary file rather than the site spec field that was wrong.
-//
-// A half-specified CA is checkSpire's error to report, so nothing is checked
-// here unless both fields are set.
-func (v *validator) checkSpireFiles(s Spire) {
-	if s.CACertFile == "" || s.CAKeyFile == "" {
+// checkSpireCA reports a half-specified or unreadable CA from the
+// environment, before anything has been touched.
+func (v *validator) checkSpireCA(s Spire) {
+	for _, pair := range removedSpireCAEnv {
+		if os.Getenv(pair[0]) != "" {
+			v.addf("%s is no longer accepted: unset it; set %s and %s: true", pair[0], pair[1], pathSpireUpstreamCA)
+		}
+	}
+	certEnv, keyEnv := EnvSpireCACertFile, EnvSpireCAKeyFile
+	switch {
+	case s.CACertFile == "" && s.CAKeyFile == "":
+		if s.UpstreamCA {
+			v.addf("%s is true, so %s and %s are required: every run of this site needs the CA it was set up with",
+				pathSpireUpstreamCA, certEnv, keyEnv)
+		}
+		return
+	case !s.UpstreamCA:
+		v.addf("%s or %s is set but %s is not true: set it in the site spec so every later run requires the CA",
+			certEnv, keyEnv, pathSpireUpstreamCA)
+		return
+	case s.CACertFile == "":
+		v.addf("%s is required when %s is set", certEnv, keyEnv)
+		return
+	case s.CAKeyFile == "":
+		v.addf("%s is required when %s is set: SPIRE needs the key to sign with", keyEnv, certEnv)
 		return
 	}
-
-	for path, file := range map[string]string{
-		pathSpireCACertFile: s.CACertFile,
-		pathSpireCAKeyFile:  s.CAKeyFile,
-	} {
-		if _, err := os.Stat(file); err != nil {
-			v.addf("%s %q cannot be read: %v", path, file, err)
+	for _, f := range [][2]string{{certEnv, s.CACertFile}, {keyEnv, s.CAKeyFile}} {
+		file, err := os.Open(f[1])
+		if err != nil {
+			v.addf("%s %q cannot be read: %v", f[0], f[1], err)
+			continue
+		}
+		info, err := file.Stat()
+		_ = file.Close()
+		if err == nil && !info.Mode().IsRegular() {
+			v.addf("%s %q is not a regular file", f[0], f[1])
 		}
 	}
 }
 
-// checkRegistryRef validates a required, whitespace-free registry reference.
-// The API key is intentionally not checked here — it is optional and never
-// defaulted.
-func (v *validator) checkRegistryRef(path, value string) {
-	switch {
-	case value == "":
-		v.addf("%s is required", path)
-	case strings.ContainsAny(value, " \t"):
-		v.addf("%s %q must not contain whitespace", path, value)
+// DefaultBootstrapClusterName is the cluster name `nvkectl bootstrap site`
+// gives its bootstrap cluster unless NVKECTL_BOOTSTRAP_CLUSTER_NAME says
+// otherwise. The default trust domain derives from it.
+const DefaultBootstrapClusterName = "nvkectl-bootstrap"
+
+// EffectiveTrustDomain returns the SPIFFE trust domain the bootstrap used:
+// spire.trustDomain when set, else <bootstrapClusterName>.nke.local, the
+// default `nvkectl bootstrap site` derives from its cluster name.
+func (inv *SiteSpec) EffectiveTrustDomain(bootstrapClusterName string) string {
+	if inv.Spire.TrustDomain != "" {
+		return inv.Spire.TrustDomain
 	}
+	return bootstrapClusterName + ".nke.local"
+}
+
+// TrustDomain returns spire.trustDomain, or the trust domain a bootstrap with
+// the default cluster name derives, and whether that default was used. The
+// bootstrap and the controller stack install share it, so a site spec that
+// sets nothing still joins both to one domain.
+func (inv *SiteSpec) TrustDomain() (domain string, defaulted bool) {
+	if inv.Spire.TrustDomain != "" {
+		return inv.Spire.TrustDomain, false
+	}
+	return inv.EffectiveTrustDomain(DefaultBootstrapClusterName), true
+}
+
+// ControllerEndpoint returns the address the site controller is reached at:
+// the control-plane VIP, or the only node's IP when the spec has one node
+// and no VIP. With nico no node has an address until NICo allocates it, so
+// the VIP is the only source; the bootstrap itself does not need one for a
+// single node, which is why this is checked by the stack install and not
+// when the spec loads.
+func (inv *SiteSpec) ControllerEndpoint() (string, error) {
+	if inv.Cluster.ControlPlaneVIP != "" {
+		return inv.Cluster.ControlPlaneVIP, nil
+	}
+	if inv.IsNico() {
+		return "", errors.New("the controller stack install needs cluster.controlPlaneVIP with infra.provider nico: the " +
+			"nodes have no address until NICo allocates them, so there is nothing else to reach the controller at " +
+			"(the bootstrap itself does not need it with one node)")
+	}
+	if len(inv.Cluster.Nodes) == 1 {
+		return inv.Cluster.Nodes[0].IP, nil
+	}
+	return "", errors.New("the site spec has several nodes and no cluster.controlPlaneVIP")
 }

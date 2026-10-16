@@ -1,10 +1,10 @@
 # DSX IMDS node-attestation fixture
 
-This directory contains the built-in NKE Tilt provider for local `dsx_imds`
+This directory contains the built-in NVKE Tilt provider for local `dsx_imds`
 node attestation. It owns the local IMDS and JWKS fixture plus the Tilt wiring
 that builds the real SPIRE plugins from a neighboring `dsx-identity` checkout.
 
-Clone `dsx-identity` beside the NKE worktree, then enable the provider and set
+Clone `dsx-identity` beside the NVKE worktree, then enable the provider and set
 the source checkout path in `tilt_config.json`:
 
 ```json
@@ -30,13 +30,14 @@ the provider is enabled.
 To exercise node-agent TLS/JWT too, add `dsx-identity-exchange` to the provider
 list and set `site_controller_vip` to the management Kind node's IP reachable
 from CAPD nodes. The exchange fixture validates the agent's SPIRE JWT-SVID for
-`nke-controller` and maps `spiffe://<local-trust-domain>/host/<node-UUID>` to
+`nke-controller` and maps
+`spiffe://<local-trust-domain>/tenant/nke/service/node-agent/bm/<node-UUID>` to
 `spiffe://nke.capd.node-agent.nvid.id/bm/<same-node-UUID>`. The provider then
 configures CWE to verify the fixture's ES256 JWTs and injects its HTTPS exchange
 URL into node-agent bootstrap. Tilt installs the fixture's public CA in the
 local node image so the agent verifies that endpoint's certificate.
 
-Set `node_agent_source_dir` to an NKE `agent/` checkout to build a specific
+Set `node_agent_source_dir` to an NVKE `agent/` checkout to build a specific
 agent branch into the node image. This is useful for testing an agent PR without
 changing the controller worktree. The option is local-only and does not affect
 production node images.

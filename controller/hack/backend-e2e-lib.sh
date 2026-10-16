@@ -5,7 +5,7 @@
 # Shared body for the two backend E2E entrypoints, ci/backend-e2e.sh and
 # local-backend-e2e.sh. Source it; do not run it.
 #
-# The two entrypoints differ in how they get a Kind cluster with CWE on it: CI
+# The two entrypoints differ in how they get a Kind cluster with the controller on it: CI
 # builds every image and runs the tools from an inner container, while the local
 # one uses the Makefile targets and the host's tools. What they must NOT differ
 # in is everything after that, and they had: the local one never set
@@ -45,19 +45,75 @@ e2e_attestation_method() {
   fi
 }
 
-# The bundle the node agent installs Calico from. hack/ci/prepare-capd-bundles.sh
+# Docker has no timeout flag of its own, so a call that reaches a registry is
+# bounded with coreutils `timeout` instead. --foreground keeps the command in the
+# terminal's process group, so Ctrl-C reaches a slow pull in a hand run rather
+# than being dropped. `timeout` is absent from a stock macOS, where the
+# entrypoints are also run by hand, so without a `timeout` that takes the flag
+# fall back to running unbounded rather than failing outright.
+: "${DOCKER_PULL_TIMEOUT:=10m}"
+if timeout --foreground 1 true >/dev/null 2>&1; then
+  bounded() { timeout --foreground "$@"; }
+else
+  bounded() { shift; "$@"; }
+fi
+
+# Reports through the sourcing script's log when it defines one. The bare
+# `bash -c` in Makefile.dev's bundle-mirror target does not.
+e2e_note() {
+  if declare -F log >/dev/null; then
+    log "$@"
+  else
+    printf '%s\n' "$*"
+  fi >&2
+}
+
+# The Docker Hub mirror sometimes 404s a blob it has not cached yet; a second pull
+# gets it. Progress goes to stdout and retries to stderr, so a caller capturing
+# its own output can send this to stderr or /dev/null.
+pull_with_retry() {
+  local image=$1 attempt
+  for attempt in 1 2 3; do
+    bounded "${DOCKER_PULL_TIMEOUT}" docker pull "${image}" && return 0
+    if ((attempt == 3)); then
+      e2e_note "docker pull failed after ${attempt} attempts: ${image}"
+      return 1
+    fi
+    e2e_note "docker pull attempt ${attempt} failed, retrying: ${image}"
+    sleep 15
+  done
+}
+
+# Prefixes an official Docker Hub image with NKE_E2E_DOCKERHUB_MIRROR when that
+# is set, so a host `docker run` or `docker create` of it is not an anonymous
+# Hub pull from the runner's address. Bare names only: `alpine:3.22`, not
+# `org/image`.
+dockerhub_image() {
+  local image="$1" mirror="${NKE_E2E_DOCKERHUB_MIRROR:-}"
+  printf '%s' "${mirror:+${mirror}/library/}${image}"
+}
+
+# The bundle the node agent installs CNI from. hack/ci/prepare-capd-bundles.sh
 # builds it from checksum-verified public sources, and the node image carries no
 # bundle server of its own, so this is the only source a run has. Serving it from
 # a volume rather than a host path keeps this working where the Docker daemon
 # does not share the host filesystem, as on Colima.
 e2e_start_bundle_mirror() {
-  local name="$1" volume="$2" dir="$3" loader="$1-loader" ip
+  local name="$1" volume="$2" dir="$3" loader="$1-loader" ip image
+  # A missing image is pulled first, with retries: docker create and docker run
+  # pull it once, and fail on the mirror's 404. A cached one is used as is, as
+  # docker itself would, so a host that cannot reach the registry still starts
+  # the mirror. Not to stdout, which returns the address.
+  for image in "$(dockerhub_image alpine:3.22)" "$(dockerhub_image nginx:alpine)"; do
+    docker image inspect "${image}" >/dev/null 2>&1 && continue
+    pull_with_retry "${image}" >&2 || return 1
+  done
   docker volume create "${volume}" >/dev/null || return 1
-  docker create --name "${loader}" -v "${volume}:/bundle" alpine:3.22 true >/dev/null || return 1
+  docker create --name "${loader}" -v "${volume}:/bundle" "$(dockerhub_image alpine:3.22)" true >/dev/null || return 1
   docker cp "${dir}/." "${loader}:/bundle/" >/dev/null || return 1
   docker rm "${loader}" >/dev/null || return 1
   docker run -d --name "${name}" --network kind \
-    -v "${volume}:/usr/share/nginx/html:ro" nginx:alpine >/dev/null || return 1
+    -v "${volume}:/usr/share/nginx/html:ro" "$(dockerhub_image nginx:alpine)" >/dev/null || return 1
   # An address, not the container name: tenant nodes are plain containers on the
   # kind network, where name resolution depends on the host resolver.
   ip="$(docker inspect "${name}" \
@@ -91,7 +147,7 @@ e2e_write_tilt_config() {
     }' >"${out}"
 }
 
-# One Ginkgo leg. `exec_fn` runs a command against the E2E runner, which is the
+# The Ginkgo run. `exec_fn` runs a command against the E2E runner, which is the
 # one thing that legitimately differs: CI execs into its inner runner, local
 # into a container on the Kind network. Anything after `--` is appended to the
 # suite's argv, which is how CI adds its extra assertions without either side
@@ -100,33 +156,33 @@ e2e_write_tilt_config() {
 # The flags below are the ones both must share. `-ginkgo.fail-on-empty` is in
 # that set deliberately: without it a label filter that matches no spec passes
 # silently, which is the failure mode a shared filter constant exists to stop.
-e2e_run_ginkgo_leg() {
-  local exec_fn="$1" log_fn="$2" state_dir="$3"
-  local label_filter="$4" cp_flag="$5" suffix="$6"
-  shift 6
+e2e_run_ginkgo() {
+  local exec_fn="$1" log_fn="$2" state_dir="$3" label_filter="$4"
+  local suite_minutes="${E2E_SUITE_TIMEOUT_MINUTES:-100}"
+  shift 4
   [[ "${1:-}" == "--" ]] && shift
 
-  "${log_fn}" "running E2E specs matching ${label_filter} (PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=${cp_flag:-<unset>})"
+  "${log_fn}" "running E2E specs matching ${label_filter}"
 
   set +e
-  "${exec_fn}" "${cp_flag}" \
+  "${exec_fn}" \
     /state/cwe-e2e.test \
     -test.v \
-    -test.timeout=105m \
+    -test.timeout="$((suite_minutes + 5))m" \
     -e2e.config=/state/e2e-config.json \
     -ginkgo.v \
     -ginkgo.no-color \
     -ginkgo.fail-on-empty \
-    -ginkgo.timeout=100m \
+    -ginkgo.timeout="${suite_minutes}m" \
     "-ginkgo.label-filter=${label_filter}" \
-    "-ginkgo.junit-report=/state/junit${suffix}.xml" \
+    "-ginkgo.junit-report=/state/junit.xml" \
     "$@" \
-    2>&1 | tee "${state_dir}/e2e${suffix}.log"
+    2>&1 | tee "${state_dir}/e2e.log"
   local rc=${PIPESTATUS[0]}
   set -e
 
   if ((rc == 0)); then
-    e2e_assert_no_new_skips "${log_fn}" "${state_dir}/e2e${suffix}.log" || rc=1
+    e2e_assert_no_new_skips "${log_fn}" "${state_dir}/e2e.log" || rc=1
   fi
   return "${rc}"
 }
@@ -159,12 +215,12 @@ e2e_assert_no_new_skips() {
   fi
 }
 
-# Between the two CAPD legs the first leg's delete spec should have removed every
-# tenant cluster. Count CAPI Cluster objects rather than asking the CWE API,
-# which enforces auth: zero objects is an auth-free "the cluster is clean".
-# Returns non-zero on timeout rather than exiting, because the two entrypoints
-# want different things from that: CI dumps the surviving clusters and refuses
-# the next leg, local stops outright.
+# After the run the suite's delete specs should have removed every tenant
+# cluster. Count CAPI Cluster objects rather than asking the controller API, which
+# enforces auth: zero objects is an auth-free "the cluster is clean". Returns
+# non-zero on timeout rather than exiting, because the two entrypoints want
+# different things from that: CI dumps the surviving clusters, local stops
+# outright.
 e2e_wait_for_zero_tenant_clusters() {
   local kubectl_fn="$1" log_fn="$2"
   local deadline=$((SECONDS + 300)) list count
@@ -184,7 +240,76 @@ e2e_wait_for_zero_tenant_clusters() {
   done
 }
 
-# Per-node evidence: console, unit status, and the journals of the five units a
+# The kindest/node image the CAPD node image is built FROM, as build-image.sh
+# resolves it -- mirror prefix and pinned tag included. Asking that script keeps
+# one definition of the pin: a bump there reaches the probe with no second edit.
+# $1 is the controller directory.
+e2e_capd_base_image() {
+  local image
+  image="$(bash "$1/hack/capd-kindest-node/build-image.sh" --print-base-image)" || return 1
+  [[ -n "${image}" ]] || return 1
+  printf '%s' "${image}"
+}
+
+# Runs image $1's ovs-vswitchd check on the Docker kernel. ARC's runner
+# cannot load modules itself, and its installed module files are not in DinD's
+# filesystem. If the daemon cannot load the module, stream the runner's matching
+# module tree into a privileged helper instead. Never invoke ovs-ctl: its fallback
+# removes the bridge module and destroys the Docker networks (#1515).
+#
+# Image $1 supplies only /bin/sh, modprobe and tar -- the module lives in the
+# host's /lib/modules and the result is a property of the host kernel, not of
+# the image. So this does NOT need the CAPD node image, and callers should not
+# wait for one to be built before asking: a host that cannot load the module
+# fails the suite whatever the image turns out to be.
+#
+# It does need the same modprobe, though. Use e2e_capd_base_image: that is the
+# kindest/node the node image is built FROM, so the probe runs the kmod the
+# nodes will run (+ZSTD, which Ubuntu's compressed modules need). Alpine's
+# modprobe is busybox's, a different implementation whose answer here would not
+# be the one that matters.
+e2e_host_loads_openvswitch() (
+  set -o pipefail
+  local image="$1" kernel module_root="${NKE_E2E_HOST_MODULES_DIR:-/lib/modules}"
+  if docker run --rm --privileged -v /lib/modules:/lib/modules:ro --entrypoint /bin/sh "${image}" \
+    -c '
+      set -eu
+      if test -e /sys/module/openvswitch; then
+        echo "openvswitch was already loaded before the Docker probe"
+      else
+        modprobe --verbose openvswitch
+        test -e /sys/module/openvswitch
+        echo "openvswitch is available after the Docker module insertion attempt"
+      fi
+    '; then
+    return 0
+  fi
+
+  kernel="$(uname -r)" || return 1
+  if [[ "$(uname -s)" != Linux || ! -d "${module_root}/${kernel}" ]]; then
+    echo "openvswitch is unavailable to Docker and no matching local module tree exists" >&2
+    return 1
+  fi
+  echo "loading openvswitch through privileged Docker with the runner's ${kernel} module files" >&2
+  tar -C "${module_root}" -cf - "${kernel}" |
+    docker run --rm --privileged -i --entrypoint /bin/sh "${image}" -c '
+      set -eu
+      mkdir -p /lib/modules
+      tar -C /lib/modules -xf -
+      if test -e /sys/module/openvswitch; then
+        echo "openvswitch was already loaded before the streamed-module probe"
+      elif modprobe --verbose openvswitch; then
+        echo "openvswitch is available after the streamed-module insertion attempt"
+      else
+        echo "openvswitch insertion failed; matching kernel messages:" >&2
+        dmesg | tail -n 100 | grep -E "openvswitch|nsh|nf_conn|nf_nat|libcrc32c|module_layout|BTF|version.*symbol" >&2 || true
+        exit 1
+      fi
+      test -e /sys/module/openvswitch
+    '
+)
+
+# Per-node evidence: console, unit status, and the journals of the units a
 # CAPD node depends on. Without this a node whose agent never binds its port is
 # undiagnosable, and the entrypoints disagreed here too: CI collected it, local
 # did not.
@@ -195,35 +320,87 @@ e2e_collect_node_diagnostics() {
     [[ -n "${node_name}" ]] || continue
     docker logs "${node_name}" >"${out_dir}/${node_name}-console.log" 2>&1
     docker exec "${node_name}" systemctl status \
-      nke-agent spire-agent swtpm-local containerd kubelet --no-pager \
+      nvke-agent spire-agent swtpm-local containerd kubelet \
+      ovsdb-server ovs-vswitchd nke-container-network nke-container-cni-images --no-pager \
       >"${out_dir}/${node_name}-systemd.txt" 2>&1
     docker exec "${node_name}" journalctl --no-pager \
-      -u nke-agent -u spire-agent -u swtpm-local -u containerd -u kubelet \
+      -u nvke-agent -u spire-agent -u swtpm-local -u containerd -u kubelet \
+      -u ovsdb-server -u ovs-vswitchd -u nke-container-network -u nke-container-cni-images \
       >"${out_dir}/${node_name}-journal.txt" 2>&1
   done < <(docker ps -a --filter "ancestor=${node_image}" --format '{{.Names}}')
 }
 
 # The Tilt providers a CAPD run needs. This belongs beside the filters because
-# the two are one contract: the node-pool filter selects reboot_test.go, which
+# the two are one contract: the suite filter selects reboot_test.go, which
 # reboots a worker through the nke.nvidia.com/reboot label, and nothing acts on
-# that label unless capd-reboot-controller is deployed. The local entrypoint
-# omitted it and so could never pass its own node-pool leg, on any platform.
+# that label unless capd-reboot-controller is deployed.
 # shellcheck disable=SC2034  # consumed by the scripts that source this file
 E2E_CAPD_PROVIDERS='["capi_core", "bgp-containers", "capd", "capd-reboot-controller"]'
 
-# The label filters for a sequential two-mode run, built from the backend's
-# ginkgo label. Derived here so the two entrypoints cannot drift into testing
-# different things, which they had: the local one ran
-# `(capd || health) && !cp-controller` and so never ran the authentication specs
-# that CI runs. authn-spire stays out because it needs SPIRE pod attestation
-# that neither container-backed backend wires up.
-e2e_cp_controller_filter() { printf '(%s && cp-controller) || health' "$1"; }
-e2e_node_pool_filter() {
-  printf '((%s || health) && !cp-controller) || (authn && !authn-spire) || authn-permissive' "$1"
+# The label filter for the full suite, built from the backend's ginkgo label. It
+# runs every entry for the backend, cp-controller entries included, plus the
+# `health` probes against the deployed controller and the authentication specs.
+# authn-spire stays out because it needs SPIRE pod attestation that neither
+# container-backed backend wires up. The CI workflows pass the same expression
+# as `label-filter` for their full runs; keep the three in step.
+e2e_suite_filter() {
+  printf '((%s || health) || (authn && !authn-spire) || authn-permissive) && !tpm-attestation && !gpu' "$1"
 }
 
 # Kept for callers that still name CAPD directly.
 # shellcheck disable=SC2034  # consumed by the scripts that source this file
-E2E_CAPD_CP_CONTROLLER_FILTER="$(e2e_cp_controller_filter capd)"
-# shellcheck disable=SC2034
-E2E_CAPD_NODE_POOL_FILTER="$(e2e_node_pool_filter capd)"
+E2E_CAPD_SUITE_FILTER="$(e2e_suite_filter capd)"
+
+# Build-args that point a Dockerfile's Docker Hub bases at the mirror in
+# NKE_E2E_DOCKERHUB_MIRROR, one token per line for `mapfile -t`. Handles
+# `ARG BASE_REGISTRY=docker.io` and `ARG <NAME>_IMAGE=docker.io/<image>`, and
+# prints nothing when the mirror is unset. The dind daemon on the ARC runners
+# has no registry mirror of its own, and the arm64 pool shares one egress
+# address, so anonymous docker.io pulls return 429 whenever several lanes
+# build at once (failure 26 in the 2026-10-02 CI notes).
+dockerhub_build_args() {
+  local dockerfile="$1" mirror="${NKE_E2E_DOCKERHUB_MIRROR:-}" name value
+  [[ -n "${mirror}" ]] || return 0
+  while IFS='=' read -r name value; do
+    case "${value}" in
+      docker.io) printf -- '--build-arg\n%s=%s/library\n' "${name}" "${mirror}" ;;
+      docker.io/*/*) printf -- '--build-arg\n%s=%s/%s\n' "${name}" "${mirror}" "${value#docker.io/}" ;;
+      docker.io/*) printf -- '--build-arg\n%s=%s/library/%s\n' "${name}" "${mirror}" "${value#docker.io/}" ;;
+    esac
+  done < <(sed -n 's/^ARG \([A-Z_]*\)=\(docker\.io[^ ]*\)$/\1=\2/p' "${dockerfile}")
+}
+
+# Copies a kind config to $2, pointing its `image: kindest/node:...` lines at
+# NKE_E2E_DOCKERHUB_MIRROR when that is set. kind pulls the node image through
+# the host daemon, which on the ARC runners has no registry mirror, so this was
+# the last anonymous docker.io pull every CAPI lane made. The digest is the same
+# on the mirror, and the containerd mirror written into the nodes afterwards is
+# unaffected.
+kind_config_for_mirror() {
+  local src="$1" dst="$2" mirror="${NKE_E2E_DOCKERHUB_MIRROR:-}"
+  if [[ -n "${mirror}" ]]; then
+    sed -E "s#^(\s*image: )kindest/node:#\1${mirror}/kindest/node:#" "${src}" >"${dst}"
+  else
+    cp "${src}" "${dst}"
+  fi
+}
+
+# Points containerd in the kind node of cluster $1 at NKE_E2E_DOCKERHUB_MIRROR
+# for Docker Hub pulls, when that is set. Both Hub host names, since charts and
+# manifests name either. Without this every image the management cluster runs
+# from Docker Hub is an anonymous pull from the runner's address.
+configure_kind_dockerhub_mirror() {
+  local cluster_name="$1" mirror="${NKE_E2E_DOCKERHUB_MIRROR:-}" node_name registry_host
+  [[ -n "${mirror}" ]] || return 0
+  node_name="${cluster_name}-control-plane"
+  log "routing management-cluster Docker Hub pulls through ${mirror}"
+  for registry_host in docker.io registry-1.docker.io; do
+    docker exec "${node_name}" mkdir -p "/etc/containerd/certs.d/${registry_host}"
+    printf '%s\n' \
+      "server = \"https://${mirror}\"" \
+      '' \
+      "[host.\"https://${mirror}\"]" \
+      '  capabilities = ["pull", "resolve"]' |
+      docker exec -i "${node_name}" cp /dev/stdin "/etc/containerd/certs.d/${registry_host}/hosts.toml"
+  done
+}

@@ -9,7 +9,7 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	api "github.com/dsx-ai-factory/nke/controller/api"
+	api "github.com/dsx-ai-factory/nvke/controller/api"
 )
 
 // ListControlPlaneNodes returns the control-plane nodes of one cluster.
@@ -17,7 +17,7 @@ import (
 // Control-plane only, because the callers that need node-level detail are
 // waiting on the control plane: a worker's state says nothing about whether
 // the cluster can be left to run on its own.
-func (c *CWEClient) ListControlPlaneNodes(
+func (c *ControllerClient) ListControlPlaneNodes(
 	ctx context.Context,
 	clusterID openapi_types.UUID,
 ) ([]api.Node, error) {

@@ -24,13 +24,13 @@ import (
 
 	nicov1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/dbwrapper"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/teleport"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/dbwrapper"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/teleport"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 // --- Test environment (replaces mockDB with in-memory SQLite) ---
@@ -96,7 +96,7 @@ func setupTestEnv(ctx context.Context, t *testing.T) *testEnv {
 		ClusterID:            cluster.ID,
 		Name:                 "test-pool",
 		NodeNamePrefix:       "test",
-		NodeLabels:           []string{},
+		NodeLabels:           map[string]string{},
 		SystemReservedMemory: "16Gi",
 	}
 	nodePool.SetNico(db.NicoNodePoolProvider{
@@ -104,7 +104,7 @@ func setupTestEnv(ctx context.Context, t *testing.T) *testEnv {
 		VpcPrefixIDs:   []uuid.UUID{uuid.New()},
 		InstanceTypeID: uuid.New(),
 		SSHKeyGroupIDs: []uuid.UUID{},
-		OSProfile:      "test-os",
+		Release:        "test-os",
 		ConfigProfile:  "test-config",
 	})
 	_, err = database.CreateNodePool(ctx, &nodePool)
@@ -117,7 +117,7 @@ func setupTestEnv(ctx context.Context, t *testing.T) *testEnv {
 		TeleportEnabled:      true,
 	}
 	nodeSet.SetNico(db.NicoNodePoolProvider{
-		OSProfile:     "test-os",
+		Release:       "test-os",
 		ConfigProfile: "test-config",
 	})
 	_, err = database.CreateNodeSet(ctx, &nodeSet)
@@ -174,7 +174,7 @@ func (te *testEnv) createNicoMachineForNode(ctx context.Context, t *testing.T, n
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.Name,
-			Namespace: constants.NamespaceNKESystem,
+			Namespace: constants.NamespaceNVKESystem,
 			Annotations: map[string]string{
 				constants.MachineAnnotationKeyHostID: node.ID.String(),
 			},
@@ -190,7 +190,7 @@ func (te *testEnv) createNicoMachineForNode(ctx context.Context, t *testing.T, n
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.Name,
-			Namespace: constants.NamespaceNKESystem,
+			Namespace: constants.NamespaceNVKESystem,
 			OwnerReferences: []metav1.OwnerReference{{
 				APIVersion: clusterv1.GroupVersion.String(),
 				Kind:       "Machine",
@@ -296,12 +296,14 @@ func testLogger() *slog.Logger {
 
 func testConfig() config.Config {
 	return config.Config{
-		NKESiteControllerName: "test-site",
+		NVKESiteControllerName: "test-site",
 		Teleport: config.TeleportConfig{
 			Enabled:             true,
 			Environment:         "non-prod",
 			ManagedByLabelValue: "nke-cloud-workflow-engine",
 			TokenNamePrefix:     "nke-cwe-",
+			// Pinned like an existing site, so the test would notice a stamped default.
+			ResourceGroupLabelValue: "nke",
 		},
 	}
 }
@@ -541,8 +543,8 @@ func TestReconcile(t *testing.T) {
 		mockTeleport.AssertCalled(t, "UpsertToken", ctx, mock.Anything)
 	})
 
-	// Note: "ignores non-CWE-managed nodes" test was removed because ListNodes now applies
-	// server-side label filtering (managed-by + site), so non-CWE-managed nodes are never returned.
+	// Note: "ignores non-controller-managed nodes" test was removed because ListNodes now applies
+	// server-side label filtering (managed-by + site), so non-controller-managed nodes are never returned.
 
 	t.Run("handles bootstrap scenario - registered node without site label", func(t *testing.T) {
 		te := setupTestEnv(ctx, t)
@@ -551,7 +553,7 @@ func TestReconcile(t *testing.T) {
 
 		node := te.createNode(ctx, t, "node-1", "forge-1", validEKPubHash("0001"))
 
-		// Teleport reports node as registered (CWE-managed, matching node-id, no site label)
+		// Teleport reports node as registered (controller-managed, matching node-id, no site label)
 		mockTeleport.On("ListNodes", ctx, TeleportNamespace, mock.Anything).Return([]teleport.Node{
 			{
 				Hostname: "node-1",
@@ -690,7 +692,7 @@ func TestCreateTokenForNode(t *testing.T) {
 
 			// Verify identity labels
 			assert.Equal(t, te.siteID.String(), token.Labels[teleport.LabelSite])
-			assert.Equal(t, testConfig().NKESiteControllerName, token.Labels[teleport.LabelNKESiteControllerName])
+			assert.Equal(t, testConfig().NVKESiteControllerName, token.Labels[teleport.LabelNVKESiteControllerName])
 			assert.Equal(t, te.cluster.ID.String(), token.Labels[teleport.LabelCluster])
 			assert.Equal(t, te.cluster.Name, token.Labels[teleport.LabelClusterName])
 			assert.Equal(t, node.ID.String(), token.Labels[teleport.LabelNodeID])
@@ -698,7 +700,7 @@ func TestCreateTokenForNode(t *testing.T) {
 			assert.Equal(t, "test-node", token.Labels[teleport.LabelNodeName])
 
 			// Verify normalized labels (consistent with userData labels)
-			assert.Equal(t, teleport.LabelResourceGroupNKEValue, token.Labels[teleport.LabelResourceGroup])
+			assert.Equal(t, "nke", token.Labels[teleport.LabelResourceGroup])
 			assert.Equal(t, "non-prod", token.Labels[teleport.LabelEnvironment])
 
 			// Verify TPM config uses the hash resolved from NicoMachine.
@@ -782,7 +784,7 @@ func TestCreateTokenForNode(t *testing.T) {
 			ClusterID:            uuid.New(), // Non-existent Cluster
 			Name:                 "orphan-pool",
 			NodeNamePrefix:       "test",
-			NodeLabels:           []string{},
+			NodeLabels:           map[string]string{},
 			SystemReservedMemory: "16Gi",
 		}
 		orphanPool.SetNico(db.NicoNodePoolProvider{
@@ -790,7 +792,7 @@ func TestCreateTokenForNode(t *testing.T) {
 			SSHKeyGroupIDs: []uuid.UUID{},
 			SubnetIDs:      []uuid.UUID{uuid.New()},
 			VpcPrefixIDs:   []uuid.UUID{uuid.New()},
-			OSProfile:      "test-os",
+			Release:        "test-os",
 			ConfigProfile:  "test-config",
 		})
 		_, err := te.bunDB.NewInsert().Model(&orphanPool).Exec(ctx)
@@ -1195,7 +1197,7 @@ func TestTeleportDependencyKeyMappers(t *testing.T) {
 		SystemReservedMemory: "16Gi",
 		TeleportEnabled:      true,
 		Nico: &db.NicoNodePoolProvider{
-			OSProfile:     "test-os",
+			Release:       "test-os",
 			ConfigProfile: "test-config",
 		},
 	}
@@ -1237,7 +1239,7 @@ func TestTeleportDependencyKeyMappers(t *testing.T) {
 
 	nicoMachine := &nicov1.NicoMachine{}
 	require.NoError(t, te.k8sClient.Get(ctx, client.ObjectKey{
-		Namespace: constants.NamespaceNKESystem,
+		Namespace: constants.NamespaceNVKESystem,
 		Name:      node1.Name,
 	}, nicoMachine))
 	assert.Equal(t, []dbreconcile.Key{dbreconcile.NodeKey(node1.ID)}, controller.nodeKeysForNicoMachine(ctx, nicoMachine))
@@ -1246,7 +1248,7 @@ func TestTeleportDependencyKeyMappers(t *testing.T) {
 		orphan := &nicov1.NicoMachine{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "orphan-nicomachine",
-				Namespace: constants.NamespaceNKESystem,
+				Namespace: constants.NamespaceNVKESystem,
 			},
 		}
 
@@ -1262,7 +1264,7 @@ func TestTeleportDependencyKeyMappers(t *testing.T) {
 			},
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "invalid-host-machine",
-				Namespace: constants.NamespaceNKESystem,
+				Namespace: constants.NamespaceNVKESystem,
 				Annotations: map[string]string{
 					constants.MachineAnnotationKeyHostID: "not-a-uuid",
 				},
@@ -1277,7 +1279,7 @@ func TestTeleportDependencyKeyMappers(t *testing.T) {
 			},
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "invalid-host-machine",
-				Namespace: constants.NamespaceNKESystem,
+				Namespace: constants.NamespaceNVKESystem,
 				OwnerReferences: []metav1.OwnerReference{{
 					APIVersion: clusterv1.GroupVersion.String(),
 					Kind:       "Machine",

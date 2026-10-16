@@ -22,15 +22,21 @@ export TEMPORAL_UI_PORT ?= 18233
 export SPIRE_NAMESPACE ?= spire-server
 export SPIRE_SERVER_POD ?= spire-server-0
 export SPIRE_SERVER_PORT ?= 9091
+# Starts the local SPIRE agent in dev-start-*. The controller's own switch is
+# spire.spiffeEnabled in its config file.
 export SPIFFE_ENABLED ?= false
 
 # CAPD / Kind Configuration
 export COLIMA_PROFILE ?= default
 export COLIMA_DOCKER_HOST ?= unix://$(HOME)/.colima/$(COLIMA_PROFILE)/docker.sock
+# Kept as cwe-capi until a follow-up rename: changing it forces every developer to recreate their kind cluster.
 export KIND_CLUSTER_NAME ?= cwe-capi
-export KIND_CLUSTER_CONFIG ?= hack/cwe-capi-kind.yaml
-# The pin lives in make/tool-versions.mk, so `nkectl bootstrap site` (which
-# runs clusterctl too, see cli/internal/bootstrap/cwedeploy) and this dev loop cannot
+export KIND_CLUSTER_CONFIG ?= hack/controller-capi-kind.yaml
+# The image `make registry-mirror` runs. The host daemon pulls it anonymously,
+# so CI points it at the Docker Hub mirror.
+REGISTRY_MIRROR_IMAGE ?= registry:2
+# The pin lives in make/tool-versions.mk, so `nvkectl bootstrap site` (which
+# runs clusterctl too, see cli/internal/bootstrap/controllerdeploy) and this dev loop cannot
 # install different CAPI versions.
 include $(CURDIR)/../make/tool-versions.mk
 export CAPI_CORE_VERSION ?= $(CAPI_VERSION)
@@ -64,6 +70,7 @@ dev-check: ## Check if development prerequisites are installed
 	@command -v kubectl >/dev/null 2>&1 || { echo "❌ kubectl is required. Install with: brew install kubectl"; exit 1; }
 	@command -v tsh >/dev/null 2>&1 || echo "⚠️  tsh (Teleport) not found. Only 'make run-remote' needs it. Install with: brew install teleport"
 	@command -v jq >/dev/null 2>&1 || { echo "❌ jq is required. Install with: brew install jq"; exit 1; }
+	@command -v yq >/dev/null 2>&1 || echo "⚠️  yq not found. Only 'make run-remote' needs it. Install with: brew install yq"
 	@echo "✅ All prerequisites are installed"
 
 .PHONY: dev-postgres-start
@@ -174,14 +181,14 @@ dev-start-local: dev-check dev-postgres-start dev-temporal-start ## Start local-
 	@echo "  • Temporal UI:     http://localhost:8233"
 	@echo ""
 	@echo "📝 Next steps:"
-	@echo "  To start CWE worker:"
+	@echo "  To start the controller worker:"
 	@echo "     make run"
 	@echo ""
 	@echo "  Or use the all-in-one command next time:"
 	@echo "     make run-local"
 	@echo ""
 	@echo "  Once running, access:"
-	@echo "     • CWE UI:     http://localhost:8080"
+	@echo "     • Controller: http://localhost:8080"
 	@echo "     • Swagger:    http://localhost:8080/api/docs"
 	@echo "     • Temporal:   http://localhost:8233"
 	@echo ""
@@ -213,45 +220,51 @@ dev-start-remote: dev-check dev-postgres-start ## Start remote development (conn
 	@echo "  • Remote Temporal UI:  http://localhost:$(TEMPORAL_UI_PORT)"
 	@echo ""
 	@echo "📝 Next steps:"
-	@echo "  To start CWE worker with remote Temporal:"
-	@echo "     TEMPORAL_HOST_PORT=localhost:$(TEMPORAL_FRONTEND_PORT) make run"
+	@echo "  To start the controller worker with remote Temporal, point temporal.hostPort"
+	@echo "  in a copy of hack/local-controller-config.yaml at localhost:$(TEMPORAL_FRONTEND_PORT):"
+	@echo "     CONTROLLER_CONFIG_PATH=<your copy> make run"
 	@echo ""
 	@echo "  Or use the all-in-one command next time:"
 	@echo "     TARGET_CLUSTER=nke-site-forge-az24-dev6 make run-remote"
 	@echo ""
 	@echo "  Once running, access:"
-	@echo "     • CWE UI:           http://localhost:8080"
+	@echo "     • Controller:       http://localhost:8080"
 	@echo "     • Swagger:          http://localhost:8080/api/docs"
 	@echo "     • Remote Temporal:  http://localhost:$(TEMPORAL_UI_PORT)"
 	@echo ""
 	@echo "✅ Connected to remote Temporal via Teleport"
 
 .PHONY: run-local
-run-local: dev-start-local ## Start local services and run CWE (sources .env.local if present)
+run-local: dev-start-local ## Start local services and run the controller (sources .env.local if present)
 	@echo ""
-	@echo "🚀 Starting CWE worker..."
 	@bash -c '\
 		[ -f .env.local ] && echo "📄 Loading .env.local..." && set -a && source .env.local && set +a; \
-		export PROFILES_DIR="$${PROFILES_DIR:-$(CURDIR)/test/fixtures/profiles}"; \
-		export RUNBOOKS_DIR="$${RUNBOOKS_DIR:-$(CURDIR)/test/fixtures/runbooks}"; \
+		releases_dir="$${RELEASES_DIR:-$(RELEASES_DIR)}"; \
+		echo "📦 Installing the release CRDs and the fixture releases (RELEASES_DIR=$${releases_dir})..."; \
+		$(MAKE) releases-install RELEASES_DIR="$${releases_dir}" || exit $$?; \
+		echo ""; \
+		echo "🚀 Starting the controller worker (CONTROLLER_CONFIG_PATH=$${CONTROLLER_CONFIG_PATH})..."; \
 		echo ""; \
 		go run cmd/worker/main.go \
 	'
 
 .PHONY: run-remote
-run-remote: dev-start-remote ## Start remote services and run CWE (sources .env.local if present)
+run-remote: dev-start-remote ## Start remote services and run the controller (sources .env.local if present)
 	@echo ""
-	@echo "🚀 Starting CWE worker with remote Temporal..."
+	@echo "🚀 Starting the controller worker with remote Temporal..."
+	@mkdir -p .local
 	@bash -c '\
 		[ -f .env.local ] && echo "📄 Loading .env.local..." && set -a && source .env.local && set +a; \
-		export TEMPORAL_HOST_PORT=localhost:$(TEMPORAL_FRONTEND_PORT); \
+		remote_config="$(CURDIR)/.local/controller-config.remote.yaml"; \
+		yq ".temporal.hostPort = \"localhost:$(TEMPORAL_FRONTEND_PORT)\"" "$${CONTROLLER_CONFIG_PATH:-$(LOCAL_CONTROLLER_CONFIG)}" > "$${remote_config}" || exit $$?; \
+		export CONTROLLER_CONFIG_PATH="$${remote_config}"; \
 		echo ""; \
 		go run cmd/worker/main.go \
 	'
 
 .PHONY: dev-start
 dev-start: ## Start development environment (prompts for mode selection)
-	@echo "🛠️  CWE Development Environment Setup"
+	@echo "🛠️  Controller Development Environment Setup"
 	@echo ""
 	@echo "Choose your workflow:"
 	@echo ""
@@ -325,12 +338,13 @@ dev-logs: ## Show logs from all development services
 .PHONY: dev-env-local
 dev-env-local: ## Print environment variables for local mode
 	@echo "# Local Development Mode Environment Variables"
-	@echo "# CWE will use local Temporal by default (localhost:7233)"
+	@echo "# The controller will use local Temporal by default (localhost:7233)"
 
 .PHONY: dev-env-remote
-dev-env-remote: ## Print environment variables for remote mode
-	@echo "# Remote Development Mode Environment Variables"
-	@echo "export TEMPORAL_HOST_PORT=localhost:$(TEMPORAL_FRONTEND_PORT)"
+dev-env-remote: ## Print how to point the controller at remote Temporal
+	@echo "# Remote development mode: set temporal.hostPort to localhost:$(TEMPORAL_FRONTEND_PORT) in a"
+	@echo "# copy of hack/local-controller-config.yaml and point CONTROLLER_CONFIG_PATH at it,"
+	@echo "# or use make run-remote, which does both"
 	@echo ""
 	@echo "# Optional: Customize Teleport settings"
 	@echo "export TSH_PROXY=$(TSH_PROXY)"
@@ -372,8 +386,16 @@ dev-clusters: ## List available clusters via Teleport
 	@echo ""
 	@tsh kube ls
 
+.PHONY: host-up
+host-up: ## Prepare the Docker host for local clusters (Colima on macOS, vTPM proxy on Linux)
+	@case "$$(uname -s)" in \
+		Darwin) $(MAKE) colima-up ;; \
+		Linux) sudo ./hack/ensure-vtpm-proxy.sh ;; \
+		*) echo "host-up: unsupported OS $$(uname -s)" >&2; exit 1 ;; \
+	esac
+
 .PHONY: colima-up
-colima-up: ## Start Colima with CWE-friendly defaults
+colima-up: ## Start Colima with controller-friendly defaults
 	@./hack/colima-start.sh
 
 .PHONY: colima-down
@@ -420,10 +442,12 @@ BUNDLE_MIRROR_NAME ?= capd-bundle-mirror
 BUNDLE_MIRROR_VOLUME ?= capd-bundle-mirror-data
 
 .PHONY: bundle-mirror
-# The agent installs Calico by fetching a bundle through its index, so a node
+# The agent installs its CNI by fetching a bundle through its index, so a node
 # with no bundle server cannot bring CNI up. prepare-capd-bundles.sh builds that
 # bundle from checksum-verified public sources; serving it here beside the
-# registry caches means `make capd-up` needs no external bundle host.
+# registry caches means `make capd-up` needs no external bundle host. The
+# packages follow the Docker daemon's architecture. OVN image debs are not
+# architecture-independent, so an arm64 daemon cannot install an amd64 build.
 # e2e_start_bundle_mirror copies into a named volume rather than bind mounting,
 # because the daemon that resolves a bind path is not always this host.
 bundle-mirror: kind-up ## Serve the CAPD bundle, built from public sources, on the kind network
@@ -431,8 +455,15 @@ bundle-mirror: kind-up ## Serve the CAPD bundle, built from public sources, on t
 		echo "✅ Bundle mirror already running"; \
 	else \
 		echo "Building the CAPD bundle from public sources..."; \
+		server_arch="$$($(kind-docker-host) docker version --format '{{.Server.Arch}}')"; \
+		case "$$server_arch" in \
+			amd64|x86_64) bundle_arch=amd64 ;; \
+			arm64|aarch64) bundle_arch=arm64 ;; \
+			*) echo "unsupported docker server arch: $$server_arch" >&2; exit 1 ;; \
+		esac; \
 		rm -rf "$(CURDIR)/.local/bundles" && \
-		bash ./hack/ci/prepare-capd-bundles.sh "$(CURDIR)/.local/bundles" && \
+		CNI_PLUGIN="$${CNI_PLUGIN:-$(CNI_PLUGIN)}" BUNDLE_ARCH="$$bundle_arch" \
+			bash ./hack/ci/prepare-capd-bundles.sh "$(CURDIR)/.local/bundles" && \
 		$(kind-docker-host) bash -c '. hack/backend-e2e-lib.sh; \
 			e2e_stop_bundle_mirror $(BUNDLE_MIRROR_NAME) $(BUNDLE_MIRROR_VOLUME); \
 			e2e_start_bundle_mirror $(BUNDLE_MIRROR_NAME) $(BUNDLE_MIRROR_VOLUME) \
@@ -462,7 +493,7 @@ registry-mirror: ## Start Docker Hub and registry.k8s.io pull-through caches
 			--name registry-mirror \
 			--restart=always \
 			-e REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io \
-			registry:2 >/dev/null && \
+			$(REGISTRY_MIRROR_IMAGE) >/dev/null && \
 		echo "✅ Registry mirror started"; \
 	fi
 	@$(kind-docker-host) docker network connect kind registry-mirror 2>/dev/null || true
@@ -480,7 +511,7 @@ registry-mirror: ## Start Docker Hub and registry.k8s.io pull-through caches
 			--name registry-k8s-mirror \
 			--restart=always \
 			-e REGISTRY_PROXY_REMOTEURL=https://registry.k8s.io \
-			registry:2 >/dev/null && \
+			$(REGISTRY_MIRROR_IMAGE) >/dev/null && \
 		echo "✅ registry.k8s.io mirror started"; \
 	fi
 	@$(kind-docker-host) docker network connect kind registry-k8s-mirror 2>/dev/null || true
@@ -492,7 +523,11 @@ registry-mirror: ## Start Docker Hub and registry.k8s.io pull-through caches
 .PHONY: capd-up
 capd-up: kind-up clusterctl-install capd-image registry-mirror ## Bring up the local CAPD management cluster workflow (builds the CAPD node image first)
 	@echo "Installing CAPI core + CAPD providers..."
-	@PATH="$(LOCAL_BIN):$$PATH" $(kind-docker-host) CLUSTER_TOPOLOGY=true clusterctl init --core cluster-api:$(CAPI_CORE_VERSION) --infrastructure docker:$(CAPD_PROVIDER_VERSION)
+	@PATH="$(LOCAL_BIN):$$PATH" $(kind-docker-host) CLUSTER_TOPOLOGY=true clusterctl init \
+		--core cluster-api:$(CAPI_CORE_VERSION) \
+		--bootstrap kubeadm:$(CAPI_CORE_VERSION) \
+		--control-plane kubeadm:$(CAPI_CORE_VERSION) \
+		--infrastructure docker:$(CAPD_PROVIDER_VERSION)
 	@echo "Waiting for CAPI and CAPD controllers to be ready..."
 	@kubectl rollout status deployment/capi-controller-manager -n capi-system --timeout=300s
 	@kubectl rollout status deployment/capd-controller-manager -n capd-system --timeout=300s
@@ -614,11 +649,14 @@ capd-upgrade: ## Rebuild CAPD node image for TARGET_VERSION and PATCH the cluste
 capd-kubeconfig: ## Write CAPD workload kubeconfig for kubectl on this host (CLUSTER_NAME=capd OUTPUT=path ./hack/fetch-capd-kubeconfig.sh)
 	@cd "$(CURDIR)" && DOCKER_HOST="$(COLIMA_DOCKER_HOST)" ./hack/fetch-capd-kubeconfig.sh "$(or $(CLUSTER_NAME),capd)" $(if $(OUTPUT),"$(OUTPUT)",)
 
-# Local nodes install CNI from the packaged manifests after kubeadm init.
-# Explicit legacy runs can still select the in-init bundle path.
+# Local nodes install CNI from a Debian package after kubeadm init.
+# The package matches the default CNI, ovn-kubernetes. Set CNI_PLUGIN=calico
+# to bake the Calico manifests package instead. Explicit legacy runs can still
+# select the in-init bundle path with INSTALL_CNI_AFTER_INIT=false.
 INSTALL_CNI_AFTER_INIT ?= true
-# Keep the package name in sync with hack/ci/prepare-calico-assets.sh.
-CAPD_CNI_MANIFESTS_DEB := $(CURDIR)/.local/cni/nke-cni-calico-manifests-3.30.1_3.30.1_all.deb
+CNI_PLUGIN ?= ovn-kubernetes
+# Keep these names in sync with hack/ci/prepare-calico-assets.sh and prepare-ovn-assets.sh.
+CAPD_CNI_MANIFESTS_DEB := $(CURDIR)/.local/cni/nvke-cni-calico-manifests-3.30.1_3.30.1_all.deb
 ifeq ($(INSTALL_CNI_AFTER_INIT),true)
 CAPD_IMAGE_DEPS :=
 else
@@ -628,17 +666,49 @@ endif
 .PHONY: capd-image
 capd-image: $(CAPD_IMAGE_DEPS) ## Build the custom CAPD node image for DockerMachine (hack/capd-kindest-node/Dockerfile; same Docker host as CAPD)
 	@cd "$(CURDIR)" && \
+		cni_plugin="$${CNI_PLUGIN:-$(CNI_PLUGIN)}"; \
 		if [ "$(INSTALL_CNI_AFTER_INIT)" = "true" ]; then \
-			if [ -z "$${CAPD_CNI_MANIFESTS_DEB_PATH:-}" ]; then \
-				if [ ! -f "$(CAPD_CNI_MANIFESTS_DEB)" ] || \
-				   [ ./hack/ci/prepare-calico-assets.sh -nt "$(CAPD_CNI_MANIFESTS_DEB)" ] || \
-				   [ ./hack/ci/assets/calico-install.py -nt "$(CAPD_CNI_MANIFESTS_DEB)" ]; then \
-					mkdir -p "$(CURDIR)/.local/cni"; \
-					bash ./hack/ci/prepare-calico-assets.sh "$(CURDIR)/.local/cni"; \
+			mkdir -p "$(CURDIR)/.local/cni"; \
+			case "$$cni_plugin" in \
+			ovn-kubernetes) \
+				CAPD_CNI_MANIFESTS_DEB_PATH=""; \
+				server_arch="$$($(kind-docker-host) docker version --format '{{.Server.Arch}}')"; \
+				case "$$server_arch" in \
+					amd64|x86_64) bundle_arch=amd64 ;; \
+					arm64|aarch64) bundle_arch=arm64 ;; \
+					*) echo "unsupported docker server arch: $$server_arch" >&2; exit 1 ;; \
+				esac; \
+				ovn_charts="$(CURDIR)/.local/cni/nvke-cni-ovn-charts-1.6.0_1.6.0_$${bundle_arch}.deb"; \
+				ovn_images="$(CURDIR)/.local/cni/nvke-cni-ovn-images-1.6.0_1.6.0_$${bundle_arch}.deb"; \
+				ovn_helm="$(CURDIR)/.local/cni/nke-e2e-helm.deb"; \
+				[ -n "$${CAPD_CNI_CHARTS_DEB_PATH:-}" ] || CAPD_CNI_CHARTS_DEB_PATH="$$ovn_charts"; \
+				[ -n "$${CAPD_CNI_IMAGES_DEB_PATH:-}" ] || CAPD_CNI_IMAGES_DEB_PATH="$$ovn_images"; \
+				[ -n "$${CAPD_HELM_DEB_PATH:-}" ] || CAPD_HELM_DEB_PATH="$$ovn_helm"; \
+				if { [ "$$CAPD_CNI_CHARTS_DEB_PATH" = "$$ovn_charts" ] && { [ ! -f "$$ovn_charts" ] || [ ./hack/ci/prepare-ovn-assets.sh -nt "$$ovn_charts" ]; }; } \
+				   || { [ "$$CAPD_CNI_IMAGES_DEB_PATH" = "$$ovn_images" ] && { [ ! -f "$$ovn_images" ] || [ ./hack/ci/prepare-ovn-assets.sh -nt "$$ovn_images" ]; }; } \
+				   || { [ "$$CAPD_HELM_DEB_PATH" = "$$ovn_helm" ] && { [ ! -f "$$ovn_helm" ] || [ ./hack/ci/prepare-ovn-assets.sh -nt "$$ovn_helm" ]; }; }; then \
+					$(kind-docker-host) BUNDLE_ARCH="$$bundle_arch" bash ./hack/ci/prepare-ovn-assets.sh "$(CURDIR)/.local/cni"; \
 				fi; \
-				CAPD_CNI_MANIFESTS_DEB_PATH="$(CAPD_CNI_MANIFESTS_DEB)"; \
-			fi; \
-			test -f "$${CAPD_CNI_MANIFESTS_DEB_PATH}" || { echo "missing CNI package: $${CAPD_CNI_MANIFESTS_DEB_PATH}" >&2; exit 1; }; \
+				test -f "$$CAPD_CNI_CHARTS_DEB_PATH" || { echo "missing OVN charts package: $$CAPD_CNI_CHARTS_DEB_PATH" >&2; exit 1; }; \
+				test -f "$$CAPD_CNI_IMAGES_DEB_PATH" || { echo "missing OVN images package: $$CAPD_CNI_IMAGES_DEB_PATH" >&2; exit 1; }; \
+				test -f "$$CAPD_HELM_DEB_PATH" || { echo "missing Helm package: $$CAPD_HELM_DEB_PATH" >&2; exit 1; }; \
+				;; \
+			calico) \
+				CAPD_CNI_CHARTS_DEB_PATH=""; \
+				CAPD_CNI_IMAGES_DEB_PATH=""; \
+				CAPD_HELM_DEB_PATH=""; \
+				if [ -z "$${CAPD_CNI_MANIFESTS_DEB_PATH:-}" ]; then \
+					if [ ! -f "$(CAPD_CNI_MANIFESTS_DEB)" ] || \
+					   [ ./hack/ci/prepare-calico-assets.sh -nt "$(CAPD_CNI_MANIFESTS_DEB)" ] || \
+					   [ ./hack/ci/assets/calico-install.py -nt "$(CAPD_CNI_MANIFESTS_DEB)" ]; then \
+						bash ./hack/ci/prepare-calico-assets.sh "$(CURDIR)/.local/cni"; \
+					fi; \
+					CAPD_CNI_MANIFESTS_DEB_PATH="$(CAPD_CNI_MANIFESTS_DEB)"; \
+				fi; \
+				test -f "$${CAPD_CNI_MANIFESTS_DEB_PATH}" || { echo "missing CNI package: $${CAPD_CNI_MANIFESTS_DEB_PATH}" >&2; exit 1; }; \
+				;; \
+			*) echo "unsupported CNI_PLUGIN: $$cni_plugin" >&2; exit 1 ;; \
+			esac; \
 			BUNDLE_SERVER_URL=""; INDEX_FILE_URL=""; \
 		else \
 			BUNDLE_MIRROR_IP="$$($(kind-docker-host) docker inspect $(BUNDLE_MIRROR_NAME) --format '{{(index .NetworkSettings.Networks "kind").IPAddress}}')"; \
@@ -653,6 +723,9 @@ capd-image: $(CAPD_IMAGE_DEPS) ## Build the custom CAPD node image for DockerMac
 		CAPD_KINDEST_NODE_PLATFORM="$(CAPD_KINDEST_NODE_PLATFORM)" \
 		COLIMA_DOCKER_HOST="$(COLIMA_DOCKER_HOST)" \
 		CAPD_CNI_MANIFESTS_DEB_PATH="$${CAPD_CNI_MANIFESTS_DEB_PATH:-}" \
+		CAPD_CNI_CHARTS_DEB_PATH="$${CAPD_CNI_CHARTS_DEB_PATH:-}" \
+		CAPD_CNI_IMAGES_DEB_PATH="$${CAPD_CNI_IMAGES_DEB_PATH:-}" \
+		CAPD_HELM_DEB_PATH="$${CAPD_HELM_DEB_PATH:-}" \
 		BUNDLE_SERVER_URL="$${BUNDLE_SERVER_URL:-}" \
 		INDEX_FILE_URL="$${INDEX_FILE_URL:-}" \
 		bash ./hack/capd-kindest-node/build-image.sh

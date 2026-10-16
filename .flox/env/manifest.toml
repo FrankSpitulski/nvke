@@ -26,11 +26,11 @@ cloud-utils = { pkg-path = "cloud-utils", version = "0.33", pkg-group = "cloud-u
 # usable swtpm/swtpm_setup/swtpm_localca pin the same way brew does.
 swtpm = { pkg-path = "swtpm", version = "2026-05-21", pkg-group = "swtpm", systems = ["aarch64-darwin"] }
 go = { pkg-path = "go_1_27", pkg-group = "go" }
-# GOLANGCI_LINT_VERSION in six module Makefiles, and lint.yml:223.
+# GOLANGCI_LINT_VERSION in make/golangci.mk, and lint.yml:223.
 golangci-lint = { pkg-path = "golangci-lint", version = "2.13.2", pkg-group = "golangci-lint" }
 # Shared by local checks and workflows through make/tool-versions.mk.
 kubernetes-helm = { pkg-path = "kubernetes-helm", version = "4.2.4", pkg-group = "helm" }
-# backend-e2e.yml:118 and nkectl-bootstrap-e2e.yml:121.
+# backend-e2e.yml:118 and nvkectl-bootstrap-e2e.yml:121.
 kind = { pkg-path = "kind", version = "0.32.0", pkg-group = "kind" }
 gnumake.pkg-path = "gnumake"
 gnumake.outputs = "all"

@@ -18,10 +18,10 @@ import (
 	"k8s.io/utils/ptr"
 	crsource "sigs.k8s.io/controller-runtime/pkg/source"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile"
-	dbfilters "github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/filters"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile"
+	dbfilters "github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/filters"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 func TestUnit_DBEnqueuesNodeAfterUpdate(t *testing.T) {
@@ -207,7 +207,7 @@ func TestUnit_DBTypedSourceUnregistersWhenContextCancels(t *testing.T) {
 					if err != nil {
 						return nil, err
 					}
-					return []string{nico.OSProfile}, nil
+					return []string{nico.Release}, nil
 				})
 				return startStringSource(ctx, t, source)
 			},
@@ -217,7 +217,7 @@ func TestUnit_DBTypedSourceUnregistersWhenContextCancels(t *testing.T) {
 				return len(wrapper.nodeSetSources) == 0
 			},
 			create: func(ctx context.Context, database *testutil.MockDB, wrapper *DB) error {
-				nodeSet := db.NodeSet{ID: uuid.New(), Nico: &db.NicoNodePoolProvider{OSProfile: "ubuntu-22.04"}}
+				nodeSet := db.NodeSet{ID: uuid.New(), Nico: &db.NicoNodePoolProvider{Release: "ubuntu-22.04"}}
 				database.On("CreateNodeSet", mock.Anything, &nodeSet).Return(nodeSet, nil)
 				_, err := wrapper.CreateNodeSet(ctx, &nodeSet)
 				return err
@@ -285,7 +285,7 @@ func TestUnit_DBSourceRegistersWhenStarted(t *testing.T) {
 					if err != nil {
 						return nil, err
 					}
-					return []string{nico.OSProfile}, nil
+					return []string{nico.Release}, nil
 				})
 			},
 			registered: func(wrapper *DB) bool {
@@ -379,7 +379,7 @@ func TestUnit_DBTypedNodePoolSourceEnqueuesMappedKey(t *testing.T) {
 }
 
 func TestUnit_DBTypedNodeSetSourceEnqueuesMappedKey(t *testing.T) {
-	nodeSet := db.NodeSet{ID: uuid.New(), Nico: &db.NicoNodePoolProvider{OSProfile: "ubuntu-22.04"}}
+	nodeSet := db.NodeSet{ID: uuid.New(), Nico: &db.NicoNodePoolProvider{Release: "ubuntu-22.04"}}
 	database := &testutil.MockDB{}
 	database.On("ListNodeSets", mock.Anything, db.NodeSetFilters{}).Return([]db.NodeSet{}, nil)
 	database.On("CreateNodeSet", mock.Anything, &nodeSet).Return(nodeSet, nil)
@@ -394,7 +394,7 @@ func TestUnit_DBTypedNodeSetSourceEnqueuesMappedKey(t *testing.T) {
 			if err != nil {
 				return nil, err
 			}
-			return []string{nico.OSProfile}, nil
+			return []string{nico.Release}, nil
 		},
 	)
 	queue := startStringSource(ctx, t, source)

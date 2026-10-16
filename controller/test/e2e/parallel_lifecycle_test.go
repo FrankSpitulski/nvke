@@ -12,13 +12,13 @@ import (
 	. "github.com/onsi/gomega"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
 )
 
 // parallelClusterStagger spaces out create/delete requests so the clusters'
 // lifecycles overlap rather than run one-at-a-time, mirroring the nke-e2e
-// default-cluster flow: CWE and the infrastructure must handle several
+// default-cluster flow: the controller and the infrastructure must handle several
 // concurrent tenant-cluster lifecycles at once.
 const parallelClusterStagger = time.Minute
 
@@ -29,27 +29,25 @@ const parallelClusterStagger = time.Minute
 // (sequential), so this is the only coverage of concurrent multi-cluster
 // lifecycle.
 //
-// nke-e2e used three fixed clusters differing by CNI (Calico 3.30.1, Calico
-// 3.31.4, OVN). CWE's API has no CNI-version field, so the Calico version
-// matrix cannot be reproduced here; CNI-plugin diversity (OVN + Calico) is used
-// instead. Opt in with the "parallel-lifecycle" label — it is the most
-// expensive scenario (multiple clusters provisioning at once).
+// Both clusters use OVN-Kubernetes. Opt in with the "parallel-lifecycle"
+// label — it is the most expensive scenario (multiple clusters provisioning
+// at once).
 var _ = Describe("Parallel tenant cluster lifecycle", Ordered, ContinueOnFailure,
 	Label("nico-vms", "extended", "parallel-lifecycle"), func() {
 		shapes := []clusterShape{
 			{
-				// Needs an image carrying OVN debs; one built here has none.
+				// Needs an image carrying OVN debs.
 				cniPlugin:         CNIPluginOVN,
-				controlPlanePools: []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
-				workerPools:       []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
+				controlPlanePools: []nvke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
+				workerPools:       []nvke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
 			},
 			{
-				cniPlugin:         CNIPluginCalico,
-				controlPlanePools: []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
-				workerPools:       []nke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
+				cniPlugin:         CNIPluginOVN,
+				controlPlanePools: []nvke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
+				workerPools:       []nvke.NodePoolSpec{{DesiredNodeCount: 1, InstanceTypeID: nicoVMSLargeInstanceID}},
 			},
 		}
-		timeouts := nke.Options{Provision: 90 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second}
+		timeouts := nvke.Options{Provision: 90 * time.Minute, Delete: 10 * time.Minute, Poll: 10 * time.Second}
 
 		var (
 			test     tenantTest
@@ -67,13 +65,13 @@ var _ = Describe("Parallel tenant cluster lifecycle", Ordered, ContinueOnFailure
 				if cluster == nil {
 					continue
 				}
-				_ = test.nke.DeleteCluster(ctx, cluster.ID)
+				_ = test.nvke.DeleteCluster(ctx, cluster.ID)
 			}
 			for _, cluster := range clusters {
 				if cluster == nil {
 					continue
 				}
-				_ = test.nke.WaitForClusterDeleted(ctx, cluster.ID)
+				_ = test.nvke.WaitForClusterDeleted(ctx, cluster.ID)
 			}
 		}, NodeTimeout(time.Hour))
 
@@ -92,7 +90,7 @@ var _ = Describe("Parallel tenant cluster lifecycle", Ordered, ContinueOnFailure
 				)
 
 				By(fmt.Sprintf("Creating parallel cluster %d (%s)", i, shape.cniPlugin))
-				cluster, err := test.nke.CreateCluster(ctx, spec)
+				cluster, err := test.nvke.CreateCluster(ctx, spec)
 				Expect(err).NotTo(HaveOccurred(), "should create parallel cluster %d", i)
 				clusters = append(clusters, cluster)
 				test.log.Info("Created parallel cluster", "name", cluster.Name, "id", cluster.ID, "cni", shape.cniPlugin)
@@ -102,7 +100,7 @@ var _ = Describe("Parallel tenant cluster lifecycle", Ordered, ContinueOnFailure
 			group, groupCtx := errgroup.WithContext(ctx)
 			for _, cluster := range clusters {
 				group.Go(func() error {
-					if _, err := test.nke.WaitForClusterReady(groupCtx, cluster.ID); err != nil {
+					if _, err := test.nvke.WaitForClusterReady(groupCtx, cluster.ID); err != nil {
 						return fmt.Errorf("cluster %s: %w", cluster.Name, err)
 					}
 					return nil
@@ -122,14 +120,14 @@ var _ = Describe("Parallel tenant cluster lifecycle", Ordered, ContinueOnFailure
 					time.Sleep(parallelClusterStagger)
 				}
 				By(fmt.Sprintf("Deleting parallel cluster %s", cluster.Name))
-				Expect(test.nke.DeleteCluster(ctx, cluster.ID)).To(Succeed(), "should delete cluster %s", cluster.Name)
+				Expect(test.nvke.DeleteCluster(ctx, cluster.ID)).To(Succeed(), "should delete cluster %s", cluster.Name)
 			}
 
 			By("Waiting for all clusters to disappear in parallel")
 			group, groupCtx := errgroup.WithContext(ctx)
 			for _, cluster := range clusters {
 				group.Go(func() error {
-					if err := test.nke.WaitForClusterDeleted(groupCtx, cluster.ID); err != nil {
+					if err := test.nvke.WaitForClusterDeleted(groupCtx, cluster.ID); err != nil {
 						return fmt.Errorf("cluster %s: %w", cluster.Name, err)
 					}
 					return nil

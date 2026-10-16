@@ -13,11 +13,11 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nvkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig"
-	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kubeadmconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
 )
 
 type KubeadmInitInput struct {
@@ -100,7 +100,6 @@ func (a *Activities) kubeadmInit(ctx context.Context, input KubeadmInitInput) er
 		PodSubnet:             cluster.PodCIDR,
 		ServiceSubnet:         cluster.ServiceCIDR,
 		EtcdQuotaBackendBytes: kubeadmconfig.EtcdQuotaBackendBytes,
-		Labels:                nodeLabels(nodePool.NodeLabels).String(),
 		ImageRepository:       a.cfg.KubeadmImageRepository,
 		SkipKubeProxy:         cluster.CniPlugin == db.CNIOvnKubernetes,
 		EnableEncryption:      cluster.EtcdEncrypted,
@@ -108,8 +107,8 @@ func (a *Activities) kubeadmInit(ctx context.Context, input KubeadmInitInput) er
 		SystemReservedMemory:  nodePool.SystemReservedMemory,
 		KubeReservedMemory:    nodePool.KubeReservedMemory,
 	}
-	if cluster.OIDCAuthEnabled {
-		initConfig.AuthenticationConfig, err = a.buildOIDCAuthenticationConfig(ctx, cluster.Name)
+	if authn := a.clusterAuthentication(cluster); authn.Needed() {
+		initConfig.AuthenticationConfig, err = kubeadmconfig.BuildClusterAuthenticationConfig(ctx, a.k8sClient, authn)
 		if err != nil {
 			return fmt.Errorf("failed to build OIDC authentication config: %w", err)
 		}
@@ -120,7 +119,7 @@ func (a *Activities) kubeadmInit(ctx context.Context, input KubeadmInitInput) er
 		return fmt.Errorf("failed to render kubeadm init config: %w", err)
 	}
 
-	req := &nkeproto.KubeadmInitRequest{
+	req := &nvkeproto.KubeadmInitRequest{
 		InitConfig:           string(artifacts.ConfigYAML),
 		ControlPlaneEndpoint: controlPlaneEndpoint,
 		PodNetworkCidr:       cluster.PodCIDR,

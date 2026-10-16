@@ -16,7 +16,7 @@ difference is what the tests run against.
 | | The e2e CI lanes | Qualification |
 |---|---|---|
 | Machines | none — containers or VMs on the runner | bare metal from an infrastructure provider |
-| Site controller | Tilt installs the stack into a Kind cluster | `nkectl bootstrap site`, then the NKE stack from the SBOM |
+| Site controller | Tilt installs the stack into a Kind cluster | `nvkectl bootstrap site`, then the NVKE stack from the SBOM |
 | Backends | `capd`, `nico-containers`, `nico-vms` | `nico-forge` |
 | What it proves | the code is correct | the code is correct **on the path a customer takes** |
 | Cost | minutes, free | around 80 minutes, real hardware |
@@ -46,8 +46,8 @@ Four steps, each built on the one before:
 
 1. **Provision** a bare machine from Forge — iPXE boot, the OS image under
    qualification written to disk, reachable over the site's jump host.
-2. **Bootstrap** a site controller on it: stage `nkectl`, generate a site spec,
-   run `nkectl bootstrap site`, install the NKE stack, and confirm the engine
+2. **Bootstrap** a site controller on it: stage `nvkectl`, generate a site spec,
+   run `nvkectl bootstrap site`, install the NVKE stack, and confirm the engine
    answers at the expected version.
 3. **Create a tenant cluster** through that engine's own API — not through
    Forge directly — so the product's front door is part of what is tested.
@@ -59,18 +59,64 @@ parts are the way they are.
 
 ## Running one
 
-The lane never starts on its own. It runs on a `workflow_dispatch`, or when
-the `forge-e2e` label is applied to a pull request from this repository. It is
-deliberately not on a schedule or on push: it costs hardware, and a run nobody
-is watching is a run nobody acts on.
+The lane never starts on its own. It runs on a `workflow_dispatch`, when one of
+these labels is applied to a pull request from this repository, or when a
+`vX.Y.Z-beta.N` tag is pushed. It is deliberately not on a schedule or on every
+push: it costs hardware, and a run nobody is watching is a run nobody acts on.
+A beta tag is cut once a night, so it adds one run rather than a stream of them.
+
+| label | what it runs |
+|---|---|
+| `qualify-e2e` | `QUALIFY_E2E_SCOPE`, or `golden-path` when that is unset: Ubuntu 24.04 on GB200, both arches |
+| `qualify-e2e-l40s` | the `l40s` scope: Ubuntu 24.04 on L40S at az61, amd64 |
+| `qualify-e2e-dsx` | the `dsx` scope: the redstone-dev1-dh2 datahall, at stage `provision` |
+| `qualify-e2e-dry-run` | everything except joining Teleport and running the suite |
+
+The DSX label names its scope and stage outright, where `qualify-e2e` takes
+whatever `QUALIFY_E2E_SCOPE` says. The stage is pinned to `provision` because
+that datahall has one CPU machine bound, which is enough to place a node and
+reach it; a `full` run places three at once, and its tenant half speaks Forge
+only, so it is refused before a machine is taken. The dsx stream is outside the
+`full` scope for that reason.
+
+A run starts with a `plan` job that runs `qualify plan` and uploads `plan.json`.
+A `verify` job then checks that everything the plan names is published, before
+any machine is taken, and one job runs for each stream of the plan's scope. The
+versions, the architecture and the GPU model of a job are the plan's, and the
+dispatch inputs that name a version override what the plan resolves.
+
+**Qualifying a beta.** A beta tag names a commit and carries no component tags,
+so resolving the components from their own tags would answer with the last
+release rather than with what that commit built. A tag push therefore asks for
+`resolution: commitDescribe`, which describes each component at the commit the
+tag marks, and the commit is derived from the version being qualified rather
+than given.
+
+`commitDescribe` is also the default, because a beta is what this lane
+qualifies nightly. A release qualification therefore has to select `gitTag`,
+by the `resolution` input or by the `QUALIFY_E2E_RESOLUTION` repository
+variable. Left on the default, a release resolves its components by describe
+and verifies the describe-named artifacts, which exist, so the run passes while
+qualifying builds other than the release-tagged ones.
+The plan records the commit and, for each component, the strategy that answered,
+so a run says afterwards how every version was arrived at.
+
+A **dry run** does everything except join Teleport and run the suite, so it
+takes no Forge machine. It is the `dry-run` dispatch input, or the
+`qualify-e2e-dry-run` label on a pull request. Each stream job still builds the
+site inputs, which confirms every image and archive exists, and writes the e2e
+config. It then prints the `-e2e.versions` and `-e2e.capabilities` the suite
+would have been given into `qualify-e2e.log`. A dry run has its own concurrency
+group, so it does not wait behind a real run, and its jobs are named
+`<stream> (dry run)`.
 
 `-e2e.site-stage` chooses how far to go, so you can pay for the part you need:
 
 | Stage | Does everything above, plus | Roughly |
 |---|---|---|
 | `provision` | a Forge node, reachable, then released | 20 min |
-| `bootstrap` | vanilla Kubernetes via `nkectl bootstrap site` | 45 min |
-| `full` | the NKE stack, the engine, and a tenant cluster | 80 min |
+| `bootstrap` | vanilla Kubernetes via `nvkectl bootstrap site` | 45 min |
+| `full` | the NVKE stack, the engine, and a tenant cluster | 80 min |
 
 ## Reading a result
 
@@ -78,10 +124,10 @@ Every run uploads the same artifacts whether it passed or failed:
 
 | Artifact | What it is |
 |---|---|
-| `site-e2e.log` | the Ginkgo run |
-| `site-e2e.junit.xml` | the same result, machine-readable |
+| `qualify-e2e.log` | the Ginkgo run |
+| `qualify-e2e.junit.xml` | the same result, machine-readable |
 | `run-inputs.txt` | which versions and settings the run actually resolved, and which were overridden |
-| `site-diagnostics.tar.gz` | what `nkectl` collected on the node — present only when it failed |
+| `nvkectl-diagnostics.tar.gz` | what `nvkectl` collected on the node — present only when it failed |
 | `tbot.log` | the Teleport bot, for when nothing could be reached at all |
 
 A red run is as likely to be the site as the code. [triage.md](triage.md) is how
@@ -107,9 +153,11 @@ through create, node readiness, and delete.
   lane does not.
 - **Site controller upgrade and scale.** The site is a single node, and the
   upgrade specs act on a tenant cluster's control plane.
-- **A second site or a second provider.** One site is declared. The
-  environment schema cannot yet express a site that attaches by VPC prefix,
-  which is where the GB200 capacity lives.
+- **A second provider.** Two sites are declared, az61 and ytl, and the lane
+  resolves between them by capability. Forge is still the only provider.
+- **GPU software.** A GB200 tenant has been qualified at ytl, but only to the
+  point of its nodes going Ready. Nothing checks the driver, the device plugin
+  or the `nvidia.com/gpu` resource.
 
 ## Where to go next
 
@@ -124,5 +172,5 @@ Related, outside this directory:
 | Path | Contents |
 |---|---|
 | `controller/test/e2e/README.md` | running the e2e suite: labels, configuration, and the lane's prerequisites |
-| `.github/workflows/forge-site-controller-e2e.yml` | the workflow itself |
+| `.github/workflows/qualify-e2e.yml` | the workflow itself |
 | `RELEASE.md` | how a release is cut once a candidate qualifies |

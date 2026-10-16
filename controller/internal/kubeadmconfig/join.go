@@ -13,8 +13,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	kubeadmv1beta3 "github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig/thirdparty/kubeadmtypes/v1beta3"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	kubeadmv1beta3 "github.com/dsx-ai-factory/nvke/controller/internal/kubeadmconfig/thirdparty/kubeadmtypes/v1beta3"
 )
 
 var (
@@ -38,7 +38,6 @@ type JoinConfig struct {
 	NodeName                 string
 	DiscoveryTokenCACertHash string
 	Token                    string
-	Labels                   string
 	// NodeTaints specify the list of taints that will be added to joining nodes
 	NodeTaints []constants.NodeTaint
 	// AuthenticationConfig configures the authentication-config flag in the
@@ -64,7 +63,7 @@ type JoinConfig struct {
 // `kubeadm join <api-endpoint> --control-plane --certificate-key <key> --token <token> --discovery-token-ca-cert-hash <hash>`.
 // The join string for a worker node should be in the format:
 // `kubeadm join <api-endpoint> --token <token> --discovery-token-ca-cert-hash <hash>`.
-func NewJoinConfigFromString(nodeIP, nodeName, joinString string, labels KubeLabels) (*JoinConfig, error) {
+func NewJoinConfigFromString(nodeIP, nodeName, joinString string) (*JoinConfig, error) {
 	joinString = strings.TrimSpace(joinString)
 
 	if !strings.HasPrefix(joinString, "kubeadm join ") {
@@ -87,7 +86,6 @@ func NewJoinConfigFromString(nodeIP, nodeName, joinString string, labels KubeLab
 		APIServerEndpoint: apiServerEndpoint,
 		NodeIP:            nodeIP,
 		NodeName:          nodeName,
-		Labels:            labels.String(),
 	}
 
 	for i := 1; i < len(parts); i++ {
@@ -167,8 +165,11 @@ func (config *JoinConfig) Render() (*BootstrapArtifacts, error) {
 			apiServerAuditPolicyFile(),
 		)
 	}
-	if config.ControlPlane && config.AuthenticationConfig != nil {
-		file, fileErr := GenerateAPIServerAuthenticationConfig(config.AuthenticationConfig)
+	if config.ControlPlane && needsAuthenticationConfig(config.KubernetesVersion, config.AuthenticationConfig) {
+		file, fileErr := GenerateAPIServerAuthenticationConfig(
+			apiServerAuthenticationConfig(config.AuthenticationConfig),
+			config.KubernetesVersion,
+		)
 		if fileErr != nil {
 			return nil, fmt.Errorf("building AuthenticationConfig file: %w", fileErr)
 		}

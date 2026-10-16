@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dsx-ai-factory/nke/controller/test/kubeadm/internal/cluster"
+	"github.com/dsx-ai-factory/nvke/controller/test/kubeadm/internal/cluster"
 )
 
 // The GitLab original was a CLI (`cluster-bringup full …`) and took these as
@@ -25,24 +25,24 @@ import (
 // settings into it would make it impossible to tell which process owns a
 // given variable.
 const (
-	// How the VMs get kubeadm, the kubelet and nke-agent.
+	// How the VMs get kubeadm, the kubelet and nvke-agent.
 	//
-	// "community" fetches upstream releases and an nke-agent .deb built from
+	// "community" fetches upstream releases and an nvke-agent .deb built from
 	// this checkout, so a run needs no NVIDIA network. It is the default
-	// because the NKE apt repository is behind a source-IP allow list that
+	// because the NVKE apt repository is behind a source-IP allow list that
 	// GitHub runners are outside of, which left this suite skipped rather than
-	// run. "apt" is the NKE apt repository path, for a host that can reach it.
+	// run. "apt" is the NVKE apt repository path, for a host that can reach it.
 	provisionCommunity = "community"
 	provisionApt       = "apt"
 
 	defaultProvisionScript = "scripts/install-k8s-community.sh"
 
-	// Published production NKE apt repo. Reachable anonymously over plain
+	// Published production NVKE apt repo. Reachable anonymously over plain
 	// HTTPS, which matters because CI runners have no route to NVIDIA's
 	// internal network.
-	defaultAptRepoURL = "https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-noble"
-	defaultAptGpgURL  = "https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-public.key"
-	defaultAptSuite   = "nke-noble" // NOT plain "noble"
+	defaultAptRepoURL = "https://nke-prod-assets.s3.us-west-2.amazonaws.com/nvke-apt-noble"
+	defaultAptGpgURL  = "https://nke-prod-assets.s3.us-west-2.amazonaws.com/nvke-apt-public.key"
+	defaultAptSuite   = "nvke-noble" // NOT plain "noble"
 	defaultAptComp    = "main"
 
 	// nico-vms's own default bridge subnet.
@@ -162,7 +162,7 @@ func loadConfig(t *testing.T) config {
 	// Only the nico-sim binary is required here. The kubeadm settings are
 	// validated separately by requireKubeadmConfig, because the smoke test
 	// needs none of them: it boots stock Ubuntu and installs nothing, which is
-	// exactly what lets it run when the NKE apt repo is unreachable.
+	// exactly what lets it run when the NVKE apt repo is unreachable.
 	if c.nicoVMSBin == "" {
 		t.Fatal("missing required configuration:\n" +
 			"  - NKE_BRINGUP_NICO_VMS_BIN (path to the nico-sim binary; build it with `CGO_ENABLED=1 make -C controller/nico-sim build-privileged`)")
@@ -225,11 +225,11 @@ func requireKubeadmConfig(t *testing.T, c config) {
 	switch c.provisionMode {
 	case provisionCommunity:
 		if c.agentDeb == "" {
-			missing = append(missing, "NKE_BRINGUP_AGENT_DEB (path to an nke-agent .deb; build it with `make -C agent deb-amd64`)")
+			missing = append(missing, "NKE_BRINGUP_AGENT_DEB (path to an nvke-agent .deb; build it with `make -C agent deb-amd64`)")
 		}
 	case provisionApt:
 		if c.kubeadmDeb == "" {
-			missing = append(missing, "NKE_BRINGUP_KUBEADM_DEB (e.g. nke-kubeadm-distro-1.36.3)")
+			missing = append(missing, "NKE_BRINGUP_KUBEADM_DEB (e.g. nvke-kubeadm-distro-1.36.3)")
 		}
 		if c.kubeadmDebVersion == "" {
 			missing = append(missing, "NKE_BRINGUP_KUBEADM_VERSION (pinned apt version, e.g. 6)")
@@ -258,7 +258,7 @@ func resolveWorkDir(t *testing.T, c config) string {
 		}
 		return abs
 	}
-	dir, err := os.MkdirTemp("", "nke-kubeadm-bringup-")
+	dir, err := os.MkdirTemp("", "nvke-kubeadm-bringup-")
 	if err != nil {
 		t.Fatalf("create temp work dir: %v", err)
 	}
@@ -273,5 +273,5 @@ func resolveWorkDir(t *testing.T, c config) string {
 }
 
 // agentAddr is the plaintext gRPC endpoint the cloud-init drop-in configures
-// nke-agent to serve on.
+// nvke-agent to serve on.
 func agentAddr(ip string, port int) string { return fmt.Sprintf("%s:%d", ip, port) }

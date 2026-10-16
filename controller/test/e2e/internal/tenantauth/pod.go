@@ -11,7 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
 )
 
 const (
@@ -90,6 +90,16 @@ if kubectl $KC get nodes >/dev/null 2>&1; then echo "LISTNODES ok"; else echo "L
 // buildPod assembles the verifier Pod for identity id against clusterName,
 // passing the expected username and encoded checks to the verify container.
 func buildPod(id Identity, clusterName, expectedUsername string, checks []Check) *corev1.Pod {
+	return buildCredentialPod(
+		id,
+		clusterName,
+		verifyScript,
+		[]corev1.EnvVar{{Name: expectedUsernameEnv, Value: expectedUsername}},
+		encodeChecks(checks),
+	)
+}
+
+func buildCredentialPod(id Identity, clusterName, script string, extraEnv []corev1.EnvVar, arguments []string) *corev1.Pod {
 	automount := true
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -125,11 +135,8 @@ func buildPod(id Identity, clusterName, expectedUsername string, checks []Check)
 				{
 					Name:    verifyContainerName,
 					Image:   kube.KubectlImage,
-					Command: append([]string{"sh", "-c", verifyScript, "verify"}, encodeChecks(checks)...),
-					Env: []corev1.EnvVar{
-						{Name: "CLUSTER", Value: clusterName},
-						{Name: expectedUsernameEnv, Value: expectedUsername},
-					},
+					Command: append([]string{"sh", "-c", script, "verify"}, arguments...),
+					Env:     append([]corev1.EnvVar{{Name: "CLUSTER", Value: clusterName}}, extraEnv...),
 					VolumeMounts: []corev1.VolumeMount{
 						{Name: binaryVolumeName, MountPath: "/opt/spiffe/bin"},
 						{Name: "workload-api", MountPath: "/spiffe-workload-api", ReadOnly: true},

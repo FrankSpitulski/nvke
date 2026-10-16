@@ -2,23 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package substrate stands up containers that stand in for pre-provisioned
-// bare-metal hosts, for the nkectl bootstrap-site E2E suite.
+// bare-metal hosts, for the nvkectl bootstrap-site E2E suite.
 //
-// Each container runs systemd with nke-agent listening on the node-agent
+// Each container runs systemd with nvke-agent listening on the node-agent
 // port, exactly as a pre-provisioned host would. The suite owns the
 // containers end to end: it derives the node image, starts them, waits for
 // the agent, and destroys them afterwards.
 //
-// Modelled on CWE's own provisioned-provider E2E substrate
-// (test/e2e/internal/substrate in the CWE repo), with two differences that
-// follow from nkectl having no existing cluster to attach to:
+// Modelled on the controller's own provisioned-provider E2E substrate
+// (test/e2e/internal/substrate in the former cloud-workflow-engine repository), with two differences that
+// follow from nvkectl having no existing cluster to attach to:
 //
 //   - This package creates its own private network rather than joining one
-//     that already exists. CWE's substrate joins the management cluster's
-//     kind network because CWE already runs there; nkectl's ephemeral
+//     that already exists. The controller's substrate joins the management cluster's
+//     kind network because the controller already runs there; nvkectl's ephemeral
 //     bootstrap cluster does not exist yet when these fixture nodes come up,
 //     so there is nothing to join.
-//   - Addresses are assigned, not discovered. CWE's substrate reads addresses
+//   - Addresses are assigned, not discovered. The controller's substrate reads addresses
 //     back from the runtime specifically to avoid assuming IPAM behavior on a
 //     shared network it does not own. This package owns its network outright,
 //     so pinning addresses is safe, and the fixture's site spec file needs a
@@ -37,7 +37,7 @@ import (
 )
 
 // ContainerCLI is the container runtime this fixture drives. It matches the
-// runtime nkectl itself uses for the bootstrap cluster
+// runtime nvkectl itself uses for the bootstrap cluster
 // (bootstrapengine.RuntimeCLI), so the suite needs one runtime rather than
 // two, and the node containers and the bootstrap cluster share a daemon.
 const ContainerCLI = "nerdctl"
@@ -64,11 +64,11 @@ type Config struct {
 	// Image overrides the derived node image tag. Empty means derive one.
 	Image string
 
-	// AgentPort is the nke-agent gRPC port.
+	// AgentPort is the nvke-agent gRPC port.
 	AgentPort string
 
 	// SpireServerAddress and SpireServerPort are baked into the node image's
-	// spire-agent config. They must be where `nkectl bootstrap site` will put
+	// spire-agent config. They must be where `nvkectl bootstrap site` will put
 	// the SPIRE server: the agents start looking before it exists and retry
 	// until it answers, so the address is chosen here and the command is made
 	// to match it, not the other way round.
@@ -101,22 +101,22 @@ type Config struct {
 // has a working default for a local or CI run.
 func DefaultConfig() Config {
 	return Config{
-		Network:   envOr("NKECTL_E2E_NETWORK", "nkectl-e2e-nodes"),
-		Subnet:    envOr("NKECTL_E2E_SUBNET", "172.26.0.0/24"),
-		NodeCount: envInt("NKECTL_E2E_NODES", 3),
-		BaseImage: envOr("NKECTL_E2E_BASE_IMAGE", "cwe-capd-kindest-node:local"),
-		Image:     os.Getenv("NKECTL_E2E_IMAGE"),
-		AgentPort: envOr("NKECTL_E2E_AGENT_PORT", "15005"),
+		Network:   envOr("NVKECTL_E2E_NETWORK", "nvkectl-e2e-nodes"),
+		Subnet:    envOr("NVKECTL_E2E_SUBNET", "172.26.0.0/24"),
+		NodeCount: envInt("NVKECTL_E2E_NODES", 3),
+		BaseImage: envOr("NVKECTL_E2E_BASE_IMAGE", "cwe-capd-kindest-node:local"),
+		Image:     os.Getenv("NVKECTL_E2E_IMAGE"),
+		AgentPort: envOr("NVKECTL_E2E_AGENT_PORT", "15005"),
 
-		SpireServerAddress: envOr("NKECTL_E2E_SPIRE_SERVER_ADDRESS", DefaultSpireServerAddress),
-		SpireServerPort:    envOr("NKECTL_E2E_SPIRE_SERVER_PORT", DefaultSpireServerPort),
-		SpireTrustDomain:   envOr("NKECTL_E2E_SPIRE_TRUST_DOMAIN", "nkectl-bootstrap.nke.local"),
-		CacheDir:           envOr("NKECTL_E2E_CACHE_DIR", defaultCacheDir()),
-		CADir:              envOr("NKECTL_E2E_CA_DIR", defaultCADir()),
-		NamePrefix:         envOr("NKECTL_E2E_NAME_PREFIX", "node"),
-		Keep:               os.Getenv("NKECTL_E2E_KEEP") == "1",
-		Reuse:              os.Getenv("NKECTL_E2E_REUSE") == "1",
-		ReadyTimeout:       envDuration("NKECTL_E2E_READY_TIMEOUT", 3*time.Minute),
+		SpireServerAddress: envOr("NVKECTL_E2E_SPIRE_SERVER_ADDRESS", DefaultSpireServerAddress),
+		SpireServerPort:    envOr("NVKECTL_E2E_SPIRE_SERVER_PORT", DefaultSpireServerPort),
+		SpireTrustDomain:   envOr("NVKECTL_E2E_SPIRE_TRUST_DOMAIN", "nvkectl-bootstrap.nke.local"),
+		CacheDir:           envOr("NVKECTL_E2E_CACHE_DIR", defaultCacheDir()),
+		CADir:              envOr("NVKECTL_E2E_CA_DIR", defaultCADir()),
+		NamePrefix:         envOr("NVKECTL_E2E_NAME_PREFIX", "node"),
+		Keep:               os.Getenv("NVKECTL_E2E_KEEP") == "1",
+		Reuse:              os.Getenv("NVKECTL_E2E_REUSE") == "1",
+		ReadyTimeout:       envDuration("NVKECTL_E2E_READY_TIMEOUT", 3*time.Minute),
 	}
 }
 
@@ -125,12 +125,12 @@ type Node struct {
 	// Name is what the node will be called in Kubernetes — passed through the
 	// site spec file's node name and ends up as kubeadm's --node-name.
 	Name string
-	// IP is the address assigned on the substrate network. It is what CWE
+	// IP is the address assigned on the substrate network. It is what the controller
 	// dials for node-agent and what kubeadm advertises.
 	IP string
 	// Container is the container name.
 	Container string
-	// AgentPort is the nke-agent gRPC port.
+	// AgentPort is the nvke-agent gRPC port.
 	AgentPort string
 
 	// EKPubhash is the SHA-256 of this host's TPM endorsement key. It is what
@@ -150,7 +150,7 @@ type Substrate struct {
 
 // Start derives the node image, creates the network if needed, starts the
 // containers and waits for their prerequisite services. The caller must Stop
-// it. nke-agent becomes ready only after SPIRE issues its mTLS identity.
+// it. nvke-agent becomes ready only after SPIRE issues its mTLS identity.
 func Start(ctx context.Context, cfg Config, log Logf) (*Substrate, error) {
 	if log == nil {
 		log = func(string, ...any) {}
@@ -168,7 +168,7 @@ func Start(ctx context.Context, cfg Config, log Logf) (*Substrate, error) {
 	}
 
 	if cfg.Reuse && s.allRunning(ctx) {
-		log("substrate: reusing running containers (NKECTL_E2E_REUSE=1)")
+		log("substrate: reusing running containers (NVKECTL_E2E_REUSE=1)")
 		return s, s.waitReady(ctx)
 	}
 
@@ -230,7 +230,7 @@ func (s *Substrate) Nodes() []Node {
 // Stop tears the substrate down unless Keep is set.
 func (s *Substrate) Stop(ctx context.Context) {
 	if s.Config.Keep {
-		s.log("substrate: NKECTL_E2E_KEEP=1 — leaving %d container(s) running", len(s.nodes))
+		s.log("substrate: NVKECTL_E2E_KEEP=1 — leaving %d container(s) running", len(s.nodes))
 		return
 	}
 	s.log("substrate: tearing down %d container(s)", len(s.nodes))
@@ -243,11 +243,11 @@ func (s *Substrate) Stop(ctx context.Context) {
 func (s *Substrate) planNodes() ([]Node, error) {
 	_, subnet, err := net.ParseCIDR(s.Config.Subnet)
 	if err != nil {
-		return nil, fmt.Errorf("NKECTL_E2E_SUBNET %q is not a valid CIDR: %w", s.Config.Subnet, err)
+		return nil, fmt.Errorf("NVKECTL_E2E_SUBNET %q is not a valid CIDR: %w", s.Config.Subnet, err)
 	}
 	base := subnet.IP.To4()
 	if base == nil {
-		return nil, fmt.Errorf("NKECTL_E2E_SUBNET %q is not an IPv4 CIDR", s.Config.Subnet)
+		return nil, fmt.Errorf("NVKECTL_E2E_SUBNET %q is not an IPv4 CIDR", s.Config.Subnet)
 	}
 
 	nodes := make([]Node, 0, s.Config.NodeCount)
@@ -257,7 +257,7 @@ func (s *Substrate) planNodes() ([]Node, error) {
 		nodes = append(nodes, Node{
 			Name:      name,
 			IP:        ip,
-			Container: "nkectl-e2e-" + name,
+			Container: "nvkectl-e2e-" + name,
 			AgentPort: s.Config.AgentPort,
 		})
 	}
@@ -314,7 +314,7 @@ func (s *Substrate) startNode(ctx context.Context, node Node) error {
 		"--tmpfs", "/run",
 		"--tmpfs", "/var/lib/etcd:size=1g",
 		"--env", "NODE_NAME=" + node.Name,
-		"--label", "nkectl-e2e=true",
+		"--label", "nvkectl-e2e=true",
 	}
 	if dnsAddress != "" {
 		args = append(args, "--dns", dnsAddress)
@@ -359,7 +359,7 @@ func hostDNSAddress() string {
 // waitReady polls each node until the services needed for bootstrap are up.
 //
 // "Container running" is not readiness: systemd still has to start, containerd
-// has to settle, and the software TPM and SPIRE agent must be active. nke-agent
+// has to settle, and the software TPM and SPIRE agent must be active. nvke-agent
 // is deliberately not checked here. Its mTLS listener cannot start before the
 // bootstrap SPIRE server exists and issues its identity.
 //
@@ -436,8 +436,8 @@ func (s *Substrate) DumpDiagnostics(ctx context.Context) {
 			s.log("substrate: --- %s logs %s (tail) ---\n%s", ContainerCLI, node.Container, out)
 		}
 		if out, err := exec.CommandContext(ctx, ContainerCLI, "exec", node.Container,
-			"journalctl", "-u", "nke-agent", "--no-pager", "-n", "50").CombinedOutput(); err == nil {
-			s.log("substrate: --- journalctl -u nke-agent %s ---\n%s", node.Container, out)
+			"journalctl", "-u", "nvke-agent", "--no-pager", "-n", "50").CombinedOutput(); err == nil {
+			s.log("substrate: --- journalctl -u nvke-agent %s ---\n%s", node.Container, out)
 		}
 	}
 }
@@ -445,7 +445,7 @@ func (s *Substrate) DumpDiagnostics(ctx context.Context) {
 // ContainerCount returns how many containers carry the substrate label.
 func ContainerCount(ctx context.Context) (int, error) {
 	out, err := exec.CommandContext(ctx, ContainerCLI, "ps", "-aq",
-		"--filter", "label=nkectl-e2e=true").Output()
+		"--filter", "label=nvkectl-e2e=true").Output()
 	if err != nil {
 		return 0, fmt.Errorf("listing substrate containers: %w", err)
 	}

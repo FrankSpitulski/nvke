@@ -29,7 +29,7 @@ the ServiceMonitor's selector must still match the Service it is supposed to
 scrape, and the tenant RBAC ClusterRoleBinding's subject must still match the
 SPIFFE ID SPIRE actually issues that renamed ServiceAccount (see
 deploy/k8s/spire-nke-services-spiffe-id.yaml's spiffeIDTemplate), with no
-manual spiffe.cweSubject override required.
+manual spiffe.controllerSubject override required.
 """
 
 import argparse
@@ -44,6 +44,11 @@ import yaml
 RELEASE = "cloud-workflow-engine"
 
 EXPECTED_NAMES = {
+    ("CustomResourceDefinition", "clusterreleases.internal.nvke.nvidia.com"),
+    ("CustomResourceDefinition", "machineimages.internal.nvke.nvidia.com"),
+    ("CustomResourceDefinition", "nodepoolreleases.internal.nvke.nvidia.com"),
+    ("ClusterRole", "cloud-workflow-engine-releases"),
+    ("ClusterRoleBinding", "cloud-workflow-engine-releases"),
     ("Namespace", "nke-system"),
     ("NetworkPolicy", "cloud-workflow-engine-metrics"),
     ("ServiceAccount", "cloud-workflow-engine"),
@@ -52,6 +57,7 @@ EXPECTED_NAMES = {
     ("RoleBinding", "cloud-workflow-engine"),
     ("RoleBinding", "cloud-workflow-engine-nke-rbac"),
     ("Service", "cloud-workflow-engine"),
+    ("ConfigMap", "nke-controller-config"),
     ("Deployment", "cloud-workflow-engine"),
     ("ServiceMonitor", "cloud-workflow-engine-metrics"),
     ("Pod", "cloud-workflow-engine-test-connection"),
@@ -87,7 +93,7 @@ def check_greenfield(chart: str) -> list[str]:
             "--set",
             f"spiffe.trustDomain={GREENFIELD_TRUST_DOMAIN}",
             "--set",
-            "nkeOIDCAuth.enabled=true",
+            "nvkeOIDCAuth.enabled=true",
             "--set",
             "tenantAccess.enabled=true",
         ],
@@ -122,18 +128,18 @@ def check_greenfield(chart: str) -> list[str]:
 
     inner = list(yaml.safe_load_all(config_maps[0]["data"]["manifest.yaml"]))
     bindings = [
-        d for d in inner if d and d.get("kind") == "ClusterRoleBinding" and d["metadata"]["name"] == "nke:cwe"
+        d for d in inner if d and d.get("kind") == "ClusterRoleBinding" and d["metadata"]["name"] == "nvke:cwe"
     ]
     want_subject = f"spiffe://{GREENFIELD_TRUST_DOMAIN}/nke-service/{GREENFIELD_NAME}"
     if not bindings:
-        failures.append("greenfield render has no nke:cwe ClusterRoleBinding")
+        failures.append("greenfield render has no nvke:cwe ClusterRoleBinding")
     else:
         got_subjects = {s["name"] for s in bindings[0].get("subjects") or []}
         if want_subject not in got_subjects:
             failures.append(
-                f"greenfield nke:cwe ClusterRoleBinding subjects {sorted(got_subjects)} "
+                f"greenfield nvke:cwe ClusterRoleBinding subjects {sorted(got_subjects)} "
                 f"do not include {want_subject!r}; renaming the service account should not "
-                "require a manual spiffe.cweSubject override"
+                "require a manual spiffe.controllerSubject override"
             )
 
     return failures
@@ -192,7 +198,7 @@ def main() -> int:
             print(f"  - {f}")
         return 1
 
-    print("  greenfield identities: ServiceMonitor/Service selectors match, cweSubject self-corrects")
+    print("  greenfield identities: ServiceMonitor/Service selectors match, controller subject self-corrects")
     return 0
 
 

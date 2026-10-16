@@ -41,10 +41,11 @@ endif
 export PACKER_CACHE_DIR
 # FDE/non-FDE only: where the guest's serial console (boot + autoinstall
 # output) gets captured, for CI to upload as an artifact on failure -- no
-# VNC/monitor access there to inspect a stuck build interactively.
+# VNC/monitor access there to inspect a stuck build interactively. Packer's
+# debug log goes there too (PACKER_LOG): the only trace of a QEMU start failure.
 BUILD_LOGS  := $(CURDIR)/build-logs
-PACKER_BUILD_FDE := nke-node-fde.qemu.nke-fde
-PACKER_BUILD_NON_FDE := nke-node-non-fde.qemu.nke-non-fde
+PACKER_BUILD_FDE := nvke-node-fde.qemu.nvke-fde
+PACKER_BUILD_NON_FDE := nvke-node-non-fde.qemu.nvke-non-fde
 SOURCE_ROOT ?= $(abspath ../..)
 QCOW2_DIST_DIR ?=
 EXPECTED_SOURCE_COMMIT ?=
@@ -52,6 +53,8 @@ export SOURCE_ROOT EXPECTED_SOURCE_COMMIT PYTHON
 
 LUKS_PASSPHRASE ?= changeit
 REQUIRE_ACCELERATION ?= 0
+# Attempts check-acceleration makes before giving up on an unusable /dev/kvm; the bake sets 6, laptops keep 1.
+KVM_SETTLE_RETRIES ?= 1
 export NKE_PACKAGE_BUILDER ?= auto
 # Label applied to the root filesystem. Cloud-image importers can use this
 # stable identifier instead of depending on a partition or device path.
@@ -78,7 +81,7 @@ ARCH ?= amd64
 # directly: its SHA256SUMS has no arm64 entry at all, which is why
 # prepare-installer-iso.sh fails with an empty EXPECTED_SHA256 for an
 # ARCH=arm64 build pointed at it. arm64 (and every other non-amd64 arch)
-# is published under cdimage.ubuntu.com/releases/<version>/release/
+# is published under cdimage.ubuntu.com/ubuntu/releases/<version>/release/
 # instead, with its own separate SHA256SUMS there.
 #
 # Use 26.04.1 to avoid the GA installer's intermittent overlayfs crash
@@ -96,8 +99,8 @@ ARCH ?= amd64
 UBUNTU_RELEASE ?= 26.04.1
 override UBUNTU_SERIES := $(word 1,$(subst ., ,$(UBUNTU_RELEASE))).$(word 2,$(subst ., ,$(UBUNTU_RELEASE)))
 ifeq ($(ARCH),arm64)
-  ISO_URL      ?= https://cdimage.ubuntu.com/releases/$(UBUNTU_SERIES)/release/ubuntu-$(UBUNTU_RELEASE)-live-server-arm64.iso
-  ISO_CHECKSUM ?= file:https://cdimage.ubuntu.com/releases/$(UBUNTU_SERIES)/release/SHA256SUMS
+  ISO_URL      ?= https://cdimage.ubuntu.com/ubuntu/releases/$(UBUNTU_SERIES)/release/ubuntu-$(UBUNTU_RELEASE)-live-server-arm64.iso
+  ISO_CHECKSUM ?= file:https://cdimage.ubuntu.com/ubuntu/releases/$(UBUNTU_SERIES)/release/SHA256SUMS
 else
   ISO_URL      ?= https://releases.ubuntu.com/$(UBUNTU_SERIES)/ubuntu-$(UBUNTU_RELEASE)-live-server-$(ARCH).iso
   ISO_CHECKSUM ?= file:https://releases.ubuntu.com/$(UBUNTU_SERIES)/SHA256SUMS
@@ -167,12 +170,13 @@ SSH_TIMEOUT ?= $(if $(filter kvm hvf,$(ACCELERATOR)),30m,180m)
 # copying the squashfs at 2 h 15 m where run 34771011057 with 4 had reached
 # the postinstall packages at 2 h.
 CPUS ?= 4
+GUEST_MEMORY_MIB ?= 8192
 
 # FDE/non-FDE only: how long boot_command waits before typing into GRUB.
 # prepare-installer-iso.sh patches the ISO's own GRUB timeout to 300s, so
 # this just needs to comfortably exceed BIOS+GRUB boot time under tcg — it
 # no longer has to land inside a narrow window. See boot_wait's comment in
-# nke-node-fde.pkr.hcl.
+# nvke-node-fde.pkr.hcl.
 BOOT_WAIT ?= $(if $(filter kvm hvf,$(ACCELERATOR)),10s,30s)
 
 # Guest kernel package. Empty keeps the architecture default (linux-nvidia, or
@@ -182,14 +186,11 @@ KERNEL_PACKAGE ?= $(if $(filter hvf,$(ACCELERATOR)),linux-generic,)
 
 # Firmware and acceleration checks share the boot harness selection, including
 # QEMU's firmware directory on hosts without /usr/share/OVMF or AAVMF. The
-# wrapper receives the whole `packer build ... TEMPLATE` command and inserts the
-# firmware -var flags in front of the template, which Packer requires last.
+# wrapper receives the whole `packer build ... TEMPLATE` command, inserts the
+# firmware -var flags in front of the template, which Packer requires last, and
+# retries once when a neighbour pod's qemu postinst closed /dev/kvm under QEMU.
 PACKER_BUILD = ARCH=$(ARCH) ACCELERATOR=$(ACCELERATOR) REQUIRE_ACCELERATION=$(REQUIRE_ACCELERATION) \
-	bash -ec '. ./scripts/qemu-arch.sh; nke_qemu_env "$$ARCH"; \
-	template=$${@: -1}; set -- "$${@:1:$$\#-1}"; \
-	exec "$$@" -var "efi_firmware_code=$${OVMF_CODE:-$$EFI_CODE_DEFAULT}" \
-	-var "efi_firmware_vars=$${OVMF_VARS_TEMPLATE:-$$EFI_VARS_DEFAULT}" "$$template"' \
-	bash $(PACKER) build
+	./scripts/run-packer-build.sh $(PACKER) build
 
 .PHONY: os-image-fde os-image-non-fde _os-image-fde _os-image-non-fde preflight init-packer init-fde init-non-fde validate-packer ssh-key prepare-ssh-key prepare-image-build prepare-installer-iso prepare-artifacts prepare-packer-inputs clean clean-packer-scratch clean-fde-output clean-non-fde-output check-deps check-source collect-qcow2-fde collect-qcow2-non-fde check-acceleration
 
@@ -322,8 +323,16 @@ check-acceleration:
 			echo "ISO_URL architecture ($$iso_arch) does not match ARCH=$$ARCH: $$ISO_URL" >&2; \
 			exit 1; \
 		fi'
+	@# A neighbour pod's qemu postinst resets the shared /dev/kvm to 0660 for a few seconds; widen it again and retry.
 	@ARCH=$(ARCH) ACCELERATOR=$(ACCELERATOR) REQUIRE_ACCELERATION=$(REQUIRE_ACCELERATION) bash -ec '\
-		. ./scripts/qemu-arch.sh; nke_qemu_env "$$ARCH"'
+		. ./scripts/qemu-arch.sh; \
+		for attempt in $$(seq 1 $(KVM_SETTLE_RETRIES)); do \
+			nvke_qemu_env "$$ARCH" && exit 0; \
+			[[ -c /dev/kvm && $$attempt -lt $(KVM_SETTLE_RETRIES) ]] || exit 1; \
+			echo "KVM check attempt $$attempt failed with /dev/kvm mode $$(stat -c %a /dev/kvm); retrying in 10s" >&2; \
+			sudo -n chmod 666 /dev/kvm 2>/dev/null || true; \
+			sleep 10; \
+		done'
 
 # Stage the source-built packages before Packer starts the VM. Keeping this in
 # Make preserves the current workflow and leaves Packer responsible only for
@@ -398,8 +407,8 @@ prepare-packer-inputs: prepare-installer-iso prepare-artifacts
 	iso_sha="$${iso_sha%% *}"; \
 	inputs_sha="$$(sha256sum "$$stage/materials/image-inputs")"; \
 	inputs_sha="$${inputs_sha%% *}"; \
-	printf '%s' '{"schemaVersion":"nke.dev/os-image-materials/v1","materials":[' > "$$stage/material-manifest.json"; \
-	printf '{"binding":"image-inputs","component":"nke-image-inputs","kind":"archive","architecture":"%s","digest":"sha256:%s","path":"materials/image-inputs"},' \
+	printf '%s' '{"schemaVersion":"nvke.nvidia.com/os-image-materials/v1","materials":[' > "$$stage/material-manifest.json"; \
+	printf '{"binding":"image-inputs","component":"nvke-image-inputs","kind":"archive","architecture":"%s","digest":"sha256:%s","path":"materials/image-inputs"},' \
 		"$(ARCH)" "$$inputs_sha" >> "$$stage/material-manifest.json"; \
 	printf '{"binding":"installer-iso","component":"ubuntu-installer","kind":"disk-image","architecture":"%s","digest":"sha256:%s","path":"materials/installer-iso"}]}\n' \
 		"$(ARCH)" "$$iso_sha" >> "$$stage/material-manifest.json"; \
@@ -477,7 +486,7 @@ define collect_qcow2
 	esac; \
 	version="$${iso_name#ubuntu-}"; \
 	version="$${version%-live-server-$(ARCH).iso}"; \
-	expected="nke-node-$(1)-ubuntu-$$version-$(ARCH).qcow2"; \
+	expected="nvke-node-$(1)-ubuntu-$$version-$(ARCH).qcow2"; \
 	name="$${source##*/}"; \
 	if [ "$$name" != "$$expected" ]; then \
 		echo "expected $(1) $(ARCH) QCOW2 $$expected; found $$name" >&2; \
@@ -517,7 +526,7 @@ collect-qcow2-non-fde:
 	$(call collect_qcow2,non-fde)
 
 # Full-disk-encryption variant: boots the Ubuntu Server installer to lay down
-# an LVM-on-LUKS layout via autoinstall, then provisions nke-agent/spire-agent,
+# an LVM-on-LUKS layout via autoinstall, then provisions nvke-agent/spire-agent,
 # plus TPM2 binding scaffolding deferred to first boot. See
 # ../docs/full-disk-encryption.md.
 os-image-fde:
@@ -536,6 +545,7 @@ _os-image-fde: prepare-image-build
 	@if [ "$(ACCELERATOR)" = "tcg" ]; then \
 		echo "no usable /dev/kvm: building with software emulation, which is far slower"; \
 	fi
+	PACKER_LOG=1 PACKER_LOG_PATH="$(BUILD_LOGS)/packer-fde.log" \
 	PKR_VAR_luks_passphrase=$(LUKS_PASSPHRASE) \
 	$(PACKER_BUILD) \
 		-only=$(PACKER_BUILD_FDE) \
@@ -548,6 +558,7 @@ _os-image-fde: prepare-image-build
 		-var "accelerator=$(ACCELERATOR)" \
 		-var "cpu_model=$(CPU_MODEL)" \
 		-var "cpus=$(CPUS)" \
+		-var "guest_memory_mib=$(GUEST_MEMORY_MIB)" \
 		-var "ssh_timeout=$(SSH_TIMEOUT)" \
 		-var "boot_wait=$(BOOT_WAIT)" \
 		-var "root_fs_label=$(ROOT_FS_LABEL)" \
@@ -555,12 +566,12 @@ _os-image-fde: prepare-image-build
 		-var "kernel_package=$(KERNEL_PACKAGE)" \
 		"$(PACKER_PROJECT)"
 	mkdir "$(CURDIR)/output-fde"
-	mv "$(PACKER_OUTPUT_DIRECTORY_FDE)/fde/nke-node.qcow2" \
-		"$(CURDIR)/output-fde/nke-node-fde-ubuntu-$(UBUNTU_VERSION)-$(ARCH).qcow2"
+	mv "$(PACKER_OUTPUT_DIRECTORY_FDE)/fde/nvke-node.qcow2" \
+		"$(CURDIR)/output-fde/nvke-node-fde-ubuntu-$(UBUNTU_VERSION)-$(ARCH).qcow2"
 	rm -rf -- "$(PACKER_OUTPUT_DIRECTORY_FDE)"
 
 # Non-FDE variant: LVM-backed ext4 without LUKS. See
-# nke-node-non-fde.pkr.hcl.
+# nvke-node-non-fde.pkr.hcl.
 os-image-non-fde:
 	@if [ -e "$(CURDIR)/output-non-fde" ] || [ -L "$(CURDIR)/output-non-fde" ]; then \
 		echo "output-non-fde already exists; run make clean-non-fde-output before rebuilding" >&2; \
@@ -577,6 +588,7 @@ _os-image-non-fde: prepare-image-build
 	@if [ "$(ACCELERATOR)" = "tcg" ]; then \
 		echo "no usable /dev/kvm: building with software emulation, which is far slower"; \
 	fi
+	PACKER_LOG=1 PACKER_LOG_PATH="$(BUILD_LOGS)/packer-non-fde.log" \
 	$(PACKER_BUILD) \
 		-only=$(PACKER_BUILD_NON_FDE) \
 		-var "architecture=$(ARCH)" \
@@ -588,6 +600,7 @@ _os-image-non-fde: prepare-image-build
 		-var "accelerator=$(ACCELERATOR)" \
 		-var "cpu_model=$(CPU_MODEL)" \
 		-var "cpus=$(CPUS)" \
+		-var "guest_memory_mib=$(GUEST_MEMORY_MIB)" \
 		-var "ssh_timeout=$(SSH_TIMEOUT)" \
 		-var "boot_wait=$(BOOT_WAIT)" \
 		-var "root_fs_label=$(ROOT_FS_LABEL)" \
@@ -595,8 +608,8 @@ _os-image-non-fde: prepare-image-build
 		-var "kernel_package=$(KERNEL_PACKAGE)" \
 		"$(PACKER_PROJECT)"
 	mkdir "$(CURDIR)/output-non-fde"
-	mv "$(PACKER_OUTPUT_DIRECTORY_NON_FDE)/non-fde/nke-node.qcow2" \
-		"$(CURDIR)/output-non-fde/nke-node-non-fde-ubuntu-$(UBUNTU_VERSION)-$(ARCH).qcow2"
+	mv "$(PACKER_OUTPUT_DIRECTORY_NON_FDE)/non-fde/nvke-node.qcow2" \
+		"$(CURDIR)/output-non-fde/nvke-node-non-fde-ubuntu-$(UBUNTU_VERSION)-$(ARCH).qcow2"
 	rm -rf -- "$(PACKER_OUTPUT_DIRECTORY_NON_FDE)"
 
 clean-packer-scratch:

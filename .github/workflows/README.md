@@ -1,4 +1,4 @@
-# NKE workflow design guide
+# NVKE workflow design guide
 
 This directory has two kinds of CI workflow: required pull-request checks and
 advisory or release workflows. Keep their event ownership separate. Most CI
@@ -30,6 +30,15 @@ Preserve these rules when adding or changing a workflow:
 7. A base retarget must re-run the gate. Keep `edited` in the aggregate's
    `pull_request.types` list.
 8. Concurrency must not let one `main` commit erase another commit's result.
+9. Every tool download retries. A pinned release tarball is fetched with
+   `--retry 8 --retry-all-errors --retry-max-time 240`. Retries default to 0, so
+   a download with no `--retry` fails the job on the first bad response -- which
+   a release-CDN 504 has done. `--retry` alone covers curl's transient set (408,
+   429, 500, 502, 503, 504, 522, 524 and timeouts); `--retry-all-errors` extends
+   that to the rest, such as a connection reset part way through a transfer.
+   Pair it with `-o`, never a pipe: curl cannot rewind output already written to
+   a pipe, so a retry there duplicates data. Prefer an existing `setup-*`
+   composite action over inlining a new download.
 
 ## Event ownership
 
@@ -66,10 +75,13 @@ First confirm that the job belongs in the required gate:
 - It needs no required secret and no NVIDIA self-hosted runner.
 - Its latency is acceptable on every pull request.
 - Failure should block a merge.
+- It carries no job-level `if:` other than the repository guard (see
+  "Repository guards" below), because `gate` requires `success` from every
+  member and a skipped member fails it.
 
 If any answer is no, add an advisory workflow instead.
 
-`nkectl-bootstrap-e2e.yml` is the worked example of a no, and its header
+`nvkectl-bootstrap-e2e.yml` is the worked example of a no, and its header
 records which answers fail and what would have to change first. Read that
 before proposing it, or any other e2e lane, as a member again.
 
@@ -155,8 +167,11 @@ Then add the job ID to `gate.needs`. Missing that second edit is fail-open: the
 work may run, but its failure will not affect the required `gate` result.
 
 Keep `gate.name` equal to `gate`, keep `if: always()`, and do not rename the
-required context. The final job tolerates `skipped` results but rejects
-`failure` and `cancelled`.
+required context. The final job requires every member to report `success`.
+A `skipped` member fails the gate, so a member carries no job-level `if:`
+other than the repository guard. A job inside a member that must sometimes
+skip, such as the `report` job in `coverage.yml`, sits beside a job that
+always runs, so the called workflow as a whole still concludes `success`.
 
 A caller cannot grant less permission than a called workflow requests. Declare
 the minimum at both levels. Optional secrets are acceptable only when the member
@@ -200,6 +215,15 @@ entry. A SHA-scoped `main` group prevents back-to-back merges from losing a
 result. Pull-request refs should remain shared so a new update cancels stale
 work.
 
+The e2e lanes pay for the SHA-scoped groups on a busy day: GitHub never cancels
+a queued leg whose commit has been superseded, so two-hour legs pile up for
+commits that are no longer the head. `e2e-queue-sweeper.yml` runs every ten
+minutes, keeps every running leg and the newest two queued runs per lane, and
+cancels the older queued ones. Dispatch a lane by hand on a swept commit when
+its result is wanted. The same sweep cancels queued lane runs on a
+`pull-request/<n>` mirror branch once that pull request is merged or closed:
+their result changes nothing, and they share the arm64 pool with main.
+
 Release gates need separate treatment: do not cancel a tag run, and keep tag
 groups distinct. `license.yml` documents the release-specific version of this
 rule.
@@ -230,6 +254,31 @@ jobs:
 Document any exception next to the call. For example, `govulncheck` needs
 `actions: read` and `security-events: write` to upload SARIF.
 
+## Repository guards
+
+A job that must not run in a fork starts with the repository guard:
+
+```yaml
+    if: github.repository_id == '1323115536'
+```
+
+`1323115536` is the id of `dsx-ai-factory/nvke`, which
+`gh api repos/dsx-ai-factory/nvke --jq .id` prints. The guard compares the id
+and never the slug, because the id survives a rename or a transfer and the
+slug does not. When the guards compared the slug, moving the repository turned
+every one of them false, every gate member skipped, and `gate` passed with
+nothing run, because it tolerated `skipped` at the time. The gate now requires
+`success`, so the same event would fail every pull request instead of passing
+it, and `make lint-workflows` rejects a workflow that compares
+`github.repository` to a string.
+
+In a compound condition the guard stays the first clause. In a fork every
+guarded job skips and `gate` fails, which is the intended reading: nothing was
+checked there. Values that should follow the repository name, such as the
+`org.opencontainers.image.source` annotation or a `gh api repos/...` call,
+keep using `${{ github.repository }}`, which GitHub fills in with the current
+slug.
+
 ## Review checklist
 
 Before submitting a workflow change:
@@ -245,6 +294,10 @@ Before submitting a workflow change:
 7. Keep permissions minimal and required secrets out of the aggregate.
 8. Preserve the aggregate's stacked-PR, mirror-base, and `edited` behavior.
 9. Update this guide if the ownership model changes.
+10. Guard a job that must not run in a fork with `github.repository_id`, never
+    with the slug.
+11. Give every `curl` that fetches a tool the retry flags from invariant 9,
+    and keep the committed-digest check that follows it.
 
 Run the static checks from the repository root:
 
@@ -262,7 +315,7 @@ git diff --check
 After pushing, inspect the PR rather than assuming green means complete:
 
 ```bash
-gh pr checks <number> --repo dsx-ai-factory/nke --json name,workflow,state,bucket
+gh pr checks <number> --repo dsx-ai-factory/nvke --json name,workflow,state,bucket
 ```
 
 For a required member, confirm it appears inside `Merge gate`, no standalone
@@ -271,4 +324,4 @@ For an advisory workflow, confirm its expected trigger actually produced a
 check; an absent advisory check does not look like a failure.
 
 What `main` requires of a pull request is a repository setting. Read it with
-`gh api repos/dsx-ai-factory/nke/rules/branches/main --jq '[.[].type]'`.
+`gh api repos/dsx-ai-factory/nvke/rules/branches/main --jq '[.[].type]'`.

@@ -22,10 +22,10 @@ import (
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/activities"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/activities"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 const (
@@ -770,7 +770,7 @@ func setupTestDB(t *testing.T, opts seedOpts) (db.DB, seedResult) {
 	// the nested nico payload, which is where the provisioning context reads the
 	// config profile that decides whether hooks run.
 	nicoProfiles := db.NicoNodePoolProvider{
-		OSProfile:      "test",
+		Release:        "test",
 		ConfigProfile:  configProfileName,
 		SubnetIDs:      []uuid.UUID{},
 		VpcPrefixIDs:   []uuid.UUID{},
@@ -791,7 +791,7 @@ func setupTestDB(t *testing.T, opts seedOpts) (db.DB, seedResult) {
 			Name:           "worker-pool",
 			NodeNamePrefix: "worker",
 			ControlPlane:   false,
-			NodeLabels:     []string{},
+			NodeLabels:     map[string]string{},
 		}
 		workerPool.SetNico(nicoProfiles)
 		_, err = database.CreateNodePool(ctx, &workerPool)
@@ -815,7 +815,7 @@ func setupTestDB(t *testing.T, opts seedOpts) (db.DB, seedResult) {
 		Name:           "cp-pool",
 		NodeNamePrefix: "cp",
 		ControlPlane:   true,
-		NodeLabels:     []string{},
+		NodeLabels:     map[string]string{},
 	}
 	cpPool.SetNico(nicoProfiles)
 	_, err = database.CreateNodePool(ctx, &cpPool)
@@ -907,7 +907,7 @@ func setupWorkflowEnv(t *testing.T, database db.DB, profilesDir string, opts wor
 	env.OnActivity(a.LabelNode, mock.Anything, mock.Anything).Return(activities.LabelNodeResult{}, nil).Maybe()
 	drainErr := error(nil)
 	if opts.failDrainActivity {
-		drainErr = errors.New("node unreachable")
+		drainErr = errors.New("eviction blocked by PodDisruptionBudget")
 	}
 	env.OnActivity(a.DrainKubeNode, mock.Anything, mock.Anything).Return(drainErr).Maybe()
 	env.OnActivity(a.DeleteKubeNode, mock.Anything, mock.Anything).Return(opts.deleteKubeNodeErr).Maybe()
@@ -970,4 +970,43 @@ func writeConfigProfile(t *testing.T, profilesDir, name, content string) {
 	dir := filepath.Join(profilesDir, "configProfiles")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(content), 0o644))
+}
+
+func TestClusterTeardownDeletesInfrastructureWhenAgentResetFails(t *testing.T) {
+	database, res := setupTestDB(t, seedOpts{clusterProvisioned: true, cpNodeJoined: true, omitConfigProfile: true})
+	env, a := setupWorkflowEnv(t, database, res.profilesDir, workflowEnvOpts{omitClusterRunbookMock: true, omitKubeadmResetMock: true, omitDeleteCAPIMachineMock: true})
+	env.OnActivity(a.KubeadmReset, mock.Anything, mock.Anything).Return(activities.KubeadmResetResult{}, errors.New("agent connection refused")).Times(3)
+	env.OnActivity(a.DeleteCAPIMachineForNode, mock.Anything, mock.Anything).Return(nil).Once()
+	env.ExecuteWorkflow(TeardownNode, TeardownNodeInput{NodeID: res.nodeID, AllowCPNode: true, SkipRemoveFromCluster: true})
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	env.AssertExpectations(t)
+	_, err := database.GetNode(context.Background(), res.nodeID)
+	require.ErrorIs(t, err, db.ErrNotFound, "agent failure must not prevent infrastructure and node deletion")
+}
+
+func TestNodeDeletionStopsOnCleanupFailureWithoutForceUnreachable(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		opts      workflowEnvOpts
+		wantError string
+	}{
+		{name: "PDB blocks drain", opts: workflowEnvOpts{failDrainActivity: true}, wantError: "PodDisruptionBudget"},
+		{name: "agent cannot shut down gracefully", opts: workflowEnvOpts{failGracefulShutdownStart: true}, wantError: "apiserver stuck"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			database, res := setupTestDB(t, seedOpts{clusterProvisioned: true, cpNodeJoined: true, omitConfigProfile: true})
+			env, _ := setupWorkflowEnv(t, database, res.profilesDir, test.opts)
+			var activityNames []string
+			env.SetOnActivityStartedListener(func(info *activity.Info, _ context.Context, _ converter.EncodedValues) {
+				activityNames = append(activityNames, info.ActivityType.Name)
+			})
+			env.ExecuteWorkflow(TeardownNode, TeardownNodeInput{NodeID: res.nodeID, AllowCPNode: true, ForceUnreachable: false})
+			require.True(t, env.IsWorkflowCompleted())
+			require.ErrorContains(t, env.GetWorkflowError(), test.wantError)
+			require.NotContains(t, activityNames, "DeleteCAPIMachineForNode")
+			_, err := database.GetNode(t.Context(), res.nodeID)
+			require.NoError(t, err, "failed graceful cleanup must retain the node")
+		})
+	}
 }

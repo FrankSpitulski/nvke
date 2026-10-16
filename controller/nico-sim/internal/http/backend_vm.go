@@ -9,10 +9,10 @@ import (
 	"net"
 	nethttp "net/http"
 
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/apierr"
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/state"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/apierr"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/state"
 )
 
 // vmBackend adapts the VM store and reconciliation engine to InstanceBackend.

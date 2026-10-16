@@ -11,18 +11,19 @@
 # evidence and the trade-off in closing it.
 #
 # Internal builds override these rather than BASE_REGISTRY, for example
-#   docker build --build-arg GOLANG_IMAGE=dockerhub.nvidia.com/golang:1.27.1@sha256:... .
+#   docker build --build-arg GOLANG_IMAGE=dockerhub.nvidia.com/golang:1.27.2@sha256:... .
 # A digest is content-addressed, so a mirror serving the same content answers
 # to the same digest.
-ARG GOLANG_IMAGE=docker.io/golang:1.27.1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
+ARG GOLANG_IMAGE=docker.io/golang:1.27.2@sha256:5bc7f572bbaa98885a3a1fd9c0aa76b59e3e14e8628bfc316bbfd0c701e4818c
 ARG ALPINE_IMAGE=docker.io/alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
 FROM --platform=${BUILDPLATFORM} ${GOLANG_IMAGE} AS builder
+ENV GOPROXY=https://proxy.golang.org|direct
 ARG TARGETOS
 ARG TARGETARCH
 ARG BUILD_VERSION=dev
 
-# The build context is the NKE repository root. All Go dependencies are public;
+# The build context is the NVKE repository root. All Go dependencies are public;
 # the builder downloads them as needed without source credentials.
 WORKDIR /workspace
 COPY . .
@@ -37,6 +38,11 @@ FROM --platform=${BUILDPLATFORM} ${ALPINE_IMAGE} AS certificates
 RUN apk add --no-cache ca-certificates
 
 FROM ${ALPINE_IMAGE}
+# The base tag carries the packages Alpine shipped when the tag was cut, and
+# Alpine patches a branch without always cutting a new tag. Upgrade so the
+# packages are current at build time. --no-cache keeps the apk index out of
+# the image.
+RUN apk upgrade --no-cache
 COPY --from=certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /out/cluster-api-provider-provisioned /usr/local/bin/cluster-api-provider-provisioned
 COPY LICENSE NOTICE /licenses/

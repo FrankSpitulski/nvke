@@ -13,17 +13,16 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
-// cpControllerReconciler returns a reconciler with the control-plane-controller
-// feature flag ON. The snapshot-based helpers are pure and read from cp.nodePinnedControlPlaneConfigs,
-// so no DB is needed.
+// cpControllerReconciler returns a reconciler for the snapshot-based helpers, which
+// are pure and read from cp.nodePinnedControlPlaneConfigs, so no DB is needed.
 func cpControllerReconciler() *reconciler {
 	return &reconciler{
-		cfg:    config.Config{ProvisionControlPlaneWithControlPlaneController: true},
+		cfg:    config.Config{},
 		logger: slog.New(slog.DiscardHandler),
 	}
 }
@@ -50,19 +49,19 @@ func makeCPControllerNode(name string, configID uuid.UUID) db.Node {
 // nicoCPSpec builds the control-plane snapshot a stored Nico cluster carries.
 // The os and config profiles live in the nested nico payload, so a spec written
 // as a bare literal with root-level profiles would compare as having none.
-func nicoCPSpec(osProfile, configProfile, kubernetesVersion string) db.ControlPlaneConfigSpec {
+func nicoCPSpec(release, configProfile, kubernetesVersion string) db.ControlPlaneConfigSpec {
 	spec := db.ControlPlaneConfigSpec{KubernetesVersion: kubernetesVersion}
-	spec.SetNico(db.NicoControlPlaneProvider{OSProfile: osProfile, ConfigProfile: configProfile})
+	spec.SetNico(db.NicoControlPlaneProvider{Release: release, ConfigProfile: configProfile})
 	return spec
 }
 
-// staleCPSpec returns spec carrying an older OS profile, which is what makes a
+// staleCPSpec returns spec carrying an older release, which is what makes a
 // node's pinned snapshot stale relative to the cluster's current one.
 func staleCPSpec(t *testing.T, spec db.ControlPlaneConfigSpec) db.ControlPlaneConfigSpec {
 	t.Helper()
 	nico, err := spec.NicoProvider()
 	require.NoError(t, err)
-	nico.OSProfile = "nke-1.33.6"
+	nico.Release = "nvke-1.33.6"
 	spec.SetNico(nico)
 	return spec
 }
@@ -86,8 +85,8 @@ func TestReadControlPlane_PreloadsControlPlaneConfigs(t *testing.T) {
 	clusterID := uuid.New()
 	configA := uuid.New()
 	configB := uuid.New()
-	specA := nicoCPSpec("nke-1.34.2", "", "1.34.2")
-	specB := nicoCPSpec("nke-1.33.6", "", "1.33.6")
+	specA := nicoCPSpec("nvke-1.34.2", "", "1.34.2")
+	specB := nicoCPSpec("nvke-1.33.6", "", "1.33.6")
 
 	// Two nodes share configA (dedup expected), one uses configB.
 	nodes := []db.Node{
@@ -100,7 +99,6 @@ func TestReadControlPlane_PreloadsControlPlaneConfigs(t *testing.T) {
 	mockTx.On("ListNodes", mock.Anything, mock.MatchedBy(func(f db.NodeFilters) bool {
 		return f.ClusterID != nil && *f.ClusterID == clusterID && f.ControlPlane != nil && *f.ControlPlane
 	})).Return(nodes, nil).Once()
-	mockTx.On("ListNodePools", mock.Anything, mock.Anything).Return([]db.NodePool{}, nil).Once()
 	// Exactly one batch read, with the distinct (deduped) configuration IDs.
 	mockTx.On("ListControlPlaneConfigurationsByIDs", mock.Anything, mock.MatchedBy(func(ids []uuid.UUID) bool {
 		return len(ids) == 2 &&
@@ -111,12 +109,11 @@ func TestReadControlPlane_PreloadsControlPlaneConfigs(t *testing.T) {
 		{ID: configB, Config: specB},
 	}, nil).Once()
 
-	cp, err := readControlPlane(context.Background(), mockTx, db.Cluster{ID: clusterID}, true)
+	cp, err := readControlPlane(context.Background(), mockTx, db.Cluster{ID: clusterID})
 	require.NoError(t, err)
 	require.Len(t, cp.nodePinnedControlPlaneConfigs, 2)
 	assert.Equal(t, specA, cp.nodePinnedControlPlaneConfigs[configA])
 	assert.Equal(t, specB, cp.nodePinnedControlPlaneConfigs[configB])
-	assert.True(t, cp.useController)
 	mockTx.AssertExpectations(t)
 }
 
@@ -129,9 +126,8 @@ func TestReadControlPlane_SkipsConfigLoadWithoutCPControllerNodes(t *testing.T) 
 
 	mockTx := &testutil.MockTx{}
 	mockTx.On("ListNodes", mock.Anything, mock.Anything).Return([]db.Node{poolNode}, nil).Once()
-	mockTx.On("ListNodePools", mock.Anything, mock.Anything).Return([]db.NodePool{}, nil).Once()
 
-	cp, err := readControlPlane(context.Background(), mockTx, db.Cluster{ID: clusterID}, false)
+	cp, err := readControlPlane(context.Background(), mockTx, db.Cluster{ID: clusterID})
 	require.NoError(t, err)
 	assert.Empty(t, cp.nodePinnedControlPlaneConfigs)
 	mockTx.AssertNotCalled(t, "ListControlPlaneConfigurationsByIDs", mock.Anything, mock.Anything)
@@ -144,8 +140,8 @@ func TestIsK8sVersionUpgradeNeeded_CPController(t *testing.T) {
 	oldConfigID := uuid.New()
 	currentConfigID := uuid.New()
 
-	currentSpec := nicoCPSpec("nke-1.34.2", "cfg", "1.34.2")
-	oldSpec := nicoCPSpec("nke-1.33.6", "cfg", "1.33.6")
+	currentSpec := nicoCPSpec("nvke-1.34.2", "cfg", "1.34.2")
+	oldSpec := nicoCPSpec("nvke-1.33.6", "cfg", "1.33.6")
 	configs := map[uuid.UUID]db.ControlPlaneConfigSpec{oldConfigID: oldSpec, currentConfigID: currentSpec}
 
 	tests := []struct {
@@ -176,11 +172,11 @@ func TestIsK8sVersionUpgradeNeeded_CPController(t *testing.T) {
 func TestNodesNeedingRollout_TemplateVsLabelOnly(t *testing.T) {
 	t.Parallel()
 
-	currentSpec := nicoCPSpec("nke-1.34.2", "cfg", "1.34.2")
+	currentSpec := nicoCPSpec("nvke-1.34.2", "cfg", "1.34.2")
 	// Same replacing template as current, but a non-replacing (label-only) delta.
 	labelOnlySpec := currentSpec
-	labelOnlySpec.NodeLabels = []string{"role=cp"}
-	// Replacing delta: different OS profile.
+	labelOnlySpec.NodeLabels = map[string]string{"role": "cp"}
+	// Replacing delta: different release.
 	replacingSpec := staleCPSpec(t, currentSpec)
 
 	replacingID := uuid.New()
@@ -208,7 +204,7 @@ func TestNodesNeedingRollout_TemplateVsLabelOnly(t *testing.T) {
 func TestNodesNeedingRollout_IncludesInFlightSkipsMissingSnapshot(t *testing.T) {
 	t.Parallel()
 
-	currentSpec := nicoCPSpec("nke-1.34.2", "", "1.34.2")
+	currentSpec := nicoCPSpec("nvke-1.34.2", "", "1.34.2")
 	replacingSpec := staleCPSpec(t, currentSpec)
 	replacingID := uuid.New()
 
@@ -236,7 +232,7 @@ func TestNodesNeedingRollout_IncludesInFlightSkipsMissingSnapshot(t *testing.T) 
 func TestIsControlPlaneUpgradeComplete_CPController(t *testing.T) {
 	t.Parallel()
 
-	currentSpec := nicoCPSpec("nke-1.34.2", "", "1.34.2")
+	currentSpec := nicoCPSpec("nvke-1.34.2", "", "1.34.2")
 	replacingSpec := staleCPSpec(t, currentSpec)
 	replacingID := uuid.New()
 	currentID := uuid.New()
@@ -297,7 +293,7 @@ func TestIsControlPlaneUpgradeComplete_CPController(t *testing.T) {
 			if tt.recycling {
 				cluster.Conditions.CPNodesRecycling = db.NewCondition(true, "recycling")
 			}
-			cp := &controlPlane{nodes: tt.nodes, nodePinnedControlPlaneConfigs: configs, clusterControlPlaneConfig: cluster.ControlPlaneConfig, useController: true}
+			cp := &controlPlane{nodes: tt.nodes, nodePinnedControlPlaneConfigs: configs, clusterControlPlaneConfig: cluster.ControlPlaneConfig}
 
 			assert.Equal(t, tt.want, r.isControlPlaneUpgradeComplete(cluster, cp, slog.New(slog.DiscardHandler)))
 		})
@@ -307,7 +303,7 @@ func TestIsControlPlaneUpgradeComplete_CPController(t *testing.T) {
 func TestExpectedControlPlaneCount_CPController(t *testing.T) {
 	t.Parallel()
 
-	currentSpec := nicoCPSpec("nke-1.34.2", "", "1.34.2")
+	currentSpec := nicoCPSpec("nvke-1.34.2", "", "1.34.2")
 	replacingSpec := staleCPSpec(t, currentSpec)
 	replacingID := uuid.New()
 	currentID := uuid.New()
@@ -323,7 +319,6 @@ func TestExpectedControlPlaneCount_CPController(t *testing.T) {
 			},
 			nodePinnedControlPlaneConfigs: configs,
 			clusterControlPlaneConfig:     clusterWithCurrentSnapshot(currentSpec, 0).ControlPlaneConfig,
-			useController:                 true,
 		}
 
 		assert.Equal(t, 3, cp.expectedCount())
@@ -339,7 +334,6 @@ func TestExpectedControlPlaneCount_CPController(t *testing.T) {
 			},
 			nodePinnedControlPlaneConfigs: configs,
 			clusterControlPlaneConfig:     clusterWithCurrentSnapshot(currentSpec, 1).ControlPlaneConfig,
-			useController:                 true,
 		}
 
 		assert.Equal(t, 4, cp.expectedCount(), "desired 3 + min(maxSurge 1, deprecated 1)")
@@ -368,10 +362,10 @@ func TestCanStartRemediation_CPControllerWaitsForReplacement(t *testing.T) {
 	desired3 := db.ControlPlaneConfig{DesiredCount: 3}
 
 	// desired=3 with only 2 nodes present: replacement not yet created -> wait.
-	cpWaiting := &controlPlane{nodes: []db.Node{nodeToRemove, healthy("cp-2")}, clusterControlPlaneConfig: desired3, useController: true}
+	cpWaiting := &controlPlane{nodes: []db.Node{nodeToRemove, healthy("cp-2")}, clusterControlPlaneConfig: desired3}
 	assert.False(t, canStartRemediation(log, cpWaiting, nodeToRemove))
 
 	// desired=3 with 3 nodes present: replacement created -> can proceed.
-	cpReady := &controlPlane{nodes: []db.Node{nodeToRemove, healthy("cp-2"), healthy("cp-3")}, clusterControlPlaneConfig: desired3, useController: true}
+	cpReady := &controlPlane{nodes: []db.Node{nodeToRemove, healthy("cp-2"), healthy("cp-3")}, clusterControlPlaneConfig: desired3}
 	assert.True(t, canStartRemediation(log, cpReady, nodeToRemove))
 }

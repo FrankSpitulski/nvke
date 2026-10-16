@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Builds the nke-agent .debs on an agent/v* tag, uploads them to the
+# Builds the nvke-agent .debs on an agent/v* tag, uploads them to the
 # apt-publisher S3 intake, attaches both packages as assets on a GitHub
 # Release for that tag, and publishes the same packages to GHCR as an OCI
-# artifact (ghcr.io/dsx-ai-factory/nke/agent-deb) for oras pull. Apt intake is
+# artifact (ghcr.io/dsx-ai-factory/nvke/agent-deb) for oras pull. Apt intake is
 # tag-only: workflow_dispatch is kept so a failed tag publish can be re-run,
 # but branch dispatches never upload. deb.yml exercises the same packaging
 # path on every agent change and throws the packages away; this workflow is
@@ -20,8 +20,8 @@
 # environment, so no bucket name lands in a tracked file of a repository that
 # is released publicly:
 #
-#   APT_INTAKE_S3_URI       variable  e.g. s3://example-bucket/nke-packages
-#   APT_INTAKE_PROJECT      variable  optional; default nke-agent
+#   APT_INTAKE_S3_URI       variable  e.g. s3://example-bucket/nvke-packages
+#   APT_INTAKE_PROJECT      variable  optional; default nvke-agent
 #   APT_INTAKE_AWS_ROLE_ARN variable  IAM role assumed via OIDC to write intake
 #   APT_INTAKE_AWS_REGION   variable  optional; default us-west-2
 #
@@ -31,6 +31,12 @@
 # publish job then uploads both packages once so the shared index.json merge
 # cannot race with itself. The GitHub Release job and the GHCR job run in
 # parallel with S3 publish and do not touch apt intake.
+#
+# A bare vX.Y.Z-beta.N tag only triggers the run. It builds the commit it names
+# and versions the packages like any other build of that commit, by the agent/v*
+# describe. They are published to releases/<describe>/ in the apt intake bucket
+# (index.json is not updated) and as <describe> tags on NVCR. A beta has no
+# GitHub Release and no GHCR copy.
 
 name: Agent Deb Publish
 
@@ -39,6 +45,7 @@ on:
     tags:
       - "agent/v[0-9]+.[0-9]+.[0-9]+"
       - "agent/v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+"
   workflow_dispatch:
     inputs:
       ref:
@@ -49,7 +56,8 @@ on:
 permissions: {}
 
 env:
-  SOURCE_REF: ${{ inputs.ref || github.ref_name }}
+  # A beta tag only triggers the run; the source is the commit it names.
+  SOURCE_REF: ${{ inputs.ref || (startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-beta.') && github.sha) || github.ref_name }}
 
 concurrency:
   # A literal name, NOT ${{ github.workflow }}. Inside a called workflow that
@@ -68,13 +76,16 @@ jobs:
     # Tag-only: a branch workflow_dispatch must not produce packages that the
     # publish job (or a later re-enable) could upload into apt intake.
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
-      (startsWith(inputs.ref || github.ref_name, 'agent/v') || inputs.ref != '')
+      github.repository_id == '1323115536' &&
+      (startsWith(inputs.ref || github.ref_name, 'agent/v') || inputs.ref != '' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-beta.')))
     outputs:
       sha: ${{ steps.package.outputs.sha }}
+      version: ${{ steps.version.outputs.version }}
     timeout-minutes: 20
     permissions:
       contents: read
+      actions: read  # upload-sarif reads the workflow run
       security-events: write  # the malware scan uploads SARIF
     strategy:
       fail-fast: false
@@ -104,6 +115,22 @@ jobs:
           # clone would stamp the wrong version into a release package.
           fetch-depth: 0
           persist-credentials: false
+
+      # The one place the version is resolved, for the consumers below. A release
+      # tag names it. Anything else is described, the way `make deb` stamps the
+      # package: a beta run arrives here with only its commit (see SOURCE_REF).
+      - name: Resolve the version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${SOURCE_REF}" == agent/v* ]]; then
+            version="${SOURCE_REF#agent/}"
+          else
+            version="$(git describe --match 'agent/v*' --tags --always 2>/dev/null || git rev-parse --short HEAD)"
+            version="${version#agent/}"
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -148,8 +175,8 @@ jobs:
           ver=$(dpkg-deb -f "$deb" Version)
           arch=$(dpkg-deb -f "$deb" Architecture)
 
-          [ "$pkg" = "nke-agent" ] \
-            || { echo "::error::${deb}: Package is '${pkg}', expected 'nke-agent'"; exit 1; }
+          [ "$pkg" = "nvke-agent" ] \
+            || { echo "::error::${deb}: Package is '${pkg}', expected 'nvke-agent'"; exit 1; }
 
           case "$ver" in
             [0-9]*) ;;
@@ -160,13 +187,13 @@ jobs:
             || { echo "::error::${deb}: Architecture is '${arch}', expected '${{ matrix.arch }}'"; exit 1; }
 
           contents=$(dpkg-deb -c "$deb")
-          printf '%s\n' "$contents" | grep -q './usr/local/bin/nke-agent' \
-            || { echo "::error::${deb}: does not contain /usr/local/bin/nke-agent"; exit 1; }
+          printf '%s\n' "$contents" | grep -q './usr/local/bin/nvke-agent' \
+            || { echo "::error::${deb}: does not contain /usr/local/bin/nvke-agent"; exit 1; }
           printf '%s\n' "$contents" | grep -q './etc/systemd/system/.*\.service' \
             || { echo "::error::${deb}: contains no systemd unit"; exit 1; }
 
-          dpkg-deb --fsys-tarfile "$deb" | tar -xO ./usr/local/bin/nke-agent > /tmp/nke-agent
-          linkage=$(file -b /tmp/nke-agent)
+          dpkg-deb --fsys-tarfile "$deb" | tar -xO ./usr/local/bin/nvke-agent > /tmp/nvke-agent
+          linkage=$(file -b /tmp/nvke-agent)
           echo "  linkage: ${linkage}"
           case "$linkage" in
             *"dynamically linked"*) ;;
@@ -190,7 +217,7 @@ jobs:
           output_file: 'clamav-agent-deb.sarif'
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-deb-${{ matrix.arch }}
           path: agent/bin/*.deb
@@ -201,8 +228,9 @@ jobs:
     name: Upload to apt intake
     needs: [build]
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
-      startsWith(inputs.ref || github.ref_name, 'agent/v')
+      github.repository_id == '1323115536' &&
+      (startsWith(inputs.ref || github.ref_name, 'agent/v') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-beta.')))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: apt-intake
@@ -216,7 +244,7 @@ jobs:
           persist-credentials: false
 
       - name: Download packages
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agent-deb-*
           merge-multiple: true
@@ -230,6 +258,7 @@ jobs:
           APT_INTAKE_PROJECT: ${{ vars.APT_INTAKE_PROJECT }}
           APT_INTAKE_AWS_ROLE_ARN: ${{ vars.APT_INTAKE_AWS_ROLE_ARN }}
           APT_INTAKE_AWS_REGION: ${{ vars.APT_INTAKE_AWS_REGION }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
           set -euo pipefail
           if [[ -z "${APT_INTAKE_S3_URI}" ]]; then
@@ -241,10 +270,10 @@ jobs:
             exit 1
           fi
 
-          project="${APT_INTAKE_PROJECT:-nke-agent}"
+          project="${APT_INTAKE_PROJECT:-nvke-agent}"
           region="${APT_INTAKE_AWS_REGION:-us-west-2}"
 
-          release="${SOURCE_REF#agent/}"
+          release="${VERSION}"
 
           {
             echo "s3_uri=${APT_INTAKE_S3_URI}"
@@ -271,7 +300,9 @@ jobs:
           APT_INTAKE_S3_URI: ${{ steps.meta.outputs.s3_uri }}
           APT_INTAKE_PROJECT: ${{ steps.meta.outputs.project }}
           APT_INTAKE_RELEASE: ${{ steps.meta.outputs.release }}
-          PUBLISH_INDEX_JSON: "true"
+          # A beta is uploaded under releases/<describe>/ but never enters the index
+          # that apt-publisher serves.
+          PUBLISH_INDEX_JSON: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-beta.')) && 'false' || 'true' }}
           ASSETS_DIR: bin
         run: ./scripts/upload-s3-apt-intake.sh
 
@@ -279,7 +310,7 @@ jobs:
     name: Upload dev packages to S3
     needs: [build]
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
+      github.repository_id == '1323115536' &&
       github.ref == 'refs/heads/main' &&
       !startsWith(inputs.ref || github.ref_name, 'agent/v')
     runs-on: ubuntu-latest
@@ -289,7 +320,7 @@ jobs:
       id-token: write
     env:
       APT_INTAKE_S3_URI: ${{ vars.AGENT_DEV_S3_URI }}
-      APT_INTAKE_PROJECT: nke-agent
+      APT_INTAKE_PROJECT: nvke-agent
       APT_INTAKE_RELEASE: ${{ needs.build.outputs.sha }}
       DEV_AWS_ROLE_ARN: ${{ vars.AGENT_DEV_AWS_ROLE_ARN }}
     steps:
@@ -309,7 +340,7 @@ jobs:
           persist-credentials: false
 
       - name: Download packages
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agent-deb-*
           merge-multiple: true
@@ -330,17 +361,17 @@ jobs:
 
   # OCI copy of the same two packages the GitHub Release attaches. The Packer
   # reference OS image pulls from here with oras (see os-image/packer/scripts/fetch-artifacts.sh).
-  # Filename is always nke-agent.deb so `oras pull` writes a stable path.
+  # Filename is always nvke-agent.deb so `oras pull` writes a stable path.
   publish-ghcr:
     name: Publish debs to GHCR
     needs: [build]
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
+      github.repository_id == '1323115536' &&
       startsWith(inputs.ref || github.ref_name, 'agent/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      REPO: ghcr.io/dsx-ai-factory/nke/agent-deb
+      REPO: ghcr.io/dsx-ai-factory/nvke/agent-deb
       SOURCE_SHA: ${{ needs.build.outputs.sha }}
     permissions:
       contents: read
@@ -360,7 +391,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Download packages
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agent-deb-*
           merge-multiple: true
@@ -374,7 +405,7 @@ jobs:
           echo "oras_version=$(make --no-print-directory print-ORAS_VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Set up ORAS
-        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
         with:
           version: ${{ steps.versions.outputs.oras_version }}
 
@@ -406,16 +437,16 @@ jobs:
           for deb in "${debs[@]}"; do
             arch=$(dpkg-deb -f "$deb" Architecture)
             work="$(mktemp -d)"
-            cp "$deb" "${work}/nke-agent.deb"
+            cp "$deb" "${work}/nvke-agent.deb"
             ( cd "${work}" && oras push "${REPO}:${version}-${arch}" \
-                --artifact-type application/vnd.nvidia.nke.agent.deb.v1 \
+                --artifact-type application/vnd.nvidia.nvke.agent.deb.v1 \
                 --artifact-platform "linux/${arch}" \
                 --annotation "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
                 --annotation "org.opencontainers.image.revision=${SOURCE_SHA}" \
                 --annotation "org.opencontainers.image.version=${version}" \
                 --annotation "org.opencontainers.image.licenses=Apache-2.0" \
-                --annotation "org.opencontainers.image.title=nke-agent.deb" \
-                nke-agent.deb:application/vnd.debian.binary-package )
+                --annotation "org.opencontainers.image.title=nvke-agent.deb" \
+                nvke-agent.deb:application/vnd.debian.binary-package )
             rm -rf "${work}"
           done
 
@@ -439,8 +470,9 @@ jobs:
     name: Publish debs to NVCR
     needs: [build]
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
-      startsWith(inputs.ref || github.ref_name, 'agent/v')
+      github.repository_id == '1323115536' &&
+      (startsWith(inputs.ref || github.ref_name, 'agent/v') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-beta.')))
     runs-on: ubuntu-latest
     env:
       SOURCE_SHA: ${{ needs.build.outputs.sha }}
@@ -459,7 +491,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Download packages
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agent-deb-*
           merge-multiple: true
@@ -471,26 +503,26 @@ jobs:
           echo "oras_version=$(make --no-print-directory print-ORAS_VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Set up ORAS
-        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
         with:
           version: ${{ steps.versions.outputs.oras_version }}
 
       - name: Resolve repo
         id: meta
         env:
-          NKE_NGC_ORG: ${{ vars.NKE_NGC_ORG }}
+          NVKE_NGC_ORG: ${{ vars.NVKE_NGC_ORG }}
         run: |
           set -euo pipefail
-          if [[ -z "${NKE_NGC_ORG}" ]]; then
-            echo "::error::NKE_NGC_ORG is not set in the nvcr environment"
+          if [[ -z "${NVKE_NGC_ORG}" ]]; then
+            echo "::error::NVKE_NGC_ORG is not set in the nvcr environment"
             exit 1
           fi
-          echo "repo=nvcr.io/${NKE_NGC_ORG}/nke-agent-deb" >> "${GITHUB_OUTPUT}"
+          echo "repo=nvcr.io/${NVKE_NGC_ORG}/nvke-agent-deb" >> "${GITHUB_OUTPUT}"
 
       # `$oauthtoken` is NGC's literal username, not a shell variable.
       - name: Log in to NVCR
         env:
-          NGC_TOKEN: ${{ secrets.NGC_REGISTRY_TOKEN_NKE }}
+          NGC_TOKEN: ${{ secrets.NGC_REGISTRY_TOKEN_NVKE }}
         run: |
           set -euo pipefail
           # shellcheck disable=SC2016
@@ -499,7 +531,7 @@ jobs:
 
       - name: Push per-architecture packages
         env:
-          VERSION: ${{ env.SOURCE_REF }}
+          VERSION: ${{ needs.build.outputs.version }}
           REPO: ${{ steps.meta.outputs.repo }}
         run: |
           set -euo pipefail
@@ -514,16 +546,16 @@ jobs:
           for deb in "${debs[@]}"; do
             arch=$(dpkg-deb -f "$deb" Architecture)
             work="$(mktemp -d)"
-            cp "$deb" "${work}/nke-agent.deb"
+            cp "$deb" "${work}/nvke-agent.deb"
             ( cd "${work}" && oras push "${REPO}:${version}-${arch}" \
-                --artifact-type application/vnd.nvidia.nke.agent.deb.v1 \
+                --artifact-type application/vnd.nvidia.nvke.agent.deb.v1 \
                 --artifact-platform "linux/${arch}" \
                 --annotation "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
                 --annotation "org.opencontainers.image.revision=${SOURCE_SHA}" \
                 --annotation "org.opencontainers.image.version=${version}" \
                 --annotation "org.opencontainers.image.licenses=Apache-2.0" \
-                --annotation "org.opencontainers.image.title=nke-agent.deb" \
-                nke-agent.deb:application/vnd.debian.binary-package )
+                --annotation "org.opencontainers.image.title=nvke-agent.deb" \
+                nvke-agent.deb:application/vnd.debian.binary-package )
             rm -rf "${work}"
           done
 
@@ -535,7 +567,7 @@ jobs:
 
       - name: Show published index
         env:
-          VERSION: ${{ env.SOURCE_REF }}
+          VERSION: ${{ needs.build.outputs.version }}
           REPO: ${{ steps.meta.outputs.repo }}
         run: |
           set -euo pipefail
@@ -552,7 +584,7 @@ jobs:
     name: Attach debs to GitHub Release
     needs: [build]
     if: >-
-      github.repository == 'dsx-ai-factory/nke' &&
+      github.repository_id == '1323115536' &&
       startsWith(inputs.ref || github.ref_name, 'agent/v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -561,25 +593,42 @@ jobs:
       id-token: write       # the OIDC token the attestation is signed against
       attestations: write   # writes the provenance attestation
     steps:
-      # Only for agent/THIRD_PARTY_NOTICES.md, which is attached below and
-      # cannot be produced from the build artifacts. It runs BEFORE the download:
-      # a first checkout deletes the workspace contents, which `clean: false`
-      # does not prevent.
-      - name: Checkout for the notices file
+      # For the local verify-release-assets action, for
+      # agent/THIRD_PARTY_NOTICES.md, which is attached below and cannot be
+      # produced from the build artifacts, and for the make files the syft pin
+      # is read from. It runs BEFORE the download: a first checkout deletes the
+      # workspace contents, which `clean: false` does not prevent.
+      - name: Checkout for the notices file and the tool pins
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           clean: false
           ref: ${{ needs.build.outputs.sha }}
-          sparse-checkout: agent/THIRD_PARTY_NOTICES.md
+          sparse-checkout: |
+            agent/THIRD_PARTY_NOTICES.md
+            .github/actions/verify-release-assets
+            Makefile
+            make
           sparse-checkout-cone-mode: false
 
       - name: Download packages
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: agent-deb-*
           merge-multiple: true
           path: agent/bin
+
+      # Version pins come from make/versions.mk, so `make show-versions` and CI
+      # cannot disagree.
+      - name: Read the pinned syft version
+        id: versions
+        shell: bash
+        run: echo "syft_version=$(make --no-print-directory print-SYFT_VERSION)" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up syft
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          syft-version: ${{ steps.versions.outputs.syft_version }}
 
       - name: Inspect packages
         id: meta
@@ -601,11 +650,35 @@ jobs:
             exit 1
           fi
 
-          # Hash the packages and the notices together, so one file covers
-          # everything a consumer downloads. Names are relative because
+          # One SPDX document per package, from the package's own contents.
+          #
+          # syft reads a .deb directly, but a deb-archive scan yields only the
+          # control metadata -- one entry, "nvke-agent <version>", which a
+          # consumer already knows from the filename. The question this exists
+          # to answer is which components are inside, so the archive is
+          # unpacked first and the extracted tree scanned: that reaches the
+          # Go build info the linker embedded in the agent binary, and the SBOM
+          # lists the module versions actually shipped on every managed node.
+          #
+          # --source-name binds the document to the package it describes rather
+          # than to the throwaway extraction directory, whose name would
+          # otherwise be what the SPDX document claims to be about.
+          for deb in agent/bin/*.deb; do
+            name="$(basename "${deb}" .deb)"
+            root="$(mktemp -d)"
+            dpkg-deb -R "${deb}" "${root}"
+            syft scan "dir:${root}" \
+              --output "spdx-json=agent/bin/${name}.spdx.json" \
+              --source-name "${name}.deb"
+            rm -rf "${root}"
+          done
+
+          # Hash the packages, their SBOMs and the notices together, so one file
+          # covers everything a consumer downloads. Names are relative because
           # `sha256sum -c` resolves them against the working directory, and a
           # consumer runs it from wherever they unpacked the release.
           ( cd agent/bin && sha256sum -- *.deb > checksums.txt )
+          ( cd agent/bin && sha256sum -- *.spdx.json >> checksums.txt )
           cp agent/THIRD_PARTY_NOTICES.md agent/bin/THIRD_PARTY_NOTICES.md
           ( cd agent/bin && sha256sum -- THIRD_PARTY_NOTICES.md >> checksums.txt )
           echo "checksums.txt:"
@@ -649,7 +722,7 @@ jobs:
           name: ${{ steps.meta.outputs.release_name }}
           draft: true
           body: |
-            nke-agent ${{ steps.meta.outputs.version }} Debian packages (amd64 and arm64).
+            nvke-agent ${{ steps.meta.outputs.version }} Debian packages (amd64 and arm64).
 
             Apt install path is the apt-publisher intake from this same workflow; these assets are the same `.deb`s attached for direct download.
 
@@ -658,6 +731,7 @@ jobs:
             the commands.
           files: |
             agent/bin/*.deb
+            agent/bin/*.spdx.json
             agent/bin/checksums.txt
             agent/bin/checksums.txt.sigstore.json
             agent/bin/THIRD_PARTY_NOTICES.md

@@ -14,11 +14,11 @@ import (
 	"strings"
 	"testing"
 
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/seed"
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/sshexec"
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/state"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/seed"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/sshexec"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/state"
 )
 
 // Seeded identifiers mirrored from internal/seed/default-seed.yaml so the tests

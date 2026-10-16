@@ -1,0 +1,115 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Accepted breaking changes to openapi.yaml.
+#
+# `make -C controller api-compat-check` compares openapi.yaml against the newest
+# published controller/api version tag and fails on every breaking change. This
+# file is the only way past it, and each entry is a decision someone signed for.
+#
+# Empty is the normal state. An entry here says "this break is going out, and
+# here is who decided and why" -- not "this finding is noise".
+#
+# Before adding one, read the "Compatibility" section of README.md. Prefer the
+# compatible shape: add a new optional property instead of changing an existing
+# one, add a new endpoint instead of repurposing one, and deprecate before you
+# remove.
+#
+# A removed OPERATION usually belongs nowhere near this file. Mark it
+# `deprecated: true` with an `x-sunset` date at least 180 days out, ship that,
+# and remove it once the date has passed -- the gate lets that through with no
+# entry here, because the notice was given and has run out. A waiver for a
+# removal is the record of a promise that was not kept.
+#
+# Each waiver matches exactly one change, on all three of:
+#
+#   change    the engine's change kind, e.g. property_removed, object_removed
+#   path      the JSONPath the engine reported, e.g.
+#             $.paths['/clusters'].post.requestBody
+#   property  the property the change is about; "" when the change names none
+#
+# and must also carry:
+#
+#   reason    why the break is acceptable, and what a consumer has to do
+#   owner     a person, not a team -- someone to ask in six months
+#   review    YYYY-MM-DD, when this entry is next looked at
+#   baseline  the ref the break was measured against (the failure stub fills
+#             it in), e.g. controller/api/v0.0.28. Optional but recommended.
+#
+# The failure message prints a ready-made stub for every unwaived change, so
+# the three matching fields do not have to be worked out by hand.
+#
+# A waiver that matches nothing fails the gate. Once the baseline tag has moved
+# past the release that carried the break, the entry has done its job and should
+# be deleted; it cannot sit here outliving its reason. If it records `baseline`
+# and the check is running against a later release tag, it reports as expired
+# instead of failing, so branches that rebase past the tag are not blocked by
+# it.
+waivers:
+  # /osProfiles -> /releases and nico.osProfile -> nico.release. A rename reads
+  # to the gate as a removal plus an addition, so each removed name is one entry.
+  # Taken as a hard rename rather than add-then-deprecate because every consumer
+  # is known and countable, and their changes roll out alongside this one.
+  - change: "object_removed"
+    path: "$.paths"
+    property: "/osProfiles"
+    reason: "Renamed to /releases. x-fern-ignore, so not customer-facing; consumers call GET /api/releases."
+    owner: "Miancheng Lin"
+    review: "2027-01-11"
+    baseline: "controller/api/v0.0.39"
+  - change: "object_removed"
+    path: "$.components"
+    property: "schemas"
+    reason: "OSProfile renamed to Release. Generated clients pick it up when they regenerate."
+    owner: "Miancheng Lin"
+    review: "2027-01-11"
+    baseline: "controller/api/v0.0.39"
+  - change: "object_removed"
+    path: "$.components"
+    property: "schemas"
+    reason: "ListOSProfilesResponse renamed to ListReleasesResponse. Generated clients pick it up when they regenerate."
+    owner: "Miancheng Lin"
+    review: "2027-01-11"
+    baseline: "controller/api/v0.0.39"
+  - change: "object_removed"
+    path: "$.components.schemas['NicoControlPlaneProvider']"
+    property: "properties"
+    reason: "osProfile renamed to release. Read nico.release instead."
+    owner: "Miancheng Lin"
+    review: "2027-01-11"
+    baseline: "controller/api/v0.0.39"
+  - change: "object_removed"
+    path: "$.components.schemas['NicoControlPlaneProviderCreate']"
+    property: "properties"
+    reason: "osProfile renamed to release. Send controlPlaneConfig.nico.release; still required."
+    owner: "Miancheng Lin"
+    review: "2027-01-11"
+    baseline: "controller/api/v0.0.39"
+  - change: "object_removed"
+    path: "$.components.schemas['NicoControlPlaneProviderUpdate']"
+    property: "properties"
+    reason: "osProfile renamed to release. PATCH nico.release to roll the control plane."
+    owner: "Miancheng Lin"
+    review: "2027-01-11"
+    baseline: "controller/api/v0.0.39"
+  - change: "object_removed"
+    path: "$.components.schemas['NicoNodePoolProvider']"
+    property: "properties"
+    reason: "osProfile renamed to release. Send nico.release; still required."
+    owner: "Miancheng Lin"
+    review: "2027-01-11"
+    baseline: "controller/api/v0.0.39"
+  - change: "object_removed"
+    path: "$.components.schemas['NicoNodePoolProviderUpdate']"
+    property: "properties"
+    reason: "osProfile renamed to release. PATCH nico.release to roll the pool."
+    owner: "Miancheng Lin"
+    review: "2027-01-11"
+    baseline: "controller/api/v0.0.39"
+  - change: "object_removed"
+    path: "$.components.schemas['NicoNodeSetProvider']"
+    property: "properties"
+    reason: "osProfile renamed to release. Read nico.release instead."
+    owner: "Miancheng Lin"
+    review: "2027-01-11"
+    baseline: "controller/api/v0.0.39"

@@ -64,7 +64,7 @@ spire-agent:
       # Already the chart default at 0.30.1, restated so an upstream change of
       # heart cannot remove Kubernetes workload attestation silently.
       enabled: true
-      # Mirrors nke-sbom, which needs this because its control-plane nodes run
+      # Mirrors deploy/nico, which needs this because its control-plane nodes run
       # Kata and container-scoped selectors cannot resolve inside the VM. This
       # lane runs runc and would work either way, but attesting differently
       # from the path on real hardware means a ClusterSPIFFEID that depends on
@@ -78,7 +78,7 @@ spire-server:
     k8sConfigMap:
       namespace: spire-system
   adminIDs:
-    - spiffe://example.org/nke-service/cloud-workflow-engine
+    - spiffe://example.org/nke-service/nke-controller
   controllerManager:
     # The chart applies its ClusterSPIFFEID objects as part of the same release
     # that creates the controller manager serving the webhook that validates
@@ -102,7 +102,7 @@ spire-server:
     # image. The webhook still validates once it is up; it just no longer
     # blocks admission while it is starting.
     #
-    # cli/internal/bootstrap/cwedeploy/manifests/spire-values.yaml sets the same thing
+    # cli/internal/bootstrap/controllerdeploy/manifests/spire-values.yaml sets the same thing
     # for the same reason.
     validatingWebhookConfiguration:
       failurePolicy: Ignore
@@ -110,16 +110,16 @@ spire-server:
     identities:
       clusterSPIFFEIDs:
         default:
-          # cloud-workflow-engine workloads use a dedicated nke-service
+          # nke-controller workloads use a dedicated nke-service
           # identity. Keep the fallback from racing it during reconciliation.
           namespaceSelector:
             matchExpressions:
               - key: kubernetes.io/metadata.name
                 operator: NotIn
                 values:
-                  - cloud-workflow-engine
+                  - nke-controller
 
-        # The identity NKE's own services present. This was a loose manifest in
+        # The identity NVKE's own services present. This was a loose manifest in
         # controller/deploy/k8s, which the CAPD lane had to apply between two
         # install phases because a ClusterSPIFFEID needs a CRD the datastore
         # phase installs. Declared here it is rendered by the spire release
@@ -143,9 +143,10 @@ spire-server:
               - key: kubernetes.io/metadata.name
                 operator: In
                 values:
-                  - cloud-workflow-engine
+                  - nke-controller
                   - capi-system
                   - capi-kubeadm-control-plane-system
+                  - capi-kubeadm-bootstrap-system
                   - capd-system
   nodeAttestor:
     k8sPSAT:
@@ -202,7 +203,7 @@ spiffe-oidc-discovery-provider:
 
 # ─── cloud-workflow-engine ───────────────────────────────────────────────────
 # image.repository/tag are left at the chart's own defaults. The nvcr-published
-# chart already carries nvcr.io/j7sbcjl3qgta/nke-controller and the
+# chart already carries nvcr.io/j7sbcjl3qgta/nvke-controller and the
 # svc-nke-ngc-imagepull secret -- chart-publish-nvcr.yml rewrites both at
 # package time -- so pulling the chart from nvcr gets a matching image without
 # any override here.

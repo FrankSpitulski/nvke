@@ -2,17 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Example CreateClusterRequest for a local CAPD (Docker-backed CAPI) cluster.
-# Field names match the CWE API exactly — see /api/docs on your site controller.
+# Field names match the controller API exactly — see /api/docs on your site controller.
 #
-# Usage: nkectl create cluster -f examples/capd-cluster.yaml
+# Usage: nvkectl create cluster -f examples/capd-cluster.yaml
 #
 # Prerequisites:
 #   - tilt up running with CAPD enabled
-#   - nkectl config set-site --url http://localhost:8080
+#   - nvkectl config set-site --url http://localhost:8080
 
 name: my-cluster
 controlPlaneKubernetesVersion: 1.34.2
-cniPlugin: calico
+cniPlugin: ovn-kubernetes
 etcdEncrypted: false
 
 controlPlaneConfig:
@@ -39,6 +39,8 @@ nodePools:
     desiredNodeCount: 1
     controlPlane: false
     systemReservedMemory: "1Gi"
+    nodeLabels:
+      tier: compute
     autoProvisionDisabled: false
     autoModeDisabled: false
     recycleBudget: 0

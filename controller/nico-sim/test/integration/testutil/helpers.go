@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	forgesdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 
-	nvmconfig "github.com/dsx-ai-factory/nke/controller/nico-sim/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/seed"
+	nvmconfig "github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/seed"
 )
 
 var instanceNameSeq atomic.Uint64

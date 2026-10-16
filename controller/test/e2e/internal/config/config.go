@@ -24,26 +24,60 @@ type Config struct {
 		CAPDNodeImage string `json:"capdNodeImage"` // default "cwe-capd-kindest-node:local"
 	} `json:"cluster"`
 	Lifecycle struct {
-		SkipDelete        bool   `json:"skipDelete"`
-		PreserveOnFailure bool   `json:"preserveOnFailure"`
-		ReuseCluster      string `json:"reuseCluster"` // non-empty -> skip create, verify this cluster
+		// SkipDelete keeps what a run created, pass or fail. On a lane that
+		// builds its own site it holds the site node too, since the tenants it
+		// keeps are Forge instances that site owns.
+		SkipDelete bool `json:"skipDelete"`
+
+		// PreserveOnFailure keeps a failed run's machines. A preserved site
+		// node can be logged into, because the provider writes this run's key
+		// to it. A preserved tenant node cannot: nothing puts a key there and
+		// the image locks the account, so the serial console, which carries
+		// cloud-init's output, is the only way in.
+		PreserveOnFailure bool `json:"preserveOnFailure"`
+
+		ReuseCluster string `json:"reuseCluster"` // non-empty -> skip create, verify this cluster
 	} `json:"lifecycle"`
+	// Node is what the machines an infrastructure provider creates are,
+	// rather than what is built on them. It is separate from Site because
+	// the same node shape is used for a site controller and for the tenant
+	// nodes it goes on to provision.
+	Node struct {
+		// User is the account the OS image bakes, and the login every
+		// session uses. Empty is what the OSS os-image releases bake;
+		// images from the internal pipeline bake dgxc-admin. It has to
+		// match the image named by -e2e.versions os-image, or cloud-init
+		// writes authorized_keys for an account that does not exist.
+		User string `json:"user"`
+	} `json:"node"`
+
 	// Site configures the lane that builds its own site controller. It holds
 	// identifiers and paths only: the Forge API key and the registry token
 	// are read from the environment and never written to a file.
 	Site Site `json:"site"`
 	// Runner is what the machine running the suite supplies.
 	Runner Runner `json:"runner"`
+	// Nvkectl is the CLI the bootstrap runs.
+	Nvkectl Nvkectl `json:"nvkectl"`
 }
 
 // Runner is the machine the suite runs from, as distinct from the site it
-// reaches. Nothing here describes what is under test; it is what this
-// particular runner has, which is where a CI bot and a laptop differ.
+// reaches. Nothing here says what is under test, only where this particular
+// runner keeps it, which is where a CI bot and a laptop differ.
 type Runner struct {
 	// TeleportIdentityFile is a tsh identity file, as a CI bot has instead
 	// of a login session. Empty leaves it to tsh: $TELEPORT_IDENTITY_FILE,
 	// else the runner's tsh profile.
 	TeleportIdentityFile string `json:"teleportIdentityFile"`
+}
+
+// Nvkectl is the CLI the bootstrap runs on the node. Its own section rather
+// than a field under runner or site: it is neither the machine the suite runs
+// from nor the site it builds, and what the bootstrap asks of it will grow.
+type Nvkectl struct {
+	// Binary is a linux nvkectl for the node's architecture, on this machine.
+	// Empty is what `gmake -C cli build-cross` writes for that architecture.
+	Binary string `json:"binary"`
 }
 
 // Site is where a site controller's artifacts come from. Only that: the run's
@@ -57,10 +91,6 @@ type Site struct {
 	// deploy path carries the controller's own chart, so the two have to
 	// agree; override only when developing the deploy path itself.
 	DeployPathRef string `json:"deployPathRef"`
-
-	// Nkectl is a linux nkectl for the node. Empty is what
-	// `gmake -C cli build-cross` writes for the node's architecture.
-	Nkectl string `json:"nkectl"`
 
 	// Images are the site's images and the archives staged into the node's
 	// containerd, which is the cluster's, so they resolve with IfNotPresent
@@ -161,9 +191,9 @@ func (c *Config) applyDefaults() {
 	// The same repositories and archive names `gmake site-inputs` defaults
 	// to, so a local run after it needs no site block at all.
 	images := &c.Site.Images
-	setDefault(&images.Controller.Repository, "ghcr.io/dsx-ai-factory/nke/nke-controller")
+	setDefault(&images.Controller.Repository, "ghcr.io/dsx-ai-factory/nvke/nke-controller")
 	setDefault(&images.Controller.Archive, DefaultSiteInputs+"/controller.tar")
-	setDefault(&images.CAPIProvisioned.Repository, "ghcr.io/dsx-ai-factory/nke/cluster-api-provider-provisioned")
+	setDefault(&images.CAPIProvisioned.Repository, "ghcr.io/dsx-ai-factory/nvke/cluster-api-provider-provisioned")
 	setDefault(&images.CAPIProvisioned.Archive, DefaultSiteInputs+"/capi-provisioned.tar")
 	setDefault(&images.Profiles.Repository, "nke-e2e-profiles")
 	setDefault(&images.Profiles.Tag, "local")

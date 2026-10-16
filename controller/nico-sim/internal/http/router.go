@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	nicosdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	nicosdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/sshexec"
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/state"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/sshexec"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/state"
 )
 
 // HTTPMethod is an HTTP method name (e.g. "GET", "POST").
@@ -91,6 +91,10 @@ func NewHandler(store *state.Store, containers ContainerService, logger *slog.Lo
 	registerV2(mux, "POST", "instance", s.handleCreateInstance)
 	registerV2(mux, "PATCH", "instance/{instanceId}", s.handlePatchInstance)
 	registerV2(mux, "DELETE", "instance/{instanceId}", s.handleDeleteInstance)
+	// CAPNICo lists machines to discover failure-domain labels before creating
+	// instances. nico-sim does not model physical inventory or failure domains,
+	// so publish an empty inventory rather than leaving the API unsupported.
+	registerV2(mux, "GET", "machine", s.handleEmptyList)
 	// CAPNICo resolves the DPU attached to an instance's primary machine
 	// interface after the instance is provisioned.
 	registerV2(mux, "GET", "machine/{machineId}", s.handleGetMachine)

@@ -10,13 +10,13 @@ name: Chart Publish NVCR
 # The destination orgs are not written here. They come from the `nvcr`
 # environment:
 #
-#   NKE_NGC_ORG              variable  NGC org id
-#   NGC_REGISTRY_TOKEN_NKE   secret    NGC API key with write access on the org
+#   NVKE_NGC_ORG              variable  NGC org id
+#   NGC_REGISTRY_TOKEN_NVKE   secret    NGC API key with write access on the org
 #   DSX_NGC_ORG_TEAM         variable  DSX NGC org/team path
 #   NGC_REGISTRY_TOKEN_DSX   secret    NGC API key with write access on DSX
 #
-# The chart is pushed to nvcr.io/<destination>/nke-controller-chart, so the
-# chart is REPACKAGED under the name nke-controller-chart below. On GHCR the
+# The chart is pushed to nvcr.io/<destination>/nvke-controller-chart, so the
+# chart is REPACKAGED under the name nvke-controller-chart below. On GHCR the
 # same chart publishes as charts/nke-controller; the NVCR and GHCR paths
 # deliberately differ.
 #
@@ -24,13 +24,17 @@ name: Chart Publish NVCR
 # nvcr.io/<org>/<repo> or nvcr.io/<org>/<team>/<repo> -- at most one middle
 # segment, and it names a TEAM, an access-control object an org owner has to
 # create, not a free path component. Pushing to
-# nvcr.io/<org>/charts/nke-controller asks NGC for a team named `charts` that
+# nvcr.io/<org>/charts/nvke-controller asks NGC for a team named `charts` that
 # does not exist, and the push dies before it reaches the registry:
 
+# A bare vX.Y.Z-beta.N tag only triggers the run. The chart is versioned like any
+# other build of that commit: the controller/v* describe version, with the same
+# appVersion as the image tag image-nvcr.yml publishes.
+
 # Through controller/v0.1.1-rc.1 the chart was named cloud-workflow-engine and
-# published at nvcr.io/<NKE_NGC_ORG>/cloud-workflow-engine; through the last
+# published at nvcr.io/<NVKE_NGC_ORG>/cloud-workflow-engine; through the last
 # release before this rename it was named controller-chart and published at
-# nvcr.io/<NKE_NGC_ORG>/controller-chart. Both stay where they are.
+# nvcr.io/<NVKE_NGC_ORG>/controller-chart. Both stay where they are.
 
 on:
   push:
@@ -39,6 +43,7 @@ on:
     tags:
       - "controller/v[0-9]+.[0-9]+.[0-9]+"
       - "controller/v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+"
   workflow_dispatch: {}
 
 permissions: {}
@@ -68,22 +73,30 @@ jobs:
   publish:
     name: Publish chart (${{ matrix.destination }})
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     environment: nvcr
     timeout-minutes: 10
+    env:
+      # A beta is not promoted to DSX, so nothing is published there for one: its
+      # chart would name an image that registry never gets. The leg still starts,
+      # but every step from the registry login on is skipped.
+      SKIP_PUBLISH: ${{ matrix.destination == 'dsx' && startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-beta.') }}
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
-          - destination: nke
-            org_var: NKE_NGC_ORG
-            token_secret_var_name: NGC_REGISTRY_TOKEN_NKE
+          - destination: nvke
+            org_var: NVKE_NGC_ORG
+            # Looked up by name.
+            token_secret_var_name: "NGC_REGISTRY_TOKEN_NVKE"
+            token_secret_fallback_var_name: "NGC_REGISTRY_TOKEN_NVKE"
             pull_secret: svc-nke-ngc-imagepull
           - destination: dsx
             org_var: DSX_NGC_ORG_TEAM
-            token_secret_var_name: NGC_REGISTRY_TOKEN_DSX
+            token_secret_var_name: "NGC_REGISTRY_TOKEN_DSX"
+            token_secret_fallback_var_name: "NGC_REGISTRY_TOKEN_DSX"
             pull_secret: ngc-dsx-registry-creds
     steps:
       - name: Checkout
@@ -122,7 +135,7 @@ jobs:
           describe="${describe#controller/}"
           version="${describe#v}"
           repo="nvcr.io/${ORG_TEAM}"
-          image="${repo}/nke-controller"
+          image="${repo}/nvke-controller"
 
           {
             echo "version=${version}"
@@ -136,7 +149,7 @@ jobs:
         id: package
         shell: bash
         env:
-          CHART_NAME: nke-controller-chart
+          CHART_NAME: nvke-controller-chart
           IMAGE_REPOSITORY: ${{ steps.meta.outputs.image }}
           IMAGE_PULL_SECRET: ${{ matrix.pull_secret }}
           CHART_VERSION: ${{ steps.meta.outputs.version }}
@@ -187,14 +200,16 @@ jobs:
 
       # $oauthtoken is NGC's literal username, not a shell variable.
       - name: Log in to NVCR
+        if: env.SKIP_PUBLISH != 'true'
         shell: bash
         env:
-          NGC_TOKEN: ${{ secrets[matrix.token_secret_var_name] }}
+          NGC_TOKEN: ${{ secrets[matrix.token_secret_var_name] || secrets[matrix.token_secret_fallback_var_name] }}
           TOKEN_SECRET_VAR_NAME: ${{ matrix.token_secret_var_name }}
+          TOKEN_SECRET_FALLBACK_VAR_NAME: ${{ matrix.token_secret_fallback_var_name }}
         run: |
           set -euo pipefail
           if [[ -z "${NGC_TOKEN}" ]]; then
-            echo "::error::${TOKEN_SECRET_VAR_NAME} is not set in the nvcr environment"
+            echo "::error::neither ${TOKEN_SECRET_VAR_NAME} nor ${TOKEN_SECRET_FALLBACK_VAR_NAME} is set in the nvcr environment"
             exit 1
           fi
           # shellcheck disable=SC2016
@@ -206,13 +221,15 @@ jobs:
       # credential it can see; same token, in the place every other tool
       # looks for it. `$oauthtoken` is NGC's literal username.
       - name: Log in to NVCR for crane
+        if: env.SKIP_PUBLISH != 'true'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: nvcr.io
           username: "$oauthtoken"
-          password: ${{ secrets[matrix.token_secret_var_name] }}
+          password: ${{ secrets[matrix.token_secret_var_name] || secrets[matrix.token_secret_fallback_var_name] }}
 
       - name: Push chart
+        if: env.SKIP_PUBLISH != 'true'
         shell: bash
         env:
           VERSION: ${{ steps.meta.outputs.version }}
@@ -221,7 +238,7 @@ jobs:
         run: |
           set -euo pipefail
           helm push "${CHART_PACKAGE}" "oci://${REPO}"
-          echo "Pushed ${REPO}/nke-controller-chart:${VERSION}"
+          echo "Pushed ${REPO}/nvke-controller-chart:${VERSION}"
 
       # The chart's whole purpose is to name an image, and both it and the
       # image it names have to be digest-pinned for the candidate to mean
@@ -229,7 +246,8 @@ jobs:
       # destination: both matrix legs publish the same chart to different
       # orgs and would otherwise collide on the artifact name.
       - name: Record the published digest
+        if: env.SKIP_PUBLISH != 'true'
         uses: ./.github/actions/record-digest
         with:
-          references: ${{ steps.meta.outputs.repo }}/nke-controller-chart:${{ steps.meta.outputs.version }}
-          component: nke-controller-chart-${{ matrix.destination }}
+          references: ${{ steps.meta.outputs.repo }}/nvke-controller-chart:${{ steps.meta.outputs.version }}
+          component: nvke-controller-chart-${{ matrix.destination }}

@@ -1,4 +1,4 @@
-# Agent guide — NVIDIA Kubernetes Engine (nke)
+# Agent guide — NVIDIA Kubernetes Engine (NVKE)
 
 Guidance for AI coding agents (Claude Code, Codex, Copilot Workspace, Cursor)
 working in this repository. Humans should read [CONTRIBUTING.md](CONTRIBUTING.md);
@@ -11,13 +11,13 @@ instructions.
 
 ## Always read
 
-- [README.md](README.md) — what NKE is and how the pieces fit together
+- [README.md](README.md) — what NVKE is and how the pieces fit together
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branch naming, commit format, review flow
 - **The `AGENTS.md` of the module you are editing.** This is a monorepo and each
   module has its own toolchain:
   - [controller/AGENTS.md](controller/AGENTS.md) — Flox, code generation, database, Temporal
   - [agent/AGENTS.md](agent/AGENTS.md) — proto generation, packaging, gRPC conventions
-  - [cli/AGENTS.md](cli/AGENTS.md) — nkectl, verification, doc-comment conventions
+  - [cli/AGENTS.md](cli/AGENTS.md) — nvkectl, verification, doc-comment conventions
   - [os-image/AGENTS.md](os-image/AGENTS.md) — reference node OS image spec, Packer, connectivity checker
   - [nktp/AGENTS.md](nktp/AGENTS.md) — NKTP Helm chart: versioning, dependency pins
   - [controller/nico-sim/AGENTS.md](controller/nico-sim/AGENTS.md) — local NICo simulator with VM and container backends
@@ -31,7 +31,7 @@ instructions.
 
 ## What this project is
 
-NKE is a management plane for GPU Kubernetes on bare metal. A seed cluster
+NVKE is a management plane for GPU Kubernetes on bare metal. A seed cluster
 stands up a highly available control plane, which then creates GPU tenant
 clusters on demand. The main components are:
 
@@ -42,7 +42,7 @@ clusters on demand. The main components are:
   every node. Drives `kubeadm`, installs packages and bundles, and authenticates
   through SPIFFE/SPIRE mTLS.
 - **`cluster-api-provider-provisioned/`** — the Cluster API infrastructure
-  provider for hosts that NKE provisions before CAPI bootstraps them.
+  provider for hosts that NVKE provisions before CAPI bootstraps them.
 
 ## Read this before you try to build
 
@@ -75,23 +75,26 @@ checkout, and do not stub a dependency to make the build pass.
 | Path | Contents | Edit? |
 |---|---|---|
 | `agent/cmd/`, `agent/internal/`, `agent/pkg/` | Node agent implementation | Yes |
-| `cli/` | nkectl CLI implementation and e2e fixtures | Yes |
+| `cli/` | nvkectl CLI implementation and e2e fixtures | Yes |
 | `cluster-api-provider-provisioned/` | Provisioned Cluster API infrastructure provider | Yes |
 | `controller/internal/` | CWE server, controllers, Temporal workflows and activities, database layer | Yes |
 | `controller/api/openapi.yaml` | OpenAPI 3.0 spec — **the source of truth for the REST API** | Yes |
-| `controller/profiles/` | OS and config profiles | Ask first — being moved out of this repo |
+| `controller/profiles/` | Config profiles and the runbooks their hooks reference | Ask first — being moved out of this repo |
 | `build/` | Build scripts (`agent.sh`) | Yes |
 | `docs/` | Repository-level documentation | Yes |
-| `os-image/` | Reference node OS image spec, Packer recipe, `nke-os-image-check` | Yes |
+| `os-image/` | Reference node OS image spec, Packer recipe, `nvke-os-image-check` | Yes |
 | `controller/api/*.gen.go` | oapi-codegen output | **No — regenerate** |
 | `cluster-api-provider-provisioned/api/v1alpha1/zz_generated.deepcopy.go` | controller-gen output | **No — regenerate** |
 | `cluster-api-provider-provisioned/config/crd/bases/*.yaml` | controller-gen output | **No — regenerate** |
 | `cluster-api-provider-provisioned/config/rbac/role.yaml` | controller-gen output | **No — regenerate** |
+| `controller/deploy/charts/controller/files/crds.yaml` | `make chart-crds` output (kustomize over the `management-engine` CRDs) | **No — regenerate** |
 | `agent/pkg/agent/proto/*.pb.go` | buf/protoc output | **No — regenerate** |
 | `agent/THIRD_PARTY_NOTICES.md` | go-licenses output | **No — regenerate** |
-| `controller/deploy/charts/` | Helm charts | Yes, but bump the chart version |
+| `controller/deploy/charts/` | Helm charts | Yes. Preserve the version placeholders; see below. |
 | `nktp/deploy/charts/` | NKTP telemetry Helm chart | Yes, but bump the chart version. Read `nktp/AGENTS.md` |
 | `controller/deploy/dashboards/` | Grafana reference dashboards (JSON import) | Yes — read that directory's `AGENTS.md`. Do not bump the Helm chart for dashboard-only edits |
+
+Keep the controller chart's `version`, `appVersion`, and README version badge at `0.0.0`.
 
 ## What agents may do
 
@@ -142,8 +145,10 @@ checkout, and do not stub a dependency to make the build pass.
   `FIXME:` with a tracking link, which is the established convention. A
   tracking link means a GitHub issue on this repository, not an internal
   tracker.
-- **Do not commit build output** — `bin/`, `release/`, `agent/build/deb_*`, or
+- **Do not commit build output** — `bin/`, `agent/build/deb_*`, or
   `controller/.local/`. All of it is already in `.gitignore`; keep it that way.
+  The root `release/` is not build output: it is the release tooling module,
+  and `.gitignore` negates the `**/release/` rule for it deliberately.
 - **Do not change the release or CI workflows** in `.github/workflows/` as part
   of an unrelated change. They gate every merge.
 - Do not add a new dependency without saying why in the pull request.
@@ -168,6 +173,8 @@ checkout, and do not stub a dependency to make the build pass.
   every parameter on its own line.
 - Exported types and functions carry doc comments starting with the identifier
   name.
+- Append new fields after existing fields in handwritten structs and struct
+  initializers. Keep `ID` and other existing fields in their current order.
 
 ### Preferred and deprecated patterns
 
@@ -207,7 +214,7 @@ func (s *NodeAgentServer) reset(ctx context.Context) error {
 
 ```go
 // Preferred: FIXME with a tracking link. TODO: fails the linter in controller/.
-// FIXME: https://github.com/dsx-ai-factory/nke/issues/<N> — drop once the provider interface lands.
+// FIXME: https://github.com/dsx-ai-factory/nvke/issues/<N> — drop once the provider interface lands.
 
 // Deprecated: an unbounded TODO with no owner and no ticket.
 // TODO: clean this up later
@@ -262,12 +269,21 @@ make notices-check    # fails if THIRD_PARTY_NOTICES.md has drifted
 In `controller/`:
 
 ```bash
-make generate     # only if you changed openapi.yaml
+make generate         # only if you changed openapi.yaml
+make api-compat-check # only if you changed openapi.yaml
 make license
 make fmt
 make lint
 make test
 ```
+
+`api-compat-check` is the gate `generate-check` is not: it compares
+`api/openapi.yaml` against the newest published `controller/api/vX.Y.Z` tag and
+fails on a change that would break an existing client. A removed field passes
+`generate-check` and fails this. Breaks are waived per change, with a named
+owner, in `controller/api/openapi-compat-waivers.yaml` — never by disabling the
+check. See
+[controller/hack/openapi-compat/README.md](controller/hack/openapi-compat/README.md).
 
 In `cluster-api-provider-provisioned/`:
 
@@ -281,6 +297,19 @@ For the NKTP chart, from the repository root:
 ```bash
 make nktp-chart-check
 ```
+
+If you added, moved or removed a test file, a module, or anything in a module's
+`test` target, from the repository root:
+
+```bash
+make coverage-check   # runs no tests; a second
+```
+
+It fails when a module stops collecting coverage, when a module gains its first
+test and is not moved onto the collecting list, and when a build tag takes a test
+suite out of the build — none of which turns anything else red.
+**Do not add a coverage threshold and do not quote a coverage percentage as
+evidence that a change is tested.** See [docs/coverage-policy.md](docs/coverage-policy.md).
 
 `make lint` in `agent/` is the check CI runs on every push, so treat a failure
 there as a blocked merge. `make notices-check` regenerates the file and fails on
@@ -308,13 +337,13 @@ of green ticks with the other checks simply missing. If you are reviewing, check
 that the checks you care about are *present*, not just passing:
 
 ```bash
-gh pr checks <number> --repo dsx-ai-factory/nke --json name,workflow
+gh pr checks <number> --repo dsx-ai-factory/nvke --json name,workflow
 ```
 
 Which checks block a merge is a repository setting, not a file. Read it live:
 
 ```bash
-gh api repos/dsx-ai-factory/nke/rules/branches/main --jq '[.[].type]'
+gh api repos/dsx-ai-factory/nvke/rules/branches/main --jq '[.[].type]'
 ```
 
 ## Skills

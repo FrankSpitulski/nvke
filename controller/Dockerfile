@@ -11,16 +11,17 @@
 # in closing it.
 #
 # Internal builds override these rather than BASE_REGISTRY, for example
-#   docker build --build-arg GOLANG_IMAGE=dockerhub.nvidia.com/golang:1.27.1@sha256:... .
+#   docker build --build-arg GOLANG_IMAGE=dockerhub.nvidia.com/golang:1.27.2@sha256:... .
 # A digest is content-addressed, so a mirror serving the same content answers
 # to the same digest.
-ARG GOLANG_IMAGE=docker.io/golang:1.27.1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
+ARG GOLANG_IMAGE=docker.io/golang:1.27.2@sha256:5bc7f572bbaa98885a3a1fd9c0aa76b59e3e14e8628bfc316bbfd0c701e4818c
 ARG ALPINE_IMAGE=docker.io/alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
-FROM ghcr.io/spiffe/k8s-spiffe-workload-jwt-exec-auth:0.3.0@sha256:6402624276b66ef7a733e126488397c9cf33c6706ee1f52a9c7ffad2a540aa7c AS spiffe-jwt-exec-auth
+FROM ghcr.io/spiffe/k8s-spiffe-workload-jwt-exec-auth:1.0.0@sha256:e30e90774e5951f84eb6dfb36f972fead08b64c3bfdc0912c5b15f988e79de3a AS spiffe-jwt-exec-auth
 
 # Set up golang build container
 FROM ${GOLANG_IMAGE} AS builder
+ENV GOPROXY=https://proxy.golang.org|direct
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -69,7 +70,7 @@ WORKDIR /
 COPY --from=builder /workspace/controller/bin/controller /usr/local/bin/controller
 COPY --from=spiffe-jwt-exec-auth /ko-app/cmd /opt/spiffe/bin/k8s-spiffe-workload-jwt-exec-auth
 
-# OS/config profiles are operator-supplied at runtime (PROFILES_DIR), not baked
+# OS/config profiles are operator-supplied at runtime (profilesDir), not baked
 # into the image.
 RUN mkdir -p /profiles
 
@@ -80,8 +81,8 @@ COPY ./controller/THIRD_PARTY_NOTICES.md /licenses/THIRD_PARTY_NOTICES.md
 ## https://github.com/opencontainers/image-spec/blob/main/annotations.md
 LABEL org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.title="controller" \
-      org.opencontainers.image.source="https://github.com/dsx-ai-factory/nke" \
-      org.opencontainers.image.description="NKE Cloud Workflow Engine"
+      org.opencontainers.image.source="https://github.com/dsx-ai-factory/nvke" \
+      org.opencontainers.image.description="NVKE Cloud Workflow Engine"
 
 EXPOSE 8080
 

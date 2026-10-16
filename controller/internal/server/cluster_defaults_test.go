@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 func ptrBool(v bool) *bool { return &v }
@@ -186,7 +186,7 @@ func TestDbClusterFromAPI_TeleportDefault(t *testing.T) {
 }
 
 func TestDbClusterFromAPI_CNIVersion(t *testing.T) {
-	baseReq := func(plugin string, cniVersion *string) *api.CreateClusterRequest {
+	baseReq := func(plugin api.CreateClusterRequestCniPlugin, cniVersion *string) *api.CreateClusterRequest {
 		return &api.CreateClusterRequest{
 			Name: "test",
 			Nico: &api.NicoClusterProvider{
@@ -202,23 +202,23 @@ func TestDbClusterFromAPI_CNIVersion(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		plugin     string
+		plugin     api.CreateClusterRequestCniPlugin
 		cniVersion *string
 		want       string
 	}{
 		{
 			name:   "defaults calico",
-			plugin: string(db.CNICalico),
+			plugin: api.CreateClusterRequestCniPluginCalico,
 			want:   db.DefaultCalicoCNIVersion,
 		},
 		{
 			name:   "defaults ovn",
-			plugin: string(db.CNIOvnKubernetes),
+			plugin: api.CreateClusterRequestCniPluginOvnKubernetes,
 			want:   db.DefaultOvnKubernetesCNIVersion,
 		},
 		{
 			name:       "preserves explicit value",
-			plugin:     string(db.CNICalico),
+			plugin:     api.CreateClusterRequestCniPluginCalico,
 			cniVersion: ptrString("3.31.5"),
 			want:       "3.31.5",
 		},
@@ -231,6 +231,13 @@ func TestDbClusterFromAPI_CNIVersion(t *testing.T) {
 			assert.Equal(t, tt.want, cluster.CniVersion)
 		})
 	}
+
+	t.Run("omitted plugin defaults to ovn", func(t *testing.T) {
+		cluster, err := DBClusterFromAPI(baseReq("", nil))
+		require.NoError(t, err)
+		assert.Equal(t, db.CNIOvnKubernetes, cluster.CniPlugin)
+		assert.Equal(t, db.DefaultOvnKubernetesCNIVersion, cluster.CniVersion)
+	})
 }
 
 func TestAPIClusterFromDB_CNIVersionDefaultsOldRows(t *testing.T) {
@@ -272,7 +279,7 @@ func TestDbNodePoolFromAPI_TeleportDefault(t *testing.T) {
 			Nico: &api.NicoNodePoolProvider{
 				SubnetIDs:      []uuid.UUID{uuid.New()},
 				InstanceTypeID: uuid.New(),
-				OSProfile:      "ubuntu",
+				Release:        "ubuntu",
 				ConfigProfile:  "default",
 			},
 			DesiredNodeCount: 1,

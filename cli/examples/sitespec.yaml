@@ -1,15 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Example site spec file for: nkectl bootstrap site -f <sitespec-file>
+# Example site spec file for: nvkectl bootstrap site -f <sitespec-file>
 #
 # The site spec describes the pre-provisioned nodes and the vanilla Kubernetes
-# cluster to build on them. nkectl loads and validates this file before it
+# cluster to build on them. nvkectl loads and validates this file before it
 # dispatches any work, so a typo or a missing field fails fast with a clear
 # error. See docs/sitespec.md for the full field reference.
 
 # Name of the Kubernetes cluster to create (lowercase RFC 1123 label).
-clusterName: "nke-site"
+clusterName: "nvke-site"
 
 cluster:
   # Pre-provisioned control-plane nodes. The site spec does not select which
@@ -17,7 +17,7 @@ cluster:
   # tpmEkThumbprint is optional: the SHA-256 of the node's TPM endorsement key,
   # read from the host before the bootstrap (spire-tpm-plugin's
   # get_tpm_pubhash). Every thumbprint listed here is allowlisted on the SPIRE
-  # server nkectl deploys, and nothing else is — a node without one cannot
+  # server nvkectl deploys, and nothing else is — a node without one cannot
   # attest, and a file with none deploys no TPM attestor at all. It is a public
   # key hash, not a secret.
   nodes:
@@ -34,11 +34,10 @@ cluster:
   # Kubernetes version to install — plain semantic version, no leading "v".
   k8sVersion: "1.34.2"
 
-  # CNI plugin: "ovn-kubernetes". "calico" is accepted for development.
+  # CNI plugin. New site-controller clusters use "ovn-kubernetes".
   cniName: "ovn-kubernetes"
   # Optional CNI plugin version. Empty uses the node-agent's built-in default.
-  # The value is plugin-specific — a Calico version such as "3.31.4" is not
-  # meaningful for ovn-kubernetes.
+  # The value must be an OVN-Kubernetes version.
   # cniVersion: ""
 
   # Pod network CIDR. Multiple CIDRs may be given as a comma-separated string.
@@ -51,12 +50,13 @@ cluster:
   # afterwards. Set to false to opt out.
   # etcdEncryption: true
 
-  # Optional IPv4 API endpoint, advertised by kube-vip. Requires BGP routing
-  # to the nodes and must not overlap node IPs, podCidr, or serviceCidr.
-  # Empty uses the IP of the node that initializes the cluster.
-  # controlPlaneVIP: "10.0.0.100"
+  # IPv4 API endpoint advertised by kube-vip. Required when nodes contains more
+  # than one entry. It needs BGP routing to the nodes and must not overlap
+  # podCidr or serviceCidr. It may equal a declared node IP. A single-node
+  # cluster may leave it empty and use that node's IP as its fixed endpoint.
+  controlPlaneVIP: "10.0.0.100"
 
-  # Optional: gRPC port nke-agent listens on. Defaults to "15005".
+  # Optional: gRPC port nvke-agent listens on. Defaults to "15005".
   # nodeAgentPort: "15005"
 
   # Optional kubelet reservations applied before kubeadm init/join.
@@ -65,29 +65,16 @@ cluster:
 
 # Identity plane. Optional.
 #
-# A CA for SPIRE to chain its own CA to, so a node that was given this
-# certificate when it was provisioned can verify the SPIRE server the first time
-# it speaks to it. Paths, not inline PEM: the key must not be committed, and the
-# certificate already exists as a file because it has to be delivered to each
-# node. Both or neither — omitting them leaves SPIRE self-signed.
+# SPIRE can chain its CA to one you bring, so a node given that CA's
+# certificate when it was provisioned verifies the SPIRE server on first
+# contact. Set NVKECTL_SPIRE_CA_CERT_FILE and NVKECTL_SPIRE_CA_KEY_FILE to its
+# certificate and key, and upstreamCA below. Without them SPIRE is self-signed.
 # spire:
-#   # Optional SPIFFE trust domain. Defaults to <bootstrap-cluster>.nke.local.
-#   # Use this exact value for the permanent site SPIRE server.
+#   # SPIFFE trust domain, shared by the bootstrap and the controller stack
+#   # install. Set it once, before the bootstrap, or leave it unset: both
+#   # then use nvkectl-bootstrap.nke.local. A bootstrap run with
+#   # NVKECTL_BOOTSTRAP_CLUSTER_NAME set derives another, so set it then.
 #   trustDomain: "site.example.com"
-#   caCertFile: "/etc/nke/spire-ca.crt"
-#   caKeyFile: "/etc/nke/spire-ca.key"
-
-# Container registry for the bootstrap engine chart. The version (chart tag) is
-# baked into the nkectl build, so it is not set here. The controller image the
-# chart deploys is published separately, to <registry>/<org>/controller. NVCR
-# has no path segment to separate the two, so the chart is published under a
-# distinct name, "controller-chart", instead.
-registry:
-  # OCI repository holding the bootstrap engine chart.
-  bootstrapRepo: "nvcr.io/org"
-  # Bootstrap engine chart name within bootstrapRepo.
-  bootstrapChart: "controller-chart"
-  # Optional registry credential. Prefer leaving this empty and supplying the
-  # secret at runtime via --registry-api-key or the REGISTRY_API_KEY env var so
-  # the file can be committed safely. It is never defaulted.
-  # apiKey: ""
+#   # The site uses the CA above. Every bootstrap and install run then
+#   # requires the two variables, so none falls back to a self-signed root.
+#   upstreamCA: true

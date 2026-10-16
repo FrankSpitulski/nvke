@@ -51,7 +51,7 @@ $(info $$DEB_VERSION is [${DEB_VERSION}])
 RELEASE_LDFLAGS ?= -s -w -buildid=
 
 # -trimpath removes the build machine's filesystem paths from the binary. These
-# binaries are published to ghcr.io/dsx-ai-factory/nke/agent, so without it every
+# binaries are published to ghcr.io/dsx-ai-factory/nvke/agent, so without it every
 # release carries the layout of whatever machine built it, and two builds of the
 # same commit from different directories differ.
 LDFLAGS += -trimpath -ldflags="-X main.VERSION=$(VERSION) $(RELEASE_LDFLAGS)"
@@ -61,14 +61,13 @@ ARCHES := amd64 arm64
 # golangci-lint pin and bootstrap, shared with every other module.
 include ../make/tool-versions.mk
 include ../make/golangci.mk
-
-BUF_VERSION := v1.65.0
+include ../make/coverage.mk
 
 GIT_HOOKS_DIR := $(shell git rev-parse --git-path hooks 2>/dev/null || echo .git/hooks)
 
 BIN_DIR ?= $(CURDIR)/bin
 NFPM_BIN ?= $(BIN_DIR)/nfpm-v$(NFPM_VERSION)/nfpm
-AGENT_PACKAGING_DIR := $(abspath ../os-image/packages/nke-agent/packaging)
+AGENT_PACKAGING_DIR := $(abspath ../os-image/packages/nvke-agent/packaging)
 # Optional exact output path for consumers such as the Packer image build.
 DEB_OUTPUT ?=
 
@@ -96,7 +95,7 @@ setup-hooks: ## Install or update Git pre-commit hook (monorepo-aware)
 ##@ Docker images
 .PHONY: build-builder-image push-builder-image setup-buildx
 
-BUILDER_IMAGE := $(or $(BUILDER_IMAGE),$(if $(NKE_CONTAINER_REGISTRY),$(NKE_CONTAINER_REGISTRY)/$(or $(NKE_BUILDER_IMAGE_NAME),nke-builder),ghcr.io/example/nke/nke-builder))
+BUILDER_IMAGE := $(or $(BUILDER_IMAGE),$(if $(NKE_CONTAINER_REGISTRY),$(NKE_CONTAINER_REGISTRY)/$(or $(NKE_BUILDER_IMAGE_NAME),nke-builder),ghcr.io/example/nvke/nke-builder))
 BUILDER_TAG := $(or $(BUILDER_TAG),$(or $(NKE_BUILDER_IMAGE_TAG),latest))
 BUILDX_PLATFORMS := linux/amd64,linux/arm64
 BUILDX_BUILDER := nke-multiarch-builder
@@ -217,7 +216,8 @@ export TMPDIR := /private/tmp
 endif
 
 test: ## Run tests (run by the merge gate)
-	go test $(GO_TEST_FLAGS) ./...
+	@$(COVERAGE_MKDIR)
+	go test $(GO_TEST_FLAGS) $(GO_COVER_FLAGS) ./...
 
 # Sources in this module carry the repository's Apache-2.0 identifier, per the
 # "License headers" section of the root CONTRIBUTING.md. Ignored paths are
@@ -238,7 +238,7 @@ ADDLICENSE_IGNORES := \
 
 .PHONY: license
 license: ## Ensure license headers at code.
-	go run github.com/google/addlicense@v1.1.1 -f $(REPO_ROOT)/hack/license-header.tmpl -c "NVIDIA CORPORATION & AFFILIATES" $(ADDLICENSE_IGNORES) .
+	go run github.com/google/addlicense@$(ADDLICENSE_VERSION) -f $(REPO_ROOT)/hack/license-header.tmpl -c "NVIDIA CORPORATION & AFFILIATES" $(ADDLICENSE_IGNORES) .
 
 # Expected to be run on clean working directory.
 .PHONY: file-license-check
@@ -280,12 +280,12 @@ GOHOSTARCH := $(shell go env GOHOSTARCH)
 agent_cgo = $(if $(and $(filter linux,$(GOHOSTOS)),$(filter $(1),$(GOHOSTARCH))),,CGO_ENABLED=0)
 
 build-amd64:
-	$(call agent_cgo,amd64) GOOS=linux GOARCH=amd64 go build ${LDFLAGS} -o bin/linux_amd64/nke-agent ./cmd/agent/main.go
-	$(call agent_cgo,amd64) GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-X main.version=$(VERSION) $(RELEASE_LDFLAGS)" -o bin/linux_amd64/nke-agent-updater ./cmd/updater/main.go
+	$(call agent_cgo,amd64) GOOS=linux GOARCH=amd64 go build ${LDFLAGS} -o bin/linux_amd64/nvke-agent ./cmd/agent/main.go
+	$(call agent_cgo,amd64) GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-X main.version=$(VERSION) $(RELEASE_LDFLAGS)" -o bin/linux_amd64/nvke-agent-updater ./cmd/updater/main.go
 
 build-arm64:
-	$(call agent_cgo,arm64) GOOS=linux GOARCH=arm64 go build ${LDFLAGS} -o bin/linux_arm64/nke-agent ./cmd/agent/main.go
-	$(call agent_cgo,arm64) GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-X main.version=$(VERSION) $(RELEASE_LDFLAGS)" -o bin/linux_arm64/nke-agent-updater ./cmd/updater/main.go
+	$(call agent_cgo,arm64) GOOS=linux GOARCH=arm64 go build ${LDFLAGS} -o bin/linux_arm64/nvke-agent ./cmd/agent/main.go
+	$(call agent_cgo,arm64) GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-X main.version=$(VERSION) $(RELEASE_LDFLAGS)" -o bin/linux_arm64/nvke-agent-updater ./cmd/updater/main.go
 
 build-all: build-amd64 build-arm64
 build: build-all ## Default build = all arches
@@ -316,13 +316,13 @@ package: package-all ## Default package = all arches
 nfpm: $(NFPM_BIN) ## Build the pinned Debian packaging tool.
 
 $(NFPM_BIN):
-	@GOBIN=$(abspath $(dir $(NFPM_BIN))) go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v$(NFPM_VERSION)
+	@GOBIN=$(abspath $(dir $(NFPM_BIN))) GOPROXY='https://proxy.golang.org|direct' go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v$(NFPM_VERSION)
 
 # Usage: $(call build_deb,amd64)
 define build_deb
 	cd "$(AGENT_PACKAGING_DIR)" && ARCH="$(1)" DEB_VERSION="$(DEB_VERSION)" \
 		AGENT_DIR="$(CURDIR)" "$(abspath $(NFPM_BIN))" package -f nfpm.yaml -p deb \
-		-t "$(abspath $(or $(DEB_OUTPUT),bin/nke-agent_$(DEB_VERSION)_$(1).deb))"
+		-t "$(abspath $(or $(DEB_OUTPUT),bin/nvke-agent_$(DEB_VERSION)_$(1).deb))"
 endef
 
 ##@ Debian Packaging
@@ -347,10 +347,10 @@ endef
 # release.
 define assert_dynamic
 	@if [ -z "$(AGENT_SKIP_LINKAGE_CHECK)" ] && command -v file >/dev/null 2>&1; then \
-		linkage=$$(file bin/linux_$(1)/nke-agent); \
+		linkage=$$(file bin/linux_$(1)/nvke-agent); \
 		case "$$linkage" in \
 			*"dynamically linked"*) ;; \
-			*) echo "ERROR: bin/linux_$(1)/nke-agent is not dynamically linked, so"; \
+			*) echo "ERROR: bin/linux_$(1)/nvke-agent is not dynamically linked, so"; \
 			   echo "  'Depends: libc6' in the nfpm spec is wrong for it."; \
 			   echo "  Go disables cgo when cross-compiling, so build the $(1) package"; \
 			   echo "  on a $(1) host, as deb.yml does. Override with"; \

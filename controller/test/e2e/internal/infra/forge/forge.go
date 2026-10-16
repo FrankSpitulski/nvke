@@ -2,26 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package forge provisions the machine a site controller is built on, on
-// Forge, through the ncx-infra-controller-rest SDK.
+// Forge, through the infra-controller rest-api SDK.
 package forge
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
-	"golang.org/x/crypto/ssh"
+	"github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/environment"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra/teleport"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/provision"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/teleport"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
 )
 
 const (
@@ -29,18 +27,13 @@ const (
 	// https://api.stg.ngc.nvidia.com.
 	DefaultEndpoint = "https://api.ngc.nvidia.com"
 
-	// apiName is the path segment Forge serves under, where the SDK's
+	// APIName is the path segment Forge serves under, where the SDK's
 	// generated paths say carbide.
-	apiName = "forge"
+	APIName = "forge"
 
 	defaultReadyTimeout = 30 * time.Minute
 	defaultReachTimeout = 20 * time.Minute
 	defaultPollInterval = 30 * time.Second
-
-	// releaseTimeout bounds the delete issued when provisioning fails
-	// part-way. It runs detached from the caller's context, so it needs a
-	// bound of its own.
-	releaseTimeout = 5 * time.Minute
 
 	// defaultCreateTimeout bounds the create call alone, and is deliberately
 	// far longer than the timeout the polls run under. Losing the response to
@@ -57,46 +50,12 @@ const (
 	createMayHaveLanded = "\nthe instance may exist even so: Forge builds it before it answers, and without the id in that answer nothing here can delete it -- check the Forge console for this name"
 )
 
-// Images resolves the Node version under qualification to the two URLs the
-// iPXE script boots: the qcow imager and the image it writes. Both must be
-// plain HTTPS, since iPXE cannot pull an OCI artifact.
-type Images func(nodeVersion string) (bootLoaderURL, imageURL string, err error)
-
-// Conn is a connection to a node. It is everything a Session does except
-// release the machine, which is the provider's.
-type Conn interface {
-	Run(ctx context.Context, cmd string) (string, error)
-	Put(ctx context.Context, path string, data []byte, mode uint32) error
-	Fetch(ctx context.Context, path string) ([]byte, error)
-	Forward(ctx context.Context, remote string) (string, error)
-	Close() error
-}
-
-// Dialer opens a connection to a node through its site's jump host. A dial
-// that fails because the node is not answering yet is retried by the
-// provider, so a Dialer makes one attempt and reports what happened.
-type Dialer interface {
-	Dial(ctx context.Context, target teleport.Target) (Conn, error)
-}
-
-// Teleport is the Dialer a real run uses.
-func Teleport(d *teleport.Dialer) Dialer { return teleportDialer{d} }
-
-type teleportDialer struct{ d *teleport.Dialer }
-
-func (t teleportDialer) Dial(ctx context.Context, target teleport.Target) (Conn, error) {
-	c, err := t.d.Dial(ctx, target)
-	if err != nil {
-		// Not c: a nil *Client in a Conn is a non-nil Conn.
-		return nil, err
-	}
-	return c, nil
-}
-
 // Options configures a Provider.
 type Options struct {
-	Env  *environment.Forge
-	Site string // empty resolves to the only site declared
+	Env *Environment
+	// SiteName is the site to create machines at, by the name it is filed
+	// under. Empty resolves to the only site declared.
+	SiteName string
 
 	// APIKey is an NGC key. An nvapi- key is the bearer token as-is; a legacy
 	// key is exchanged for one.
@@ -104,8 +63,14 @@ type Options struct {
 	Endpoint string // empty is DefaultEndpoint
 	AuthURL  string // empty pairs the token service with Endpoint
 
-	Images Images
-	Dialer Dialer
+	Images provision.Images
+	Dialer provision.Dialer
+	// NodeUser is the account the OS image bakes, and the login every
+	// session uses. Empty is the OSS os-image default; an internal-pipeline
+	// image needs its own. It must match the image or cloud-init writes
+	// authorized_keys for an account that does not exist.
+	NodeUser string
+
 	// JumpHost is the Teleport node the site's machines are reached through.
 	// They are not Teleport-enrolled themselves, so it is the only route to
 	// one. It comes from the runner, not the environment file, so the access
@@ -114,10 +79,21 @@ type Options struct {
 
 	// Node carries the package versions under qualification. Its image URLs
 	// are filled from Images, so any set here are ignored.
-	Node  nke.NodeInputs
-	Tools HostTools
+	Node  nvke.NodeInputs
+	Tools provision.HostTools
 
-	// DisableMTLS runs the node agent without SPIFFE. nkectl bootstrap site
+	// KeepOnFailure leaves the machine in place when provisioning fails,
+	// rather than releasing it. The node is the only thing that can answer why
+	// a boot went wrong -- whether cloud-init ran, what it wrote, what the
+	// console saw -- and releasing it destroys that at exactly the moment it
+	// is wanted.
+	//
+	// Off by default, because the alternative to releasing is leaking: a kept
+	// machine outlives the run and someone has to delete it by hand. The error
+	// says so, and names the address to reach it at.
+	KeepOnFailure bool
+
+	// DisableMTLS runs the node agent without SPIFFE. nvkectl bootstrap site
 	// must be given --disable-mtls to match, and the stack deployed with
 	// spiffe.enabled=false, or every dial fails as a TLS handshake error.
 	DisableMTLS bool
@@ -132,10 +108,10 @@ type Options struct {
 	CreateTimeout time.Duration
 }
 
-// Provider creates Forge instances ready for `nkectl bootstrap site`.
+// Provider creates Forge instances ready for `nvkectl bootstrap site`.
 type Provider struct {
 	opts Options
-	site environment.ForgeSite
+	site Site
 	// client serves everything but create. Its short per-request timeout is
 	// what makes a hung poll fail and retry rather than stall.
 	client *standard.APIClient
@@ -147,7 +123,7 @@ type Provider struct {
 
 var (
 	_ infra.Provider = (*Provider)(nil)
-	_ infra.Session  = (*session)(nil)
+	_ infra.Session  = (*provision.Session)(nil)
 )
 
 // New validates opts against the environment and returns a Provider. It
@@ -156,7 +132,7 @@ func New(opts Options) (*Provider, error) {
 	if opts.Env == nil {
 		return nil, errors.New("forge: no environment")
 	}
-	site, err := opts.Env.Site(opts.Site)
+	site, err := opts.Env.Site(opts.SiteName)
 	if err != nil {
 		return nil, fmt.Errorf("forge: %w", err)
 	}
@@ -172,7 +148,7 @@ func New(opts Options) (*Provider, error) {
 	if opts.Dialer == nil {
 		return nil, errors.New("forge: no dialer")
 	}
-	if err := opts.Tools.validate(); err != nil {
+	if err := opts.Tools.Validate(); err != nil {
 		return nil, fmt.Errorf("forge: %w", err)
 	}
 	if opts.Endpoint == "" {
@@ -200,20 +176,20 @@ func New(opts Options) (*Provider, error) {
 	endpoint := strings.TrimRight(opts.Endpoint, "/")
 	// Taken before either SetAPIName below, which wraps the transport of the
 	// client it is given: a copy made afterwards would be wrapped twice.
-	createHTTP := withTimeout(opts.HTTPClient, opts.CreateTimeout)
+	createHTTP := provision.WithTimeout(opts.HTTPClient, opts.CreateTimeout)
 
 	cfg := standard.NewConfiguration()
 	cfg.Servers = standard.ServerConfigurations{{URL: endpoint}}
 	cfg.HTTPClient = opts.HTTPClient
 	// After HTTPClient, because it wraps that client's transport.
-	cfg.SetAPIName(apiName)
+	cfg.SetAPIName(APIName)
 
 	// Its own Servers value rather than a shared slice, so neither
 	// configuration can be reached through the other's.
 	createCfg := standard.NewConfiguration()
 	createCfg.Servers = standard.ServerConfigurations{{URL: endpoint}}
 	createCfg.HTTPClient = createHTTP
-	createCfg.SetAPIName(apiName)
+	createCfg.SetAPIName(APIName)
 
 	return &Provider{
 		opts:         opts,
@@ -222,17 +198,6 @@ func New(opts Options) (*Provider, error) {
 		createClient: standard.NewAPIClient(createCfg),
 		token:        newTokenSource(opts.HTTPClient, opts.APIKey, opts.Env.Org.ID, opts.AuthURL),
 	}, nil
-}
-
-// withTimeout copies c with at least the given timeout, raising a shorter one
-// and leaving an absent one absent. A copy rather than a mutation: the caller
-// keeps its client, and a test that injected a transport keeps that too.
-func withTimeout(c *http.Client, timeout time.Duration) *http.Client {
-	copied := *c
-	if copied.Timeout != 0 && copied.Timeout < timeout {
-		copied.Timeout = timeout
-	}
-	return &copied
 }
 
 // ProvisionNode creates one instance and returns once a session to it can run
@@ -248,7 +213,7 @@ func (p *Provider) ProvisionNode(ctx context.Context, req infra.NodeRequest) (in
 		return infra.Node{}, nil, fmt.Errorf("forge: %w", err)
 	}
 
-	signer, authorizedKey, err := newKey()
+	signer, authorizedKey, err := provision.NewKey("forge")
 	if err != nil {
 		return infra.Node{}, nil, err
 	}
@@ -266,7 +231,8 @@ func (p *Provider) ProvisionNode(ctx context.Context, req infra.NodeRequest) (in
 		return infra.Node{}, nil, err
 	}
 
-	create := standard.NewInstanceCreateRequest(req.Name, tenantID, p.site.VpcID, p.interfaces())
+	create := standard.NewInstanceCreateRequest(req.Name, tenantID, p.site.VpcID)
+	create.SetInterfaces(p.interfaces())
 	create.SetInstanceTypeId(instanceType.ID)
 	create.SetIpxeScript(ipxe)
 	create.SetUserData(userData)
@@ -294,10 +260,20 @@ func (p *Provider) ProvisionNode(ctx context.Context, req infra.NodeRequest) (in
 	id := inst.GetId()
 
 	release := func(ctx context.Context) error { return p.release(ctx, id) }
+	// reached is the node's address once one is known, so a kept machine can
+	// be named with somewhere to go rather than only an id.
+	var reached string
 	fail := func(err error) (infra.Node, infra.Session, error) {
+		if p.opts.KeepOnFailure {
+			where := "no address was reached"
+			if reached != "" {
+				where = "at " + reached
+			}
+			return infra.Node{}, nil, fmt.Errorf("%w\n\tinstance %s (%s) was KEPT for diagnosis, %s -- it outlives this run and must be released by hand", err, req.Name, id, where)
+		}
 		// Detached, because a canceled run is exactly when this matters most
 		// and inheriting the cancellation would abandon the instance.
-		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseTimeout)
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), provision.ReleaseTimeout)
 		defer cancel()
 		if rerr := release(rctx); rerr != nil {
 			return infra.Node{}, nil, errors.Join(err, fmt.Errorf("forge: instance %s (%s) was not deleted and must be removed by hand: %w", req.Name, id, rerr))
@@ -309,44 +285,59 @@ func (p *Provider) ProvisionNode(ctx context.Context, req infra.NodeRequest) (in
 	if err != nil {
 		return fail(err)
 	}
-	conn, err := p.waitReachable(ctx, teleport.Target{JumpHost: p.opts.JumpHost, Address: address, User: nodeUser, Signer: signer})
+	reached = address
+	conn, err := provision.WaitReachable(ctx, p.opts.Dialer, teleport.Target{JumpHost: p.opts.JumpHost, Address: address, User: p.nodeUser(), Signer: signer}, "forge", p.opts.ReachTimeout, p.opts.PollInterval)
 	if err != nil {
+		// A key this run generated moments ago is not rejected by chance.
+		// sshd answering and refusing publickey means cloud-init wrote
+		// authorized_keys somewhere else, which is what a node.user that
+		// does not match the account the OS image bakes looks like. Say so
+		// here: the alternative is a bare auth error after the whole
+		// provisioning wait, with nothing naming the setting to change.
+		if strings.Contains(err.Error(), "unable to authenticate") {
+			err = fmt.Errorf("%w\n\t%s answered but refused this run's key, so cloud-init likely wrote authorized_keys for a different account: check node.user (%q) against the account its OS image bakes", err, req.Name, p.nodeUser())
+		}
 		return fail(err)
 	}
-	if out, err := conn.Run(ctx, "cloud-init status --wait"); err != nil {
+	if err := provision.AwaitCloudInit(ctx, conn, "forge", req.Name); err != nil {
 		_ = conn.Close()
-		return fail(fmt.Errorf("forge: cloud-init on %s did not finish cleanly, and node preflight would reject it: %w\n%s", req.Name, err, out))
+		return fail(err)
 	}
 
-	return infra.Node{Name: req.Name, IP: address, Arch: instanceType.Arch()}, &session{Conn: conn, release: release}, nil
+	return infra.Node{Name: req.Name, IP: address, Arch: instanceType.Arch()}, &provision.Session{Conn: conn, Release: release}, nil
 }
 
 // payloads returns the iPXE script and the cloud-init user data, in that
 // order.
-func (p *Provider) payloads(req infra.NodeRequest, instanceType environment.ForgeInstanceType, authorizedKey string) (string, string, error) {
-	bootLoader, image, err := p.opts.Images(req.NodeVersion)
-	if err != nil {
-		return "", "", fmt.Errorf("forge: resolving the image for node version %q: %w", req.NodeVersion, err)
+func (p *Provider) payloads(req infra.NodeRequest, instanceType InstanceType, authorizedKey string) (string, string, error) {
+	// Resolved first: it selects the image, the console and kernel parameters
+	// the iPXE script sets, and the host tools. The instance type is the only
+	// thing here that knows which machine is being created.
+	arch := instanceType.Arch()
+	if arch == "" {
+		return "", "", fmt.Errorf("forge: instance type %s declares no arch, so neither boot parameters nor host tools can be chosen for it", instanceType.Name)
 	}
+	bootLoader, image, err := p.opts.Images(req.NodeVersion, arch)
+	if err != nil {
+		return "", "", fmt.Errorf("forge: resolving the %s image for node version %q: %w", arch, req.NodeVersion, err)
+	}
+
 	inputs := p.opts.Node
 	inputs.BootLoaderURL, inputs.ImageURL = bootLoader, image
+	inputs.Arch = arch
 	if p.opts.DisableMTLS {
 		inputs.AgentArgs = "--secure-server-port 15005 --disable-mtls"
 	}
-	node, err := nke.BuildForgeNodePayloads(inputs)
+	node, err := nvke.BuildForgeNodePayloads(inputs)
 	if err != nil {
 		return "", "", fmt.Errorf("forge: %w", err)
 	}
-
-	arch := instanceType.Provides["arch"]
-	if arch == "" {
-		return "", "", fmt.Errorf("forge: instance type %s declares no arch, so no host tools can be chosen for it", instanceType.Name)
-	}
-	userData, err := renderUserData(userDataInputs{
+	userData, err := provision.RenderUserData(provision.UserDataInputs{
 		Hostname:      req.Name,
 		AuthorizedKey: authorizedKey,
 		Arch:          arch,
 		NodeCommands:  node.PreKubeadmCommands,
+		NodeUser:      p.nodeUser(),
 		Tools:         p.opts.Tools,
 	})
 	if err != nil {
@@ -355,14 +346,91 @@ func (p *Provider) payloads(req infra.NodeRequest, instanceType environment.Forg
 	return node.IPXEScript, userData, nil
 }
 
-// interfaces attaches the instance to the site's subnet. A VPC exposes
-// subnets or prefixes according to its network virtualization, never both;
-// only subnets are declared today.
+// interfaces attaches the instance to the site's network. A VPC exposes
+// subnets or prefixes according to its network virtualization, never both,
+// so the site declares whichever one its fabric uses and this follows it.
 func (p *Provider) interfaces() []standard.InterfaceCreateRequest {
 	iface := standard.NewInterfaceCreateRequest()
-	iface.SetSubnetId(p.site.SubnetID)
+	if p.site.VpcPrefixID != "" {
+		iface.SetVpcPrefixId(p.site.VpcPrefixID)
+	} else {
+		iface.SetSubnetId(p.site.SubnetID)
+	}
 	iface.SetIsPhysical(true)
 	return []standard.InterfaceCreateRequest{*iface}
+}
+
+// RequireCapacity fails when a shape this run will create has fewer usable
+// allocations than it needs. cpuCount is the site node plus the tenant
+// control plane. workerCount is the tenant's workers, taken on the GPU shape
+// when the run asked for one and on the CPU shape otherwise.
+//
+// CAPNICo refuses the create while unusedUsable is zero. Checked here, before
+// any instance exists, because the suite would otherwise hold the machines it
+// did get until the provision timeout.
+func (p *Provider) RequireCapacity(ctx context.Context, capabilities map[string]string, cpuCount, workerCount int) error {
+	selection, err := p.opts.Env.Resolve(capabilities)
+	if err != nil {
+		return fmt.Errorf("forge: %w", err)
+	}
+	type demand struct {
+		name string
+		id   string
+		need int
+	}
+	needs := map[string]demand{}
+	add := func(t InstanceType, n int) {
+		if n <= 0 || t.ID == "" {
+			return
+		}
+		d := needs[t.ID]
+		d.name = t.Name
+		d.id = t.ID
+		d.need += n
+		needs[t.ID] = d
+	}
+	add(selection.CPU, cpuCount)
+	if workerCount > 0 {
+		add(selection.WorkerType(), workerCount)
+	}
+	if len(needs) == 0 {
+		return nil
+	}
+
+	ctx, err = p.authorize(ctx)
+	if err != nil {
+		return err
+	}
+	ids := make([]string, 0, len(needs))
+	for id := range needs {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	problems := make([]string, 0)
+	for _, id := range ids {
+		d := needs[id]
+		item, resp, err := p.client.InstanceTypeAPI.GetInstanceType(ctx, p.opts.Env.Org.ID, d.id).
+			IncludeAllocationStats(true).Execute()
+		closeBody(resp)
+		if err != nil {
+			return fmt.Errorf("forge: reading allocation stats for %s (%s): %w", d.name, d.id, apiError(err))
+		}
+		if !item.HasAllocationStats() {
+			return fmt.Errorf("forge: instance type %s (%s) returned no allocation stats", d.name, d.id)
+		}
+		stats := item.GetAllocationStats()
+		usable := int(stats.GetUnusedUsable())
+		if usable < d.need {
+			problems = append(problems, fmt.Sprintf(
+				"%s (%s): need %d, unusedUsable=%d (total=%d used=%d unused=%d)",
+				d.name, d.id, d.need, usable, stats.GetTotal(), stats.GetUsed(), stats.GetUnused(),
+			))
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("forge has no usable allocation for this run:\n%s", strings.Join(problems, "\n"))
+	}
+	return nil
 }
 
 func (p *Provider) authorize(ctx context.Context) (context.Context, error) {
@@ -417,7 +485,8 @@ func (p *Provider) waitReady(ctx context.Context, id string) (string, error) {
 				standard.INSTANCESTATUS_PROVISIONING,
 				standard.INSTANCESTATUS_CONFIGURING,
 				standard.INSTANCESTATUS_UPDATING,
-				standard.INSTANCESTATUS_REBOOTING:
+				standard.INSTANCESTATUS_REBOOTING,
+				standard.INSTANCESTATUS_REPAIRING:
 			}
 		}
 		select {
@@ -431,23 +500,53 @@ func (p *Provider) waitReady(ctx context.Context, id string) (string, error) {
 	}
 }
 
-// waitReachable dials until the node answers. Ready and reachable are
-// different signals: an instance reports Ready once Forge has handed it over,
-// long before the image is written, booted and running sshd.
-func (p *Provider) waitReachable(ctx context.Context, target teleport.Target) (Conn, error) {
-	ctx, cancel := context.WithTimeout(ctx, p.opts.ReachTimeout)
-	defer cancel()
-
-	var lastErr error
+// WaitTerminating returns once Forge reports every one of ids as Terminating
+// or no longer has it. That is the point at which Forge owns the release: the
+// machine is out of the tenant's hands and comes back to the pool without
+// anything else asking, which takes 20 to 60 minutes more on bare metal.
+//
+// Polled by id for the reason waitReady is. An instance still in any other
+// state when ctx ends is reported with the last status Forge gave for it.
+func (p *Provider) WaitTerminating(ctx context.Context, ids []string) error {
+	pending := slices.Clone(ids)
+	slices.Sort(pending)
+	pending = slices.Compact(pending)
+	last := map[string]string{}
 	for {
-		conn, err := p.opts.Dialer.Dial(ctx, target)
-		if err == nil {
-			return conn, nil
+		actx, err := p.authorize(ctx)
+		if err != nil {
+			return err
 		}
-		lastErr = err
+		var next []string
+		for _, id := range pending {
+			inst, resp, err := p.client.InstanceAPI.GetInstance(actx, p.opts.Env.Org.ID, id).Execute()
+			closeBody(resp)
+			switch {
+			case resp != nil && resp.StatusCode == http.StatusNotFound:
+			case err != nil:
+				// A read cut off by our own deadline says nothing about the
+				// instance, so it does not replace what Forge last said.
+				if ctx.Err() == nil || last[id] == "" {
+					last[id] = apiError(err).Error()
+				}
+				next = append(next, id)
+			case inst.GetStatus() == standard.INSTANCESTATUS_TERMINATING:
+			default:
+				last[id] = string(inst.GetStatus())
+				next = append(next, id)
+			}
+		}
+		pending = next
+		if len(pending) == 0 {
+			return nil
+		}
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("forge: %s not reachable through %s after %s: %w", target.Address, target.JumpHost, p.opts.ReachTimeout, lastErr)
+			states := make([]string, 0, len(pending))
+			for _, id := range pending {
+				states = append(states, fmt.Sprintf("%s (last %s)", id, last[id]))
+			}
+			return fmt.Errorf("forge: instances not terminating: %s: %w", strings.Join(states, ", "), ctx.Err())
 		case <-time.After(p.opts.PollInterval):
 		}
 	}
@@ -458,9 +557,14 @@ func (p *Provider) release(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := p.client.InstanceAPI.DeleteInstance(ctx, p.opts.Env.Org.ID, id).Execute()
+	_, resp, err := p.client.InstanceAPI.DeleteInstance(ctx, p.opts.Env.Org.ID, id).Execute()
 	closeBody(resp)
 	if resp != nil && resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	// Forge accepts with a plain-text body the SDK cannot decode, so the
+	// status is what says whether the delete was taken.
+	if resp != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
 	if err != nil {
@@ -484,24 +588,14 @@ func instanceAddress(inst *standard.Instance) string {
 	return ""
 }
 
-func newKey() (ssh.Signer, string, error) {
-	_, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, "", fmt.Errorf("forge: generating the session key: %w", err)
+// nodeUser is the login for this provider's machines, defaulted once so the
+// cloud-init that writes authorized_keys and the dial that uses them cannot
+// disagree.
+func (p *Provider) nodeUser() string {
+	if u := strings.TrimSpace(p.opts.NodeUser); u != "" {
+		return u
 	}
-	signer, err := ssh.NewSignerFromKey(private)
-	if err != nil {
-		return nil, "", fmt.Errorf("forge: generating the session key: %w", err)
-	}
-	return signer, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))), nil
-}
-
-// closeBody closes the in-memory copy the SDK leaves on a response after
-// reading and closing the real body.
-func closeBody(resp *http.Response) {
-	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
-	}
+	return provision.DefaultNodeUser
 }
 
 // apiError surfaces the response body the SDK keeps behind its error type,
@@ -514,25 +608,14 @@ func apiError(err error) error {
 	return err
 }
 
-// session is a Conn plus the release of the machine it is connected to.
-type session struct {
-	Conn
-	release  func(context.Context) error
-	released bool
-}
-
-func (s *session) Teardown(ctx context.Context) error {
-	if s.released {
-		return nil
+// closeBody closes the in-memory copy the SDK leaves on a response after
+// reading and closing the real body.
+//
+// Per package rather than shared: bodyclose is an SSA analyzer and cannot
+// follow the close through a call into another package, so a shared helper
+// turns every call site into a false positive.
+func closeBody(resp *http.Response) {
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
 	}
-	closeErr := s.Close()
-	// Detached for the same reason as a failed provision: teardown is called
-	// most often from a run that is already ending.
-	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseTimeout)
-	defer cancel()
-	if err := s.release(rctx); err != nil {
-		return errors.Join(closeErr, err)
-	}
-	s.released = true
-	return closeErr
 }

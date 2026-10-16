@@ -19,7 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
-	infrav1 "github.com/dsx-ai-factory/nke/cluster-api-provider-provisioned/api/v1alpha1"
+	infrav1 "github.com/dsx-ai-factory/nvke/cluster-api-provider-provisioned/api/v1alpha1"
 )
 
 var tpmEKPubHashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -167,7 +167,7 @@ func sortedAllocations(
 }
 
 // machineAddresses returns the hostname and IP address that Cluster API copies
-// to Machine status. CWE uses InternalIP to contact the node agent.
+// to Machine status. The controller uses InternalIP to contact the node agent.
 func machineAddresses(host infrav1.ProvisionedHost) []clusterv1.MachineAddress {
 	return []clusterv1.MachineAddress{
 		{Type: clusterv1.MachineHostName, Address: host.Hostname},

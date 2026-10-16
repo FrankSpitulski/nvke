@@ -2,13 +2,44 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package infra is the contract for creating the bare machine a site
-// controller is built on, before any CWE exists to ask. It names capabilities
+// controller is built on, before any controller exists to ask. It names capabilities
 // rather than infrastructure, so nothing here is provider vocabulary and it
 // carries no external dependencies.
 package infra
 
 import (
 	"context"
+)
+
+// The capability keys a machine can answer, and the architecture a run that
+// named none gets.
+//
+// Here rather than with a provider because they are the vocabulary a run and
+// a provider share: a request states them and every provider has to answer
+// the same words. A second provider reads them from the contract rather than
+// from the first implementation.
+//
+// A run states more than these -- kube names a software version, not a
+// property of any machine -- so a provider matches on the keys it knows and
+// ignores the rest, which is what stops a Kubernetes version from excluding
+// every machine.
+const (
+	CapabilityMachineType = "machineType"
+	CapabilityArch        = "arch"
+	CapabilityGPU         = "gpu"
+
+	// The two values CapabilityMachineType takes. A machine with a GPU
+	// provides both an architecture and a model, so matching on architecture
+	// alone can land on one, and the caller that wanted a plain machine has
+	// to say so.
+	MachineTypeCPU = "cpu"
+	MachineTypeGPU = "gpu"
+
+	// DefaultArch is what a run that named no architecture gets. Every site
+	// onboarded so far has an amd64 shape, so this keeps a run without
+	// -e2e.capabilities resolving as it did before architectures were told
+	// apart.
+	DefaultArch = "amd64"
 )
 
 // NodeRequest is what a run asks for.
@@ -32,7 +63,7 @@ type NodeRequest struct {
 }
 
 // Node is what bootstrap needs to know about a machine. It is the triple
-// `nkectl generate sitespec --nodes` consumes, so the provider produces it
+// `nvkectl generate sitespec --nodes` consumes, so the provider produces it
 // rather than leaving the caller to rediscover it over the session.
 type Node struct {
 	Name string
@@ -50,7 +81,7 @@ type Node struct {
 }
 
 // Session is a command, copy and forward channel to the node. It is what
-// bootstrap runs nkectl through, how the test reaches the cluster the node
+// bootstrap runs nvkectl through, how the test reaches the cluster the node
 // ends up hosting, and what the caller tears down when finished.
 type Session interface {
 	// Run executes cmd on the node and fails on a non-zero exit, returning

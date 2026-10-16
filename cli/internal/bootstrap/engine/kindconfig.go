@@ -12,8 +12,8 @@ import (
 
 // kindClusterConfig mirrors the subset of kind's Cluster config
 // (kind.x-k8s.io/v1alpha4) this package generates. Single control-plane
-// node: the bootstrap cluster only ever hosts CWE for the duration of one
-// `nkectl bootstrap site` run, it is not a multi-node target.
+// node: the bootstrap cluster only ever hosts the controller for the duration of one
+// `nvkectl bootstrap site` run, it is not a multi-node target.
 type kindClusterConfig struct {
 	Kind       string          `yaml:"kind"`
 	APIVersion string          `yaml:"apiVersion"`
@@ -37,6 +37,7 @@ type kindPortEntry struct {
 	ContainerPort int32  `yaml:"containerPort"`
 	HostPort      int32  `yaml:"hostPort"`
 	Protocol      string `yaml:"protocol,omitempty"`
+	ListenAddress string `yaml:"listenAddress,omitempty"`
 }
 
 // renderKindConfig marshals cfg into a kind Cluster config YAML document.
@@ -73,7 +74,7 @@ func writeKindConfig(cfg Config) (path string, cleanup func(), err error) {
 		return "", func() {}, err
 	}
 
-	f, err := os.CreateTemp("", "nkectl-bootstrap-kind-config-*.yaml")
+	f, err := os.CreateTemp("", "nvkectl-bootstrap-kind-config-*.yaml")
 	if err != nil {
 		return "", func() {}, fmt.Errorf("creating kind config file: %w", err)
 	}

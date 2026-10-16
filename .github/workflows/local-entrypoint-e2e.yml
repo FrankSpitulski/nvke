@@ -32,8 +32,13 @@ on:
       # through these, so a change to any of them changes what this lane runs.
       - controller/Makefile.dev
       - controller/Tiltfile
-      - controller/hack/cwe-capi-kind.yaml
+      - controller/hack/controller-capi-kind.yaml
       - controller/hack/ci/prepare-capd-bundles.sh
+      - controller/hack/ci/prepare-host-kernel-modules.sh
+      - controller/hack/ci/prepare-ovn-assets.sh
+      - controller/hack/ci/assets/ovn-install.sh
+      - os-image/packages/cni-ovn/**
+      - os-image/packages/cni-common/**
       - .github/workflows/local-entrypoint-e2e.yml
       - .github/workflows/e2e-pr-path-filter.yml
   # Also twice a day, so a break the paths above filtered out, or one a flake
@@ -61,7 +66,7 @@ jobs:
   local-entrypoint:
     needs: changes
     name: local-backend-e2e.sh on Linux (${{ matrix.arch }}, post-init CNI ${{ matrix.install_cni_after_init }})
-    if: github.repository == 'dsx-ai-factory/nke' && needs.changes.outputs.run_e2e == 'true'
+    if: github.repository_id == '1323115536' && needs.changes.outputs.run_e2e == 'true'
     # The L4 pool is one machine, and this lane runs on pull requests, on main,
     # and twice a day. A run on main waited 87 minutes for a runner, longer than
     # the 84 minutes it then took. cpu16 has capacity, and the L4 was never
@@ -72,16 +77,12 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
-    timeout-minutes: 120
+    # The 110-minute suite below plus about 15 minutes of setup.
+    timeout-minutes: 135
     strategy:
       fail-fast: false
-      # Listed rather than crossed: arm64 covers the default CNI path only, so
-      # the pool carries three legs and not four.
       matrix:
-        # CNI reaches a node two ways. false is what a developer running this
-        # script gets; true installs it after kubeadm init from a Debian package,
-        # with no bundle mirror and no bundle flags on the node image. Only this
-        # lane covers the second one, and only on amd64.
+        # Cover both CNI installation paths on amd64 and the in-init path on arm64.
         include:
           - arch: amd64
             runner: linux-amd64-cpu16
@@ -94,16 +95,19 @@ jobs:
             install_cni_after_init: false
     env:
       INSTALL_CNI_AFTER_INIT: ${{ matrix.install_cni_after_init }}
+      # arm64 suites run close to the 100-minute default.
+      E2E_SUITE_TIMEOUT_MINUTES: "110"
       # Pull-request mirrors run the same bounded lifecycle as the CAPD lane.
-      # Main, scheduled, and manual runs keep both comprehensive CAPD modes.
-      LOCAL_NKE_E2E_LABEL_FILTER: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'pull-request/') && 'core-docker || health' || '' }}
-      LOCAL_NKE_E2E_SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'pull-request/') && 'false' || 'true' }}
+      # Main, scheduled, and manual runs keep the comprehensive CAPD suite.
+      # Empty takes E2E_CAPD_SUITE_FILTER, which already excludes
+      # tpm-attestation and gpu.
+      LOCAL_NKE_E2E_LABEL_FILTER: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'pull-request/') && '(core-docker || health) && !tpm-attestation && !gpu' || '' }}
       # Same override as backend-e2e.yml (capd-e2e, nico-e2e).
       NODE_REBOOT_SOFT_REBOOT_ENABLED: false
       # A public pull-through mirror: dc.local.gha-runners.nvidia.com resolves
       # only on the self-hosted fleet, and the arm64 leg now runs on ARC.
       # Same host as backend-e2e.yml, os-image-artifact.yml and
-      # nkectl-bootstrap-e2e.yml, each of which had to make this change when
+      # nvkectl-bootstrap-e2e.yml, each of which had to make this change when
       # it moved. helm needs the shim below to honour it for OCI charts,
       # which is how the CI entrypoint does it too.
       NKE_E2E_DOCKERHUB_MIRROR: mirror.gcr.io
@@ -131,8 +135,26 @@ jobs:
           go-version-file: go.work
           cache: false
 
-      # Version pins come from make/versions.mk, the same source backend-e2e.yml
-      # reads, so the two lanes cannot install different tools.
+      - name: Install Debian packaging tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dpkg-dev
+
+      # Kind nodes share this runner's kernel, and OVN's ovs-vswitchd loads
+      # openvswitch from it. The module ships in linux-modules-extra, which
+      # the ARC arm64 image does not install. Stage the exact host kernel build:
+      # uname -r alone cannot distinguish Jammy backports from Noble builds.
+      # The suite's privileged Docker preflight loads it:
+      # sudo in the ARC runner does not grant CAP_SYS_MODULE, and DinD has its
+      # own /lib/modules filesystem (#1515).
+      - name: Install the Open vSwitch module files
+        run: |
+          uname -a
+          sudo apt-get install -y -qq kmod
+          modules="${RUNNER_TEMP}/nvke-host-kernel-modules"
+          sudo bash controller/hack/ci/prepare-host-kernel-modules.sh "${modules}"
+          echo "NKE_E2E_HOST_MODULES_DIR=${modules}/lib/modules" >> "${GITHUB_ENV}"
+
       # containerd's CRI plugin creates an inotify watcher for the CNI conf dir.
       # Without headroom it fails to load, and kubeadm then reports the CRI v1
       # API as Unimplemented. backend-e2e.yml raises the same two limits.
@@ -151,6 +173,8 @@ jobs:
           raise_minimum fs.inotify.max_user_instances 1024
           raise_minimum fs.inotify.max_user_watches 1048576
 
+      # Version pins come from make/versions.mk, the same source backend-e2e.yml
+      # reads, so the two lanes cannot install different tools.
       - name: Read pinned tool versions
         id: versions
         run: |
@@ -196,19 +220,23 @@ jobs:
             *) echo "Tilt publishes no release asset for $(uname -m)" >&2; exit 1 ;;
           esac
           tmp="$(mktemp -d)"
-          curl -fsSL -o "${tmp}/tilt.tgz" \
+          # Retry: a CDN 504 must not fail the job on the first response.
+          curl -fsSL --retry 8 --retry-all-errors --retry-max-time 240 \
+            -o "${tmp}/tilt.tgz" \
             "https://github.com/tilt-dev/tilt/releases/download/v${version}/tilt.${version}.linux.${tilt_arch}.tar.gz"
           tar -xzf "${tmp}/tilt.tgz" -C "${tmp}" tilt
           sudo install -m 0755 "${tmp}/tilt" /usr/local/bin/tilt
           tilt version
 
       - name: Run the local entrypoint
+        env:
+          OVN_KUBERNETES_TOKEN: ${{ secrets.OVN_KUBERNETES_RO_TOKEN }}
         run: ./hack/local-backend-e2e.sh
         working-directory: controller
 
       - name: Upload diagnostics
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           # The arch too: GitHub keeps two same-named artifacts.
           name: local-entrypoint-e2e-${{ matrix.arch }}-cni-${{ matrix.install_cni_after_init }}-${{ github.run_id }}-${{ github.run_attempt }}

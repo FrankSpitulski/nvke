@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Cloud Workflow Engine (CWE) orchestrates NKE (NVIDIA Kubernetes Engine) cluster creation and lifecycle operations. The system uses Temporal for workflow orchestration and provides a REST API for cluster management operations.
+Cloud Workflow Engine (CWE) orchestrates NVKE (NVIDIA Kubernetes Engine) cluster creation and lifecycle operations. The system uses Temporal for workflow orchestration and provides a REST API for cluster management operations.
 
 ### Key Technologies
 - **Language**: Go — the floor is the `go` directive in the root `go.work`, not
@@ -100,7 +100,7 @@ make debug        # Run with delve debugger on :12345
 
 ### Go Conventions
 - Use `go fmt` and `goimports` for formatting
-- Import grouping order: stdlib, then third-party, then local (`github.com/dsx-ai-factory/nke/controller`)
+- Import grouping order: stdlib, then third-party, then local (`github.com/dsx-ai-factory/nvke/controller`)
 - No `github.com/pkg/errors` - use stdlib `errors` and `fmt.Errorf` with `%w`
 - Cyclomatic complexity limit: 15
 - Function length limit: 500 lines (excluding comments)
@@ -109,7 +109,7 @@ make debug        # Run with delve debugger on :12345
 All Go files must use the repository's Apache-2.0 SPDX header. Run `make license` to add missing headers.
 
 ### Prometheus metric naming
-All metric names use the `nke_controller_` prefix — never `cwe_` (legacy) (e.g. `nke_controller_node_provision_total`, not `cwe_node_provision_total`). Metrics live in `internal/metrics/` and `internal/dbmetrics/`.
+All metric names use the `nvke_controller_` prefix — never `cwe_` (legacy) (e.g. `nvke_controller_node_provision_total`, not `cwe_node_provision_total`). Metrics live in `internal/metrics/` and `internal/dbmetrics/`.
 
 ### Linting Notes
 - Use `FIXME:` for things to address in a future PR, with a tracking link
@@ -132,7 +132,7 @@ All metric names use the `nke_controller_` prefix — never `cwe_` (legacy) (e.g
 ├── hack/
 │   └── remote-sync/        # Mutagen templates for Mac→Linux Tilt
 ├── internal/
-│   ├── config/             # Configuration from environment variables
+│   ├── config/             # Configuration: environment variables and nke-controller-config fields
 │   ├── controllers/        # Background controllers (auto-provisioner, health checks)
 │   ├── db/                 # Database layer (Bun ORM, migrations)
 │   │   └── migrations/     # Database migration files
@@ -141,8 +141,7 @@ All metric names use the `nke_controller_` prefix — never `cwe_` (legacy) (e.g
 │       ├── activities/     # Temporal activity implementations
 │       └── workflows/      # Temporal workflow implementations
 ├── profiles/
-│   ├── configProfiles/     # Kubernetes config profiles (YAML)
-│   └── osProfiles/         # OS provisioning profiles
+│   └── configProfiles/     # Kubernetes config profiles (YAML)
 └── integration-test/       # End-to-end integration tests
 ```
 
@@ -157,6 +156,27 @@ When modifying the API:
 
 **Do not manually edit generated files** - they will be overwritten.
 
+Two gates cover a spec change, and they answer different questions:
+
+```bash
+make generate-check    # the committed *.gen.go match api/openapi.yaml
+make api-compat-check  # the openapi.yaml change does not break an existing client
+```
+
+A removed field or a newly required property passes the first and fails the
+second. `api-compat-check` compares against the newest published
+`controller/api/vX.Y.Z` tag and is waived, never disabled, per change in
+`api/openapi-compat-waivers.yaml`.
+
+Removing an operation is the exception, and the one agents get wrong: do not
+write a waiver for it. Mark it `deprecated: true` with an `x-sunset` date at
+least 180 days out, ship that, and remove it once the date has passed — the gate
+lets that through on its own. A deprecation with no `x-sunset`, or one dated
+sooner than that, fails.
+
+See [`api/README.md`](api/README.md#compatibility) and
+[`hack/openapi-compat/README.md`](hack/openapi-compat/README.md).
+
 ## Database
 
 - ORM: [Bun](https://bun.uptrace.dev/)
@@ -168,19 +188,34 @@ When modifying the API:
 docker run -d --name=cwe-postgres -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:17.4
 ```
 
-## Environment Variables
+## Configuration
 
-Key configuration (see `internal/config/config.go` for full list):
+The controller reads its settings once, at startup, from the
+`nke-controller-config` file (`internal/controllerconfig`), and reads a few more
+from environment variables (`internal/config/config.go`). The chart renders the
+file into a ConfigMap and mounts it; host-local runs use
+`hack/local-controller-config.yaml`. A field of `config.Config` with a
+`controllerconfig` tag comes from the file, and one with an `env` tag from the
+environment.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `CONTROLLER_CONFIG_PATH` | (required) | The `nke-controller-config` file. The chart sets it to the mounted ConfigMap; `make run` sets it to `hack/local-controller-config.yaml`. Unset, missing or invalid is a startup failure. |
 | `LOG_LEVEL` | `info` | Log level (debug/info/warn/error) |
 | `DB_CONNECTION_STRING` | `postgres://...` | PostgreSQL connection string |
-| `TEMPORAL_HOST_PORT` | `localhost:7233` | Temporal server for CWE workflows |
-| `PROFILES_DIR` | `./profiles` | Directory for OS/config profiles. Fleet profile content is maintained outside this repository and supplied at deploy time; this repo ships only example profiles. The directory may be empty: CWE starts without a profiles tree, and one is needed to provision a node, not to come up. |
-| `SPIFFE_ENDPOINT_SOCKET` | (optional) | SPIRE agent socket path for SPIFFE identity (e.g., `unix:///tmp/spire-agent/agent.sock`) |
-| `AUTH_CONFIG_PATH` | (unset) | API authentication config file. Unset disables authentication entirely, which is what a host-local `go run` gets. Set but unreadable is a startup failure, never "disabled". |
-| `PERMISSIVE_MODE` | `false` | Only read when `AUTH_CONFIG_PATH` is set. `true` evaluates, logs and counts every request, then serves it anyway — nothing is rejected. |
+| `AUTH_CONFIG_PATH` | (unset) | API authentication config file. Unset disables authentication entirely, which is what `make run` gets. Set but unreadable is a startup failure, never "disabled". |
+
+Settings in the file that local work most often changes:
+
+| Key | Description |
+|-----|-------------|
+| `temporal.hostPort` | Temporal server for controller workflows |
+| `profilesDir` | Directory for config profiles and the runbooks their hooks reference. Fleet profile content is maintained outside this repository and supplied at deploy time; this repo ships only example profiles. The directory may be empty: the controller starts without a profiles tree, and one is needed to provision a node, not to come up. |
+| `spire.spiffeEnabled`, `spire.spiffeEndpointSocket` | SPIFFE identity, from the SPIRE agent socket (for example `unix:///tmp/spire-agent/agent.sock`) |
+| `permissiveMode` | Only read when `AUTH_CONFIG_PATH` is set. `true` evaluates, logs and counts every request, then serves it anyway — nothing is rejected. |
+
+To change one for your own runs, copy `hack/local-controller-config.yaml` under
+`.local/` and point `CONTROLLER_CONFIG_PATH` at the copy.
 
 ## Local Development
 
@@ -189,11 +224,16 @@ Preferred day-to-day path is CAPI + Tilt (see `README.md` in this directory).
 ### Full Local Setup
 1. Start local Temporal: `temporal server start-dev`
 2. Start PostgreSQL (see above)
-3. Run CWE:
+3. Install the release CRDs and the fixture releases into the cluster in `KUBECONFIG`.
+ CWE resolves every OS image from them, so provisioning fails without them:
  ```bash
- TEMPORAL_HOST_PORT=localhost:7233 go run ./cmd/worker/main.go
+ make releases-install
  ```
-4. Access Swagger UI at http://localhost:8080/api/docs.
+4. Run CWE, with `hack/local-controller-config.yaml`:
+ ```bash
+ make run
+ ```
+5. Access Swagger UI at http://localhost:8080/api/docs.
 
 ### API Authentication
 
@@ -201,39 +241,39 @@ The two local paths differ, and that is the usual source of confusion:
 
 | Path | Authentication |
 |------|----------------|
-| `make run` / `go run ./cmd/worker/main.go` | **off** — `AUTH_CONFIG_PATH` is unset, every request is served |
+| `make run` | **off** — `AUTH_CONFIG_PATH` is unset, every request is served |
 | `tilt up` | **enforcing** — `/api/*` needs a bearer token |
 
-So a bare `curl` that works host-local returns 401 under Tilt. `nkectl` mints
+So a bare `curl` that works host-local returns 401 under Tilt. `nvkectl` mints
 from the kind kubeconfig and does not need a token environment variable:
 
 ```bash
-nkectl config set-site --name local \
+nvkectl config set-site --name local \
   --url http://localhost:8080 \
   --kubeconfig ~/.kube/config
-nkectl get clusters
+nvkectl get clusters
 ```
 
 For `curl`, get a token:
 
 ```bash
-TOKEN="$(hack/nke-token.sh)"
+TOKEN="$(hack/nvke-token.sh)"
 curl -H "Authorization: Bearer ${TOKEN}" http://localhost:8080/api/clusters
 ```
 
-`hack/nke-token.sh` prints nothing when authentication is off and exits 0, so one
+`hack/nvke-token.sh` prints nothing when authentication is off and exits 0, so one
 form works on both paths — the `${TOKEN:+...}` expansion drops the header
 entirely rather than sending an empty one:
 
 ```bash
-TOKEN="$(hack/nke-token.sh)"
+TOKEN="$(hack/nvke-token.sh)"
 curl ${TOKEN:+-H "Authorization: Bearer ${TOKEN}"} http://localhost:8080/api/clusters
 ```
 
 `NKE_AUTH_ENABLED=false tilt up` turns it off. `NKE_PERMISSIVE_MODE=true tilt up`
 evaluates and counts without rejecting anything.
 
-`/healthz`, `/readyz`, `/api/version`, `/openapi.yaml`, `/docs` and `/api/docs/`
+`/healthz`, `/readyz`, `/api/version`, `/openapi.yaml`, `/openapi-public.yaml`, `/docs` and `/api/docs/`
 never need a token. The Swagger UI therefore loads either way, but calls issued
 from it 401 under Tilt.
 
@@ -249,8 +289,10 @@ To test mTLS calls to tenant clusters locally using SPIFFE/SPIRE:
 # Setup and start SPIRE agent (includes port-forward)
 make dev-spire-start
 
-# Start CWE with SPIRE
-SPIFFE_ENDPOINT_SOCKET=unix:///tmp/spire-agent/agent.sock make run
+# Start CWE with SPIRE: a copy of the local config with spire.spiffeEnabled set
+mkdir -p .local
+yq '.spire.spiffeEnabled = true' hack/local-controller-config.yaml > .local/controller-config.spire.yaml
+CONTROLLER_CONFIG_PATH=.local/controller-config.spire.yaml make run
 
 # Stop agent
 make dev-spire-stop
@@ -270,7 +312,7 @@ make test
 These run against a live CWE deployment:
 ```bash
 cd integration-test
-CWE_API_URL=http://localhost:8080/api go test -tags integration_test -v -timeout=3h
+NKE_CONTROLLER_API_URL=http://localhost:8080/api go test -tags integration_test -v -timeout=3h
 ```
 
 ## Temporal Workflows
@@ -300,6 +342,7 @@ JSON under `deploy/dashboards/` is imported by operators (see [deploy/dashboards
 - Ensure all `TODO:` comments are resolved
 - Add license headers: `make license`
 - Regenerate API code if OpenAPI spec changed: `make generate`
+- Check the spec change is backward compatible: `make api-compat-check`
 
 ### PR Format
 - Use a Conventional Commit title, such as `fix: handle node reset timeout`

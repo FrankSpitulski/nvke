@@ -3,15 +3,15 @@
 #
 # Unit-test lane for the controller modules. Until this existed, agent-test.yml
 # was the only workflow that ran `go test` anywhere in the repository, so
-# controller/, controller/nico-sim/ and nkectl were compiled, linted,
+# controller/, controller/nico-sim/ and nvkectl were compiled, linted,
 # vetted, CodeQL-scanned and govulncheck-scanned -- and never
 # tested. A test suite nothing runs reads as coverage in review and provides
 # none.
 #
-# Not covered by the test job, deliberately: controller/api and
-# controller/hack/capd-reboot-controller have no _test.go files at all. The
-# root controller/test/e2e package mixes ordinary unit tests with TestE2E,
-# which needs a live cluster in KUBECONFIG; the job below skips only TestE2E.
+# Not covered by the test job, deliberately:
+# controller/hack/capd-reboot-controller has no _test.go files at all. The root
+# controller/test/e2e package mixes ordinary unit tests with TestE2E, which
+# needs a live cluster in KUBECONFIG; the job below skips only TestE2E.
 #
 # The `compile` job below covers those heavier suites in the one way a pull
 # request can: it type-checks them without running them. See its own comment.
@@ -46,6 +46,7 @@ on:
     paths:
       - 'controller/**'
       - 'cli/**'
+      - 'management-engine/**'
       - 'go.work'
       - 'go.work.sum'
       - '.github/workflows/controller-test.yml'
@@ -73,11 +74,15 @@ concurrency:
   # Do not cancel a run on main; the newer workflows here all guard this.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# A module fetch the proxy drops mid-stream falls back to the module's origin (#1481).
+env:
+  GOPROXY: https://proxy.golang.org|direct
+
 jobs:
   test:
     name: Unit tests (${{ matrix.module }})
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     timeout-minutes: 30
     permissions:
       contents: read
@@ -85,8 +90,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - module: controller/api
+            run: make test
           # `make test` here already drops ./integration-test, which needs a
-          # running CWE on port 8080.
+          # running controller on port 8080.
           # test-integration-local adds the two `integration`-tagged packages.
           # Neither needs a service, and until now nothing ran either: the
           # tagged file in ./internal/agent was not even type-checked, because
@@ -102,6 +109,8 @@ jobs:
           # below.
           - module: cli
             run: make test
+          - module: management-engine
+            run: make test
           # The e2e module mixes the live Ginkgo suite with ordinary root and
           # internal unit tests. Skip only TestE2E so every current and future
           # root-package unit test runs without needing an allowlist. That is
@@ -113,6 +122,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The e2e module's TestLayoutsMatchTheReleaseTags is the only test
+          # that checks the deploy-layout table against the tags the site
+          # lane actually exports from; without the tags here it skips, and
+          # the table could drift from every release unnoticed. The default
+          # shallow fetch is kept -- the test reads each tag's tree, which a
+          # depth-1 tag fetch carries, and skips any tag it cannot read.
+          fetch-tags: true
 
       # Workspace mode (default) so tests resolve the root module graph.
       # go.work carries the toolchain that satisfies every module.
@@ -158,14 +174,14 @@ jobs:
   #     internal/agent suites carry the same tag but need nothing, so the test
   #     job above runs them for real rather than vetting them here.
   #   - controller/integration-test is dropped from `make test` by a grep,
-  #     because it needs a CWE on port 8080.
+  #     because it needs a controller on port 8080.
   #
   # go vet rather than `go build`: it type-checks test files, which is the
-  # point, and it is the cheapest thing that does. All five are green today.
+  # point, and it is the cheapest thing that does.
   compile:
     name: Compile (${{ matrix.name }})
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     timeout-minutes: 20
     permissions:
       contents: read
@@ -176,6 +192,9 @@ jobs:
           - name: test/e2e
             dir: controller/test/e2e
             run: go vet ./...
+          - name: test/e2e OIDC acceptance
+            dir: controller/test/e2e
+            run: GOWORK=off go test -c -tags oidc_acceptance -o /tmp/oidc-acceptance.test .
           - name: e2e gofail
             dir: controller
             run: go vet -tags gofail ./e2e/...
@@ -189,6 +208,9 @@ jobs:
             # refused connection to localhost:8080. Vet has to pass the tag,
             # or it matches no packages and exits non-zero.
             run: go vet -tags integration_test ./integration-test/...
+          - name: OIDC reference
+            dir: controller
+            run: go vet -tags oidc_integration ./test/oidctest/...
           - name: kubeadm bringup
             dir: controller/test/kubeadm
             # The 2-VM nico-vms bringup driver, behind `kubeadm_bringup`. It

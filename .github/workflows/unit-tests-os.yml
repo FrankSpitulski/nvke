@@ -37,11 +37,15 @@ concurrency:
   group: Unit Tests OS-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# A module fetch the proxy drops mid-stream falls back to the module's origin (#1481).
+env:
+  GOPROXY: https://proxy.golang.org|direct
+
 jobs:
   test:
     name: make test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     timeout-minutes: 40
     permissions:
       contents: read

@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 func TestGetClusterControlPlaneConfigHistory(t *testing.T) {
@@ -35,11 +35,11 @@ func TestGetClusterControlPlaneConfigHistory(t *testing.T) {
 		cluster.ControlPlaneConfig.ConfigurationID = cfg2
 
 		cfg1Spec := db.ControlPlaneConfigSpec{KubernetesVersion: "1.33.6"}
-		cfg1Spec.SetNico(db.NicoControlPlaneProvider{OSProfile: "os-v1", ConfigProfile: "cfg-v1"})
+		cfg1Spec.SetNico(db.NicoControlPlaneProvider{Release: "os-v1", ConfigProfile: "cfg-v1"})
 		cfg2Spec := db.ControlPlaneConfigSpec{KubernetesVersion: "1.34.2"}
-		cfg2Spec.SetNico(db.NicoControlPlaneProvider{OSProfile: "os-v1", ConfigProfile: "cfg-v1"})
+		cfg2Spec.SetNico(db.NicoControlPlaneProvider{Release: "os-v1", ConfigProfile: "cfg-v1"})
 		cfg3Spec := db.ControlPlaneConfigSpec{KubernetesVersion: "1.34.2", TeleportEnabled: true}
-		cfg3Spec.SetNico(db.NicoControlPlaneProvider{OSProfile: "os-v2", ConfigProfile: "cfg-v1"})
+		cfg3Spec.SetNico(db.NicoControlPlaneProvider{Release: "os-v2", ConfigProfile: "cfg-v1"})
 
 		mockDB := &testutil.MockDB{}
 		mockDB.On("GetCluster", mock.Anything, clusterID).Return(cluster, nil)
@@ -107,14 +107,14 @@ func TestGetClusterControlPlaneConfigHistory(t *testing.T) {
 		assert.Equal(t, "1.33.6", *out.Changes[1].ChangedFields[0].From)
 		assert.Equal(t, "1.34.2", out.Changes[1].ChangedFields[0].To)
 
-		// Third snapshot: OS profile and teleport toggled; not current.
+		// Third snapshot: release and teleport toggled; not current.
 		assert.Equal(t, cfg3, out.Changes[2].ConfigurationID)
 		assert.False(t, out.Changes[2].IsCurrent)
 		fields := map[string]string{}
 		for _, f := range out.Changes[2].ChangedFields {
 			fields[f.Field] = f.To
 		}
-		assert.Equal(t, "os-v2", fields["osProfile"])
+		assert.Equal(t, "os-v2", fields["release"])
 		assert.Equal(t, "true", fields["teleportEnabled"])
 		assert.NotContains(t, fields, "kubernetesVersion")
 

@@ -5,7 +5,7 @@
 # Asserts what the chart renders for apiAuth in each state, which `helm lint`
 # does not check.
 #
-# Needs only helm. Resolves the chart relative to this script, so it runs from
+# Needs helm and yq. Resolves the chart relative to this script, so it runs from
 # anywhere; CHART overrides that, which is how the workflow points it at
 # controller/deploy/charts/controller from the repository root.
 
@@ -38,14 +38,17 @@ absent() {
   fi
 }
 
-# pair <description> <key> <value> <rendered>
-# Asserts value on the line after key. A bare `value: "true"` matches unrelated
-# env vars, so checking key and value independently would pass either way.
-pair() {
-  if grep -A1 "name: $2" <<<"$4" | grep -q "value: \"$3\""; then
+# setting <description> <config.yaml key> <value> <rendered>
+# Asserts one key of the rendered nke-controller-config, where the controller
+# reads its settings. A list compares as its items joined with commas.
+setting() {
+  local got
+  got="$(yq 'select(.kind == "ConfigMap" and .metadata.name == "nke-controller-config") | .data["config.yaml"]' <<<"$4" |
+    yq ".$2 | (select(tag == \"!!seq\") | join(\",\")) // .")"
+  if [[ "${got}" == "$3" ]]; then
     printf '  ok    %s\n' "$1"
   else
-    printf '  FAIL  %s (expected %s = %s)\n' "$1" "$2" "$3" >&2
+    printf '  FAIL  %s (expected %s = %s, got %s)\n' "$1" "$2" "$3" "${got}" >&2
     failures=$((failures + 1))
   fi
 }
@@ -94,23 +97,23 @@ YAML
 
 echo "apiAuth disabled (the default):"
 out="$(render)"
-# Absent, not empty: NKE reads an empty AUTH_CONFIG_PATH as unset.
+# Absent, not empty: NVKE reads an empty AUTH_CONFIG_PATH as unset.
 absent "AUTH_CONFIG_PATH is not set at all"   'AUTH_CONFIG_PATH'                     "${out}"
-absent "PERMISSIVE_MODE is not set"           'PERMISSIVE_MODE'                      "${out}"
+setting "permissiveMode is false"            permissiveMode false                   "${out}"
 absent "no config volume"                     'name: nke-auth-config'                "${out}"
 absent "no issuer-discovery binding"          'system:service-account-issuer-discovery' "${out}"
 
 echo "apiAuth enabled, enforcing:"
 out="$(render --set apiAuth.enabled=true)"
 want   "AUTH_CONFIG_PATH points at the mount" 'value: "/etc/nke/auth/auth.yaml"'     "${out}"
-pair   "PERMISSIVE_MODE is false"            'PERMISSIVE_MODE' 'false'              "${out}"
+setting "permissiveMode is false"           permissiveMode false                   "${out}"
 want   "ConfigMap volume"                     'name: nke-auth-config'                "${out}"
 want   "mounted where the path says"          'mountPath: "/etc/nke/auth"'           "${out}"
 want   "issuer-discovery binding"             'system:service-account-issuer-discovery' "${out}"
 
 echo "apiAuth enabled, permissive:"
 out="$(render --set apiAuth.enabled=true --set apiAuth.permissive=true)"
-pair   "PERMISSIVE_MODE is true"             'PERMISSIVE_MODE' 'true'               "${out}"
+setting "permissiveMode is true"            permissiveMode true                    "${out}"
 
 echo "clusterIssuerDiscovery=false:"
 out="$(render --set apiAuth.enabled=true --set apiAuth.clusterIssuerDiscovery=false)"
@@ -128,11 +131,12 @@ want   "configMap.name is honoured"           'name: my-auth'                   
 
 echo "configMap.create=false (the default) mounts a ConfigMap it does not create:"
 out="$(render --set apiAuth.enabled=true)"
-absent "renders no ConfigMap of its own"      '^kind: ConfigMap'                     "${out}"
+# By source template, not kind: the chart renders other ConfigMaps regardless.
+absent "renders no ConfigMap of its own"      '^# Source: .*/templates/configmap-auth\.yaml$' "${out}"
 want   "still mounts the named one"           'name: nke-auth-config'                "${out}"
 # auth.Load runs once at startup, so a configuration edit that does not restart
 # the pods does nothing at all. Reloader is what restarts them, here and below.
-want   "Reloader watches it"                  'configmap.reloader.stakater.com/reload: "nke-auth-config"' "${out}"
+want   "Reloader watches it"                  'configmap.reloader.stakater.com/reload: "nke-auth-config,nke-controller-config"' "${out}"
 
 echo "configMap.create=true renders the configuration:"
 out="$(render -f "${values}")"
@@ -149,21 +153,21 @@ want   "the nested admit rule keeps its name" '^        - name: forge-console'  
 want   "and its namespace"                    '^          namespace: cloud-workflow-engine' "${out}"
 # Rendering the ConfigMap does not change how it gets applied: Reloader watches
 # it either way, so there is one mechanism to reason about rather than two.
-want   "Reloader watches it here too"         'configmap.reloader.stakater.com/reload: "nke-auth-config"' "${out}"
+want   "Reloader watches it here too"         'configmap.reloader.stakater.com/reload: "nke-auth-config,nke-controller-config"' "${out}"
 
 echo "the Reloader annotation names whatever configMap.name says:"
 out="$(render --set apiAuth.enabled=true --set apiAuth.configMap.name=my-auth)"
-want   "the named ConfigMap is the watched one" 'configmap.reloader.stakater.com/reload: "my-auth"' "${out}"
+want   "the named ConfigMap is the watched one" 'configmap.reloader.stakater.com/reload: "my-auth,nke-controller-config"' "${out}"
 
-echo "nothing is watched while authentication is off:"
+echo "only nke-controller-config is watched while authentication is off:"
 out="$(render)"
-absent "no ConfigMap reload annotation"       'configmap.reloader.stakater.com/reload' "${out}"
+want   "no auth ConfigMap in the reload annotation" 'configmap.reloader.stakater.com/reload: "nke-controller-config"' "${out}"
 
 echo "an operator override of the reload annotation is left alone:"
 out="$(render --set apiAuth.enabled=true \
   --set 'deploymentAnnotations.configmap\.reloader\.stakater\.com/reload=theirs')"
 want   "theirs wins"                          'configmap.reloader.stakater.com/reload: theirs' "${out}"
-absent "and the chart does not add its own"   'configmap.reloader.stakater.com/reload: "nke-auth-config"' "${out}"
+absent "and the chart does not add its own"   'configmap.reloader.stakater.com/reload: ".*nke-' "${out}"
 
 echo "config and configMap.create must agree:"
 wantfail "config without create is refused"    'apiAuth\.config is set but would not be rendered' \

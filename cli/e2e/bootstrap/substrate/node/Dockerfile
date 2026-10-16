@@ -1,14 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Node image for the nkectl bootstrap-site E2E substrate.
+# Node image for the nvkectl bootstrap-site E2E substrate.
 #
 # This is a deliberately thin derivation of the CAPD node image
 # (controller/hack/capd-kindest-node/Dockerfile, built by `make capd-image`),
-# which already provides everything a pre-provisioned NKE host needs:
+# which already provides everything a pre-provisioned NVKE host needs:
 #
-#   * nke-agent installed with its systemd unit, configured via
-#     /etc/default/nke-agent
+#   * nvke-agent installed with its systemd unit, configured via
+#     /etc/default/nvke-agent
 #   * spire-agent including the TPM attestor plugin
 #   * a software TPM with a DER-encoded EK certificate at /var/lib/swtpm/ek.cert
 #   * a kubeadm wrapper that skips the container-only SystemVerification failure
@@ -24,18 +24,22 @@ FROM ${BASE_IMAGE}
 ARG NODE_AGENT_PORT=15005
 
 # Fail the build loudly if the base image ever stops serving on the port the
-# substrate (and CWE's NODE_AGENT_PORT default) expects, rather than letting it
+# substrate (and the controller's NODE_AGENT_PORT default) expects, rather than letting it
 # surface as an unexplained readiness timeout.
-RUN grep -q -- "--secure-server-port ${NODE_AGENT_PORT}" /etc/default/nke-agent
-RUN ! grep -q -- '--disable-mtls' /etc/default/nke-agent
+RUN grep -q -- "--secure-server-port ${NODE_AGENT_PORT}" /etc/default/nvke-agent
+RUN ! grep -q -- '--disable-mtls' /etc/default/nvke-agent
 
 # These hosts are already provisioned. The CAPD base image has a cloud-init
 # status shim (controller/hack/capd-kindest-node/scripts/cloud-init-status-shim)
 # that reads /var/lib/nico-containers/cloud-init/status. This suite has no
-# nico-sim process to write that file, so mark setup complete here or CWE's
+# nico-sim process to write that file, so mark setup complete here or the controller's
 # NodePreflight stays on "cloud-init not done: status: running" forever.
 RUN install -d /var/lib/nico-containers/cloud-init && \
     printf 'done\n' >/var/lib/nico-containers/cloud-init/status
+
+# This suite runs Calico; the base image's OVS uplink bridge is for OVN Geneve
+# and leaves these nodes unreachable on the substrate network.
+RUN SYSTEMD_OFFLINE=1 systemctl disable nke-container-network.service
 
 # SPIRE.
 #
@@ -45,8 +49,8 @@ RUN install -d /var/lib/nico-containers/cloud-init && \
 #
 # The result is a host that already has a hardware identity and is already
 # looking for its SPIRE server — which is what a pre-provisioned machine looks
-# like by the time nkectl hears about it. The server does not exist yet;
-# spire-agent retries until `nkectl bootstrap site` puts one where agent.conf
+# like by the time nvkectl hears about it. The server does not exist yet;
+# spire-agent retries until `nvkectl bootstrap site` puts one where agent.conf
 # says. That is why the E2E has nothing to configure and nothing to start: it
 # reads the fingerprints, lets the command deploy SPIRE, and checks the agents
 # got in.

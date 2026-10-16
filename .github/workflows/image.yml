@@ -46,7 +46,7 @@ jobs:
   image:
     name: build
     runs-on: linux-amd64-cpu16
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     timeout-minutes: 20
     permissions:
       contents: read
@@ -105,23 +105,23 @@ jobs:
           check agent/Dockerfile.nke-builder             agent
 
           # These three are checked but never built: capd-kindest-node and
-          # cwe.tilt need inputs CI does not have, and Dockerfile.proto is
+          # controller.tilt need inputs CI does not have, and Dockerfile.proto is
           # developer tooling.
           check controller/hack/capd-kindest-node/Dockerfile      controller/hack/capd-kindest-node
           check agent/internal-scripts/docker/Dockerfile.proto    agent/internal-scripts/docker
 
-          # The nkectl bootstrap substrate node. Its default base,
+          # The nvkectl bootstrap substrate node. Its default base,
           # cwe-capd-kindest-node:local, is built by the e2e lane and is not
           # pullable, so --check cannot resolve it and the file went unchecked.
           # Any resolvable node image parses it, and kindest/node is the image
           # capd-kindest-node derives that local one from in the first place.
           check cli/e2e/bootstrap/substrate/node/Dockerfile       cli/e2e/bootstrap/substrate/node \
                 --build-arg BASE_IMAGE=kindest/node:v1.34.8
-          # Tiltfile builds cwe.tilt from a temporary directory holding bin/,
+          # Tiltfile builds controller.tilt from a temporary directory holding bin/,
           # profiles/ and ui/, so its real context does not exist in the tree.
           # Using controller/ instead fails on CopyIgnoredFile, because
           # controller/.dockerignore excludes **/bin.
-          check controller/hack/Dockerfile.cwe.tilt               controller/hack
+          check controller/hack/Dockerfile.controller.tilt        controller/hack
 
           # The profiles fixture is the one non-shipped image whose context IS
           # in the tree, so it is built for real below rather than only parsed.
@@ -150,13 +150,13 @@ jobs:
         run: |
           docker buildx build \
             --file controller/hack/capd-reboot-controller/Dockerfile \
-            --tag nke/capd-reboot-controller:ci \
+            --tag nvke/capd-reboot-controller:ci \
             --load \
             controller/hack/capd-reboot-controller
 
       - name: Show image
         shell: bash
-        run: docker image inspect nke/capd-reboot-controller:ci --format 'built {{.RepoTags}} {{.Size}} bytes'
+        run: docker image inspect nvke/capd-reboot-controller:ci --format 'built {{.RepoTags}} {{.Size}} bytes'
 
       # A real end-to-end controller image build: it compiles the controller
       # inside the build, resolving public Go modules without credentials. The context is the
@@ -283,12 +283,49 @@ jobs:
 
       - name: Upload the image scan SARIF
         if: always() && steps.image-scan.outputs.sarif != ''
-        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           sarif_file: ${{ steps.image-scan.outputs.sarif }}
           category: grype-image
 
-# Not built here: controller/hack/Dockerfile.cwe.tilt — it only copies a
+      # The scan above honours .grype.yaml but never says whether the entries in
+      # it still match anything. An entry whose upstream has shipped a fix
+      # suppresses nothing, and a no-op entry is what hides the next real
+      # finding: it stays in the file, nobody is forced to look at it, and the
+      # day the same package gets a new advisory it is already excused.
+      #
+      # Only entries declaring `scope=image` or `scope=both` are judged here.
+      # The source-tree scan in security-scan.yml judges the rest; neither scan
+      # sees the other's packages, so neither can call the other's entries dead.
+      #
+      # Skipped entirely while the list is empty, which is the normal state, so
+      # this costs a second scan only once there is something to check.
+      - name: Count the ignore entries
+        id: ignore
+        if: always()
+        run: echo "count=$(./hack/grype-ignore-check.sh --count)" >> "${GITHUB_OUTPUT}"
+
+      # A second pass, in JSON, because the SARIF above omits suppressed matches
+      # entirely -- they are exactly what this needs to read. No cutoff and no
+      # only-fixed filter: an entry covering an advisory with no fix available
+      # is still an entry that has to be matching something.
+      - name: Re-scan the image for suppressed findings
+        id: suppressed
+        if: always() && steps.ignore.outputs.count != '0'
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: nke/nke-controller:ci
+          severity-cutoff: negligible
+          output-format: json
+          only-fixed: false
+          config: .grype.yaml
+          fail-build: false
+
+      - name: Check every image-scoped exception still suppresses a finding
+        if: always() && steps.ignore.outputs.count != '0'
+        run: ./hack/grype-ignore-check.sh --applied image "${{ steps.suppressed.outputs.json }}"
+
+# Not built here: controller/hack/Dockerfile.controller.tilt — it only copies a
 # prebuilt binary, so it has nothing to verify without a preceding build.
 #
 # Nothing is pushed here. Publishing to nvcr.io lives in the per-component

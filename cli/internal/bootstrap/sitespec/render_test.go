@@ -21,20 +21,35 @@ func threeNodes() []Node {
 	}
 }
 
+func oneNode() []Node {
+	return threeNodes()[:1]
+}
+
 // TestExampleMatchesTemplate keeps the shipped example and the embedded
 // template from drifting. It compares what they mean rather than their bytes:
 // the two are allowed to differ in wording, and pinning bytes would make every
 // edit to one a failure in the other.
 func TestExampleMatchesTemplate(t *testing.T) {
-	fromExample, err := Load(filepath.Join("..", "..", "..", "examples", "sitespec.yaml"))
+	example, err := os.ReadFile(filepath.Join("..", "..", "..", "examples", "sitespec.yaml"))
 	if err != nil {
-		t.Fatalf("load cli/examples/sitespec.yaml: %v", err)
+		t.Fatalf("read cli/examples/sitespec.yaml: %v", err)
+	}
+	fromExample, err := decodeBytes(example)
+	if err != nil {
+		t.Fatalf("decode cli/examples/sitespec.yaml: %v", err)
+	}
+	fromExample.SetDefaults()
+	if err := fromExample.Validate(); err != nil {
+		t.Fatalf("validate cli/examples/sitespec.yaml: %v", err)
 	}
 	fromTemplate, err := decodeBytes(templateYAML)
 	if err != nil {
 		t.Fatalf("decode cli/internal/bootstrap/sitespec/template.yaml: %v", err)
 	}
 	fromTemplate.SetDefaults()
+	// The generator template leaves this optional because Build also supports a
+	// single node. The shipped three-node example must set it.
+	fromTemplate.Cluster.ControlPlaneVIP = fromExample.Cluster.ControlPlaneVIP
 
 	if diff := specDiff(fromTemplate, fromExample); diff != "" {
 		t.Errorf("cli/internal/bootstrap/sitespec/template.yaml and cli/examples/sitespec.yaml describe different site specs.\n"+
@@ -44,20 +59,19 @@ func TestExampleMatchesTemplate(t *testing.T) {
 
 // TestBuildRoundTrip is the zero-edit guarantee: whatever Build validated is
 // what Load reads back out of the rendered file. It covers every settable field
+// but spire.upstreamCA, which needs the CA variables to load (TestBuildUpstreamCA),
 // so a value that renders into a commented block cannot pass unnoticed.
 func TestBuildRoundTrip(t *testing.T) {
 	sets := []string{
 		"cluster.k8sVersion=1.33.1",
-		"cluster.cniName=calico",
-		"cluster.cniVersion=3.31.4",
+		"cluster.cniName=ovn-kubernetes",
+		"cluster.cniVersion=1.4.0",
 		"cluster.controlPlaneVIP=10.0.0.5",
 		"cluster.podCidr=10.100.0.0/16",
 		"cluster.serviceCidr=10.200.0.0/16",
 		"cluster.nodeAgentPort=50051",
 		"cluster.etcdEncryption=false",
 		"cluster.kubeletConfig.systemReservedMemory=8Gi",
-		"registry.bootstrapRepo=nvcr.io/example/cwe",
-		"registry.bootstrapChart=cloud-workflow-engine",
 		"spire.trustDomain=site.example.com",
 	}
 
@@ -94,7 +108,7 @@ func TestBuildRoundTrip(t *testing.T) {
 // rather than marshalling a struct: an operator reads and commits this file,
 // and the explanations are most of its value.
 func TestRenderKeepsComments(t *testing.T) {
-	built, err := Build("my-tier0-site", threeNodes(), nil)
+	built, err := Build("my-tier0-site", oneNode(), nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -118,7 +132,7 @@ func TestRenderKeepsComments(t *testing.T) {
 // appear as an empty string. cniVersion empty means "use the agent default",
 // which is not the same as cniVersion set to "".
 func TestRenderOmitsUnsetOptionalFields(t *testing.T) {
-	built, err := Build("my-tier0-site", threeNodes(), nil)
+	built, err := Build("my-tier0-site", oneNode(), nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -149,30 +163,9 @@ func uncommentedLineFor(rendered, key string) string {
 	return ""
 }
 
-// TestRenderNeverEmitsAPIKey: the environment must not reach the file. Load
-// binds REGISTRY_API_KEY because bootstrap honours the operator's shell; a
-// generator that did the same would write a live credential into a file the
-// whole design says to commit.
-func TestRenderNeverEmitsAPIKey(t *testing.T) {
-	const secret = "nvapi-not-a-real-key"
-	t.Setenv("REGISTRY_API_KEY", secret)
-
-	built, err := Build("my-tier0-site", threeNodes(), nil)
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	rendered, err := built.Render()
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
-	if strings.Contains(string(rendered), secret) {
-		t.Fatalf("the rendered site spec contains REGISTRY_API_KEY from the environment:\n%s", rendered)
-	}
-}
-
 // TestBuildIgnoresEnvironment: no bound variable may change the output.
 func TestBuildIgnoresEnvironment(t *testing.T) {
-	clean, err := Build("my-tier0-site", threeNodes(), nil)
+	clean, err := Build("my-tier0-site", oneNode(), nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -184,9 +177,9 @@ func TestBuildIgnoresEnvironment(t *testing.T) {
 	for env := range envBindings() {
 		t.Setenv(env, "junk-"+env)
 	}
-	t.Setenv("NKECTL_CLUSTER_NODES", "someone:10.0.0.9")
+	t.Setenv("NVKECTL_CLUSTER_NODES", "someone:10.0.0.9")
 
-	dirty, err := Build("my-tier0-site", threeNodes(), nil)
+	dirty, err := Build("my-tier0-site", oneNode(), nil)
 	if err != nil {
 		t.Fatalf("Build with the environment set: %v", err)
 	}
@@ -211,12 +204,14 @@ func TestBuildRejects(t *testing.T) {
 	}{
 		"unknown --set path":     {"s", threeNodes(), []string{"cluster.nope=1"}, "unknown field"},
 		"--set without a value":  {"s", threeNodes(), []string{"cluster.podCidr"}, "expected path=value"},
-		"--set the api key":      {"s", threeNodes(), []string{"registry.apiKey=x"}, "committed"},
+		"--set the api key":      {"s", threeNodes(), []string{"registry.apiKey=x"}, "nerdctl login"},
+		"--set the CA file":      {"s", threeNodes(), []string{"spire.caCertFile=/x"}, EnvSpireCACertFile},
 		"--set the node list":    {"s", threeNodes(), []string{"cluster.nodes=x"}, "--nodes"},
 		"unsupported cni":        {"s", threeNodes(), []string{"cluster.cniName=cilium"}, pathCniName},
 		"bad cidr":               {"s", threeNodes(), []string{"cluster.podCidr=nope"}, pathPodCidr},
 		"cluster name not label": {"Not_A_Label", threeNodes(), nil, pathClusterName},
 		"even node count":        {"s", threeNodes()[:2], nil, pathNodes},
+		"multi-node without VIP": {"s", threeNodes(), nil, pathControlPlaneVIP},
 		"bad node ip":            {"s", []Node{{Name: "a", IP: "999.1.1.1"}}, nil, "ip"},
 		"bad thumbprint":         {"s", []Node{{Name: "a", IP: "10.0.0.1", TPMEKThumbprint: "xyz"}}, nil, "tpmEkThumbprint"},
 	} {
@@ -327,8 +322,6 @@ func TestRenderPlacesOptionalFieldsInPosition(t *testing.T) {
 		"cluster.controlPlaneVIP=10.0.0.5",
 		"cluster.nodeAgentPort=50051",
 		"spire.trustDomain=site.example.com",
-		"spire.caCertFile=/etc/nke/ca.crt",
-		"spire.caKeyFile=/etc/nke/ca.key",
 	})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
@@ -347,7 +340,6 @@ func TestRenderPlacesOptionalFieldsInPosition(t *testing.T) {
 		{"controlPlaneVIP:", "nodeAgentPort:"},
 		{"nodeAgentPort:", "kubeletConfig:"},
 		{"cluster:", "spire:"},
-		{"spire:", "registry:"},
 	} {
 		before, after := strings.Index(out, order[0]), strings.Index(out, order[1])
 		if before < 0 || after < 0 || before > after {
@@ -362,13 +354,9 @@ func TestRenderPlacesOptionalFieldsInPosition(t *testing.T) {
 	if identity < 0 || identity > spire {
 		t.Errorf("the SPIRE explanation should introduce spire:, not follow it:\n%s", out)
 	}
-	registry := strings.Index(out, "\nregistry:")
-	if c := strings.Index(out, "Container registry for the bootstrap"); c < 0 || c > registry || c < spire {
-		t.Errorf("registry should keep its own comment, between spire: and registry::\n%s", out)
-	}
 
 	// The example is replaced, not duplicated.
-	for _, key := range []string{"cniVersion", "controlPlaneVIP", "nodeAgentPort", "trustDomain", "caCertFile"} {
+	for _, key := range []string{"cniVersion", "controlPlaneVIP", "nodeAgentPort", "trustDomain"} {
 		if strings.Contains(out, "# "+key+":") {
 			t.Errorf("the commented-out example of %s survived alongside the real value:\n%s", key, out)
 		}
@@ -379,7 +367,7 @@ func TestRenderPlacesOptionalFieldsInPosition(t *testing.T) {
 // file has to say `false`, not `"false"`. A quoted string does not decode into
 // the struct, so a wrong style here is a generated file that does not load.
 func TestRenderEtcdEncryptionIsABool(t *testing.T) {
-	built, err := Build("my-tier0-site", threeNodes(), []string{"cluster.etcdEncryption=false"})
+	built, err := Build("my-tier0-site", oneNode(), []string{"cluster.etcdEncryption=false"})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -396,7 +384,7 @@ func TestRenderEtcdEncryptionIsABool(t *testing.T) {
 
 	// Explicitly on is the default, so it stays a comment like any other
 	// optional field left at its default.
-	built, err = Build("my-tier0-site", threeNodes(), []string{"cluster.etcdEncryption=true"})
+	built, err = Build("my-tier0-site", oneNode(), []string{"cluster.etcdEncryption=true"})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -408,8 +396,74 @@ func TestRenderEtcdEncryptionIsABool(t *testing.T) {
 		t.Errorf("explicit true rendered as %q; the default should stay a comment", line)
 	}
 
-	_, err = Build("my-tier0-site", threeNodes(), []string{"cluster.etcdEncryption=maybe"})
+	_, err = Build("my-tier0-site", oneNode(), []string{"cluster.etcdEncryption=maybe"})
 	if err == nil || !strings.Contains(err.Error(), "cluster.etcdEncryption") || !strings.Contains(err.Error(), "maybe") {
 		t.Errorf("Build with a non-boolean value: err = %v, want one naming the path and the value", err)
+	}
+}
+
+func TestBuildControlPlaneVIPMatchingNodeIP(t *testing.T) {
+	for _, index := range []int{0, 1} {
+		nodes := threeNodes()
+		vip := nodes[index].IP
+		t.Run(nodes[index].Name, func(t *testing.T) {
+			built, err := Build("site", nodes, []string{"cluster.controlPlaneVIP=" + vip})
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if built.Cluster.ControlPlaneVIP != vip {
+				t.Fatalf("ControlPlaneVIP = %q, want %q", built.Cluster.ControlPlaneVIP, vip)
+			}
+			rendered, err := built.Render()
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			decoded, err := decodeBytes(rendered)
+			if err != nil {
+				t.Fatalf("decode generated site spec: %v", err)
+			}
+			if decoded.Cluster.ControlPlaneVIP != vip {
+				t.Errorf("generated ControlPlaneVIP = %q, want %q", decoded.Cluster.ControlPlaneVIP, vip)
+			}
+			decoded.SetDefaults()
+			if err := decoded.Validate(); err != nil {
+				t.Errorf("Validate generated site spec: %v", err)
+			}
+		})
+	}
+}
+
+// TestBuildUpstreamCA: --set spire.upstreamCA=true renders a bool the loader
+// reads back, and then requires the CA variables.
+func TestBuildUpstreamCA(t *testing.T) {
+	built, err := Build("my-tier0-site", oneNode(), []string{"spire.upstreamCA=true"})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	rendered, err := built.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(rendered), "upstreamCA: true") {
+		t.Fatalf("rendered file does not set upstreamCA:\n%s", rendered)
+	}
+	path := filepath.Join(t.TempDir(), "sitespec.yaml")
+	if err := os.WriteFile(path, rendered, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvSpireCACertFile, "")
+	t.Setenv(EnvSpireCAKeyFile, "")
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), pathSpireUpstreamCA+" is true") {
+		t.Errorf("Load without the CA: %v, want %s to require it", err, pathSpireUpstreamCA)
+	}
+	cert, key, _ := spireCAFiles(t)
+	t.Setenv(EnvSpireCACertFile, cert)
+	t.Setenv(EnvSpireCAKeyFile, key)
+	loaded, err := Load(path)
+	if err != nil || !loaded.Spire.UpstreamCA {
+		t.Errorf("Load with the CA: %+v, %v", loaded, err)
+	}
+	if _, err := Build("my-tier0-site", oneNode(), []string{"spire.upstreamCA=maybe"}); err == nil {
+		t.Error("--set spire.upstreamCA=maybe was accepted")
 	}
 }

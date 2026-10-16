@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package manifest holds the bootstrap manifest: the charts
-// `nkectl bootstrap site` fetches and installs with Helm, and the images the
-// bootstrap runs. nkectl pins each chart's version. The digests are recorded
+// `nvkectl bootstrap site` fetches and installs with Helm, and the images the
+// bootstrap runs. nvkectl pins each chart's version. The digests are recorded
 // for mirroring; the bootstrap does not verify them.
 package manifest
 
@@ -22,13 +22,17 @@ const (
 	ComponentSPIRE       = "spire"
 	ComponentController  = "controller"
 	ComponentProvisioned = "cluster-api-provider-provisioned"
+	ComponentCAPNICo     = "cluster-api-provider-nico"
 
 	// Image keys under the two components this repository builds.
 	ImageController = "controller"
 	ImageManager    = "manager"
+
+	// ImageCAPNICo is the key of the CAPNICo controller image.
+	ImageCAPNICo = "controller"
 )
 
-// manifestYAML is the embedded manifest. `nkectl get bootstrap-manifest` prints it.
+// manifestYAML is the embedded manifest. `nvkectl get bootstrap-manifest` prints it.
 //
 //go:embed bootstrap-manifest.yaml
 var manifestYAML []byte

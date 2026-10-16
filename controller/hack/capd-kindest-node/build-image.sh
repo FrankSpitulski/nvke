@@ -5,13 +5,15 @@
 # Shared helper for building the custom kindest node image used by local CAPD
 # and NICo flows. The Dockerfile remains the source of truth for image-content
 # defaults like KINDEST_NODE_TAG and NODE_AGENT_VERSION. This helper selects the
-# image platform and matching NKE bundle architecture for the container runtime, and
+# image platform and matching NVKE bundle architecture for the container runtime, and
 # can package a sibling agent checkout into the image for local CAPD tests.
 
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
+# shellcheck source=../../../hack/read-tool-version.sh
+. "$(cd "${script_dir}/../../.." && pwd)/hack/read-tool-version.sh"
 
 : "${CAPD_KINDEST_NODE_IMAGE:=cwe-capd-kindest-node:local}"
 : "${CAPD_KINDEST_NODE_TAG:=v1.34.8}"
@@ -20,6 +22,9 @@ repo_root="$(cd "${script_dir}/../.." && pwd)"
 : "${DSX_IMDS_AGENT_PLUGIN_PATH:=}"
 : "${DSX_IDENTITY_CA_BUNDLE_PATH:=}"
 : "${CAPD_CNI_MANIFESTS_DEB_PATH:=}"
+: "${CAPD_CNI_CHARTS_DEB_PATH:=}"
+: "${CAPD_CNI_IMAGES_DEB_PATH:=}"
+: "${CAPD_HELM_DEB_PATH:=}"
 : "${NKE_E2E_DOCKERHUB_MIRROR:=}"
 : "${NODE_AGENT_REPO_PATH:=${repo_root}/../agent}"
 # Empty by default: a bundle server is a deployment choice, and the CDN that used
@@ -36,8 +41,16 @@ fi
 #   bundle - download the pre-assembled bundle from BUNDLE_SERVER_URL
 # Downstream builds that want the internal bundle set SPIRE_AGENT_SOURCE=bundle.
 : "${SPIRE_AGENT_SOURCE:=github}"
-: "${SPIRE_AGENT_VERSION:=1.14.1}"
-: "${TPM_ATTESTOR_VERSION:=1.9.0}"
+# The same two upstream releases the node .deb wraps and that
+# hack/ci/prepare-capd-bundles.sh assembles the CAPD bundle from: the image
+# built here has to attest against the versions the nodes actually run. Read
+# from make/tool-versions.mk rather than restated, so bumping it there reaches
+# all three. Assigning unconditionally first means a missing pin fails loudly
+# here instead of defaulting a download to an empty version.
+spire_version_pin="$(read_tool_version SPIRE_VERSION)"
+tpm_plugin_version_pin="$(read_tool_version TPM_PLUGIN_VERSION)"
+: "${SPIRE_AGENT_VERSION:=${spire_version_pin}}"
+: "${TPM_ATTESTOR_VERSION:=${tpm_plugin_version_pin}}"
 : "${SPIRE_RELEASE_BASE_URL:=https://github.com/spiffe/spire/releases/download}"
 : "${TPM_ATTESTOR_RELEASE_BASE_URL:=https://github.com/spiffe/spire-tpm-plugin/releases/download}"
 # Retry budget for every artifact download.
@@ -46,8 +59,19 @@ fi
 # The container CLI to build through. Docker by default, for the consumers
 # that run on it (controller/Makefile.dev, controller/hack/ci/backend-e2e.sh).
 # cli/e2e/bootstrap passes nerdctl, because that suite has no Docker daemon
-# and the image has to land in the containerd store nkectl loads from.
+# and the image has to land in the containerd store nvkectl loads from.
 : "${CONTAINER_CLI:=docker}"
+
+# The base this script builds on, resolved the same way the build below resolves
+# it. Callers that need the base without building ask here rather than restating
+# the pin -- see e2e_host_loads_openvswitch, which probes the host kernel with
+# the base's own kmod before anything is built.
+if [[ "${1:-}" == "--print-base-image" ]]; then
+  printf '%s:%s\n' \
+    "${NKE_E2E_DOCKERHUB_MIRROR:+${NKE_E2E_DOCKERHUB_MIRROR}/}kindest/node" \
+    "${CAPD_KINDEST_NODE_TAG}"
+  exit 0
+fi
 
 if [[ "$(uname -s)" == "Darwin" && -z "${DOCKER_HOST:-}" ]]; then
   : "${COLIMA_DOCKER_HOST:=unix://${HOME}/.colima/default/docker.sock}"
@@ -216,10 +240,13 @@ if [[ -n "${NKE_E2E_DOCKERHUB_MIRROR}" ]]; then
   fi
   # Reachability is logged, not enforced: the image still builds and pulls fall
   # through to the next host.
-  if curl -fsS -m 5 -o /dev/null "https://${NKE_E2E_DOCKERHUB_MIRROR}/v2/"; then
-    echo "[build-image] mirror ${NKE_E2E_DOCKERHUB_MIRROR} answered /v2/"
+  # A registry answers /v2/ with 200 or, when it wants a token first, 401;
+  # mirror.gcr.io does the latter, and curl -f used to report that as silence.
+  probe_status="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "https://${NKE_E2E_DOCKERHUB_MIRROR}/v2/" || echo 000)"
+  if [[ "${probe_status}" == "200" || "${probe_status}" == "401" ]]; then
+    echo "[build-image] mirror ${NKE_E2E_DOCKERHUB_MIRROR} answered /v2/ (HTTP ${probe_status})"
   else
-    echo "[build-image] mirror ${NKE_E2E_DOCKERHUB_MIRROR} did not answer /v2/; pulls will fall through"
+    echo "[build-image] mirror ${NKE_E2E_DOCKERHUB_MIRROR} did not answer /v2/ (HTTP ${probe_status}); pulls will fall through"
   fi
   echo "[build-image] pull order: ${NKE_E2E_DOCKERHUB_MIRROR} -> local dev cache -> upstream"
 else
@@ -237,6 +264,20 @@ if [[ -n "${CAPD_CNI_MANIFESTS_DEB_PATH}" ]]; then
   fi
   cp "${CAPD_CNI_MANIFESTS_DEB_PATH}" "${build_context}/scripts/cni-manifests.deb"
 fi
+if [[ -n "${CAPD_CNI_CHARTS_DEB_PATH}" ]]; then
+  if [[ ! -f "${CAPD_CNI_CHARTS_DEB_PATH}" ]]; then
+    echo "CAPD_CNI_CHARTS_DEB_PATH does not exist: ${CAPD_CNI_CHARTS_DEB_PATH}" >&2
+    exit 1
+  fi
+  cp "${CAPD_CNI_CHARTS_DEB_PATH}" "${build_context}/scripts/cni-charts.deb"
+fi
+
+for entry in "${CAPD_CNI_IMAGES_DEB_PATH}:cni-images.deb" "${CAPD_HELM_DEB_PATH}:helm.deb"; do
+  deb_path="${entry%:*}"
+  [[ -n "${deb_path}" ]] || continue
+  [[ -f "${deb_path}" ]] || { echo "CNI/Helm package does not exist: ${deb_path}" >&2; exit 1; }
+  cp "${deb_path}" "${build_context}/scripts/${entry##*:}"
+done
 
 should_build_local_node_agent() {
   case "${CAPD_NODE_AGENT_LOCAL_BUILD}" in
@@ -337,8 +378,17 @@ else
   fetch_url "${spire_bundle_url}" "${build_context}/spire-agent.tgz"
 fi
 
-echo "Ensuring kindest/node:${CAPD_KINDEST_NODE_TAG} is available for ${effective_platform}..."
-"${CONTAINER_CLI}" pull --platform "${effective_platform}" "kindest/node:${CAPD_KINDEST_NODE_TAG}"
+# Through the mirror when one is set: the host daemon has none of its own, and
+# an anonymous docker.io pull from the shared CI egress returns 429 under load.
+kindest_node_image="${NKE_E2E_DOCKERHUB_MIRROR:+${NKE_E2E_DOCKERHUB_MIRROR}/}kindest/node"
+echo "Ensuring ${kindest_node_image}:${CAPD_KINDEST_NODE_TAG} is available for ${effective_platform}..."
+# The mirror sometimes 404s a blob it has not cached yet; a second pull gets it.
+for attempt in 1 2 3; do
+  "${CONTAINER_CLI}" pull --platform "${effective_platform}" "${kindest_node_image}:${CAPD_KINDEST_NODE_TAG}" && break
+  if ((attempt == 3)); then exit 1; fi
+  echo "  pull attempt ${attempt} failed, retrying in 15s" >&2
+  sleep 15
+done
 
 build_args=(
   build
@@ -351,6 +401,7 @@ build_args=(
   --build-arg "BUNDLE_SERVER_URL=${BUNDLE_SERVER_URL}"
   --build-arg "INDEX_FILE_URL=${INDEX_FILE_URL}"
   --build-arg "NKE_E2E_DOCKERHUB_MIRROR=${NKE_E2E_DOCKERHUB_MIRROR}"
+  --build-arg "KINDEST_NODE_IMAGE=${kindest_node_image}"
 )
 
 if [[ -n "${CAPD_KINDEST_NODE_TAG:-}" ]]; then

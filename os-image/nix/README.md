@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Build Linux packages with Nix
 
-Nix prepares a Linux VM with the tools needed to build NKE's Debian packages.
+Nix prepares a Linux VM with the tools needed to build NVKE's Debian packages.
 Use this on Apple Silicon macOS or when your Linux host differs from the target
 architecture. Matching Linux hosts use the existing direct package build by default.
 
@@ -50,7 +50,7 @@ in your checkout, builds the packages, copies the results to your output
 directory, and shuts down the VM. The first build takes longer; later builds
 reuse a persistent disk containing the Nix store and compiler/download caches.
 The builder copies top-level artifacts, replacing same-named files such as
-`nke-agent.deb`, and synchronizes `debs/` with deletion of stale packages.
+`nvke-agent.deb`, and synchronizes `debs/` with deletion of stale packages.
 Unrelated files outside `debs/` are preserved. See the [module README](../README.md)
 for how this fits into an OS image build and for `check-deps`.
 

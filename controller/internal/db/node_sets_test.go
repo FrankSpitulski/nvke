@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 func TestNodeSetProviderSetters(t *testing.T) {
@@ -22,7 +22,7 @@ func TestNodeSetProviderSetters(t *testing.T) {
 	nodeSet.SetNico(db.NicoNodePoolProvider{
 		SubnetIDs:             []uuid.UUID{subnetID},
 		VpcPrefixIDs:          []uuid.UUID{vpcPrefixID},
-		OSProfile:             "nke-260318",
+		Release:               "nke-260318",
 		ConfigProfile:         "gpu",
 		DiskSelectionStrategy: db.DiskSelectionStrategyLargest,
 	})
@@ -30,7 +30,7 @@ func TestNodeSetProviderSetters(t *testing.T) {
 	require.Equal(t, []uuid.UUID{subnetID}, nodeSet.Nico.SubnetIDs)
 	require.Nil(t, nodeSet.Capi)
 	require.Equal(t, []uuid.UUID{vpcPrefixID}, nodeSet.Nico.VpcPrefixIDs)
-	require.Equal(t, "nke-260318", nodeSet.Nico.OSProfile)
+	require.Equal(t, "nke-260318", nodeSet.Nico.Release)
 	require.Equal(t, "gpu", nodeSet.Nico.ConfigProfile)
 	require.Equal(t, db.DiskSelectionStrategyLargest, nodeSet.Nico.DiskSelectionStrategy)
 
@@ -64,4 +64,61 @@ func TestNodeSetResolveProviderType(t *testing.T) {
 	empty := db.NodeSet{ID: uuid.New()}
 	_, err = empty.ResolveProviderType()
 	require.ErrorIs(t, err, db.ErrMissingProviderPayload)
+}
+
+func TestNodePoolNeedsNewNodeSet(t *testing.T) {
+	currentID := uuid.New()
+	basePool := db.NodePool{
+		CurrentNodeSetID:     &currentID,
+		KubernetesVersion:    "1.34.2",
+		SystemReservedMemory: "1Gi",
+		KubeReservedMemory:   "512Mi",
+		TeleportEnabled:      true,
+		Nico: &db.NicoNodePoolProvider{
+			Release:       "os-v1",
+			ConfigProfile: "cfg-v1",
+		},
+	}
+	current := db.NodeSet{
+		ID:                   currentID,
+		KubernetesVersion:    "1.34.2",
+		SystemReservedMemory: "1Gi",
+		KubeReservedMemory:   "512Mi",
+		TeleportEnabled:      true,
+		Nico: &db.NicoNodePoolProvider{
+			Release:       "os-v1",
+			ConfigProfile: "cfg-v1",
+		},
+	}
+
+	tests := []struct {
+		name string
+		pool db.NodePool
+		want bool
+	}{
+		{name: "matching configuration", pool: basePool},
+		{name: "max surge alone", pool: func() db.NodePool {
+			pool := basePool
+			pool.MaxSurge = 1
+			return pool
+		}()},
+		{name: "config profile changed", pool: func() db.NodePool {
+			pool := basePool
+			provider := *pool.Nico
+			provider.ConfigProfile = "cfg-v2"
+			pool.Nico = &provider
+			return pool
+		}(), want: true},
+		{name: "reserved memory changed", pool: func() db.NodePool {
+			pool := basePool
+			pool.SystemReservedMemory = "2Gi"
+			return pool
+		}(), want: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, db.NodePoolNeedsNewNodeSet(tc.pool, current))
+		})
+	}
 }

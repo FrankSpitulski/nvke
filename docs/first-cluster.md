@@ -1,47 +1,50 @@
 # Your first cluster
 
-NKE is a management plane. A **site controller** — one durable Kubernetes
+NVKE is a management plane. A **site controller** — one durable Kubernetes
 cluster, also called a cell — mints **tenant clusters** on demand, each with its
-own control plane, etcd and nodes. `nkectl` is how you drive it.
+own control plane, etcd and nodes. `nvkectl` is how you drive it.
 
 Three paths — pick the one that matches what you have:
 
 | Path | Who it's for | Needs | Gets you |
 |---|---|---|---|
-| [**Real Site**](#real-site) | **Operators** standing up a production NKE site | Imaged nodes, nerdctl, a NICo site | A site controller minting CAPNICo-backed tenant clusters |
+| [**Real Site**](#real-site) | **Operators** standing up a production NVKE site | Imaged nodes, nerdctl, a NICo site | A site controller minting CAPNICo-backed tenant clusters |
 | [**Mock NICo**](#mock-nico) | **Contributors** testing the full create-cluster loop without hardware | Docker, kind, ~16 GB free, and either a CAPNICo checkout or an NGC account | The real create-a-cluster loop against real CAPNICo, no hardware |
 | [**API Only**](#api-only) | **Contributors** exploring the CWE REST API | Go, Docker, kind | CWE running and its API to explore, in minutes. No tenant clusters. |
 
 ## Before you start
 
 ```bash
-git clone https://github.com/dsx-ai-factory/nke.git
-cd nke
+git clone https://github.com/dsx-ai-factory/nvke.git
+cd nvke
 ```
 
 | Tool | Needed for | Notes |
 |---|---|---|
-| [Go](https://go.dev/dl/) 1.27.1+ | all | `go.work` pins it. An older Go fetches the right toolchain unless `GOTOOLCHAIN=local` |
+| [Go](https://go.dev/dl/) 1.27.2+ | all | `go.work` pins it. An older Go fetches the right toolchain unless `GOTOOLCHAIN=local` |
 | [Docker](https://docs.docker.com/get-docker/) 24+ | API Only, Mock NICo | Not supported for Real Site bootstrapping |
 | [nerdctl](https://github.com/containerd/nerdctl) with containerd | Real Site | The bootstrap drives kind and pulls images through it; no Docker daemon |
 | GNU Make 4.0+ | all | macOS ships 3.81; `brew install make` gives `gmake` |
 | [temporal](https://docs.temporal.io/cli) | API Only | `brew install temporal`, or `curl -sSf https://temporal.download/cli.sh \| sh` |
-| [kind](https://kind.sigs.k8s.io/), `kubectl` | API Only, Mock NICo | |
+| [kind](https://kind.sigs.k8s.io/), `kubectl` | all | Real Site: `nvkectl bootstrap site` runs both |
 | `jq` | Mock NICo | `dev-check` exits 1 without it |
-| [helm](https://helm.sh/), [tilt](https://docs.tilt.dev/install.html) | Mock NICo | |
-| [clusterctl](https://cluster-api.sigs.k8s.io/user/quick-start) | Mock NICo | `make capd-up` installs it into `controller/.local/bin` |
+| [helm](https://helm.sh/) | Mock NICo, Real Site | `nvkectl bootstrap site` runs it for the Postgres, Temporal, SPIRE and CWE releases |
+| [tilt](https://docs.tilt.dev/install.html) | Mock NICo | |
+| [clusterctl](https://cluster-api.sigs.k8s.io/user/quick-start) | Mock NICo, Real Site | `make capd-up` installs it into `controller/.local/bin`; `nvkectl bootstrap site` runs `clusterctl init` |
 | `dpkg-deb` | Mock NICo (macOS) | `brew install dpkg`; the bundle mirror build needs it |
 | [Flox](https://flox.dev/) | optional | Pins the whole toolchain; never required |
 
 macOS or Linux; Windows is not supported.
 
-**On macOS, use Colima, not Docker Desktop.** `controller/Makefile.dev` points
-every `kind`, `docker` and `clusterctl` call at the Colima socket, so `capd-up`
-cannot work under Docker Desktop. A plain `colima start` gives a 2 CPU, 2 GiB VM
-that `colima-up` will then refuse to resize, so size it first:
+**Prepare the Docker host once, before Kind or Tilt.** On macOS, use Colima
+rather than Docker Desktop. `controller/Makefile.dev` points every `kind`,
+`docker` and `clusterctl` call at the Colima socket, so `capd-up` cannot work
+under Docker Desktop. A plain `colima start` gives a 2 CPU, 2 GiB VM that this
+command then refuses to resize. On Linux the same command loads `tpm_vtpm_proxy`
+on the host kernel, which container nodes need for a software TPM.
 
 ```bash
-make -C controller colima-up      # 6 CPU, 12 GiB
+make -C controller host-up
 ```
 
 **API Only** needs nothing internal and no NGC account.
@@ -115,38 +118,38 @@ provider starts nico-sim and installs one CAPNICo controller in
 
 [`controller/README.md`](../controller/README.md) covers the Tilt loop in full.
 
-### Driving it with nkectl
+### Driving it with nvkectl
 
 Point the CLI at the site controller:
 
 ```bash
-go build -o bin/nkectl ./cli/cmd/nkectl
+go build -o bin/nvkectl ./cli/cmd/nvkectl
 
-bin/nkectl config set-site --name local \
+bin/nvkectl config set-site --name local \
   --url http://localhost:8080 \
   --kubeconfig ~/.kube/config
-bin/nkectl config view
+bin/nvkectl config view
 ```
 
 `--kubeconfig` is the management cluster. `get providers` reads it directly, and
 CWE API commands (`get`/`create`/`patch`/`delete` clusters) use it to mint a
 bearer token for `nke-clients/nke-client` when authentication is on. Tilt
 applies that identity in `controller/deploy/k8s/nke-auth-dev.yaml`. You do
-not export a token for `nkectl`.
+not export a token for `nvkectl`.
 
 Under Tilt the API requires a token, unlike **API Only** — a bare `curl` to
-`/api/clusters` returns 401. `nkectl get clusters` does not, once `set-site`
+`/api/clusters` returns 401. `nvkectl get clusters` does not, once `set-site`
 has the kubeconfig: it discovers the audience from the `nke-auth-config`
 ConfigMap and mints through the TokenRequest API.
 
 ```bash
-bin/nkectl get providers      # wait for nico: CONFIGURED
-bin/nkectl create cluster -f cli/examples/nico-mock-cluster.yaml
-bin/nkectl get clusters
-bin/nkectl get clusters <name>
-bin/nkectl patch cluster my-cluster --patch 'controlPlaneKubernetesVersion: "1.31.0"'
-bin/nkectl patch cluster my-cluster --patch-file patch.yaml
-bin/nkectl delete cluster <name>
+bin/nvkectl get providers      # wait for nico: CONFIGURED
+bin/nvkectl create cluster -f cli/examples/nico-mock-cluster.yaml
+bin/nvkectl get clusters
+bin/nvkectl get clusters <name>
+bin/nvkectl patch cluster my-cluster --patch 'controlPlaneKubernetesVersion: "1.31.0"'
+bin/nvkectl patch cluster my-cluster --patch-file patch.yaml
+bin/nvkectl delete cluster <name>
 ```
 
 [`cli/examples/nico-mock-cluster.yaml`](../cli/examples/nico-mock-cluster.yaml)
@@ -159,57 +162,62 @@ directly; a real site uses `nico` and CWE builds them. See
 [Control plane configuration](#control-plane-configuration); full schema at
 `/api/docs`.
 
-For `curl`, mint a token with `hack/nke-token.sh` after the stack is up:
+For `curl`, mint a token with `hack/nvke-token.sh` after the stack is up:
 
 ```bash
-TOKEN="$(controller/hack/nke-token.sh)"
+TOKEN="$(controller/hack/nvke-token.sh)"
 curl -H "Authorization: Bearer ${TOKEN}" http://localhost:8080/api/clusters
 ```
 
 `NKE_AUTH_ENABLED=false tilt up` turns authentication off. Then neither
-`nkectl` nor `curl` needs a token — `nkectl` sees no `nke-auth-config`
+`nvkectl` nor `curl` needs a token — `nvkectl` sees no `nke-auth-config`
 ConfigMap and sends requests unauthenticated.
 
 ### Getting a tenant kubeconfig
 
 ```bash
-nkectl get kubeconfig <cluster> --output-file tenant.kubeconfig
+nvkectl get kubeconfig <cluster> --output-file tenant.kubeconfig
 ```
 
 This reads the `<cluster>-admin-kubeconfig` Secret in `nke-system`, which
-holds the verbatim `admin.conf`. The `-kubeconfig` Secret beside it is the one
-CWE consumes, and it becomes a SPIRE exec-auth kubeconfig when OIDC is on.
+holds an `nvke:breakglass` admin kubeconfig. The `-kubeconfig` Secret beside
+it is the one CWE consumes, and it becomes a SPIRE exec-auth kubeconfig when
+OIDC is on.
 
 ## Real Site
 
 Real hardware, a real NICo site, and a site controller that outlives your
-terminal. Steps 1 to 4 have been run end to end on leased bare metal with calico, to a
-`Ready` control-plane node; steps 5 to 7 have been run against mock NICo rather
-than a real site. Treat a surprise here as a bug in this page and say so.
+terminal. Steps 1 to 4 have been run end to end on leased bare metal to a
+`Ready` control-plane node; steps 5, 6 and 8 have been run against mock NICo
+rather than a real site, and step 7 against neither. New site-controller
+clusters use OVN-Kubernetes. Treat a surprise here as a bug in this page and
+say so.
 
 ### Before you start
 
 **Nodes.** An odd number — one, three, five; an even count is rejected. Each
-already imaged and running `nke-agent` and `spire-agent`. You need every node's
+already imaged and running `nvke-agent` and `spire-agent`. You need every node's
 IP and its **TPM EK thumbprint**: the site cluster attests nodes by TPM, and a
 node with no thumbprint cannot join.
 
 **kubeadm on each node, installed by your cloud-init.** An image built from
-[`os-image/`](https://github.com/dsx-ai-factory/nke/tree/main/os-image) only *stages* the packages in a local apt repo at
-`/usr/lib/nke/debs`; nothing installs them for a pre-provisioned node, because
+[`os-image/`](https://github.com/dsx-ai-factory/nvke/tree/main/os-image) only *stages* the packages in a local apt repo at
+`/usr/lib/nvke/debs`; nothing installs them for a pre-provisioned node, because
 CWE writes no cloud-init for hosts it did not create. Install them yourself:
 
 ```yaml
 runcmd:
-  - DEBIAN_FRONTEND=noninteractive apt-get install -y nke-kubeadm-distro-<k8s-version>
-  - DEBIAN_FRONTEND=noninteractive apt-get install -y nke-cni-ovn-images-<stream> nke-cni-ovn-charts-<stream>
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y nvke-kubeadm-distro-<k8s-version>
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y nvke-cni-ovn-images-<stream> nvke-cni-ovn-charts-<stream>
 ```
 
 Skip this and the bootstrap runs its full 30 minutes before failing on
 `NodePreflight` / `check_cloud_init_status`, which never mentions kubeadm.
 
-**A SPIRE CA.** A certificate and key you pass in the site spec, whose
-certificate also reaches each node through cloud-init. Without it SPIRE mints a
+**A SPIRE CA.** A certificate and key you pass through
+`NVKECTL_SPIRE_CA_CERT_FILE` and `NVKECTL_SPIRE_CA_KEY_FILE`, with
+`spire.upstreamCA: true` in the site spec, whose certificate also reaches each
+node through cloud-init. Without it SPIRE mints a
 new CA on every run that no node trusts.
 
 **A SPIFFE trust domain, when bootstrapping with SPIRE/SPIFFE enabled.** Set
@@ -220,26 +228,26 @@ this value: changing it after bootstrap changes every SPIFFE ID and prevents
 the existing agents and workload entries from moving to the permanent server.
 
 **A SPIRE VIP pointed at the bootstrap node.** During the bootstrap the SPIRE
-server runs on the machine you run `nkectl bootstrap site` from, published on
+server runs on the machine you run `nvkectl bootstrap site` from, published on
 **30081**. Each node's `spire-agent` reaches it at the address you baked into its
 configuration when you provisioned it, so **that VIP must point at the node you
 run the bootstrap on.** Use a floating IP rather than the node's own address, so
 it still resolves after bootstrapping completes.
 
 **Network.** CWE must reach each node on **15005** and the new API server on
-**6443**, and **30081** on nodes with a TPM thumbprint.
+**6443**; nodes with a TPM thumbprint must reach this machine on **30081**, the fixed NodePort `nvkectl` publishes the bootstrap SPIRE server on.
 
 **Run the bootstrap on one of the provisioned bare metal machines**, under
-`tmux` — not a laptop that sleeps. `nkectl` runs directly on that node; there is
+`tmux` — not a laptop that sleeps. `nvkectl` runs directly on that node; there is
 no jump box.
 
-**nerdctl with containerd**, on that machine. `nkectl` drives kind and pulls
+**nerdctl with containerd**, on that machine. `nvkectl` drives kind and pulls
 every bootstrap image through nerdctl, and exports
 `KIND_EXPERIMENTAL_PROVIDER=nerdctl` on every kind call itself. **Docker is not
 supported for bootstrapping** — the machine needs no Docker daemon. **Do not run
-nerdctl rootless.** The bootstrap sets up the kind node's networking — an
-iptables rule and a bridge address — which needs a rootful nerdctl; run it as
-root.
+nerdctl rootless.** `nvkectl` and kind's nerdctl provider both exec a bare
+`nerdctl` with no `sudo`, and rootful is the only configuration CI exercises;
+run it as root.
 
 **A registry login** on that machine: `nerdctl login nvcr.io`. The images are
 pulled with nerdctl.
@@ -249,11 +257,20 @@ an **allocation** against each instance type. An instance type with no allocatio
 looks healthy and provisions nothing. See
 [CAPNICo's getting started guide](https://github.com/dsx-ai-factory/cluster-api-provider-nico/blob/main/docs/getting-started.md).
 
-### 1. Build nkectl
+### 1. Build nvkectl
 
 ```bash
 make -C cli build      # not `go build` — that leaves the Cluster API version unset
+export PATH="$PWD/cli/bin:$PATH"   # the binary lands in cli/bin, not on PATH
 ```
+
+The rest of this path calls `nvkectl` unqualified, so either export the path as above
+or invoke it as `./cli/bin/nvkectl`.
+
+`nvkectl` also shells out to `helm`, `kubectl` and `clusterctl` during bootstrap, on
+top of the nerdctl and containerd below. Only the container runtime is checked before
+the run starts, so a missing one of the other three surfaces mid-bootstrap, after the
+Kind cluster is already up.
 
 ### 2. Generate the site spec
 
@@ -265,22 +282,22 @@ cp-03,10.10.50.4,<sha256 of the node's TPM EK>
 ```
 
 ```bash
-nkectl generate sitespec my-site --nodes hosts.csv \
+nvkectl generate sitespec my-site --nodes hosts.csv \
   --set cluster.controlPlaneVIP=10.10.50.10 \
   --set cluster.podCidr=10.244.0.0/16 \
   --set spire.trustDomain=site.example.com \
-  --set spire.caCertFile=./spire-ca.crt \
-  --set spire.caKeyFile=./spire-ca.key > sitespec.yaml
+  --set spire.upstreamCA=true > sitespec.yaml
 
-nkectl bootstrap site -f sitespec.yaml --dry-run   # validate, touch nothing
+# The SPIRE CA comes from the environment.
+export NVKECTL_SPIRE_CA_CERT_FILE=./spire-ca.crt NVKECTL_SPIRE_CA_KEY_FILE=./spire-ca.key
+nvkectl bootstrap site -f sitespec.yaml --dry-run   # validate, touch nothing
 ```
 
 `cluster.controlPlaneVIP` is advertised over BGP, so the network must peer
 with the nodes. See [sitespec.md](../cli/docs/sitespec.md).
 
 Read what it rendered. Unset fields get defaults that are silent rather than
-absent — the Kubernetes version, `systemReservedMemory` at 16Gi, and a literal
-`nvcr.io/org` in the registry block. Every field is in
+absent — the Kubernetes version and `systemReservedMemory` at 16Gi. Every field is in
 [sitespec.md](../cli/docs/sitespec.md).
 
 **Check `systemReservedMemory` against the node you actually have.** kubelet
@@ -295,45 +312,55 @@ bootstrap side-loads them by default. To use images you pushed to a registry
 instead, name them:
 
 ```bash
-export NKECTL_CWE_IMAGE=<nke-controller image>
-export NKECTL_CAPI_PROVISIONED_IMAGE=<provisioned provider image>
+export NVKECTL_CONTROLLER_IMAGE=<nke-controller image>
+export NVKECTL_CAPI_PROVISIONED_IMAGE=<provisioned provider image>
 ```
 
-`nkectl` carries the CWE chart and the provisioned provider's manifests. Step 4
-lists what it fetches.
+The `--controller-image` and `--provisioned-provider-image` flags do the same for one
+run. `nvkectl` carries the CWE chart and the provisioned provider's manifests.
+Step 4 lists what it fetches.
 
 ### 4. Bootstrap
 
 ```bash
-REGISTRY_API_KEY=<key> nkectl bootstrap site -f sitespec.yaml
+nvkectl bootstrap site -f sitespec.yaml
 ```
 
-The key can come from the environment, from `--registry-api-key`, or from
-`registry.apiKey` in the spec; the flag wins.
+To use images from a private registry, log in to it first with
+`nerdctl login <registry>`; `nvkectl` pulls them with nerdctl.
 
-`nkectl get bootstrap-manifest` lists the charts and images the bootstrap
+`nvkectl get bootstrap-manifest` lists the charts and images the bootstrap
 fetches. It leaves out the kind node image and what `clusterctl init` installs.
 [`hack/mirror-bootstrap-images.sh`](../hack/mirror-bootstrap-images.sh) copies
 the listed images into a local or private registry. To change where they come
 from:
 
-- `NKECTL_BOOTSTRAP_DOCKERHUB_MIRROR=<host>` pulls the Docker Hub images from a mirror.
-- `NKECTL_CWE_TEMPORAL_CHART`, `NKECTL_CWE_SPIRE_CHART` and
-  `NKECTL_CWE_SPIRE_CRDS_CHART` take an OCI reference or a local path.
+- `NVKECTL_BOOTSTRAP_DOCKERHUB_MIRROR=<host>` pulls the Docker Hub images from a mirror.
+- `NVKECTL_CONTROLLER_TEMPORAL_CHART`, `NVKECTL_CONTROLLER_SPIRE_CHART` and
+  `NVKECTL_CONTROLLER_SPIRE_CRDS_CHART` take an OCI reference or a local path.
 
 Images from `ghcr.io`, `registry.k8s.io` and `cgr.dev` come from those
 registries. Cluster API and cert-manager come from `github.com` through
 `clusterctl init`.
 
 It creates a throwaway kind cluster, installs Postgres, Temporal, SPIRE, CAPI and
-CWE into it, builds the site cluster on your hosts through `nke-agent`, and
-writes `my-site.kubeconfig`. Allow 30 minutes.
+CWE into it, builds the site cluster on your hosts through `nvke-agent`, and
+writes `my-site.kubeconfig` (a breakglass kubeconfig in group `nvke:breakglass`).
+Allow 30 minutes.
 
-On failure it writes `cluster-diagnostics/` first, and **leaves the seed cluster
-behind** — delete it before retrying, or the next run stops on a name clash:
+Allow longer than that and raise `--timeout` (default `30m`) if the site is large —
+the command gives up on the provisioning wait when it expires.
+
+On failure it writes diagnostics to `cluster-diagnostics/` (override with
+`--diagnostics-dir`). It then **keeps the seed cluster only if the failure came after
+the site cluster was created**, or if you passed `--keep-bootstrap-cluster`; an earlier
+failure — a failed image pull, an unhealthy CWE — tears it down.
+When it is kept, `nvkectl` prints the delete command. Run it before retrying, once
+anything you need from the seed cluster is saved: a leftover cluster makes the next
+run refuse to start, and its message leads with saving the etcd encryption key.
 
 ```bash
-KIND_EXPERIMENTAL_PROVIDER=nerdctl kind delete cluster --name nkectl-bootstrap
+KIND_EXPERIMENTAL_PROVIDER=nerdctl kind delete cluster --name nvkectl-bootstrap
 ```
 
 The prefix is not optional: kind resolves a cluster through the provider that
@@ -341,88 +368,118 @@ created it, so a bare `kind delete cluster` looks for the seed cluster in
 Docker, does not find it, and exits 0 without deleting anything — leaving the
 name clash this step exists to prevent.
 
+[Troubleshooting a Site Bootstrap](../cli/docs/bootstrap-troubleshooting.md)
+covers what is in `cluster-diagnostics/`, how to read the error, and the
+common failures with their fixes.
+
 ### 5. Install an infrastructure provider
 
-Install Cluster API and CAPNICo onto the site cluster **before** the site
-controller. CWE reads the `Machine` and `NicoMachine` CRDs once, at process
-start, and silently skips three of its controllers when they are absent — so
-installing it first means restarting it afterward, or losing them until you do.
-
-Untaint the control-plane nodes first or every `--wait` hangs:
-`kubectl taint nodes --all node-role.kubernetes.io/control-plane-`. Full steps,
-both a Helm and a `clusterctl` route, and how to verify the result with
-`kubectl`: [Infrastructure Providers](site-bootstrap/infrastructure-providers.md).
+Cluster API and CAPNICo are part of the next step: the install's list of
+commands installs Cluster API with `clusterctl init` and CAPNICo from the
+`deploy/nico` deploy path, in that order and before CWE. Do not install them
+separately first; [Configure an infrastructure provider: NICo](operate/provider-nico.md)
+explains how to prove the NICo credentials once the site is up.
 
 ### 6. Install the site controller
 
 The bootstrap leaves you a plain Kubernetes cluster. Installing CWE onto it is a
-separate job, and the largest step here — `nkectl` has no command for it.
+separate job, and the largest step here — `nvkectl` has no command for it.
 
-**There is no storage class.** CWE's database and SPIRE both want a volume and
-sit `Pending` on `no persistent volumes available for this claim and no storage
-class is set`. Install a provisioner, or run them without persistence.
-
-Use the chart in
-[`controller/deploy/charts/controller`](https://github.com/dsx-ai-factory/nke/tree/main/controller/deploy/charts/controller).
-It installs **CWE alone**, against a database and a Temporal you provide, and
-defaults to a ClusterIP service with ingress off, so nothing reaches the API
-until you change that.
+Follow [Install management-plane services](operate/install-management-plane-services.md).
+It installs the whole management plane, Postgres, Temporal, SPIRE, CAPNICo,
+NKTP and CWE, with the commands that page lists, from the `deploy/nico`
+deploy path, the site spec and an NVKR release description.
 
 ```bash
-nkectl config set-site --name my-site --url https://<cwe-url> \
+nvkectl config set-site --name my-site --url http://<VIP>:30080 \
   --kubeconfig ./my-site.kubeconfig
 ```
 
-That kubeconfig is also how `nkectl` authenticates to CWE once the site has API
+Port 30080 is the plain-HTTP NodePort the chart exposes, and the CLI sends a
+bearer token to it, so use it from a trusted network only.
+
+That kubeconfig is also how `nvkectl` authenticates to CWE once the site has API
 authentication on. The CLI always mints for `nke-clients/nke-client` and reads
-the audience from `cloud-workflow-engine/nke-auth-config`. Create that service
+the audience from ConfigMap `nke-auth-config` in namespace `nke-controller`, or
+in `cloud-workflow-engine` when that is absent. Create that service
 account, admit it, and grant the kubeconfig identity the permissions in
-[Configuring NKE API Authentication](../controller/docs/configuring-api-authentication.md).
+[Configuring NVKE API Authentication](../controller/docs/configuring-api-authentication.md).
 Without them, `get clusters` fails at minting or CWE returns 403.
 
-With the site registered, `nkectl` can report on the provider you installed in
-step 5:
+With the site registered, `nvkectl` can report on the provider the install put
+in place:
 
 ```bash
-nkectl get providers      # nico must read CONFIGURED before you create anything
+nvkectl get providers      # nico must read CONFIGURED before you create anything
 ```
 
-### 7. Create a tenant cluster
+### 7. Publish a release
+
+Step 6 ended by publishing a release through the install guide. To add another,
+for a second image or a changed user data, publish a new set under a new name;
+`nvkectl create` refuses an existing one.
+
+Copy the three examples —
+[`machineimage.yaml`](../cli/examples/machineimage.yaml),
+[`clusterrelease.yaml`](../cli/examples/clusterrelease.yaml) and
+[`nodepoolrelease.yaml`](../cli/examples/nodepoolrelease.yaml) — and give them a
+name of your own, one name across all three:
 
 ```bash
-nkectl create cluster -f nico-cluster.yaml
-nkectl get clusters
+cp cli/examples/machineimage.yaml cli/examples/clusterrelease.yaml \
+   cli/examples/nodepoolrelease.yaml .
+```
+
+Set `metadata.name` in all three, and `spec.machineImageRef.name` in the two
+releases to match. Edit the rest for your image, then publish, image first:
+
+```bash
+nvkectl create machineimage -f machineimage.yaml
+nvkectl create clusterrelease -f clusterrelease.yaml
+nvkectl create nodepoolrelease -f nodepoolrelease.yaml
+nvkectl get machineimages      # the name you just published
+```
+
+That name is what a cluster asks for as its `release`. Published content is
+immutable, so changing a release means publishing a new name.
+
+### 8. Create a tenant cluster
+
+```bash
+nvkectl create cluster -f nico-cluster.yaml
+nvkectl get clusters
 ```
 
 Start from [`cli/examples/nico-cluster.yaml`](../cli/examples/nico-cluster.yaml).
-Replace every UUID, `orgID`, and both profile names — a leftover placeholder
-returns 500 rather than a validation error. The OS and config profiles it names
-must exist on your site controller; profile content is maintained outside this
-repository.
+Replace every UUID and `orgID` — a leftover placeholder returns 500 rather than
+a validation error. Every `release` has to name a release already published on
+the site — the one from step 7. Every `configProfile` has to name a config
+profile the site controller already holds, and that content is maintained
+outside this repository.
 
 ### Decommissioning
 
-`nkectl delete cluster <name>` starts an asynchronous teardown. There is no
-confirmation prompt and no wait flag, so follow it with `nkectl get clusters`.
+`nvkectl delete cluster <name>` starts an asynchronous teardown. There is no
+confirmation prompt and no wait flag, so follow it with `nvkectl get clusters`.
 
 Teardown removes the node pools, the nodes, the Cluster API and infrastructure
-objects, and NKE's own records, then asks the infrastructure provider to release
+objects, and NVKE's own records, then asks the infrastructure provider to release
 each machine. What happens to the hardware after that release is the provider's
-decision, not NKE's.
+decision, not NVKE's.
 
-**Teardown does not clean the hosts.** The only action NKE takes on a node is a
+**Teardown does not clean the hosts.** The only action NVKE takes on a node is a
 best-effort `kubeadm reset -f`, and a failure there does not stop the teardown.
 The node agent, the SPIRE agent, kubeadm, kubelet and containerd all stay
 installed, so reclaiming a host for something else is manual:
 
 ```bash
-apt-get purge nke-agent spire-agent
+apt-get purge nvke-agent spire-agent
 ```
 
-A purge still leaves `/var/lib/nke/state.json` and the two agent logs on disk.
+A purge still leaves `/var/lib/nvke/state.json` and the two agent logs on disk.
 
-**No command tears down a site cluster.** `nkectl delete` covers tenant clusters
-and node pools only. Reversing `nkectl bootstrap site` is manual.
+**No command tears down a site cluster.** `nvkectl delete` covers tenant clusters
+and node pools only. Reversing `nvkectl bootstrap site` is manual.
 
 **Clusters built on pre-provisioned hosts are not released.** The provisioned
 provider refuses to delete a bound machine, because it cannot make the host safe
@@ -457,7 +514,7 @@ controlPlaneConfig:
       - 00000000-0000-0000-0000-000000000000
     sshKeyGroupIDs:
       - 00000000-0000-0000-0000-000000000000
-    osProfile: nke-260625-24.04-x86-fde
+    release: nke-260625-24.04-x86-fde
     configProfile: default-cp
 ```
 
@@ -466,10 +523,7 @@ matching the cluster's own. [`nico-cluster.yaml`](../cli/examples/nico-cluster.y
 [`nico-mock-cluster.yaml`](../cli/examples/nico-mock-cluster.yaml) and
 [`capd-cluster.yaml`](../cli/examples/capd-cluster.yaml) are complete requests.
 
-A site controller deployed with
-`PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=false` takes the older
-shape instead: a node pool with `controlPlane: true`, and no
-`controlPlaneConfig`. Each rejects the other's shape.
+A node pool with `controlPlane: true` is rejected.
 
 ## See also
 
@@ -478,5 +532,5 @@ shape instead: a node pool with `controlPlane: true`, and no
 - [architecture.md](architecture.md) — how CWE, the agent and CAPI fit together
 - [../cli/docs/sitespec.md](../cli/docs/sitespec.md) — every site spec field
 - [../cli/docs/user-flow.md](../cli/docs/user-flow.md) — the command reference
-- [site-bootstrap/infrastructure-providers.md](site-bootstrap/infrastructure-providers.md)
-  — the full CAPNICo install: order, both routes, and what stalls it
+- [operate/provider-nico.md](operate/provider-nico.md)
+  — proving the NICo credentials and what CAPNICo's states mean

@@ -17,22 +17,27 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 )
 
 const (
-	openVSwitchPackage           = "openvswitch-switch"
-	openVSwitchService           = "openvswitch-switch"
-	openVSwitchDaemonService     = "ovs-vswitchd"
-	openVSwitchSystemIDPath      = "/etc/openvswitch/system-id.conf"
-	openVSwitchInstallUUIDPath   = "/etc/openvswitch/install_uuid.conf"
-	openVSwitchBridgePrefix      = "br"
-	openVSwitchIPCommand         = "ip"
-	openVSwitchDeviceFlag        = "dev"
-	openVSwitchDefaultRoute      = "default"
-	openVSwitchDefaultMTU        = 1500
-	openVSwitchDefaultSettleTime = 2 * time.Second
-	openVSwitchConvergenceDelay  = time.Second
+	openVSwitchPackage            = "openvswitch-switch"
+	openVSwitchService            = "openvswitch-switch"
+	openVSwitchDaemonService      = "ovs-vswitchd"
+	openVSwitchSystemIDPath       = "/etc/openvswitch/system-id.conf"
+	openVSwitchInstallUUIDPath    = "/etc/openvswitch/install_uuid.conf"
+	openVSwitchBridgePrefix       = "br"
+	openVSwitchIPCommand          = "ip"
+	openVSwitchDeviceFlag         = "dev"
+	openVSwitchDefaultRoute       = "default"
+	openVSwitchDefaultMTU         = 1500
+	openVSwitchDefaultSettleTime  = 2 * time.Second
+	openVSwitchConvergenceDelay   = time.Second
+	openVSwitchDatapathTypeEnv    = "NKE_OVS_DATAPATH_TYPE"
+	openVSwitchNetdevDatapath     = "netdev"
+	openVSwitchSystemDatapath     = "system"
+	openVSwitchDummyGatewayBridge = "br-ex"
+	openVSwitchUserspaceTSOKey    = "userspace-tso-enable"
 
 	operationTypeOpenVSwitchReconciliation = "open_vswitch_reconciliation"
 )
@@ -92,7 +97,7 @@ func (s *NodeAgentServer) StartOpenVSwitchReconciliation(
 	}
 
 	operationID := strings.TrimSpace(req.GetOperationId())
-	if err := s.recoverInterruptedOpenVSwitchReconciliation(operationID); err != nil {
+	if err := s.resetRestartableOpenVSwitchReconciliation(operationID); err != nil {
 		return nil, err
 	}
 	op, err := s.startNodeAgentOperation(nodeAgentOperationSpec{
@@ -184,6 +189,9 @@ func (s *NodeAgentServer) reconcileOpenVSwitchLocked(
 	if err := s.ensureOpenVSwitchService(); err != nil {
 		return nil, nil, err
 	}
+	if result, handled, err := s.reconcileOpenVSwitchDatapathOverride(ctx); handled {
+		return result, nil, err
+	}
 	defaultRoute, err := s.readOpenVSwitchDefaultRoute()
 	if err != nil {
 		return nil, nil, fmt.Errorf("discover default route: %w", err)
@@ -224,6 +232,96 @@ func (s *NodeAgentServer) reconcileOpenVSwitchLocked(
 		"networkBackend", plan.backend.String(),
 	)
 	return configuredOpenVSwitchResult(plan), &plan, nil
+}
+
+func (s *NodeAgentServer) reconcileOpenVSwitchDatapathOverride(
+	ctx context.Context,
+) (*pb.OpenVSwitchReconciliationResult, bool, error) {
+	datapathType := strings.TrimSpace(os.Getenv(openVSwitchDatapathTypeEnv))
+	if datapathType == "" {
+		return nil, false, nil
+	}
+	if datapathType != openVSwitchNetdevDatapath && datapathType != openVSwitchSystemDatapath {
+		return nil, true, fmt.Errorf("unsupported Open vSwitch datapath type %q", datapathType)
+	}
+	defaultRoute, err := s.readOpenVSwitchDefaultRoute()
+	if err != nil {
+		return nil, true, fmt.Errorf("discover default route: %w", err)
+	}
+	if _, err := s.runOpenVSwitchCommand(
+		"ovs-vsctl",
+		"set", "Open_vSwitch", ".", "external_ids:ovn-bridge-datapath-type="+datapathType,
+	); err != nil {
+		return nil, true, fmt.Errorf("configure Open vSwitch %s datapath: %w", datapathType, err)
+	}
+	// The userspace datapath reads offload metadata only when this is set.
+	// The kernel datapath checksums packets itself.
+	if datapathType == openVSwitchNetdevDatapath {
+		if err := s.ensureOpenVSwitchUserspaceTSO(); err != nil {
+			return nil, true, err
+		}
+	}
+	if _, err := s.runOpenVSwitchCommand(
+		"ovs-vsctl",
+		"--may-exist", "add-br", openVSwitchDummyGatewayBridge, "--",
+		"set", "bridge", openVSwitchDummyGatewayBridge, "datapath_type="+datapathType,
+	); err != nil {
+		return nil, true, fmt.Errorf("configure dummy gateway bridge for Open vSwitch %s datapath: %w", datapathType, err)
+	}
+	slog.InfoContext(ctx, "configured Open vSwitch datapath without bridging the management uplink",
+		"datapathType", datapathType,
+		"uplink", defaultRoute.Device,
+	)
+	return &pb.OpenVSwitchReconciliationResult{
+		Outcome:         pb.OpenVSwitchReconciliationResult_OUTCOME_CONFIGURED,
+		UplinkInterface: defaultRoute.Device,
+		NetworkBackend:  pb.OpenVSwitchReconciliationResult_NETWORK_BACKEND_NETPLAN,
+	}, true, nil
+}
+
+// ensureOpenVSwitchUserspaceTSO lets the netdev datapath read the offload
+// metadata on veth pod ports. Without it, packets a pod sends with a partial
+// TCP or UDP checksum are forwarded unfinished and dropped by the receiver, so
+// pods cannot reach services or the node. ovs-vswitchd reads the setting only
+// at startup, so it is restarted when the value changes.
+func (s *NodeAgentServer) ensureOpenVSwitchUserspaceTSO() error {
+	output, err := s.runOpenVSwitchCommand(
+		"ovs-vsctl", "--if-exists", "get", "Open_vSwitch", ".", "other_config:"+openVSwitchUserspaceTSOKey,
+	)
+	if err != nil {
+		return fmt.Errorf("read Open vSwitch %s: %w", openVSwitchUserspaceTSOKey, err)
+	}
+	previous := strings.Trim(strings.TrimSpace(string(output)), `"`)
+	if previous == "true" {
+		return nil
+	}
+	if _, err := s.runOpenVSwitchCommand(
+		"ovs-vsctl", "set", "Open_vSwitch", ".", "other_config:"+openVSwitchUserspaceTSOKey+"=true",
+	); err != nil {
+		return fmt.Errorf("enable Open vSwitch %s: %w", openVSwitchUserspaceTSOKey, err)
+	}
+	if _, err := s.runOpenVSwitchCommand("systemctl", "restart", openVSwitchDaemonService); err != nil {
+		// ovs-vswitchd reads the setting only at startup. Leaving it set would
+		// make the next attempt look unchanged and skip the restart.
+		if restoreErr := s.restoreOpenVSwitchUserspaceTSO(previous); restoreErr != nil {
+			return fmt.Errorf("restart %s to apply %s: %w; restoring previous value: %v", openVSwitchDaemonService, openVSwitchUserspaceTSOKey, err, restoreErr)
+		}
+		return fmt.Errorf("restart %s to apply %s: %w", openVSwitchDaemonService, openVSwitchUserspaceTSOKey, err)
+	}
+	return nil
+}
+
+// restoreOpenVSwitchUserspaceTSO puts the setting back so a failed daemon
+// restart is attempted again. An empty previous value means the key was unset.
+func (s *NodeAgentServer) restoreOpenVSwitchUserspaceTSO(previous string) error {
+	if previous == "" {
+		_, err := s.runOpenVSwitchCommand("ovs-vsctl", "remove", "Open_vSwitch", ".", "other_config", openVSwitchUserspaceTSOKey)
+		return err
+	}
+	_, err := s.runOpenVSwitchCommand(
+		"ovs-vsctl", "set", "Open_vSwitch", ".", "other_config:"+openVSwitchUserspaceTSOKey+"="+previous,
+	)
+	return err
 }
 
 func configuredOpenVSwitchResult(plan openVSwitchPlan) *pb.OpenVSwitchReconciliationResult {
@@ -365,13 +463,20 @@ func (s *NodeAgentServer) openVSwitchConvergenceDelayOrDefault() time.Duration {
 	return openVSwitchConvergenceDelay
 }
 
-func (s *NodeAgentServer) recoverInterruptedOpenVSwitchReconciliation(operationID string) error {
+// resetRestartableOpenVSwitchReconciliation drops a persisted reconciliation
+// that cannot make progress, so the Start that follows runs it again: one left
+// non-terminal by an agent restart, or one that FAILED. A failure here is
+// usually transient (a systemctl call during a systemd re-exec, a default-route
+// gap), and the controller retries by calling Start with the same operation ID;
+// a kept FAILED record would answer every retry without running anything.
+// SUCCEEDED stays, so a repeated Start after success remains idempotent.
+func (s *NodeAgentServer) resetRestartableOpenVSwitchReconciliation(operationID string) error {
 	s.mu.Lock()
 	s.ensureNodeAgentOperationStateLocked()
 	op, found := s.NodeStatus.NodeAgentOperations[operationID]
 	_, active := s.activeOperations[operationID]
-	stale := found && op.Type == operationTypeOpenVSwitchReconciliation &&
-		!nodeAgentOperationTerminal(op.Phase) && !active
+	stale := found && op.Type == operationTypeOpenVSwitchReconciliation && !active &&
+		(!nodeAgentOperationTerminal(op.Phase) || op.Phase == NodeAgentOperationPhaseFailed)
 	if stale {
 		delete(s.NodeStatus.NodeAgentOperations, operationID)
 	}

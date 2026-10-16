@@ -30,10 +30,10 @@ var (
 type ProviderType string
 
 const (
-	// When ProviderType is Nico, the caller gives OS profile / instance-type preference / subnets / etc/ and CWE generates the infra machine template for each node.
+	// When ProviderType is Nico, the caller gives release / instance-type preference / subnets / etc/ and the controller generates the infra machine template for each node.
 	ProviderTypeNico ProviderType = "nico"
 
-	// When ProviderType is CAPI, the user specifies the infra machine template and CWE clones it for each node.
+	// When ProviderType is CAPI, the user specifies the infra machine template and the controller clones it for each node.
 	ProviderTypeCAPI ProviderType = "capi"
 )
 
@@ -66,6 +66,9 @@ type Cluster struct {
 	Nico         *NicoClusterProvider `bun:"nico,type:jsonb"`
 	Capi         *CAPIClusterProvider `bun:"capi,type:jsonb"`
 
+	// OIDCProviders is set only at creation; UpdateCluster never writes it.
+	OIDCProviders []ClusterOIDCProvider `bun:"oidc_providers,type:jsonb,nullzero"`
+
 	// ControlPlaneConfig keeps the API/business shape while persisting these
 	// fields as real DB columns on clusters (configuration_id, cp_desired_count,
 	// cp_max_surge) via bun embed mapping.
@@ -74,6 +77,9 @@ type Cluster struct {
 	Conditions ClusterConditions `bun:"type:jsonb"` // JSONB field keys use camelCase across all sub-structs for consistency (see ClusterConditions below)
 	CreatedAt  time.Time         `bun:"type:timestamptz,notnull,default:current_timestamp"`
 	UpdatedAt  time.Time         `bun:"type:timestamptz,notnull,default:current_timestamp"`
+
+	NodeAgentUpgrade   *NodeAgentUpgrade            `bun:"node_agent_upgrade,type:jsonb"`
+	CertificateRenewal *NodeAgentCertificateRenewal `bun:"certificate_renewal,type:jsonb"`
 }
 
 func (c *Cluster) NicoProvider() (NicoClusterProvider, error) {
@@ -154,13 +160,10 @@ func ControlPlaneConfigFromNodePool(np *NodePool) *ControlPlaneConfig {
 		return nil
 	}
 
-	labels := make([]string, len(np.NodeLabels))
-	copy(labels, np.NodeLabels)
-
 	cfg := &ControlPlaneConfig{
 		DesiredCount: np.DesiredCount,
 		ControlPlaneConfigSpec: ControlPlaneConfigSpec{
-			NodeLabels:                  labels,
+			NodeLabels:                  CloneStringMap(np.NodeLabels),
 			SystemReservedMemory:        np.SystemReservedMemory,
 			KubeReservedMemory:          np.KubeReservedMemory,
 			TeleportEnabled:             np.TeleportEnabled,
@@ -178,7 +181,7 @@ func ControlPlaneConfigFromNodePool(np *NodePool) *ControlPlaneConfig {
 			InstanceTypePreference: orderedInstanceTypePreferences([]NodePool{*np}),
 			SubnetIDs:              nicoNodePoolProvider.SubnetIDs,
 			VpcPrefixIDs:           nicoNodePoolProvider.VpcPrefixIDs,
-			OSProfile:              nicoNodePoolProvider.OSProfile,
+			Release:                nicoNodePoolProvider.Release,
 			DiskSelectionStrategy:  nicoNodePoolProvider.DiskSelectionStrategy,
 			ConfigProfile:          nicoNodePoolProvider.ConfigProfile,
 			SSHKeyGroupIDs:         nicoNodePoolProvider.SSHKeyGroupIDs,
@@ -236,8 +239,7 @@ func MergeControlPlaneConfigFromNodePools(pools []NodePool) *ControlPlaneConfig 
 	var vpcPrefixes []uuid.UUID
 	keySeen := make(map[uuid.UUID]struct{})
 	var sshKeys []uuid.UUID
-	var labels []string
-	labelSeen := make(map[string]struct{})
+	labels := map[string]string{}
 	k8sVer := ""
 
 	for i := range sortedPools {
@@ -268,10 +270,9 @@ func MergeControlPlaneConfigFromNodePools(pools []NodePool) *ControlPlaneConfig 
 		subnets = appendUniqueUUIDs(subnets, subSeen, subnetIDs)
 		vpcPrefixes = appendUniqueUUIDs(vpcPrefixes, pfxSeen, vpcPrefixIDs)
 		sshKeys = appendUniqueUUIDs(sshKeys, keySeen, sshKeyGroupIDs)
-		for _, l := range p.NodeLabels {
-			if _, ok := labelSeen[l]; !ok {
-				labelSeen[l] = struct{}{}
-				labels = append(labels, l)
+		for key, value := range p.NodeLabels {
+			if _, ok := labels[key]; !ok {
+				labels[key] = value
 			}
 		}
 		if p.KubernetesVersion != "" {
@@ -290,14 +291,14 @@ func MergeControlPlaneConfigFromNodePools(pools []NodePool) *ControlPlaneConfig 
 	}
 
 	// Rebuild provider payloads with aggregated list fields, preserving scalar
-	// fields (OSProfile, ConfigProfile, etc.) already set from the primary pool.
+	// fields (Release, ConfigProfile, etc.) already set from the primary pool.
 	if cfg.Nico != nil {
 		cfg.SetNico(NicoControlPlaneProvider{
 			InstanceTypePreference: instPref,
 			SubnetIDs:              subnets,
 			VpcPrefixIDs:           vpcPrefixes,
 			SSHKeyGroupIDs:         sshKeys,
-			OSProfile:              cfg.Nico.OSProfile,
+			Release:                cfg.Nico.Release,
 			DiskSelectionStrategy:  cfg.Nico.DiskSelectionStrategy,
 			ConfigProfile:          cfg.Nico.ConfigProfile,
 		})
@@ -423,7 +424,7 @@ const (
 	CNICalico                      CniPlugin = "calico"
 	CNIOvnKubernetes               CniPlugin = "ovn-kubernetes"
 	DefaultCalicoCNIVersion                  = "3.30.1"
-	DefaultOvnKubernetesCNIVersion           = "1.4.0"
+	DefaultOvnKubernetesCNIVersion           = "1.6.0"
 )
 
 func ListCNIPlugins() []CniPlugin {
@@ -439,6 +440,14 @@ func DefaultCNIVersion(plugin CniPlugin) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// EffectiveCNIPlugin returns plugin, or ovn-kubernetes when plugin is empty.
+func EffectiveCNIPlugin(plugin CniPlugin) CniPlugin {
+	if strings.TrimSpace(string(plugin)) == "" {
+		return CNIOvnKubernetes
+	}
+	return plugin
 }
 
 func EffectiveCNIVersion(plugin CniPlugin, version string) string {
@@ -537,7 +546,9 @@ func (q *queriesImpl) CreateCluster(ctx context.Context, cluster *Cluster) (Clus
 
 func (q *queriesImpl) UpdateCluster(ctx context.Context, cluster *Cluster) (Cluster, error) {
 	cluster.UpdatedAt = time.Now()
-	res, err := q.db.NewUpdate().Model(cluster).WherePK().Exec(ctx)
+	res, err := q.db.NewUpdate().Model(cluster).
+		ExcludeColumn("oidc_providers").
+		WherePK().Returning("oidc_providers").Exec(ctx)
 	if err != nil {
 		return Cluster{}, err
 	}

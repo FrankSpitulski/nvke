@@ -1,391 +1,235 @@
-# NKTP
+# NKTP Helm Chart
 
-NKTP is an OpenTelemetry pipeline for Kubernetes metrics, logs and traces,
-packaged as one Helm chart. It deploys the OpenTelemetry Operator, its CRDs,
-the Prometheus monitoring CRDs, and a set of Collectors with fixed roles. It
-also bundles node-exporter, kube-state-metrics and an all-in-one development
-backend, all on by default. The backend is for evaluation; a site points the
-exporters at its own.
+NKTP is how NVIDIA runs OpenTelemetry on Kubernetes.
 
-The default values run two replicas of every Collector except the node
-DaemonSet, and the gateways, the watchdog and the large-target pool autoscale on
-CPU and memory. Every signal is exported over OTLP/HTTP to one endpoint, the
-bundled backend until a site sets its own. A smaller cluster, such as a site
-controller, lowers the replicas and requests in its values; the templates carry
-the full topology.
+The chart deploys a pipeline that collects a cluster's metrics, logs and traces
+and exports them over OTLP: a Collector on every node, a scrape pool for large
+metrics endpoints, a Kubernetes Event reader, one gateway per signal, and a
+watchdog for the pipeline's own telemetry. The bundled OpenTelemetry Operator
+manages the Collectors.
 
-The chart version is `version:` in [Chart.yaml](Chart.yaml). A release tag
-`nktp/vX.Y.Z` has to equal it; see [RELEASE.md](../../../../RELEASE.md).
+This README covers installing, configuring, and developing the chart. The NKTP
+documentation, linked at the [end of this README](#more-information), covers
+each component in depth.
 
-`make nktp-chart-check`, from the repository root, downloads the dependencies,
-lints and renders the chart, and validates the rendered manifests with
-kubeconform. The merge gate runs it on every pull request.
+## Prerequisites
+
+Provide the following before installing NKTP.
+
+- **Kubernetes 1.29+.** Every Collector Pod runs its self-telemetry sidecar as
+  a native sidecar, an init container with `restartPolicy: Always`, which
+  Kubernetes enables by default from 1.29. The bundled OpenTelemetry Operator
+  0.159.0 itself supports 1.25+.
+- **Helm 4.** The repository pins the version in `make/tool-versions.mk`.
+- **cert-manager.** Required with default values; install it separately.
+  NKTP does not bundle or install it. It issues certificates for internal
+  Collector mTLS, the Operator's admission webhook, and
+  Collector-to-Target-Allocator mTLS. Running without it requires replacing all
+  three integrations. See [More information](#more-information) for the
+  documentation covering installation and configuration.
+- **Image registry access** to `docker.io`, `ghcr.io`, `quay.io` and
+  `registry.k8s.io`, or mirrors of them. The uninstall hook also pulls
+  `rancher/kubectl` from `docker.io`. See [Image registry](#image-registry).
+- **Network access** between components. The Kubernetes API server must reach the
+  Operator's admission webhook on TCP 9443 on the nodes; managed clusters can
+  block this with firewall rules or security groups. Node collectors scrape their
+  node's kubelet on TCP 10250 and node-exporter on TCP 9100. Collectors send OTLP
+  to the gateways and watchdog across nodes. Control plane component metrics
+  depend on the distribution, which determines whether those components expose
+  reachable metrics endpoints.
+- **Kubernetes resource metrics API** (`metrics.k8s.io`). Required for gateway,
+  large-target and watchdog autoscaling. NKTP does not install metrics-server by
+  default; set `metrics-server.enabled: true` if nothing else in the cluster
+  provides the API.
+- **Privileged Pod Security level for the release namespace.** The node collector
+  mounts host paths for pod logs, journald and `/proc`. node-exporter uses the
+  host network and PID namespaces, host paths, and host port 9100. The
+  `baseline` and `restricted` Pod Security levels reject these Pods.
+- **Capacity.** The defaults are sized for large clusters: about 10 CPU and
+  26 GiB of memory in requests for the cluster-wide components, plus about
+  1.1 CPU and 2.2 GiB on every node for the per-node DaemonSets.
 
 ## Install
 
 ```bash
 kubectl create namespace nktp
 kubectl label namespace nktp pod-security.kubernetes.io/enforce=privileged
-helm install nktp oci://ghcr.io/dsx-ai-factory/nke/charts/nktp \
-  --version <version> --namespace nktp
+helm install nktp oci://ghcr.io/dsx-ai-factory/nvke/charts/nktp \
+  --version <version> --namespace nktp --values my-values.yaml --wait
 ```
 
-The label is the Pod Security level in [Prerequisites](#prerequisites);
-`--create-namespace` would create the namespace without it. Released versions
-are listed on the repository's GitHub Releases, as `nktp/vX.Y.Z` tags.
+Released versions are listed on the repository's GitHub Releases, as
+`nktp/vX.Y.Z` tags. `--create-namespace` would create the namespace without the
+Pod Security label. `my-values.yaml` holds your overrides; leave it out to
+install with the defaults. The Operator creates the Collectors after `helm install --wait`
+returns, so check their Pods as well.
 
-## What it deploys
+### Upgrading
 
-Every Collector below is an `OpenTelemetryCollector` resource that the bundled
-Operator turns into a workload. Each one sends its own metrics, logs and traces
-to the watchdog, and so does each Target Allocator its metrics, over OTLP. The
-node Collectors send the Target Allocators' and the Operator's container logs
-there too. The watchdog sends its own telemetry to the backend.
+Helm never upgrades CRDs it installed from a chart's `crds/` directory. The
+OpenTelemetry and Prometheus CRDs come from there, so a chart version that bumps
+the Operator leaves the old CRDs in place, and fields only the new version knows
+are silently dropped. Apply the new CRDs before `helm upgrade`.
 
-| Values key | Role |
-|---|---|
-| `watchdog` | Receives the other Collectors' own telemetry over OTLP at `nktp-watchdog-collector:4318` and forwards it to the backend. Scrapes the Operator. |
-| `gateway_logs`, `gateway_metrics`, `gateway_traces` | The OTLP entry points, one per signal, at `nktp-gateway-<signal>-collector:4317` (gRPC) and `:4318` (HTTP). Forward to the backend. Two replicas each by default, autoscaling up to 64. |
-| `daemonset` | One Collector per node. Reads pod logs under `/var/log/pods`, the node's systemd journal and its authentication and audit logs (see [Node logs](#node-logs)), scrapes the local kubelet and its cAdvisor endpoint, collects per-process metrics from `/proc`, scrapes the targets a node-local Target Allocator assigns from every monitor in the cluster, and forwards each signal to its gateway. Runs as root because of the host log mount. |
-| `large_target_metrics` | A pool with its own Target Allocator for monitors labelled `nktp.nvidia.io/large-target: "true"`, which is how kube-state-metrics is scraped. Two replicas by default, autoscaling up to 16. |
-| `cluster_events` | Turns Kubernetes Events into logs. Two replicas by default: a Lease the chart creates in the release namespace elects the reader, and the other stands by. |
-| `kube-state-metrics` | A DaemonSet for node-local Pod metrics, one Deployment for Pods awaiting a node, and five Deployments for the other object types, grouped as workloads, networking, storage, configuration and cluster-scoped objects. RBAC is derived from the resource types. Each group can be sharded for larger clusters. |
-| `node-exporter` | The upstream DaemonSet on host network port 9100, with a ServiceMonitor the node Target Allocator picks up. The only source of node-level CPU, memory, filesystem and network metrics; the node Collector's host metrics receiver reports processes, not the node. |
-| `metrics-server` | The resource metrics API the autoscalers read. Off by default, because most clusters already have a provider; see [Bundled components](#bundled-components). |
-| `otel-lgtm` | Grafana, Loki, Tempo and Prometheus in one container, with the NKTP dashboards in [dashboards/default](dashboards/README.md). On by default for evaluation; see [The backend](#the-backend). |
+## Components
 
-Footprint with default values on three nodes, before the Operator and the
-development backend. Requests are per workload; a Collector's are set under
-`<workload>.kubernetes.resources` and its Target Allocator's under
-`<workload>.kubernetes.targetAllocator.resources`.
-
-| Workload | Pods | CPU request | Memory request |
-|---|---|---|---|
-| Node Collector | 3 | 300m | 768Mi |
-| Watchdog | 2 | 200m | 512Mi |
-| Gateways | 6 | 1200m | 3Gi |
-| Large-target pool | 2 | 1000m | 16Gi |
-| Cluster event reader | 2 | 400m | 1Gi |
-| Target Allocators | 3 | 750m | 4Gi |
-| node-exporter | 3 | none set | none set |
-| kube-state-metrics | 9 | 900m | 1.1Gi |
-
-## Prerequisites
-
-- Helm 4. The repository pins the version in `make/tool-versions.mk`.
-- Network access to the chart repositories named in [Chart.yaml](Chart.yaml)
-  when building dependencies.
-- A cluster that accepts the `opentelemetry.io/v1beta1` API. The chart installs
-  the OpenTelemetry and Prometheus Operator CRDs by default.
-- cert-manager. It issues the Operator's webhook certificate and the mTLS
-  certificates between each Collector and its Target Allocator; see
-  [Certificates](#certificates) to run without it.
-- A release namespace whose Pod Security admission level is `privileged`. The
-  node Collector runs as root with `SYS_CHROOT`, and mounts `/var/log/pods`,
-  `/proc`, `/var/log`, the node's `journalctl` with its libraries and
-  `/etc/machine-id` from the host, which `baseline` rejects.
-- For anything beyond evaluation, a backend that accepts OTLP over HTTP for
-  metrics, logs and traces. The bundled Collector image exports OTLP only. See
-  [The backend](#the-backend).
-
-## Configuration
-
-Top-level keys in [values.yaml](values.yaml):
-
-| Key | What it sets |
-|---|---|
-| `global.imageRegistry` | A registry that replaces the registry of every image the chart and its dependencies pull, apart from two; see [Images](#images). |
-| `otelcol_image` | The Collector image every workload uses unless it sets `<workload>.otelcol.image`, as `registry`, `repository` and `tag`. |
-| `watchdog`, `gateway_logs`, `gateway_metrics`, `gateway_traces`, `daemonset`, `large_target_metrics`, `cluster_events` | One block per Collector. `otelcol.config` is the Collector configuration, and `daemonset.kubelet` selects the kubelet endpoints the node Collector scrapes; `kubernetes` is the workload: replicas, resources, environment, Target Allocator, scheduling and, for every Collector but the node DaemonSet and the event reader, the `autoscaler` bounds. |
-| `kube-state-metrics` | `enabled`, the node DaemonSet, the central `deployments` with their `resource_types`, `shards` and `namespaces`, and the image. |
-| `otel-lgtm` | The development backend: `enabled` and `image`. |
-| `opentelemetry-kube-stack`, `node-exporter`, `metrics-server` | Values passed through to the bundled charts. |
-
-### Images
-
-Every image is set as `registry`, `repository` and `tag`. An empty `registry`
-pulls from the image's default registry. `global.imageRegistry` replaces the
-registry of every image at once, for a mirror. Two images do not read it: the
-metrics-server dependency's and the OpenTelemetry Operator's, which is nested in
-opentelemetry-kube-stack. Point those at the mirror through their own values:
-
-```yaml
-metrics-server:
-  image:
-    repository: <mirror>/metrics-server/metrics-server
-opentelemetry-kube-stack:
-  opentelemetry-operator:
-    manager:
-      image:
-        repository: <mirror>/open-telemetry/opentelemetry-operator/opentelemetry-operator
-```
-
-### Kubelet endpoints
-
-The node Collector scrapes its kubelet's `/metrics` and `/metrics/cadvisor`.
-cAdvisor applies kube-prometheus-stack's metric relabelings, which drop
-always-zero, overlapping and host-network-interface series and cgroups with no
-Pod; `daemonset.kubelet.cadvisor.metricRelabelings` replaces them.
-`/metrics/probes` and `/metrics/resource` are off. Each endpoint is switched on
-or off independently:
-
-```yaml
-daemonset:
-  kubelet:
-    cadvisor:
-      enabled: false
-    probes:
-      enabled: true
-    resource:
-      enabled: true
-```
-
-### Node logs
-
-The node Collector reads the systemd journal at `info` priority and above by
-running the node's own `/usr/bin/journalctl`, which is why it has `SYS_CHROOT`
-and read-only mounts of the node's libraries. It expects the journal in
-`/var/log/journal` and reads `/etc/machine-id`. Collection starts with new
-entries; journal cursors are not kept across Collector restarts.
-
-For a different host layout, set `root_path`, `journalctl_path` and `directory`
-under `daemonset.otelcol.config.receivers.journald`, and change
-`daemonset.kubernetes.volumes` and `volumeMounts` to match. Both are lists that
-replace the chart's whole list, so keep its other entries. A node that keeps
-its journal in memory needs a `/run/log/journal` host volume mounted at
-`/hostfs/run/log/journal` and the receiver's `directory` set to
-`/run/log/journal`, as [nktp/hack/e2e-values.yaml](../../../hack/e2e-values.yaml)
-does for Kind.
-
-### Log classification
-
-Logs from some sources carry a `nvidia.telemetry.class` resource attribute, so
-the backend can route them without parsing their content. Every record from a
-classified source gets the same class.
-
-| Source | Class | `service.name` | Recognized by |
+| Component | Values key | Runs as | Purpose |
 | --- | --- | --- | --- |
-| sudo and SSH journal entries | `system.auth` | `journald` | Journal identifier `sudo` or `sshd` |
-| `/var/log/auth.log`, `/var/log/secure` | `system.auth` | `auth` | Every record in the file |
-| `/var/log/audit/audit.log` | `system.audit` | `auditd` | Every record in the file |
-| Kubernetes control-plane Pods | `k8s.control_plane` | not set | `kube-apiserver`, `kube-controller-manager`, `kube-scheduler` and `etcd` containers in `kube-system` Pods with matching name prefixes |
-| `/var/log/kubernetes/audit/audit.log` | `k8s.api.audit` | `kube-apiserver` | Every record in the file |
+| Node collector | `daemonset` | DaemonSet | Receives OTLP from workloads on its node, and collects pod logs, the journal, host and audit logs, kubelet and cAdvisor metrics, and scrape targets on its node. |
+| Logs, metrics, and traces gateways | `gateway_logs`, `gateway_metrics`, `gateway_traces` | One StatefulSet each | Export each signal to the backend. |
+| Large-target metrics pool | `large_target_metrics` | StatefulSet | Scrapes monitors labeled `nktp.nvidia.io/large-target: "true"`, including the Kubernetes control plane. |
+| Cluster event reader | `cluster_events` | StatefulSet | Reads Kubernetes Events, with one elected replica active at a time. |
+| Watchdog | `watchdog` | StatefulSet | Receives the pipeline's own telemetry and exports it to the backend. |
+| kube-state-metrics | `kube-state-metrics` | DaemonSet and Deployments | Exposes Kubernetes object state as metrics. |
+| OpenTelemetry Operator and CRDs | `opentelemetry-kube-stack` | Deployment | Creates the Collectors and their Target Allocators. |
+| node-exporter | `node-exporter` | DaemonSet | Exposes host metrics from every node. |
+| metrics-server | `metrics-server` | Deployment, off by default | Serves the resource metrics API that the autoscalers read. |
+| LGTM | `otel-lgtm` | Deployment | Development backend with Grafana, Prometheus, Loki and Tempo. Evaluation only. |
 
-Other logs carry no class. The API server writes an audit log only where audit
-logging is on, and only at the path its `audit-log-path` sets; point
-`daemonset.otelcol.config.receivers.filelog/kube-api-audit.include` at that
-path when it differs.
+The node collectors, the large-target pool, and the event reader send each
+signal to its gateway over OTLP/gRPC with mutual TLS, and the gateways export to
+the backend.
+Each Collector Pod runs a sidecar Collector that buffers the Collector's own
+telemetry and samples its traces. All sidecars except watchdog's send to watchdog
+over OTLP/gRPC with mTLS on port 4317. The DaemonSet also sends collected Operator
+and Target Allocator logs directly to that endpoint. Target Allocators push their
+own metrics to watchdog over plaintext OTLP/gRPC on port 4320. Watchdog exports
+received telemetry to the backend without passing through the gateways; its own
+sidecar exports watchdog's telemetry to the backend.
 
-### Kubernetes component metrics
+Gateways and watchdog rotate connections about every five minutes so clients
+can reach newly added replicas while limiting connection churn. Configure the
+interval under each receiver's `otelcol.config`.
 
-The chart turns on opentelemetry-kube-stack's monitors for the API server, the
-controller manager, the scheduler, etcd, CoreDNS and kube-proxy. They carry the
-large-target label, so the large-target pool scrapes them, and its Collectors'
-ServiceAccount may read the `/metrics` non-resource URL. The monitors reference
-the Collector's ServiceAccount token and CA files, so that pool's Target
-Allocator sets `denyFSAccessThroughSMs: false`; with `true` it drops those
-endpoints, as
-[opentelemetry-helm-charts#2408](https://github.com/open-telemetry/opentelemetry-helm-charts/issues/2408)
-describes.
+## Sending telemetry to NKTP
 
-A monitor does not guarantee a reachable target. kubeadm binds the controller
-manager and the scheduler to `127.0.0.1` by default, some clusters do the same
-for etcd's metrics, and a cluster whose CNI replaces kube-proxy runs none.
-Turn off the monitors a cluster cannot serve:
+- **OTLP:** send to the node collector on the sender's node, at
+  `nktp-daemonset-collector.<namespace>:4317` over gRPC or
+  `http://nktp-daemonset-collector.<namespace>:4318` over HTTP. If no local
+  Collector is ready, traffic fails rather than reaching another node.
+- **Prometheus metrics:** create a `ServiceMonitor` or `PodMonitor`. It can live
+  in any namespace and needs no NKTP-specific label. If a NetworkPolicy guards
+  the metrics port, admit the release namespace. If a monitor references a
+  Secret or CA ConfigMap, list its namespace in
+  `daemonset.kubernetes.targetAllocator.prometheusCR.secretNamespaces` so the
+  node Target Allocator can read it.
+- **Large scrape responses:** label the monitor
+  `nktp.nvidia.io/large-target: "true"` to scrape it from the large-target pool,
+  which reserves more memory per scrape, instead of the node collector.
+- **Logs:** Pod stdout and stderr are collected from every node without
+  configuration.
 
-```yaml
-opentelemetry-kube-stack:
-  kubeScheduler:
-    enabled: false
-  kubeControllerManager:
-    enabled: false
-  kubeProxy:
-    enabled: false
-```
+## Configuring
 
-### Certificates
+Each Collector component has the same values structure:
 
-cert-manager issues and renews two sets of certificates by default: the
-Operator's admission webhook certificate, and a CA with server and client
-certificates for each Collector and its Target Allocator, so the Collectors
-fetch their scrape assignments over mTLS. The Operator provisions the second
-set; see the Operator's
-[Target Allocator documentation](https://github.com/open-telemetry/opentelemetry-operator/blob/main/docs/target-allocator/README.md#with-cert-manager-default).
+| Key | Contents |
+| --- | --- |
+| `<component>.otelcol.config` | The complete, native Collector configuration. |
+| `<component>.otelcol.image` | An image override for this component only. |
+| `<component>.kubernetes` | `OpenTelemetryCollector` settings such as replicas, resources, env, volumes, autoscaler, and Target Allocator. |
 
-A cluster without cert-manager turns both off. Helm then generates a
-self-signed webhook certificate, reuses it on upgrade, and never renews it; it
-expires after 365 days. Each allocator's `mtls` block can instead reference
-certificates that already exist in the release namespace, with
-`useCertManager: false` and a `tls` block, as the Operator's
-[user-provided certificate documentation](https://github.com/open-telemetry/opentelemetry-operator/blob/main/docs/target-allocator/README.md#without-cert-manager-user-provided-certificates)
-describes.
+The chart renders each Collector configuration exactly as written. No other value
+changes it, so to change a pipeline, change its configuration.
 
-```yaml
-opentelemetry-kube-stack:
-  opentelemetry-operator:
-    admissionWebhooks:
-      certManager:
-        enabled: false
-      autoGenerateCert:
-        recreate: false
-watchdog:
-  kubernetes:
-    targetAllocator:
-      mtls:
-        enabled: false
-daemonset:
-  kubernetes:
-    targetAllocator:
-      mtls:
-        enabled: false
-large_target_metrics:
-  kubernetes:
-    targetAllocator:
-      mtls:
-        enabled: false
-```
+Helm replaces lists in your values file as a whole. When overriding a list
+such as `kubernetes.env`, `kubernetes.volumes`, or a receiver's
+`scrape_configs`, copy the default list from `values.yaml` and change your copy.
+Keep `GOMEMLIMIT` and `GOGC` in every replacement `env` list. The cluster event
+reader also needs `POD_NAMESPACE`.
 
-### Monitor credentials
+The watchdog, node collector, and large-target pool require their Target
+Allocators. Setting `targetAllocator.enabled: false` for any of them fails
+rendering.
 
-With mTLS between them, the node Target Allocator can hand its Collectors the
-Secret-backed credentials a monitor references, such as a bearer token or a
-client certificate. It reads them only in the namespaces listed in
-`daemonset.kubernetes.targetAllocator.prometheusCR.secretNamespaces`:
+### Telemetry redaction
 
-```yaml
-daemonset:
-  kubernetes:
-    targetAllocator:
-      prometheusCR:
-        secretNamespaces: [metrics-monitors]
-```
+Enabled in the default Collector configurations in `values.yaml`.
 
-For each listed namespace the chart creates a Role granting `get`, `list` and
-`watch` on Secrets and `get` on ConfigMaps, bound to the allocator's
-ServiceAccount. The grant covers every Secret in the namespace, so list only
-namespaces whose monitor authors are trusted. The namespaces must already
-exist. The list is empty by default, which creates nothing;
-`daemonset.rbac.create: false` leaves the grants to you.
+- Masks recognized credentials in log bodies, including nested bodies, and in log attributes, metric data point attributes, span attributes and events, and resource/scope attributes. Uses `****`, including for quoted JSON and Basic/Bearer text. Preserves keys and counters such as `token_count`. No hashing.
+- Runs last in the default source and gateway pipelines. Customize rules under `<workload>.otelcol.config.processors`, or disable redaction by removing its references from the relevant pipeline processor lists. Custom pipelines must include redaction explicitly.
+- Basic matching does not cover OTLP `Metric.metadata`, exemplar `filtered_attributes`, span names, span link attributes, recursive key matching inside attribute maps and arrays, unknown credential names, or complex and encoded secrets. Attribute maps and arrays can still match value patterns through their text representation.
+- Watchdog redacts other collectors' diagnostic exports (`service.telemetry`) because internal logs can include samples of rejected data. Sending these exports directly to a backend bypasses redaction.
+- Watchdog's sidecar redacts watchdog's own logs, metrics, and traces, plus its own logs and metrics. Configure it under `watchdog.sidecar.otelcol.config`. Watchdog keeps `basic` tracing and the sidecar's own tracing stays disabled.
+- Redaction changes exported copies. Original log files and container stdout, including `kubectl logs`, can still contain secrets.
 
-### The backend
+Following OWASP logging guidance, exclude sensitive data from logs where possible.
+Omit fields at the source when their names or presence are sensitive.
 
-Every exporter ships pointed at the bundled development backend at
-`http://lgtm:4318` in the release namespace: the `otlp_http` exporter of the
-watchdog and of each gateway, and the three `service.telemetry` exporters in
-the watchdog block. Grafana is on port 3000 of the `lgtm` Service in the release
-namespace, with anonymous admin access, and Prometheus on port 9090. That
-backend keeps its data in memory, has no authentication and does not scale, so
-it is for evaluation only.
+### Image registry
 
-A site points those endpoints at its own backend and turns the bundled one
-off. The backend has to accept OTLP over HTTP for metrics, logs and traces;
-the bundled Collector image exports OTLP and nothing else. It also has to
-accept delta metrics: the Target Allocators export some counters as delta even
-though the chart asks for cumulative temporality, which the bundled Prometheus
-converts with `--enable-feature=otlp-deltatocumulative`. A values file for a
-site therefore sets at least:
+Set `global.imageRegistry` to override the image registry of all the components,
+including the Collectors (`otelcol_image`) and the Target Allocators
+(`targetallocator_image`). Caveat: `metrics-server` dependency, the nested OpenTelemetry Operator, and the
+uninstall hook's kubectl image (`opentelemetry-kube-stack.cleanupJob.image`) do **not**
+read this setting. Configure their image repositories explicitly when required.
 
-```yaml
-otel-lgtm:
-  enabled: false
-watchdog:
-  otelcol:
-    config:
-      exporters:
-        otlp_http:
-          endpoint: https://<backend>
-      service:
-        telemetry:
-          metrics:
-            readers:
-              - periodic:
-                  exporter:
-                    otlp:
-                      protocol: http/protobuf
-                      endpoint: https://<backend>
-          logs:
-            processors:
-              - batch:
-                  exporter:
-                    otlp:
-                      protocol: http/protobuf
-                      endpoint: https://<backend>
-          traces:
-            processors:
-              - batch:
-                  exporter:
-                    otlp:
-                      protocol: http/protobuf
-                      endpoint: https://<backend>
-gateway_logs:
-  otelcol:
-    config:
-      exporters:
-        otlp_http:
-          endpoint: https://<backend>
-gateway_metrics:
-  otelcol:
-    config:
-      exporters:
-        otlp_http:
-          endpoint: https://<backend>
-gateway_traces:
-  otelcol:
-    config:
-      exporters:
-        otlp_http:
-          endpoint: https://<backend>
-```
+### Cluster name
 
-Credentials belong in a Secret referenced from the workload's `kubernetes.env`,
-read by the Collector through `${env:NAME}` substitution, never in values.
+Set `global.clusterName` to add `k8s.cluster.name` to telemetry as it leaves
+NKTP for the backend. Telemetry that already has `k8s.cluster.name` keeps it.
+When `global.clusterName` is empty, the value is `unknown`.
 
-### Bundled components
+## Before production
 
-- `kube-state-metrics` runs as one node DaemonSet for scheduled Pods, one
-  Deployment for Pods awaiting a node, and one Deployment per group of the
-  other object types under `kube-state-metrics.deployments`. Their PodMonitors
-  carry the large-target label, so the pool scrapes them. Raise a group's
-  `shards` and `large_target_metrics.kubernetes.resources` when the object
-  count grows. Secret metrics stay opt-in because they need list
-  and watch access to whole Secret objects; add `secrets` to a group's
-  `resource_types` and scope its `namespaces` list to enable them.
-  Kubernetes labels are not exposed as series labels by default;
-  `kube-state-metrics.metricLabelsAllowlist` selects some, with entries such
-  as `pods=[app.kubernetes.io/name]`. `kube-state-metrics.enabled: false`
-  removes all of it.
-- `node-exporter` runs the upstream DaemonSet on host port 9100.
-  `node-exporter.enabled: false` when the cluster already runs one.
-- `otel-lgtm` is the development backend described above.
-  `otel-lgtm.enabled: false` for a site.
-- `metrics-server` serves `metrics.k8s.io`, which is a cluster-wide singleton:
-  one APIService object, owned by one provider. It is off by default. Turn it
-  on with `metrics-server.enabled: true` only where nothing else provides the
-  API, such as a bare control-plane cluster. Two providers flip the
-  APIService between backends and the autoscalers lose their metrics, so turn
-  it off again if the cluster gets another one.
+- **Disable the bundled LGTM backend.** It keeps data in memory, grants
+  anonymous admin access to Grafana, and does not scale. Set
+  `otel-lgtm.enabled: false`, then set your backend's endpoint in the
+  `otlp` exporter of each gateway, the watchdog, and the watchdog's sidecar.
+  Use `otlp` for gRPC or `otlp_http` for HTTP, matching your backend's supported
+  ingestion protocol. When changing protocol, update each affected pipeline's
+  `exporters` list too.
+- **Secure backend export.** The default LGTM backend uses plaintext OTLP for
+  local development. Enable TLS before sending gateway traffic
+  to a production backend, and mount client certificates into the gateways if
+  the backend requires mTLS.
+- **Keep credentials in Secrets.** Add the Secret to the Collector's
+  `kubernetes.env` and reference it from the exporter with `${env:NAME}`, for
+  example in `headers`.
+- **Provide the resource metrics API** so the gateways, large-target pool, and
+  watchdog can autoscale.
+- **Review resource requests and limits** under `<component>.kubernetes.resources`
+  and `<component>.kubernetes.targetAllocator.resources`. Autoscaling targets
+  are relative to requests.
 
 ## Bundled dependencies
 
-| Dependency | Pin | Notes |
-|---|---|---|
-| opentelemetry-kube-stack | 0.22.0 | Operator chart 0.123.0, operator image 0.159.0, and the CRDs. Always installed. |
-| prometheus-node-exporter, aliased `node-exporter` | 4.56.1 | On by default. `node-exporter.enabled: false` when the cluster already runs one. |
-| metrics-server | 3.13.1 | Off by default. `metrics-server.enabled: true` when nothing else serves `metrics.k8s.io`. |
+| Chart | Version | Installs | Enabled by default | Values key |
+| --- | --- | --- | --- | --- |
+| opentelemetry-kube-stack | 0.22.0 | OpenTelemetry Operator chart 0.123.0, Operator 0.159.0, and CRDs | Yes | `opentelemetry-kube-stack` |
+| prometheus-node-exporter | 4.56.1 | node-exporter | Yes | `node-exporter` |
+| metrics-server | 3.13.1 | metrics-server 0.8.1 | No | `metrics-server` |
 
-Pins live in [Chart.yaml](Chart.yaml) and [Chart.lock](Chart.lock). Bump them
-in their own pull request with `helm dependency update` and a chart version bump.
+The Collector, Target Allocator, kube-state-metrics, and LGTM images are set in
+`values.yaml` under `otelcol_image`, `targetallocator_image`,
+`kube-state-metrics.image`, and `otel-lgtm.image`.
 
-When another mechanism owns the Operator or the CRDs, turn them off independently:
+## Developing the chart
 
-```yaml
-opentelemetry-kube-stack:
-  opentelemetry-operator:
-    enabled: false
-  crds:
-    installOtel: false
-    installPrometheus: false
+| Path | Contents |
+| --- | --- |
+| `values.yaml` | Defaults, including every Collector configuration |
+| `templates/` | One template per component, plus RBAC and certificates |
+| `dashboards/` | Grafana dashboards provisioned into LGTM, and examples |
+
+Run the chart checks from the repository root:
+
+```bash
+make nktp-chart-deps   # download the dependencies into charts/
+make nktp-chart-check  # lint, render and validate the chart; the merge gate runs this
 ```
 
-The Operator's webhook certificate comes from cert-manager; see
-[Certificates](#certificates).
+In a checkout, `nktp/AGENTS.md` covers the chart's constraints, including
+version bumps and dependency pins, and `nktp/hack/e2e-validate.sh` installs the
+chart on a Kind cluster and asserts that every signal arrives. When a change
+alters a component's behavior or values, update its page under
+`docs/nktp/components/` in the same pull request.
+
+This README is packaged into the chart, where links to other files do not
+resolve. Keep it self-contained: it must not link to other documentation,
+except the link below.
+
+## More information
+
+The [NKTP documentation](https://github.com/dsx-ai-factory/nvke/tree/main/docs/nktp)
+covers each component, configuration guides, operations, and design documents.

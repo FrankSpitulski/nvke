@@ -2,7 +2,7 @@
 
 NKTP, the NVIDIA Kubernetes Telemetry Pipeline, collects a site controller's
 metrics, logs and traces and exports them over OTLP. On a site controller it is
-installed by the nke-sbom deploy path, the same way as the rest of the
+installed by the `deploy/nico` deploy path, the same way as the rest of the
 management plane. There is nothing to install by hand.
 
 This guide covers what NKTP gives a site controller, what the deploy path needs
@@ -12,7 +12,7 @@ cover [configuration](configuration.md), [verification](verification.md) and
 
 ## What you get
 
-The `nktp` item in [`controller/deploy/nke-sbom`](../../../controller/deploy/nke-sbom/README.md)
+The `nktp` item in [`deploy/nico`](../../../deploy/nico/README.md)
 installs the [NKTP chart](../../../nktp/deploy/charts/nktp/README.md) from the
 same checkout, into namespace `nktp`:
 
@@ -20,8 +20,7 @@ same checkout, into namespace `nktp`:
   CRDs (`ServiceMonitor`, `PodMonitor` and the rest).
 - **Collectors**, each an `OpenTelemetryCollector` the Operator runs:
   - one on every node, for pod logs, the systemd journal, host auth and audit
-    logs, the kubelet and cAdvisor, per-process metrics, and every monitor
-    scheduled to its node
+    logs, the kubelet and cAdvisor, and every monitor scheduled to its node
   - a gateway per signal (metrics, logs, traces), the OTLP entry points that
     export to the backend
   - a large-target pool for kube-state-metrics and the control-plane monitors
@@ -39,7 +38,7 @@ The deploy path also wires the rest of the management plane into it:
 
 | Component | Signal | How |
 |---|---|---|
-| Cloud Workflow Engine | metrics, logs, traces | ServiceMonitor, pod logs, OTLP traces to the traces gateway; its metrics NetworkPolicy admits `nktp` |
+| NVKE controller | metrics, logs, traces | ServiceMonitor, pod logs, OTLP traces to the node Collector; its metrics NetworkPolicy admits `nktp` |
 | Temporal | metrics | a ServiceMonitor per server role, from Temporal's own chart |
 | SPIRE server and agent | metrics | PodMonitors, from SPIRE's own chart |
 | API server, etcd, CoreDNS | metrics | the chart's control-plane monitors |
@@ -56,7 +55,7 @@ Everything exported carries `k8s.cluster.name` set to the site's name.
 - **CAPI core and the kubeadm providers,** which serve metrics only to a
   caller with a bearer token.
 - **The scheduler and controller manager,** which listen on `127.0.0.1` on
-  NKE clusters.
+  NVKE clusters.
 - **Postgres,** which runs no metrics exporter.
 
 The state of all their Pods still arrives through kube-state-metrics.
@@ -65,21 +64,21 @@ The state of all their Pods still arrives through kube-state-metrics.
 
 The deploy path installs NKTP with the rest of the management plane, so its
 prerequisites are the path's own
-([Before this runs](../../../controller/deploy/nke-sbom/README.md#before-this-runs)),
+([Before this runs](../../../deploy/nico/README.md#before-this-runs)),
 plus:
 
 - **cert-manager.** `clusterctl init` installs it. It issues the Operator's
   webhook certificate and the mTLS certificates between each Collector and
   its Target Allocator.
 - **`ClusterName` in the BootstrapConfig** passed with `--config`. It becomes
-  `k8s.cluster.name` on every signal. The install stops at the `nke-base-config`
+  `k8s.cluster.name` on every signal. The install stops at the `nvke-base-config`
   item if it is missing:
   ```json
   { "ClusterName": "<site-name>", "Nico": { "...": "..." } }
   ```
 - **Egress from the node running the install:**
   - to `open-telemetry.github.io`, `prometheus-community.github.io` and
-    `kubernetes-sigs.github.io`, because `build/use-nke-sbom.sh` builds the
+    `kubernetes-sigs.github.io`, because `deploy/nvke-deploy.sh` builds the
     chart's dependencies from its `Chart.lock` before installing
   - to `docker.io`, `ghcr.io`, `quay.io` and `registry.k8s.io`, for the images
 - **Room on the nodes.** The site values size NKTP for the smaller clusters a
@@ -91,7 +90,7 @@ plus:
 Nothing else. The deploy path creates the `nktp` namespace with the
 `privileged` Pod Security level the node Collector needs, and every setting a
 site controller needs is in
-[`nktp/values.yaml`](../../../controller/deploy/nke-sbom/nktp/values.yaml).
+[`nktp/values.yaml`](../../../deploy/nico/nktp/values.yaml).
 
 ## Install order
 
@@ -99,7 +98,7 @@ site controller needs is in
 monitor:
 
 ```text
-nke-base-config -> spire-tpm-pubhashes -> spire-server-nodeport
+nvke-base-config -> spire-tpm-pubhashes -> spire-server-nodeport
   -> spire-oidc-provider-nodeport -> capnico -> nktp
   -> postgresql -> spire-crds -> temporal -> spire -> controller
 ```
@@ -132,6 +131,24 @@ If you are working through a jump host, forward that port over SSH rather than
 binding it on the site network. The **NKTP Health** dashboard shows whether the
 pipeline itself is healthy.
 
+### NVKE reference dashboards
+
+NVKE also ships [reference Grafana dashboards](../../../controller/deploy/dashboards/README.md)
+as JSON files. These are starting points for investigating a site, not a
+complete monitoring or alerting setup. Review their **Requirements and scope**
+panels, check that your backend collects the required metrics, and adapt the
+dashboards and alerts to your operating needs. An empty optional panel can mean
+its metric is not scraped.
+
+To use these dashboards, open Grafana **Dashboards → New → Import**, upload its
+JSON file (or paste the JSON), and select a Prometheus datasource when prompted.
+The files are not installed automatically with the site controller. You can
+import them into the bundled `lgtm` Grafana while developing, but import them
+into your [real telemetry backend](configuration.md#connecting-a-real-backend)
+for site operations: `lgtm` keeps data in memory and has no authentication.
+See the [dashboard README](../../../controller/deploy/dashboards/README.md)
+for the full catalog and import details.
+
 For the full checklist, see [verification](verification.md).
 
 ## Next steps
@@ -143,6 +160,5 @@ For the full checklist, see [verification](verification.md).
 - [Verification](verification.md): checking every signal end to end.
 - [Troubleshooting](troubleshooting.md): the failures seen on real site
   controllers, and their fixes.
-- [Observability](../../operations/observability.md): the Temporal UI,
-  controller logs and provider diagnostics, which NKTP complements rather than
-  replaces.
+- [Observe NVKE and its clusters](../../operate/observe.md): health checks,
+  controller logs and metrics, which NKTP complements rather than replaces.

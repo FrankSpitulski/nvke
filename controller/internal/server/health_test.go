@@ -17,8 +17,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 func TestHealthzAlwaysHealthyWithoutDependencyChecks(t *testing.T) {
@@ -136,7 +136,7 @@ func TestServerHealthEndpoints(t *testing.T) {
 		ManagedByK8sPlatform: false,
 		ProfilesDir:          "./profiles",
 	}
-	srv, err := NewServer(cfg, logger, mockDB, nil, nil)
+	srv, err := NewServer(cfg, logger, mockDB, nil, nil, nil)
 	require.NoError(t, err)
 
 	healthRR := httptest.NewRecorder()

@@ -26,9 +26,9 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/dsx-ai-factory/nke/agent/internal/k8s"
-	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
-	nkeutils "github.com/dsx-ai-factory/nke/agent/pkg/utils"
+	"github.com/dsx-ai-factory/nvke/agent/internal/k8s"
+	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
+	nvkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
 )
 
 var initOutput = `Your Kubernetes control-plane has initialized successfully!
@@ -74,7 +74,7 @@ type concurrentScriptRunner struct {
 func (r *concurrentScriptRunner) Run(
 	name string,
 	args []string,
-	opts *nkeutils.CommandOptions,
+	opts *nvkeutils.CommandOptions,
 ) ([]byte, error) {
 	r.mu.Lock()
 	r.paths = append(r.paths, name)
@@ -83,22 +83,22 @@ func (r *concurrentScriptRunner) Run(
 	r.started <- struct{}{}
 	<-r.release
 
-	return (&nkeutils.ExecRunner{}).Run(name, args, opts)
+	return (&nvkeutils.ExecRunner{}).Run(name, args, opts)
 }
 
 func (r *concurrentScriptRunner) RunSplitOutput(
 	name string,
 	args []string,
-	opts *nkeutils.CommandOptions,
-) (nkeutils.CommandOutput, error) {
+	opts *nvkeutils.CommandOptions,
+) (nvkeutils.CommandOutput, error) {
 	output, err := r.Run(name, args, opts)
-	return nkeutils.CommandOutput{Stdout: output}, err
+	return nvkeutils.CommandOutput{Stdout: output}, err
 }
 
 func (r *concurrentScriptRunner) RunDetached(
 	string,
 	[]string,
-	*nkeutils.CommandOptions,
+	*nvkeutils.CommandOptions,
 ) error {
 	return errors.New("detached execution is not supported")
 }
@@ -110,14 +110,14 @@ func (r *concurrentScriptRunner) Paths() []string {
 }
 
 type (
-	runner  func(string, []string, *nkeutils.CommandOptions) (match bool, output []byte, err error)
-	runFunc func(string, []string, *nkeutils.CommandOptions) ([]byte, error)
+	runner  func(string, []string, *nvkeutils.CommandOptions) (match bool, output []byte, err error)
+	runFunc func(string, []string, *nvkeutils.CommandOptions) ([]byte, error)
 )
 
 func (m *MockRunner) Run(
 	name string,
 	args []string,
-	opts *nkeutils.CommandOptions,
+	opts *nvkeutils.CommandOptions,
 ) ([]byte, error) { //nolint:ireturntring
 	m.RunCalls++
 	for _, runner := range m.Runners {
@@ -132,22 +132,22 @@ func (m *MockRunner) Run(
 func (m *MockRunner) RunSplitOutput(
 	name string,
 	args []string,
-	opts *nkeutils.CommandOptions,
-) (nkeutils.CommandOutput, error) {
+	opts *nvkeutils.CommandOptions,
+) (nvkeutils.CommandOutput, error) {
 	output, err := m.Run(name, args, opts)
-	return nkeutils.CommandOutput{Stdout: output, Stderr: m.Stderr}, err
+	return nvkeutils.CommandOutput{Stdout: output, Stderr: m.Stderr}, err
 }
 
 func (m *MockRunner) RunDetached(
 	name string,
 	args []string,
-	opts *nkeutils.CommandOptions,
+	opts *nvkeutils.CommandOptions,
 ) error { //nolint:ireturntring
 	return m.Err
 }
 
 func runForCommand(wantName string, wantArgs []string, run runFunc) runner {
-	return func(name string, args []string, opts *nkeutils.CommandOptions) (bool, []byte, error) {
+	return func(name string, args []string, opts *nvkeutils.CommandOptions) (bool, []byte, error) {
 		if name != wantName {
 			return false, nil, nil
 		}
@@ -427,13 +427,13 @@ func TestProcessKubeadmInit(t *testing.T) {
 }
 
 func TestInstallCNIPluginRequestFromKubeadmInit(t *testing.T) {
-	t.Run("defaults to calico with default version", func(t *testing.T) {
+	t.Run("defaults to ovn with default version", func(t *testing.T) {
 		out := installCNIPluginRequestFromKubeadmInit(&pb.KubeadmInitRequest{
 			PodNetworkCidr: "10.0.0.0/16",
 			ServiceCidr:    "10.96.0.0/12",
 		})
-		assert.Equal(t, "calico", out.GetPluginName())
-		assert.Equal(t, DefaultTigeraVersion.String(), out.GetPluginVersion())
+		assert.Equal(t, "ovn", out.GetPluginName())
+		assert.Equal(t, defaultOvnCniChartStream, out.GetPluginVersion())
 		assert.Equal(t, "10.0.0.0/16", out.GetPodNetworkCidr())
 		assert.Equal(t, "10.96.0.0/12", out.GetServiceCidr())
 	})
@@ -441,6 +441,13 @@ func TestInstallCNIPluginRequestFromKubeadmInit(t *testing.T) {
 		out := installCNIPluginRequestFromKubeadmInit(&pb.KubeadmInitRequest{
 			CniPluginName: "ovn",
 			OvnVersion:    "1.2.3",
+		})
+		assert.Equal(t, "ovn", out.GetPluginName())
+		assert.Equal(t, "1.2.3", out.GetPluginVersion())
+	})
+	t.Run("empty plugin keeps an explicit ovn version", func(t *testing.T) {
+		out := installCNIPluginRequestFromKubeadmInit(&pb.KubeadmInitRequest{
+			OvnVersion: "1.2.3",
 		})
 		assert.Equal(t, "ovn", out.GetPluginName())
 		assert.Equal(t, "1.2.3", out.GetPluginVersion())
@@ -468,7 +475,7 @@ func TestProcessKubeadmInit_FilesWrittenBeforeKubeadm(t *testing.T) {
 	secondExpectedContent := "issuer: https://issuer.example.com\n"
 	server.Runner = &MockRunner{
 		Runners: []runner{
-			runForCommand("kubeadm", []string{"init", "--upload-certs"}, func(string, []string, *nkeutils.CommandOptions) ([]byte, error) {
+			runForCommand("kubeadm", []string{"init", "--upload-certs"}, func(string, []string, *nvkeutils.CommandOptions) ([]byte, error) {
 				data, err := os.ReadFile(expectedPath)
 				require.NoError(t, err)
 				require.Equal(t, expectedContent, string(data))
@@ -516,7 +523,7 @@ func TestProcessKubeadmJoin_FilesWrittenBeforeKubeadm(t *testing.T) {
 	expectedContent := "discovery: enabled\n"
 	server.Runner = &MockRunner{
 		Runners: []runner{
-			runForCommand("kubeadm", []string{"join", "10.0.0.1:6443"}, func(string, []string, *nkeutils.CommandOptions) ([]byte, error) {
+			runForCommand("kubeadm", []string{"join", "10.0.0.1:6443"}, func(string, []string, *nvkeutils.CommandOptions) ([]byte, error) {
 				data, err := os.ReadFile(expectedPath)
 				require.NoError(t, err)
 				require.Equal(t, expectedContent, string(data))
@@ -539,6 +546,46 @@ func TestProcessKubeadmJoin_FilesWrittenBeforeKubeadm(t *testing.T) {
 	assert.Equal(t, "join succeeded", server.NodeStatus.KubeadmStatus)
 }
 
+func TestProcessKubeadmJoin_ResetsBeforeRetry(t *testing.T) {
+	tests := []struct {
+		name          string
+		kubeadmStatus string
+		wantCommands  []string
+	}{
+		{name: "retry after a failed join resets first", kubeadmStatus: joinFailedStatus, wantCommands: []string{"reset", "join"}},
+		{name: "first join does not reset", kubeadmStatus: "", wantCommands: []string{"join"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := newKubeadmFileTestServer(t)
+			server.NodeStatus = &NodeStatus{
+				Status:        PendingStatus,
+				Phase:         JoinPhase,
+				Role:          WorkerRole,
+				KubeadmStatus: tc.kubeadmStatus,
+			}
+
+			var commands []string
+			record := func(_ string, args []string, _ *nvkeutils.CommandOptions) ([]byte, error) {
+				commands = append(commands, args[0])
+				return []byte("ok"), nil
+			}
+			server.Runner = &MockRunner{
+				Runners: []runner{
+					runForCommand("kubeadm", []string{"reset", "-f"}, record),
+					runForCommand("kubeadm", []string{"join", "10.0.0.1:6443"}, record),
+				},
+			}
+
+			server.processKubeadmJoin([]string{"join", "10.0.0.1:6443"}, &pb.KubeadmJoinRequest{})
+
+			assert.Equal(t, tc.wantCommands, commands)
+			assert.Equal(t, ReadyStatus, server.NodeStatus.Status)
+			assert.Equal(t, "join succeeded", server.NodeStatus.KubeadmStatus)
+		})
+	}
+}
+
 func TestProcessKubeadmInit_FilesWriteFailurePreventsKubeadm(t *testing.T) {
 	server := newKubeadmFileTestServer(t)
 	server.NodeStatus = &NodeStatus{
@@ -549,7 +596,7 @@ func TestProcessKubeadmInit_FilesWriteFailurePreventsKubeadm(t *testing.T) {
 
 	runner := &MockRunner{
 		Runners: []runner{
-			runForCommand("kubeadm", []string{"init", "--upload-certs"}, func(string, []string, *nkeutils.CommandOptions) ([]byte, error) {
+			runForCommand("kubeadm", []string{"init", "--upload-certs"}, func(string, []string, *nvkeutils.CommandOptions) ([]byte, error) {
 				t.Fatalf("kubeadm should not run when prerequisite files fail")
 				return nil, nil
 			}),
@@ -583,7 +630,7 @@ func TestProcessKubeadmJoin_FileWriteFailsBeforeKubeadm(t *testing.T) {
 
 	runner := &MockRunner{
 		Runners: []runner{
-			func(name string, args []string, opts *nkeutils.CommandOptions) (bool, []byte, error) {
+			func(name string, args []string, opts *nvkeutils.CommandOptions) (bool, []byte, error) {
 				t.Fatalf("kubeadm should not run when prerequisite files fail")
 				return true, nil, nil
 			},
@@ -1369,7 +1416,7 @@ func TestUpdateNKERBACPreconditions(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, resp)
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-		require.ErrorContains(t, err, "update NKE RBAC: control-plane node required")
+		require.ErrorContains(t, err, "UpdateNKERBAC: control-plane node required")
 		require.ErrorContains(t, err, `current role "worker"`)
 	})
 
@@ -1383,7 +1430,7 @@ func TestUpdateNKERBACPreconditions(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, resp)
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-		require.ErrorContains(t, err, "update NKE RBAC: control-plane node required")
+		require.ErrorContains(t, err, "UpdateNKERBAC: control-plane node required")
 	})
 
 	t.Run("missing kubeconfig is rejected", func(t *testing.T) {
@@ -1396,7 +1443,7 @@ func TestUpdateNKERBACPreconditions(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, resp)
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-		require.ErrorContains(t, err, "update NKE RBAC: kubeconfig precondition failed")
+		require.ErrorContains(t, err, "UpdateNKERBAC: kubeconfig precondition failed")
 	})
 
 	t.Run("unparseable kubeconfig is internal", func(t *testing.T) {
@@ -1411,7 +1458,7 @@ func TestUpdateNKERBACPreconditions(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, resp)
 		assert.Equal(t, codes.Internal, status.Code(err))
-		require.ErrorContains(t, err, "update NKE RBAC: initializing Kubernetes client")
+		require.ErrorContains(t, err, "UpdateNKERBAC: initializing Kubernetes client")
 	})
 }
 
@@ -1556,7 +1603,7 @@ To see the stack trace of this error execute with --v=5 or higher
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := kubeadmFailureMessage(tc.err, []byte(tc.output))
+			got := kubeadmFailureMessage(tc.err, []byte(tc.output), nil)
 			if got != tc.want {
 				t.Errorf("kubeadmFailureMessage() = %q, want %q", got, tc.want)
 			}
@@ -1568,7 +1615,7 @@ To see the stack trace of this error execute with --v=5 or higher
 
 	t.Run("bounded", func(t *testing.T) {
 		long := "error: " + strings.Repeat("x", 1000)
-		if got := kubeadmFailureMessage(errors.New("boom"), []byte(long)); len(got) > 350 {
+		if got := kubeadmFailureMessage(errors.New("boom"), []byte(long), nil); len(got) > 350 {
 			t.Errorf("message is %d bytes; status fields should stay bounded", len(got))
 		}
 	})
@@ -1591,7 +1638,7 @@ func TestUpdateAndFetchKubeAdmJoinStrings(t *testing.T) {
 	uploadArgs := []string{kubeadmCmdInit, kubeadmCmdPhase, "upload-certs", "--upload-certs", "--config", configPath}
 	tokenArgs := []string{"token", "create", "--print-join-command"}
 	reply := func(out string, err error) runFunc {
-		return func(string, []string, *nkeutils.CommandOptions) ([]byte, error) { return []byte(out), err }
+		return func(string, []string, *nvkeutils.CommandOptions) ([]byte, error) { return []byte(out), err }
 	}
 
 	tests := []struct {
@@ -1686,10 +1733,6 @@ func TestExecuteKubeadmInitWithoutConfigRemovesStaleInitConfig(t *testing.T) {
 	}
 }
 
-// fileMode returns a pointer to m, so a table case can distinguish "create
-// this file with this mode" from "do not create it at all".
-func fileMode(m os.FileMode) *os.FileMode { return &m }
-
 func TestHardenKubeletFileModes(t *testing.T) {
 	// writeAt creates rel under root with mode, making parents as needed.
 	writeAt := func(t *testing.T, root, rel string, mode os.FileMode) string {
@@ -1702,28 +1745,51 @@ func TestHardenKubeletFileModes(t *testing.T) {
 		return path
 	}
 
+	const (
+		etcDropIn    = "/etc/systemd/system/kubelet.service.d/10-kubeadm.conf"
+		libUnit      = "/lib/systemd/system/kubelet.service"
+		libDropIn    = "/lib/systemd/system/kubelet.service.d/10-kubeadm.conf"
+		usrLibUnit   = "/usr/lib/systemd/system/kubelet.service"
+		usrLibDropIn = "/usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf"
+	)
+
 	tests := []struct {
-		name    string
-		dropIn  *os.FileMode
-		config  *os.FileMode
-		wantErr bool
+		name  string
+		files map[string]os.FileMode
 	}{
-		{name: "tightens both when kubeadm left them 0644", dropIn: fileMode(0o644), config: fileMode(0o644)},
-		{name: "idempotent when both already 0600", dropIn: fileMode(0o600), config: fileMode(0o600)},
-		{name: "tightens the config alone on a worker-shaped tree", config: fileMode(0o644)},
+		{
+			name:  "tightens the vendor unit kube-bench checks on a kubeadm-distro node",
+			files: map[string]os.FileMode{libUnit: 0o644, libDropIn: 0o644, kubeletConfigPath: 0o644},
+		},
+		{
+			name:  "tightens the vendor unit on an upstream pkgs.k8s.io layout under /usr/lib",
+			files: map[string]os.FileMode{usrLibUnit: 0o644, usrLibDropIn: 0o644, kubeletConfigPath: 0o644},
+		},
+		{
+			name:  "tightens a drop-in under /etc when a node carries one",
+			files: map[string]os.FileMode{etcDropIn: 0o644, libUnit: 0o644, kubeletConfigPath: 0o644},
+		},
+		{
+			name:  "idempotent when everything is already 0600",
+			files: map[string]os.FileMode{libUnit: 0o600, libDropIn: 0o600, kubeletConfigPath: 0o600},
+		},
+		{
+			name:  "tightens the config alone when no unit is present",
+			files: map[string]os.FileMode{kubeletConfigPath: 0o644},
+		},
 		{name: "no files yet, before init or join, is not an error"},
-		{name: "tightens a mode looser than 0644", dropIn: fileMode(0o666), config: fileMode(0o640)},
+		{
+			name:  "tightens a mode looser than 0644",
+			files: map[string]os.FileMode{libUnit: 0o666, kubeletConfigPath: 0o640},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmp := t.TempDir()
-			paths := make([]string, 0, 2)
-			if tt.dropIn != nil {
-				paths = append(paths, writeAt(t, tmp, kubeletKubeadmDropInPath, *tt.dropIn))
-			}
-			if tt.config != nil {
-				paths = append(paths, writeAt(t, tmp, kubeletConfigPath, *tt.config))
+			paths := make([]string, 0, len(tt.files))
+			for rel, mode := range tt.files {
+				paths = append(paths, writeAt(t, tmp, rel, mode))
 			}
 
 			server := &NodeAgentServer{RootPath: tmp}
@@ -1746,6 +1812,18 @@ func TestHardenKubeletFileModes(t *testing.T) {
 			}
 		})
 	}
+
+	// Every path kube-bench can resolve "the kubelet service file" to must be
+	// one this hardens, or CIS 4.1.1 can land on a file nothing tightens.
+	t.Run("covers every kube-bench candidate for the kubelet service file", func(t *testing.T) {
+		for _, candidate := range []string{
+			"/etc/systemd/system/kubelet.service.d/10-kubeadm.conf",
+			"/etc/systemd/system/kubelet.service",
+			"/lib/systemd/system/kubelet.service",
+		} {
+			assert.Contains(t, kubeletServiceFilePaths, candidate)
+		}
+	})
 
 	t.Run("reports the error when a file cannot be chmodded", func(t *testing.T) {
 		if os.Geteuid() == 0 {

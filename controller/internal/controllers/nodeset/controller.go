@@ -15,13 +15,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/dbwrapper"
-	dbfilters "github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/filters"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/naming"
-	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/clients"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/dbwrapper"
+	dbfilters "github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/filters"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/naming"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
 )
 
 // Controller is responsible for reconciling node sets.
@@ -99,13 +100,9 @@ func (c *Controller) reconcileNodeSet(ctx context.Context, tx db.Tx, nodeSet db.
 		"nodePoolID", nodePool.ID,
 	)
 
-	// When the control-plane controller manages control-plane provisioning it
-	// fully owns the control-plane node lifecycle (create and delete), tracking
-	// them as cluster-level no-nodepool nodes. Skip control-plane node sets
-	// entirely so the two controllers never both act on them; any legacy
-	// nodepool/node-set control-plane nodes are migrated to the control-plane
-	// controller.
-	if nodePool.ControlPlane && c.cfg.UseControlPlaneControllerForControlPlane() {
+	// The control-plane controller owns the control-plane node lifecycle, so
+	// control-plane node sets are never reconciled here.
+	if nodePool.ControlPlane {
 		nsLogger.Debug("Control-plane node set fully managed by control-plane controller; skipping")
 		return nil
 	}
@@ -251,14 +248,12 @@ func (c *Controller) createPendingNode(ctx context.Context, tx db.Tx, cluster db
 		},
 	}
 	nodes.PinAgentProfile(&dbNode, c.cfg)
-	if cluster.ProviderType == db.ProviderTypeNico {
-		nicoNodePoolProvider, err := nodePool.NicoProvider()
-		if err != nil {
-			return db.Node{}, err
-		}
-		dbNode.SetNico(db.NicoNodeProvider{
-			InstanceTypeID: nicoNodePoolProvider.InstanceTypeID,
-		})
+	nodeProvider, err := clients.GetNewNodeProvider(cluster)
+	if err != nil {
+		return db.Node{}, err
+	}
+	if err := nodeProvider.ApplyNodePoolNodePayload(nodePool, &dbNode); err != nil {
+		return db.Node{}, err
 	}
 
 	createdNode, err := tx.CreateNode(ctx, &dbNode)

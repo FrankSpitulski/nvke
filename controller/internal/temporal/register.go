@@ -28,19 +28,19 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/agent"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/kube"
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout"
-	rolloutcwe "github.com/dsx-ai-factory/nke/controller/internal/rollout/adapters/cwe"
-	rolloutkubevip "github.com/dsx-ai-factory/nke/controller/internal/rollout/guards/kubevip"
-	rolloutetcd "github.com/dsx-ai-factory/nke/controller/internal/rollout/operations/etcd"
-	rolloutoidc "github.com/dsx-ai-factory/nke/controller/internal/rollout/operations/oidc"
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout/preflights"
-	rollouttemporal "github.com/dsx-ai-factory/nke/controller/internal/rollout/temporal"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/activities"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/workflows"
+	"github.com/dsx-ai-factory/nvke/controller/internal/agent"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout"
+	rolloutcontroller "github.com/dsx-ai-factory/nvke/controller/internal/rollout/adapters/controller"
+	rolloutkubevip "github.com/dsx-ai-factory/nvke/controller/internal/rollout/guards/kubevip"
+	rolloutetcd "github.com/dsx-ai-factory/nvke/controller/internal/rollout/operations/etcd"
+	rolloutoidc "github.com/dsx-ai-factory/nvke/controller/internal/rollout/operations/oidc"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout/preflights"
+	rollouttemporal "github.com/dsx-ai-factory/nvke/controller/internal/rollout/temporal"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/activities"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/workflows"
 )
 
 func RegisterNamespace(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
@@ -80,7 +80,7 @@ func RegisterNamespace(ctx context.Context, cfg config.Config, logger *slog.Logg
 func NewClient(cfg config.Config, logger *slog.Logger) (client.Client, error) {
 	tlsConfig, err := newTLSConfig(cfg.TemporalTLS)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create CWE Temporal TLS config: %w", err)
+		return nil, fmt.Errorf("unable to create controller Temporal TLS config: %w", err)
 	}
 
 	opts := client.Options{
@@ -91,17 +91,17 @@ func NewClient(cfg config.Config, logger *slog.Logger) (client.Client, error) {
 			TLS:                  tlsConfig,
 		},
 		Logger:         log.NewStructuredLogger(logger.With("temporalClient", "cwe")),
-		MetricsHandler: sdktally.NewMetricsHandler(newPrometheusScope()), // Adding a metrics handler gets the built in temporal metrics for the CWE temporal worker.
+		MetricsHandler: sdktally.NewMetricsHandler(newPrometheusScope()), // Adding a metrics handler gets the built in temporal metrics for the controller temporal worker.
 		DataConverter:  NewDataConverter(),
 	}
 
-	if cfg.Tracing.Enabled {
-		tracingInterceptor, err := newTracingInterceptor()
-		if err != nil {
-			return nil, err
-		}
-		opts.Interceptors = []interceptor.ClientInterceptor{tracingInterceptor}
+	// Always installed: it carries the request's trace context into workflow
+	// headers, which puts the trace ID on workflow and activity logs.
+	tracingInterceptor, err := newTracingInterceptor()
+	if err != nil {
+		return nil, err
 	}
+	opts.Interceptors = []interceptor.ClientInterceptor{tracingInterceptor}
 
 	return client.Dial(opts)
 }
@@ -163,16 +163,7 @@ func NewWorker(
 		controllerClientCABundle = string(caPEM)
 	}
 
-	workerOpts := worker.Options{}
-	if cfg.Tracing.Enabled {
-		tracingInterceptor, err := newTracingInterceptor()
-		if err != nil {
-			return nil, err
-		}
-		workerOpts.Interceptors = []interceptor.WorkerInterceptor{tracingInterceptor}
-	}
-
-	w := worker.New(temporalClient, cfg.TemporalTaskQueue, workerOpts)
+	w := worker.New(temporalClient, cfg.TemporalTaskQueue, WorkerOptions())
 
 	w.RegisterActivity(activities.NewActivities(
 		cfg,
@@ -199,7 +190,6 @@ func NewWorker(
 	w.RegisterWorkflow(workflows.EnableEtcdEncryption)
 	w.RegisterWorkflow(workflows.EnableOIDC)
 	w.RegisterWorkflow(workflows.RotateEtcdEncryptionKey)
-	w.RegisterWorkflow(workflows.RecordNodePoolConfigChange)
 	w.RegisterWorkflow(workflows.UpgradeControlPlaneAddons)
 	w.RegisterWorkflow(workflows.UpdateKubeadmConfigMap)
 	w.RegisterWorkflow(workflows.RenewK8sCerts)
@@ -207,23 +197,23 @@ func NewWorker(
 	// Rollout subsystem. One Registry backs the activity-side dispatch used by
 	// custom workflows such as EnableEtcdEncryption.
 	rolloutRegistry := rollout.NewRegistry()
-	rolloutLoader := rolloutcwe.NewLoader(dbInstance, cfg)
-	rolloutResolver, err := rolloutcwe.NewDatabaseNodeResolver(dbInstance)
+	rolloutLoader := rolloutcontroller.NewLoader(dbInstance, cfg)
+	rolloutResolver, err := rolloutcontroller.NewDatabaseNodeResolver(dbInstance)
 	if err != nil {
 		return nil, fmt.Errorf("construct rollout node resolver: %w", err)
 	}
-	rolloutDialer, err := rolloutcwe.NewSPIFFEDialer(nodeAgentTransport, rolloutResolver)
+	rolloutDialer, err := rolloutcontroller.NewSPIFFEDialer(nodeAgentTransport, rolloutResolver)
 	if err != nil {
 		return nil, fmt.Errorf("construct rollout agent dialer: %w", err)
 	}
-	rolloutMethodChecker, err := rolloutcwe.NewMethodSupportChecker(nodeAgentTransport, rolloutResolver)
+	rolloutMethodChecker, err := rolloutcontroller.NewMethodSupportChecker(nodeAgentTransport, rolloutResolver)
 	if err != nil {
 		return nil, fmt.Errorf("construct rollout agent method-support checker: %w", err)
 	}
 	preflights.RegisterDefaults(rolloutRegistry, rolloutDialer)
 	rolloutkubevip.RegisterDefaults(rolloutRegistry, rolloutDialer)
 	rolloutetcd.RegisterDefaults(rolloutRegistry, rolloutDialer, k8sClient, cfg.PodNamespace)
-	rolloutoidc.RegisterDefaults(rolloutRegistry, rolloutDialer, rolloutMethodChecker, k8sClient, cfg.NkeOIDCAuth)
+	rolloutoidc.RegisterDefaults(rolloutRegistry, rolloutDialer, rolloutMethodChecker, k8sClient, cfg.NvkeOIDCAuth, trustDomain)
 	rollouttemporal.NewActivities(rolloutLoader, rolloutRegistry).Register(w)
 	rollouttemporal.NewClusterLoaderActivity(rolloutLoader, cfg.NodeAgent.Port).Register(w)
 
@@ -284,8 +274,8 @@ func NewDataConverter() converter.DataConverter {
 		converter.NewProtoJSONPayloadConverterWithOptions(converter.ProtoJSONPayloadConverterOptions{
 			// By default, Temporal uses protojson.Unmarshal (not regular json.Unmarshal) when it detects protobuf message types,
 			// and protojson by default has DiscardUnknown: false, which causes it to error on unknown fields.
-			// This means that if another producer adds a new field to a proto, CWE
-			// will fail to unmarshal the data unless CWE is updated first.
+			// This means that if another producer adds a new field to a proto, the controller
+			// will fail to unmarshal the data unless the controller is updated first.
 			// This is unexpected, and behaves differently than regular json.Unmarshal, and protobuf.
 			//
 			// Using the AllowUnknownFields option, we can tell Temporal to ignore unknown fields, for forward/backward compatibility.

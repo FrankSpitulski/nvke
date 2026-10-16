@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +18,9 @@ import (
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	api "github.com/dsx-ai-factory/nke/controller/api"
+	"github.com/dsx-ai-factory/nvke/cli/internal/clients"
+	"github.com/dsx-ai-factory/nvke/cli/internal/config"
+	api "github.com/dsx-ai-factory/nvke/controller/api"
 )
 
 func quietLogger() *slog.Logger {
@@ -89,7 +93,7 @@ func condition(status api.ConditionStatus) api.Condition {
 
 func clusterWith(provisioned, provisioning api.ConditionStatus) api.Cluster {
 	return api.Cluster{
-		Name: "nke-site",
+		Name: "nvke-site",
 		Conditions: api.ClusterConditions{
 			Provisioned:  condition(provisioned),
 			Provisioning: condition(provisioning),
@@ -112,8 +116,8 @@ func TestCreate_SendsTheSiteSpecAsACluster(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
-	if cluster.Name != "nke-site" {
-		t.Errorf("created cluster name = %q, want %q", cluster.Name, "nke-site")
+	if cluster.Name != "nvke-site" {
+		t.Errorf("created cluster name = %q, want %q", cluster.Name, "nvke-site")
 	}
 	if client.created == nil || client.created.Infra == nil || client.created.Infra.Cluster == nil {
 		t.Fatal("Create did not send a CAPI infrastructure cluster")
@@ -128,7 +132,70 @@ func TestCreate_PropagatesTheAPIError(t *testing.T) {
 		t.Fatal("expected Create to propagate the API error")
 	}
 	if !strings.Contains(err.Error(), "orgID must be omitted") {
-		t.Errorf("error %q does not carry what CWE said", err)
+		t.Errorf("error %q does not carry what the controller said", err)
+	}
+}
+
+// TestCreate_MarksAnUnconfirmedCreate: the controller commits a cluster before it
+// answers, so only a refusal or a connection never made proves it created
+// nothing. Everything else is marked ErrCreateUnconfirmed.
+func TestCreate_MarksAnUnconfirmedCreate(t *testing.T) {
+	tests := []struct {
+		name        string
+		handler     http.HandlerFunc
+		closed      bool
+		unconfirmed bool
+	}{
+		{
+			name: "a 4xx refusal created nothing",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"message":"orgID must be omitted"}`))
+			},
+		},
+		{
+			name: "a 5xx may follow a committed create",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+			unconfirmed: true,
+		},
+		{
+			name: "a connection dropped before the answer may follow a committed create",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				conn, _, err := w.(http.Hijacker).Hijack()
+				if err == nil {
+					_ = conn.Close()
+				}
+			},
+			unconfirmed: true,
+		},
+		{
+			name:   "a connection never made created nothing",
+			closed: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(tt.handler)
+			if tt.closed {
+				srv.Close()
+			} else {
+				defer srv.Close()
+			}
+			client, err := clients.New(config.SiteConfig{URL: srv.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = Create(context.Background(), client, testSiteSpec(), quietLogger())
+			if err == nil {
+				t.Fatal("expected Create to fail")
+			}
+			if got := errors.Is(err, ErrCreateUnconfirmed); got != tt.unconfirmed {
+				t.Errorf("errors.Is(%q, ErrCreateUnconfirmed) = %v, want %v", err, got, tt.unconfirmed)
+			}
+		})
 	}
 }
 
@@ -146,7 +213,7 @@ func TestWaitProvisioned_ReturnsWhenProvisioned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WaitProvisioned returned error: %v", err)
 	}
-	if cluster.Name != "nke-site" {
+	if cluster.Name != "nvke-site" {
 		t.Errorf("returned cluster = %q, want the polled one", cluster.Name)
 	}
 	if client.gets != 3 {
@@ -154,7 +221,7 @@ func TestWaitProvisioned_ReturnsWhenProvisioned(t *testing.T) {
 	}
 }
 
-// TestWaitProvisioned_SurvivesAFailedRead: CWE restarting mid-bootstrap is a
+// TestWaitProvisioned_SurvivesAFailedRead: the controller restarting mid-bootstrap is a
 // read failure, not a cluster failure. Giving up on it would fail a bootstrap
 // that is going fine.
 func TestWaitProvisioned_SurvivesAFailedRead(t *testing.T) {
@@ -184,6 +251,23 @@ func TestWaitProvisioned_StopsOnADeletingCluster(t *testing.T) {
 	_, err := WaitProvisioned(context.Background(), client, uuid.New(), time.Minute, quietLogger())
 	if !errors.Is(err, ErrClusterFailed) {
 		t.Fatalf("error = %v, want it to identify as ErrClusterFailed", err)
+	}
+}
+
+// TestWaitProvisioned_StopsOnProvisioningFailed: the controller reports a dead
+// provisioning workflow as Provisioning=False with the cause in the message.
+func TestWaitProvisioned_StopsOnProvisioningFailed(t *testing.T) {
+	shortPollInterval(t)
+	failed := clusterWith(api.ConditionStatusFalse, api.ConditionStatusFalse)
+	failed.Conditions.Provisioning.Message = "Workflow failed: kubeadm init failed"
+	client := &fakeClusterAPI{states: []api.Cluster{failed}}
+
+	_, err := WaitProvisioned(context.Background(), client, uuid.New(), time.Minute, quietLogger())
+	if !errors.Is(err, ErrClusterFailed) {
+		t.Fatalf("error = %v, want it to identify as ErrClusterFailed", err)
+	}
+	if !strings.Contains(err.Error(), "kubeadm init failed") {
+		t.Errorf("error %q does not carry the condition's message", err)
 	}
 }
 
@@ -288,7 +372,7 @@ func TestWaitControlPlaneJoined_DoesNotReturnOnTheFirstNodeAlone(t *testing.T) {
 	}
 }
 
-// TestWaitControlPlaneJoined_WaitsForNodesCWEHasNotCreatedYet: a node CWE has
+// TestWaitControlPlaneJoined_WaitsForNodesCWEHasNotCreatedYet: a node the controller has
 // no record of yet is outstanding too. Counting only the records that exist
 // would let a one-node list satisfy a three-node control plane.
 func TestWaitControlPlaneJoined_WaitsForNodesCWEHasNotCreatedYet(t *testing.T) {
@@ -306,7 +390,7 @@ func TestWaitControlPlaneJoined_WaitsForNodesCWEHasNotCreatedYet(t *testing.T) {
 	}
 }
 
-// TestWaitControlPlaneJoined_SurvivesAFailedRead: as in WaitProvisioned, CWE
+// TestWaitControlPlaneJoined_SurvivesAFailedRead: as in WaitProvisioned, the controller
 // being briefly unreachable is not a cluster that failed to come up.
 func TestWaitControlPlaneJoined_SurvivesAFailedRead(t *testing.T) {
 	shortPollInterval(t)
@@ -323,7 +407,7 @@ func TestWaitControlPlaneJoined_SurvivesAFailedRead(t *testing.T) {
 }
 
 // TestWaitControlPlaneJoined_TimeoutReportsTheReadFailure: a wait that ran out
-// because CWE was never reachable must not look like a wait that ran out
+// because the controller was never reachable must not look like a wait that ran out
 // because the nodes were slow.
 func TestWaitControlPlaneJoined_TimeoutReportsTheReadFailure(t *testing.T) {
 	shortPollInterval(t)
@@ -358,7 +442,7 @@ func TestWaitControlPlaneJoined_NothingToWaitFor(t *testing.T) {
 
 // TestWaitControlPlaneJoined_TimeoutForgetsARecoveredReadFailure: the last
 // error is there to say why a wait ran out. A read that failed once and
-// recovered is not that reason, and reporting it sends the operator after CWE
+// recovered is not that reason, and reporting it sends the operator after the controller
 // while the node that never joined goes unlooked-at.
 func TestWaitControlPlaneJoined_TimeoutForgetsARecoveredReadFailure(t *testing.T) {
 	shortPollInterval(t)

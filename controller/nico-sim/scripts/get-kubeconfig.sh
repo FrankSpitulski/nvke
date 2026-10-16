@@ -2,9 +2,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Generate a kubeconfig for an NKE cluster running on nico-vms.
+# Generate a kubeconfig for an NVKE cluster running on nico-vms.
 #
-# Queries the CWE API for the cluster VIP and control plane node IPs,
+# Queries the controller API for the cluster VIP and control plane node IPs,
 # SSHes into a CP node, extracts the cluster CA, signs a short-lived
 # client certificate, and writes a kubeconfig file.
 #
@@ -13,15 +13,16 @@
 #   get-kubeconfig.sh --cluster-id <uuid>   [options]
 #
 # Options:
-#   --cluster-name  NAME    Cluster name (looked up via CWE API)
+#   --cluster-name  NAME    Cluster name (looked up via controller API)
 #   --cluster-id    UUID    Cluster ID (direct lookup)
-#   --cwe-api       URL     CWE API base URL        (default: http://localhost:8080/api)
+#   --controller-api URL    Controller API base URL (env NKE_CONTROLLER_API_URL; default: http://localhost:8080/api)
+#   --cwe-api       URL     Deprecated alias for --controller-api; #1399 removes it
 #   --ssh-user      USER    SSH user on CP nodes     (default: nico-diag)
 #   --ssh-key       PATH    SSH private key          (default: ~/.ssh/id_rsa)
 #   --ssh-password          Use password auth instead of key (reads SSHPASS env var)
 #   --sudo-password PASS    Password for sudo on the node (default: same as SSH password)
 #   --cert-days     N       Client cert validity     (default: 365)
-#   --cert-cn       CN      Client cert common name  (default: nke-admin)
+#   --cert-cn       CN      Client cert common name  (default: nvke-admin)
 #   --cert-org      ORG     Client cert organization (default: system:masters)
 #   --output        PATH    Output kubeconfig path   (default: ./kubeconfig-<cluster-name>)
 #   --context-name  NAME    Kubeconfig context name  (default: <cluster-name>)
@@ -30,17 +31,19 @@
 set -euo pipefail
 
 # ── defaults ─────────────────────────────────────────────────────────
-# Default diagnostic user/password injected into all VMs by nico-vms.
-DIAG_SSH_USER="nico-diag"
-DIAG_SSH_PASSWORD="nico-diag"
+# Default diagnostic user/password injected into all VMs by nico-vms; the same
+# variables nico-vms reads override them.
+DIAG_SSH_USER="${NICO_VMS_DIAG_SSH_USER:-nico-diag}"
+DIAG_SSH_PASSWORD="${NICO_VMS_DIAG_SSH_PASSWORD:-nico-diag}"
 
-CWE_API="${CWE_API:-http://localhost:8080/api}"
+# CWE_API is a deprecated alias for NKE_CONTROLLER_API_URL; #1399 removes it.
+NKE_CONTROLLER_API_URL="${NKE_CONTROLLER_API_URL:-${CWE_API:-http://localhost:8080/api}}"
 SSH_USER="${SSH_USER:-}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_rsa}"
 SSH_PASSWORD=false
 SUDO_PASSWORD=""
 CERT_DAYS=365
-CERT_CN="nke-admin"
+CERT_CN="nvke-admin"
 CERT_ORG="system:masters"
 CLUSTER_NAME=""
 CLUSTER_ID=""
@@ -52,7 +55,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --cluster-name) CLUSTER_NAME="$2"; shift 2 ;;
     --cluster-id)   CLUSTER_ID="$2";   shift 2 ;;
-    --cwe-api)      CWE_API="$2";      shift 2 ;;
+    --controller-api) NKE_CONTROLLER_API_URL="$2"; shift 2 ;;
+    --cwe-api)      NKE_CONTROLLER_API_URL="$2"; shift 2 ;; # deprecated alias for --controller-api; #1399 removes it
     --ssh-user)     SSH_USER="$2";      shift 2 ;;
     --ssh-key)      SSH_KEY="$2";       shift 2 ;;
     --ssh-password) SSH_PASSWORD=true;  shift   ;;
@@ -89,7 +93,7 @@ if [[ -z "$SSH_USER" ]]; then
 fi
 
 api_get() {
-  local url="${CWE_API}$1"
+  local url="${NKE_CONTROLLER_API_URL}$1"
   local resp http_code body
 
   resp=$(curl -sf --write-out '\n%{http_code}' "$url") || die "API call failed: GET $url"

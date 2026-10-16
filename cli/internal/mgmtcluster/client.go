@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package mgmtcluster provides a client for reading resources from the NKE
+// Package mgmtcluster provides a client for reading resources from the NVKE
 // management cluster.
 package mgmtcluster
 
@@ -13,6 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -21,12 +22,12 @@ const (
 	// tenantaccess controller publishes per-cluster kubeconfig Secrets.
 	secretsNamespace = "nke-system"
 
-	// adminKubeconfigSecretSuffix names the Secret that always holds the
-	// verbatim control-plane admin.conf, regardless of OIDC mode (mirrors
+	// adminKubeconfigSecretSuffix names the Secret that holds the
+	// nvke:breakglass admin kubeconfig, regardless of OIDC mode (mirrors
 	// tenantaccess.AdminKubeconfigSecretName in the controller). This is
-	// distinct from the "<cluster>-kubeconfig" Secret, which is CWE/CAPI's
+	// distinct from the "<cluster>-kubeconfig" Secret, which is the controller's and CAPI's
 	// own consumed kubeconfig and holds a SPIRE exec-auth kubeconfig instead
-	// of admin.conf when OIDC auth is enabled on the cluster.
+	// of the node admin.conf when OIDC auth is enabled on the cluster.
 	adminKubeconfigSecretSuffix = "-admin-kubeconfig"
 
 	// kubeconfigSecretKey is the data key inside the kubeconfig Secret
@@ -42,18 +43,29 @@ type Client struct {
 	kube kubernetes.Interface
 }
 
-// New builds a Client from a management cluster kubeconfig path. The caller
-// must resolve the path (e.g. from the active site's configured kubeconfig)
-// — New does not fall back to KUBECONFIG or ~/.kube/config.
-func New(kubeconfigPath string) (*Client, error) {
+// RESTConfig loads the management cluster kubeconfig at kubeconfigPath into a REST config
+// with the request timeout set. It is what every client of the management cluster is built
+// from, so they all fail the same way when the kubeconfig is missing or unreadable.
+func RESTConfig(kubeconfigPath string) (*rest.Config, error) {
 	if kubeconfigPath == "" {
-		return nil, fmt.Errorf("management cluster kubeconfig path is empty: run 'nkectl config set-site' with --kubeconfig to set the management cluster kubeconfig")
+		return nil, fmt.Errorf("management cluster kubeconfig path is empty: run 'nvkectl config set-site' with --kubeconfig to set the management cluster kubeconfig")
 	}
 	cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading management cluster kubeconfig %q: %w", kubeconfigPath, err)
 	}
 	cfg.Timeout = requestTimeout
+	return cfg, nil
+}
+
+// New builds a Client from a management cluster kubeconfig path. The caller
+// must resolve the path (e.g. from the active site's configured kubeconfig)
+// — New does not fall back to KUBECONFIG or ~/.kube/config.
+func New(kubeconfigPath string) (*Client, error) {
+	cfg, err := RESTConfig(kubeconfigPath)
+	if err != nil {
+		return nil, err
+	}
 	kube, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("building management cluster client: %w", err)

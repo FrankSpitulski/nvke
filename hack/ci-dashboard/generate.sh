@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-REPO="${REPO:-dsx-ai-factory/nke}"
+REPO="${REPO:-dsx-ai-factory/nvke}"
 RUNS_PER_WORKFLOW="${RUNS_PER_WORKFLOW:-30}"
 # How many recent runs to read per view before grouping. Enough that an active
 # workflow still reaches RUNS_PER_WORKFLOW cells.
@@ -27,9 +27,53 @@ command -v gh >/dev/null || fail "gh is required"
 command -v jq >/dev/null || fail "jq is required"
 
 page_size=100
-pages=$(( (FETCH_RUNS + page_size - 1) / page_size ))
+# Runs are read one day at a time. A day with more runs than the listing can
+# page through (event=push on a busy day) is split in half until it fits.
+window=86400
+cap=900
 
-# fetch_runs <query> -> newline-delimited run objects, newest first
+# fetch_window <query> <from> <to> -> the runs created in [from, to] (epoch seconds)
+#
+# Reads every page of the window and accepts it only when the distinct ids
+# match its total_count; otherwise reads it again, three times, then fails.
+fetch_window() {
+  local query=$1 from=$2 to=$3 range page1 total pages page runs got
+  range="$(jq -rn "$from|todate")..$(jq -rn "$to|todate")"
+  for _ in 1 2 3; do
+    page1=$(gh api "repos/${REPO}/actions/runs?per_page=${page_size}&page=1&${query}&created=${range}") || continue
+    total=$(jq '.total_count' <<<"$page1") || continue
+    if (( total > cap )); then
+      fetch_window "$query" "$from" $(( (from + to) / 2 )) &&
+        fetch_window "$query" $(( (from + to) / 2 + 1 )) "$to"
+      return
+    fi
+    runs=$(jq -c '.workflow_runs[]' <<<"$page1")
+    pages=$(( (total + page_size - 1) / page_size ))
+    for ((page = 2; page <= pages; page++)); do
+      runs+=$'\n'$(gh api "repos/${REPO}/actions/runs?per_page=${page_size}&page=${page}&${query}&created=${range}" \
+        --jq '.workflow_runs[]') || continue 2
+    done
+    runs=$(jq -c -s 'unique_by(.id)[]' <<<"$runs")
+    got=$(grep -c . <<<"$runs" || true)
+    if (( got == total )); then
+      [ -z "$runs" ] || printf '%s\n' "$runs"
+      return 0
+    fi
+    echo "generate.sh: ${query} ${range}: ${got} distinct runs of ${total}; reading it again" >&2
+  done
+  return 1
+}
+
+# fetch_runs <query> -> newline-delimited run objects, at least FETCH_RUNS of
+# them when the view has that many
+#
+# The listing is a search index, and with a filter it is not stable: the same
+# page comes back from a different point in the history from one call to the
+# next (on 2026-10-05, 17 of 31 reads of page 1 for branch=main started days
+# or weeks in the past), and pages past the first thousand results are empty.
+# Paging it by count therefore drops runs and repeats others, and the sort in
+# to_rows can only order what was fetched. Reading it in date windows and
+# checking each window's count is what makes the result complete.
 #
 # Errors are NOT swallowed. A 403 here would otherwise yield zero runs, leave
 # the job green, and publish a blank grid over a good one. A failed job keeps
@@ -38,10 +82,13 @@ pages=$(( (FETCH_RUNS + page_size - 1) / page_size ))
 # substitution only ends that subshell, and bash does not apply set -e to an
 # assignment whose value came from one. Every caller checks the status.
 fetch_runs() {
-  local query=$1 page
-  for ((page = 1; page <= pages; page++)); do
-    gh api "repos/${REPO}/actions/runs?per_page=${page_size}&page=${page}&${query}" \
-      --jq '.workflow_runs[]' || return 1
+  local query=$1 now w got=0 out
+  now=$(date -u +%s)
+  # Sixty windows is the stop for a view that never reaches FETCH_RUNS.
+  for ((w = 0; w < 60 && got < FETCH_RUNS; w++)); do
+    out=$(fetch_window "$query" $(( now - (w + 1) * window + 1 )) $(( now - w * window ))) || return 1
+    [ -z "$out" ] || printf '%s\n' "$out"
+    got=$(( got + $(grep -c . <<<"$out" || true) ))
   done
 }
 
@@ -153,6 +200,12 @@ echo "generate.sh: reading up to ${FETCH_RUNS} runs per view from ${REPO}" >&2
 
 # Everything that ran on main: the scheduled lanes and the post-merge runs.
 if ! main_rows=$(build_view "branch=main"); then fail "could not build the main view"; fi
+# This workflow runs on main, so its own run belongs in that view. A listing
+# without a run created minutes ago is stale, however complete its windows are.
+if [ -n "${GITHUB_RUN_ID:-}" ] && [ "${GITHUB_REF_NAME:-main}" = main ] &&
+   ! jq -e --argjson id "$GITHUB_RUN_ID" 'any(.[].runs[]; .id == $id)' <<<"$main_rows" >/dev/null; then
+  fail "run ${GITHUB_RUN_ID} is missing from the main view: the listing is stale, keeping the last deployment"
+fi
 
 # Pull request runs come in two shapes here, and the mirror is the bigger one.
 # copy-pr-bot pushes a pull request onto pull-request/<number> because the

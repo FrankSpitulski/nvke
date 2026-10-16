@@ -14,9 +14,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nvkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 const (
@@ -34,14 +34,14 @@ type InstallCNIInput struct {
 // postInitCNIVariant maps a cluster's CNI plugin to the variant the agent expects.
 // The second return is false for a plugin with no post-init install path, so an
 // unknown plugin refuses rather than silently taking a default.
-func postInitCNIVariant(plugin db.CniPlugin) (nkeproto.CniVariant, bool) {
+func postInitCNIVariant(plugin db.CniPlugin) (nvkeproto.CniVariant, bool) {
 	switch plugin {
 	case db.CNICalico:
-		return nkeproto.CniVariant_CNI_VARIANT_CALICO, true
+		return nvkeproto.CniVariant_CNI_VARIANT_CALICO, true
 	case db.CNIOvnKubernetes:
-		return nkeproto.CniVariant_CNI_VARIANT_OVN, true
+		return nvkeproto.CniVariant_CNI_VARIANT_OVN, true
 	default:
-		return nkeproto.CniVariant_CNI_VARIANT_UNSPECIFIED, false
+		return nvkeproto.CniVariant_CNI_VARIANT_UNSPECIFIED, false
 	}
 }
 
@@ -114,7 +114,7 @@ func installCNIError(nodeName string, err error) error {
 	switch status.Code(err) { //nolint:exhaustive // the default keeps every other code retryable
 	case codes.Unimplemented:
 		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("node %s runs an agent that does not serve InstallCNI: the post-init CNI path needs nke-agent 0.2.0 or later", nodeName),
+			fmt.Sprintf("node %s runs an agent that does not serve InstallCNI: the post-init CNI path needs nvke-agent 0.2.0 or later", nodeName),
 			"AgentTooOld", err,
 		)
 	// Missing charts package, a worker node, no Open vSwitch on the host.
@@ -142,7 +142,7 @@ func postInitCNIVersion(cluster db.Cluster) string {
 	return version
 }
 
-func installCNIRequest(cluster db.Cluster, cniImageRegistry string) (*nkeproto.InstallCNIRequest, error) {
+func installCNIRequest(cluster db.Cluster, cniImageRegistry string) (*nvkeproto.InstallCNIRequest, error) {
 	variant, ok := postInitCNIVariant(cluster.CniPlugin)
 	if !ok {
 		return nil, fmt.Errorf("CNI plugin %s has no post-init install path", cluster.CniPlugin)
@@ -155,7 +155,7 @@ func installCNIRequest(cluster db.Cluster, cniImageRegistry string) (*nkeproto.I
 		cniConfig = map[string]string{cniRegistryHelmValue: cniImageRegistry}
 	}
 
-	return &nkeproto.InstallCNIRequest{
+	return &nvkeproto.InstallCNIRequest{
 		CniVariant:     variant,
 		CniConfig:      cniConfig,
 		Version:        postInitCNIVersion(cluster),

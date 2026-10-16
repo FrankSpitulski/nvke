@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 )
 
 func TestWriteKubeadmFilesValidations(t *testing.T) {
@@ -197,14 +197,14 @@ func TestWriteKubeadmFiles(t *testing.T) {
 	t.Run("root path is honored", func(t *testing.T) {
 		server := newKubeadmFileTestServer(t)
 		err := server.writeFilesToDisk([]*pb.File{{
-			Path:    "/var/lib/nke/custom/prereq.json",
+			Path:    "/var/lib/nvke/custom/prereq.json",
 			Content: []byte("{}"),
 			Mode:    0o644,
 			Owner:   "root:root",
 		}})
 		require.NoError(t, err)
 
-		_, err = os.Stat(filepath.Join(server.RootPath, "var", "lib", "nke", "custom", "prereq.json"))
+		_, err = os.Stat(filepath.Join(server.RootPath, "var", "lib", "nvke", "custom", "prereq.json"))
 		assert.NoError(t, err)
 	})
 

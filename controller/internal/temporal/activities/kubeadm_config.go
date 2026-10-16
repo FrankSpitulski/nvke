@@ -12,8 +12,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kubeadmconfig"
 )
 
 type KubeadmConfigClusterInput struct {
@@ -25,7 +25,7 @@ type MergeEtcdEncryptionKubeadmConfigResult struct {
 }
 
 // ValidateEtcdEncryptionKubeadmConfig verifies that the tenant's persisted
-// kubeadm ClusterConfiguration can accept CWE's desired API encryption settings.
+// kubeadm ClusterConfiguration can accept the controller's desired API encryption settings.
 func (a *Activities) ValidateEtcdEncryptionKubeadmConfig(ctx context.Context, input KubeadmConfigClusterInput) error {
 	tenantClient, err := a.tenantClientForClusterID(ctx, input.ClusterID)
 	if err != nil {
@@ -34,7 +34,7 @@ func (a *Activities) ValidateEtcdEncryptionKubeadmConfig(ctx context.Context, in
 	return kubeadmconfig.ValidateEncryptionInClusterConfiguration(ctx, tenantClient)
 }
 
-// MergeEtcdEncryptionKubeadmConfig persists CWE's desired API encryption
+// MergeEtcdEncryptionKubeadmConfig persists the controller's desired API encryption
 // settings in the tenant's kubeadm ClusterConfiguration.
 func (a *Activities) MergeEtcdEncryptionKubeadmConfig(
 	ctx context.Context,

@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   repro:
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     name: repro-check (${{ matrix.package }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -71,6 +71,8 @@ jobs:
         run: df -h /
 
       - name: Build twice and compare
+        env:
+          OVN_KUBERNETES_TOKEN: ${{ secrets.OVN_KUBERNETES_RO_TOKEN }}
         run: make -C os-image/packages/${{ matrix.package }} repro-check
 
       - name: Show the disk after building

@@ -16,8 +16,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/teleport"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllerconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/teleport"
 )
 
 // Default token expiry for integration tests.
@@ -38,13 +39,21 @@ func getTestTokenExpiry() time.Duration {
 func getTestClient(t *testing.T) teleport.Client {
 	t.Helper()
 
-	cfg, err := config.ParseConfigFromEnv()
-	if err != nil {
-		t.Fatalf("failed to parse config: %v", err)
-	}
-	if !cfg.Teleport.Enabled {
+	if os.Getenv("TELEPORT_ENABLED") != "true" {
 		t.Skip("TELEPORT_ENABLED not set, skipping integration test")
 	}
+	// The Teleport cluster comes from the environment; the label and token-name
+	// defaults come from the local controller config.
+	file, err := controllerconfig.Load("../../hack/local-controller-config.yaml")
+	require.NoError(t, err)
+	file.Teleport.Enabled = true
+	file.Teleport.IdentityFile = os.Getenv("TELEPORT_IDENTITY_FILE")
+	file.Teleport.ProxyAddress = os.Getenv("TELEPORT_PROXY_ADDRESS")
+	if environment := os.Getenv("TELEPORT_ENVIRONMENT"); environment != "" {
+		file.Teleport.Environment = environment
+	}
+	var cfg config.Config
+	file.ApplyTo(&cfg)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -154,7 +163,7 @@ func TestIntegration_OwnershipLabels(t *testing.T) {
 	assert.Equal(t, "nke-cloud-workflow-engine", got.Labels[teleport.LabelManagedBy])
 }
 
-// TestIntegration_ListTokensFiltersOwned verifies ListTokens only returns CWE-owned tokens.
+// TestIntegration_ListTokensFiltersOwned verifies ListTokens only returns controller-owned tokens.
 func TestIntegration_ListTokensFiltersOwned(t *testing.T) {
 	client := getTestClient(t)
 	ctx := context.Background()
@@ -165,7 +174,7 @@ func TestIntegration_ListTokensFiltersOwned(t *testing.T) {
 	err := client.UpsertToken(ctx, token)
 	require.NoError(t, err)
 
-	// ListTokens should include our token (it's owned by CWE)
+	// ListTokens should include our token (it's owned by the controller)
 	tokens, err := client.ListTokens(ctx)
 	require.NoError(t, err)
 

@@ -13,8 +13,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	bootstraptokenv1 "github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig/thirdparty/bootstraptoken/v1"
-	kubeadmv1beta3 "github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig/thirdparty/kubeadmtypes/v1beta3"
+	bootstraptokenv1 "github.com/dsx-ai-factory/nvke/controller/internal/kubeadmconfig/thirdparty/bootstraptoken/v1"
+	kubeadmv1beta3 "github.com/dsx-ai-factory/nvke/controller/internal/kubeadmconfig/thirdparty/kubeadmtypes/v1beta3"
 )
 
 const (
@@ -32,7 +32,6 @@ type InitConfig struct {
 	PodSubnet             string
 	ServiceSubnet         string
 	EtcdQuotaBackendBytes string
-	Labels                string
 	// Token is the kubeadm token used for joining nodes to the cluster.
 	// If empty, a new token will be generated.
 	Token string
@@ -59,7 +58,7 @@ type InitConfig struct {
 	// SecondaryNodeEvictionRate sets the kube-controller-manager
 	// --secondary-node-eviction-rate flag, which controls the pod eviction
 	// rate when a zone is unhealthy (≥55% of nodes NotReady). Defaults to "0"
-	// to stop evictions during zone-wide events on single-zone NKE clusters.
+	// to stop evictions during zone-wide events on single-zone NVKE clusters.
 	SecondaryNodeEvictionRate string
 	// LargeClusterSizeThreshold sets the kube-controller-manager
 	// --large-cluster-size-threshold flag. Clusters at or below this size
@@ -121,8 +120,11 @@ func (config *InitConfig) Render() (*BootstrapArtifacts, error) {
 		},
 	}
 
-	if cfg.AuthenticationConfig != nil {
-		file, err := GenerateAPIServerAuthenticationConfig(cfg.AuthenticationConfig)
+	if needsAuthenticationConfig(cfg.KubernetesVersion, cfg.AuthenticationConfig) {
+		file, err := GenerateAPIServerAuthenticationConfig(
+			apiServerAuthenticationConfig(cfg.AuthenticationConfig),
+			cfg.KubernetesVersion,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("building AuthenticationConfig file: %w", err)
 		}
@@ -257,7 +259,11 @@ func clusterConfiguration(config *InitConfig) kubeadmv1beta3.ClusterConfiguratio
 		apiServer.ExtraArgs["encryption-provider-config-automatic-reload"] = reload
 		apiServer.ExtraVolumes = append(apiServer.ExtraVolumes, encryptionVolume())
 	}
-	if config.AuthenticationConfig != nil {
+	// The AuthenticationConfiguration carries the anonymous-access restriction
+	// (CIS 1.2.1) whether or not OIDC is configured, so every cluster on a
+	// release that understands it gets the flag and the volume -- not just the
+	// OIDC ones. Below that floor only OIDC pulls the flag in, as before.
+	if needsAuthenticationConfig(config.KubernetesVersion, config.AuthenticationConfig) {
 		apiServer.ExtraArgs[AuthConfigFlagName] = defaultOIDCAuthConfigPath
 		apiServer.ExtraVolumes = append(apiServer.ExtraVolumes, authenticationConfigVolume())
 	}

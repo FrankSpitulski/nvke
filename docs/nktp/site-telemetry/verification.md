@@ -2,9 +2,12 @@
 
 A Collector can be Ready and still export nothing, so this checklist checks
 the signals themselves, not just the Pods. Run it after a site controller is
-installed through the nke-sbom deploy path, or after any change to its NKTP
+installed through the `deploy/nico` deploy path, or after any change to its NKTP
 values. It assumes the development backend, `lgtm`. Against your own backend,
 run the same queries there.
+
+On an existing site, where the controller runs as `cloud-workflow-engine`,
+replace `nke-controller` with `cloud-workflow-engine` throughout this page.
 
 All commands run against the site controller cluster:
 
@@ -46,7 +49,7 @@ kubectl get servicemonitors,podmonitors -A
 | `temporal` | `temporal-frontend`, `temporal-history`, `temporal-matching`, `temporal-worker` |
 | `spire-server` | PodMonitor `spire-server` |
 | `spire-system` | PodMonitor `spire-agent` |
-| `cloud-workflow-engine` | `cloud-workflow-engine-metrics` |
+| `nke-controller` | `nke-controller-metrics` |
 
 **The resource metrics API,** which the Collector autoscalers read:
 
@@ -91,7 +94,7 @@ promql 'count by (job) (up == 1)'
 | `node-exporter` | Node CPU, memory, filesystem and network |
 | `nktp/nktp-ksm-objects`, `nktp/nktp-ksm-pods`, `nktp/nktp-ksm-unscheduled-pods` | Object state from kube-state-metrics |
 | `nktp-operator` | The OpenTelemetry Operator, scraped by the watchdog |
-| `cloud-workflow-engine` | The controller |
+| `nke-controller` | The controller |
 | `temporal-frontend-headless`, `temporal-history-headless`, `temporal-matching-headless`, `temporal-worker-headless` | Temporal's server roles |
 | `spire-server/spire-server`, `spire-system/spire-agent` | SPIRE |
 
@@ -114,7 +117,7 @@ backend scrapes itself without going through NKTP.
 ```bash
 logql 'sum by (k8s_namespace_name) (count_over_time({k8s_namespace_name=~".+"}[15m]))'   # every namespace with Pods
 logql 'sum by (service_name) (count_over_time({service_name=~"journald|auth|kube-apiserver"}[15m]))'
-logql 'sum(count_over_time({service_name="unknown_service"} | k8s_event_reason=~".+" [15m]))'  # Kubernetes Events
+logql 'sum(count_over_time({service_name=~".+"} | k8s_event_reason=~".+" [15m]))'  # Kubernetes Events
 logql 'sum by (k8s_cluster_name) (count_over_time({k8s_cluster_name=~".+"}[15m]))'       # <site-name>
 ```
 
@@ -124,8 +127,8 @@ logql 'sum by (k8s_cluster_name) (count_over_time({k8s_cluster_name=~".+"}[15m])
 
 The log classes can be checked the same way, through the
 `nvidia_telemetry_class` label: `system.auth`, `system.audit`,
-`k8s.control_plane` and `k8s.api.audit`. The chart README's
-[Log classification](../../../nktp/deploy/charts/nktp/README.md#log-classification)
+`k8s.control_plane` and `k8s.api.audit`.
+[Log classification](../components/node-collector.md#log-classification)
 lists what each covers. `/var/log/audit/audit.log` exists only where auditd
 runs, so `system.audit` may be empty.
 
@@ -135,8 +138,8 @@ The controller sends a span per API request:
 
 ```bash
 for i in 1 2 3; do curl -fsS -o /dev/null http://<site-ip>:30080/api/version; done; sleep 10
-curl -fsSG http://127.0.0.1:13200/api/search --data-urlencode 'q={ resource.service.name = "cloud-workflow-engine" }' | jq '.traces | length'   # > 0
-curl -fsS http://127.0.0.1:13200/api/search/tag/service.name/values | jq -r '.tagValues[]'   # includes cloud-workflow-engine and the nktp-* Collectors
+curl -fsSG http://127.0.0.1:13200/api/search --data-urlencode 'q={ resource.service.name = "nke-controller" }' | jq '.traces | length'   # > 0
+curl -fsS http://127.0.0.1:13200/api/search/tag/service.name/values | jq -r '.tagValues[]'   # includes nke-controller and the nktp-* Collectors
 ```
 
 ## 3. The rest of the site is unaffected
@@ -147,7 +150,7 @@ work:
 ```bash
 curl -fsS http://<site-ip>:30080/readyz; echo                                        # database and temporal ok
 curl -sk -o /dev/null -w '%{http_code}\n' https://<site-ip>:30443/.well-known/openid-configuration   # 200
-nkectl get providers                                                                  # CONFIGURED
+nvkectl get providers                                                                  # CONFIGURED
 ```
 
 - **The first:** the controller's metrics NetworkPolicy must not have cut off

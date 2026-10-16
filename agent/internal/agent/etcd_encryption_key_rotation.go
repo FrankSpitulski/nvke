@@ -21,8 +21,8 @@ import (
 	"google.golang.org/grpc/status"
 	yaml "gopkg.in/yaml.v2"
 
-	"github.com/dsx-ai-factory/nke/agent/internal/k8s"
-	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	"github.com/dsx-ai-factory/nvke/agent/internal/k8s"
+	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 )
 
 // encRotationWALEntry is the WAL checkpoint written atomically before the
@@ -53,7 +53,7 @@ const (
 	//   WAL present + config=desired + op_id match R == N → reload pending:   wait for reload
 	//   WAL present + config=desired + op_id match R > N  → reload confirmed: skip wait, clean up
 	//   WAL absent  + config=desired                      → complete:         return success immediately
-	encRotationWALFile = "/var/lib/nke/enc-rotation.state"
+	encRotationWALFile = "/var/lib/nvke/enc-rotation.state"
 
 	// encryptionReloadTimeout is the maximum time UpdateEncryptionConfig will
 	// block waiting for the apiserver to confirm a reload. Callers that receive
@@ -180,7 +180,7 @@ func validateUpdateEncryptionConfigRequest(req *pb.UpdateEncryptionConfigRequest
 }
 
 // validateEncryptionKey checks that key is non-empty, valid standard base64
-// (with padding, as produced by the NKE controller when generating etcd
+// (with padding, as produced by the NVKE controller when generating etcd
 // encryption keys), and decodes to exactly 32 bytes (secretbox requirement).
 func validateEncryptionKey(key string) error {
 	if key == "" {
@@ -732,7 +732,7 @@ func (n *NodeAgentServer) rewriteEncryptedObjects(
 			continue
 		}
 		slog.Info("labeling node", "node", node)
-		if err := k8s.LabelNode(ctx, node, APIEncryptionRewriteCompleteLabel); err != nil {
+		if err := labelAPIEncryptionNode(ctx, node, APIEncryptionRewriteCompleteLabel); err != nil {
 			slog.Error("failed to label node", "node", node, "err", err)
 			n.markK8sAPIEncryptionErrorLocked()
 			return err

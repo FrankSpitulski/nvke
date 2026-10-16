@@ -12,7 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
 )
 
 // runTemporalWorkflow executes a registered production workflow using a
@@ -59,8 +59,8 @@ func runTemporalWorkflow(
 	operator.Args = []string{
 		"workflow", "execute",
 		"--address", envOrDefault("E2E_TEMPORAL_ADDRESS", "temporal-frontend."+temporalNamespace+".svc.cluster.local:7233"),
-		"--namespace", envOrDefault("E2E_TEMPORAL_NAMESPACE", "cloud-workflow-engine"),
-		"--task-queue", envOrDefault("E2E_TEMPORAL_TASK_QUEUE", "cloud-workflow-engine-tasks"),
+		"--namespace", envOrDefault("E2E_TEMPORAL_NAMESPACE", "nke-controller"),
+		"--task-queue", envOrDefault("E2E_TEMPORAL_TASK_QUEUE", "nke-controller-tasks"),
 		"--type", workflowType,
 		"--workflow-id", workflowID,
 		"--execution-timeout", timeout.String(),

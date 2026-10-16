@@ -6,12 +6,23 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-CWE_HTTP_PORT="${CWE_HTTP_PORT:-8080}"
-API_URL="${API_URL:-http://localhost:${CWE_HTTP_PORT}/api}"
+# CWE_HTTP_PORT is a deprecated alias for NKE_CONTROLLER_HTTP_PORT; #1399 removes it.
+NKE_CONTROLLER_HTTP_PORT="${NKE_CONTROLLER_HTTP_PORT:-${CWE_HTTP_PORT:-8080}}"
+API_URL="${API_URL:-http://localhost:${NKE_CONTROLLER_HTTP_PORT}/api}"
 CLUSTERS_API_URL="${API_URL%/}/clusters"
 
 CLUSTER_NAME="${CLUSTER_NAME:-$(whoami)-capnico-forge}"
 KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.34.2}"
+# CNI defaults to ovn-kubernetes. Set CNI_PLUGIN=calico to use Calico instead.
+CNI_PLUGIN="${CNI_PLUGIN:-ovn-kubernetes}"
+case "${CNI_PLUGIN}" in
+  ovn-kubernetes) CNI_IMAGES_PACKAGE="nvke-cni-ovn-images-1.6.0" ;;
+  calico) CNI_IMAGES_PACKAGE="nvke-cni-calico-images-3.30.1" ;;
+  *)
+    printf 'create-forge-nico-cluster: unsupported CNI_PLUGIN %s\n' "${CNI_PLUGIN}" >&2
+    exit 1
+    ;;
+esac
 CONTROL_PLANE_DESIRED_COUNT="${CONTROL_PLANE_DESIRED_COUNT:-1}"
 WORKER_DESIRED_COUNT="${WORKER_DESIRED_COUNT:-1}"
 
@@ -37,9 +48,9 @@ if [[ ${#missing[@]} -gt 0 ]]; then
   exit 1
 fi
 
-# /api/* is authenticated. hack/nke-token.sh prints nothing when NKE is not, so
+# /api/* is authenticated. hack/nvke-token.sh prints nothing when NVKE is not, so
 # this works either way.
-TOKEN="$("${SCRIPT_DIR}/nke-token.sh")"
+TOKEN="$("${SCRIPT_DIR}/nvke-token.sh")"
 AUTH_HEADER=()
 if [[ -n "${TOKEN}" ]]; then
   AUTH_HEADER=(-H "Authorization: Bearer ${TOKEN}")
@@ -49,7 +60,7 @@ BODY=$(cat <<EOF
 {
   "name": "${CLUSTER_NAME}",
   "controlPlaneKubernetesVersion": "${KUBERNETES_VERSION}",
-  "cniPlugin": "ovn-kubernetes",
+  "cniPlugin": "${CNI_PLUGIN}",
   "etcdEncrypted": false,
   "infra": {
     "cluster": {
@@ -101,16 +112,16 @@ BODY=$(cat <<EOF
         },
         "preKubeadmCommands": [
         "install -d -m 0755 /etc/apt/keyrings",
-        "curl -fsSL -o /etc/apt/keyrings/nke.asc https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-public.key",
-        "echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-noble nke-noble main' > /etc/apt/sources.list.d/nke-apt.list",
+        "curl -fsSL -o /etc/apt/keyrings/nke.asc https://nke-prod-assets.s3.us-west-2.amazonaws.com/nvke-apt-public.key",
+        "echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://nke-prod-assets.s3.us-west-2.amazonaws.com/nvke-apt-noble nvke-noble main' > /etc/apt/sources.list.d/nke-apt.list",
         "apt-get update",
-        "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-agent nke-kubeadm-distro-${KUBERNETES_VERSION}",
-        "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-cni-ovn-images-1.4.0",
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y nvke-agent nvke-kubeadm-distro-${KUBERNETES_VERSION}",
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y ${CNI_IMAGES_PACKAGE}",
         "DEBIAN_FRONTEND=noninteractive apt-get install -y spire-agent=1.14.1+tpm1.9.0",
-        "printf 'AGENT_ARGS=\"--secure-server-port 15005\"\\n' > /etc/default/nke-agent",
+        "printf 'AGENT_ARGS=\"--secure-server-port 15005\"\\n' > /etc/default/nvke-agent",
         "sysctl --system",
         "systemctl daemon-reload",
-        "systemctl restart nke-agent.service",
+        "systemctl restart nvke-agent.service",
         "systemctl restart procps",
         "touch /run/cloud-init.done"
       ]
@@ -153,16 +164,16 @@ BODY=$(cat <<EOF
         },
         "preKubeadmCommands": [
         "install -d -m 0755 /etc/apt/keyrings",
-        "curl -fsSL -o /etc/apt/keyrings/nke.asc https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-public.key",
-        "echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://nke-prod-assets.s3.us-west-2.amazonaws.com/nke-apt-noble nke-noble main' > /etc/apt/sources.list.d/nke-apt.list",
+        "curl -fsSL -o /etc/apt/keyrings/nke.asc https://nke-prod-assets.s3.us-west-2.amazonaws.com/nvke-apt-public.key",
+        "echo 'deb [signed-by=/etc/apt/keyrings/nke.asc] https://nke-prod-assets.s3.us-west-2.amazonaws.com/nvke-apt-noble nvke-noble main' > /etc/apt/sources.list.d/nke-apt.list",
         "apt-get update",
-        "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-agent nke-kubeadm-distro-${KUBERNETES_VERSION}",
-        "DEBIAN_FRONTEND=noninteractive apt-get install -y nke-cni-ovn-images-1.4.0",
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y nvke-agent nvke-kubeadm-distro-${KUBERNETES_VERSION}",
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y ${CNI_IMAGES_PACKAGE}",
         "DEBIAN_FRONTEND=noninteractive apt-get install -y spire-agent=1.14.1+tpm1.9.0",
-        "printf 'AGENT_ARGS=\"--secure-server-port 15005\"\\n' > /etc/default/nke-agent",
+        "printf 'AGENT_ARGS=\"--secure-server-port 15005\"\\n' > /etc/default/nvke-agent",
         "sysctl --system",
         "systemctl daemon-reload",
-        "systemctl restart nke-agent.service",
+        "systemctl restart nvke-agent.service",
         "systemctl restart procps",
         "touch /run/cloud-init.done"
       ]

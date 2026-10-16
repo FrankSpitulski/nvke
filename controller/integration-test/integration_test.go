@@ -3,7 +3,7 @@
 
 //go:build integration_test
 
-// This suite drives a RUNNING CWE deployment (see README.md in this
+// This suite drives a RUNNING controller deployment (see README.md in this
 // directory). Without a build tag it is picked up by a plain
 // `go test ./...`, which then fails on a connection refused to
 // localhost:8080 and names neither the cause nor the fix. `make test`
@@ -23,16 +23,8 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/api"
 )
-
-type IntegrationTestConfig struct {
-	CweAPIURL                 string `env:"CWE_API_URL" envDefault:"http://localhost:8080/api"`
-	CreateClusterRequestPath  string `env:"CREATE_CLUSTER_REQUEST_PATH" envDefault:"testdata/default/create-cluster-request.json"`
-	CreateNodePoolRequestPath string `env:"CREATE_NODE_POOL_REQUEST_PATH" envDefault:"testdata/default/create-nodepool-request.json"`
-	SkipCleanup               bool   `env:"SKIP_CLEANUP" envDefault:"false"`
-	ControlPlaneVIP           string `env:"CONTROL_PLANE_VIP"`
-}
 
 type IntegrationTestSuite struct {
 	config                IntegrationTestConfig
@@ -47,9 +39,9 @@ type IntegrationTestSuite struct {
 }
 
 func TestIntegration(t *testing.T) {
-	config := env.Must(env.ParseAs[IntegrationTestConfig]())
+	config := env.Must(loadIntegrationTestConfig())
 
-	client, err := api.NewClientWithResponses(config.CweAPIURL)
+	client, err := api.NewClientWithResponses(config.ControllerAPIURL)
 	require.NoError(t, err, "Failed to create API client")
 
 	createClusterRequest, err := loadCreateClusterRequest(config.CreateClusterRequestPath)

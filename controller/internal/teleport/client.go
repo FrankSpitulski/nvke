@@ -18,7 +18,7 @@ import (
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/trace"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
 )
 
 type JoinMethod string
@@ -36,8 +36,8 @@ const (
 
 var (
 	ErrTeleportDisabled      = errors.New("teleport integration is disabled")
-	ErrIdentityFileNotSet    = errors.New("TELEPORT_IDENTITY_FILE environment variable not set")
-	ErrProxyAddressNotSet    = errors.New("TELEPORT_PROXY_ADDRESS environment variable not set")
+	ErrIdentityFileNotSet    = errors.New("teleport.identityFile is not set")
+	ErrProxyAddressNotSet    = errors.New("teleport.proxyAddress is not set")
 	ErrUnsupportedJoinMethod = errors.New("unsupported join method")
 )
 
@@ -101,7 +101,7 @@ func WithLabels(labels map[string]string) ListNodesOption {
 	}
 }
 
-// Client defines the interface for Teleport API operations needed by CWE.
+// Client defines the interface for Teleport API operations needed by the controller.
 // All token operations enforce ownership - the client will only interact with
 // tokens that have the "managed-by: nke-cloud-workflow-engine" label.
 type Client interface {
@@ -109,7 +109,7 @@ type Client interface {
 
 	// Token operations - all methods enforce ownership labels.
 	// UpsertToken automatically adds ownership labels.
-	// GetToken, DeleteToken, ListTokens only operate on CWE-owned tokens.
+	// GetToken, DeleteToken, ListTokens only operate on controller-owned tokens.
 	UpsertToken(ctx context.Context, token ProvisionToken) error
 	GetToken(ctx context.Context, name string) (*ProvisionToken, error)
 	DeleteToken(ctx context.Context, name string) error
@@ -249,13 +249,13 @@ func (c *clientImpl) GetToken(ctx context.Context, name string) (*ProvisionToken
 
 		result = fromTeleportToken(teleportToken)
 
-		// Verify ownership - refuse to return tokens not managed by CWE
-		if !IsOwnedByCWE(result.Labels, c.managedByLabelValue) {
-			c.logger.Warn("attempted to access token not owned by CWE",
+		// Verify ownership - refuse to return tokens not managed by the controller
+		if !IsOwnedByController(result.Labels, c.managedByLabelValue) {
+			c.logger.Warn("attempted to access token not owned by the controller",
 				"name", name,
 				LabelManagedBy, result.Labels[LabelManagedBy],
 			)
-			return ErrNotOwnedByCWE
+			return ErrNotOwnedByController
 		}
 
 		c.logger.Debug("retrieved token", "name", name)
@@ -273,12 +273,12 @@ func (c *clientImpl) DeleteToken(ctx context.Context, name string) error {
 	}
 
 	// GetToken already verified ownership, but double-check
-	if !IsOwnedByCWE(token.Labels, c.managedByLabelValue) {
-		c.logger.Warn("attempted to delete token not owned by CWE",
+	if !IsOwnedByController(token.Labels, c.managedByLabelValue) {
+		c.logger.Warn("attempted to delete token not owned by the controller",
 			"name", name,
 			LabelManagedBy, token.Labels[LabelManagedBy],
 		)
-		return ErrNotOwnedByCWE
+		return ErrNotOwnedByController
 	}
 
 	return c.withRetry(ctx, "DeleteToken", func() error {
@@ -307,13 +307,13 @@ func (c *clientImpl) ListTokens(ctx context.Context) ([]ProvisionToken, error) {
 			return err
 		}
 
-		// Filter to only CWE-owned tokens
+		// Filter to only controller-owned tokens
 		result = make([]ProvisionToken, 0)
 		totalCount := 0
 		for _, tt := range teleportTokens {
 			totalCount++
 			token := fromTeleportToken(tt)
-			if IsOwnedByCWE(token.Labels, c.managedByLabelValue) {
+			if IsOwnedByController(token.Labels, c.managedByLabelValue) {
 				result = append(result, *token)
 			}
 		}

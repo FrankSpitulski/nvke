@@ -1,10 +1,10 @@
-# NKE reference node image — contract
+# NVKE reference node image — contract
 
-> **Which path is this?** This spec covers nodes built from the NKE OS image — SPIRE agent pre-installed, mTLS on by default, TPM attestation supported. If you are bringing your own Ubuntu nodes without a SPIRE agent or TPM (bootstrapping with `--disable-mtls`), see [`docs/site-bootstrap/pre-provisioned-nodes.md`](../docs/site-bootstrap/pre-provisioned-nodes.md) instead.
+> **Which path is this?** This spec covers nodes built from the NVKE OS image — SPIRE agent pre-installed, mTLS on by default, TPM attestation supported. If you are bringing your own Ubuntu nodes without a SPIRE agent or TPM (bootstrapping with `--disable-mtls`), see [`docs/site-bootstrap/pre-provisioned-nodes.md`](../docs/site-bootstrap/pre-provisioned-nodes.md) instead.
 
-This is the contract an OS image must satisfy for NKE to manage a node.
+This is the contract an OS image must satisfy for NVKE to manage a node.
 It is **not** a cluster-ready Kubernetes image: kubeadm and GPU drivers are
-installed later through `nke-agent`. The image includes the Calico manifests
+installed later through `nvke-agent`. The image includes the Calico manifests
 package used during bootstrap.
 
 The in-tree Packer recipe (`packer/`) is one implementation of this contract,
@@ -18,18 +18,78 @@ TODO:  Need to refine the requirements around spire-agent below
 |---|---|
 | OS | Ubuntu 26.04 LTS by default, or 24.04 LTS with `UBUNTU_RELEASE=24.04.5`; both are published. `linux/amd64` and `linux/arm64` both build both variants (`make os-image-fde ARCH=arm64`), each on a runner of its own architecture under KVM. See [README.md](README.md#build-the-os-image). |
 | Kernel | Ubuntu's NVIDIA-tuned kernel flavor (`linux-nvidia` on amd64, `linux-nvidia-64k` on arm64), not the generic default — set via autoinstall's `kernel.package` (`cidata/autoinstall-lvm.pkrtpl`), so curtin installs it directly at image-build time instead of the generic kernel ever landing on disk. Matches `node-images`' `nvidia-kernel` role. |
-| `nke-agent` | Built as a Debian package from this repository's `agent/` source at bake time. dpkg owns `/usr/local/bin/nke-agent`, `/usr/local/bin/nke-agent-updater`, and their systemd units. `nke-agent.service` is **enabled**, with startup deferred until first boot. Listens on TCP **15005**. mTLS is on (no `--disable-mtls` in `/etc/default/nke-agent`). An image-owned systemd drop-in waits for the SPIRE workload API before exec and survives package upgrades. |
-| SPIRE agent | `spire-agent` at `/usr/local/bin/spire-agent`, unit `spire-agent.service` **enabled**. Workload API socket at `unix:///tmp/spire-agent/public/api.sock` (the `nke-agent` default). Installed from the `spire-agent` .deb built at bake time by [`packages/spire-agent/`](packages/spire-agent/), which also owns the two units, the first-boot renderer and its template; `dpkg -S` on any of those paths names that package. |
-| Unix workload attestor | SPIRE `WorkloadAttestor "unix"` so root `nke-agent` can fetch an X.509 SVID. |
+| `nvke-agent` | Built as a Debian package from this repository's `agent/` source at bake time. dpkg owns `/usr/local/bin/nvke-agent`, `/usr/local/bin/nvke-agent-updater`, and their systemd units. `nvke-agent.service` is **enabled**, with startup deferred until first boot. Listens on TCP **15005**. mTLS is on (no `--disable-mtls` in `/etc/default/nvke-agent`). An image-owned systemd drop-in waits for the SPIRE workload API before exec and survives package upgrades. |
+| SPIRE agent | `spire-agent` at `/usr/local/bin/spire-agent`, unit `spire-agent.service` **enabled**. Workload API socket at `unix:///tmp/spire-agent/public/api.sock` (the `nvke-agent` default). Installed from the `spire-agent` .deb built at bake time by [`packages/spire-agent/`](packages/spire-agent/), which also owns the two units, the first-boot renderer and its template; `dpkg -S` on any of those paths names that package. |
+| Unix workload attestor | SPIRE `WorkloadAttestor "unix"` so root `nvke-agent` can fetch an X.509 SVID. |
 | Node attestor | Whichever the instance can use, chosen on first boot: join-token (`NodeAttestor "join_token"`) when cloud-init supplied `SPIRE_JOIN_TOKEN`, TPM (`NodeAttestor "tpm"`, via `/usr/local/lib/spire-agent/tpm_attestor_agent`) otherwise. A site cluster attests its nodes by TPM and mints no join token, so an image that could only do join-token could not join one. This is separate from the FDE variant's use of TPM to seal the disk-encryption key. |
 | DSX IMDS node attestor | `/usr/local/lib/spire-agent/dsx-imds-node-attestor-agent` for the image architecture, installed by the same `spire-agent` package. CAPI user-data selects it by writing `NodeAttestor "dsx_imds"` with `plugin_checksum = "${DSX_IMDS_PLUGIN_CHECKSUM}"`. The first-boot renderer does not select this attestor. |
 | TPM identity tool | `/usr/local/bin/get_tpm_pubhash` for the image architecture. |
-| Calico manifests | An `nke-cni-calico-manifests` Debian package is installed. |
+| Calico manifests | An `nvke-cni-calico-manifests` Debian package is installed. |
 | etcd data directory | `/var/lib/etcd` exists at mode `0700`, owned by a system `etcd` user and group created at bake time. kubeadm reuses the directory rather than creating its own `root:root` one, which is what CIS 1.1.12 checks. etcd itself still runs as root from `registry.k8s.io/etcd` as a static pod, so this changes what the node reports, not what etcd can do. |
-| `multipathd` | **Masked** — both `multipathd.service` and its socket. Ubuntu Server's installer leaves multipathd enabled, and with no blacklist it claims Longhorn's iSCSI-exported volumes (they present as `IET,VIRTUAL-DISK`) through device-mapper: `mkfs` then fails with `is apparently in use by the system; will not make a filesystem here` and newly provisioned volumes never format. No NKE node boots from a multipath-backed disk, so nothing depends on it. Matches `node-images`' `packages` role, which disables the same unit. |
-| Unit ordering | `nke-spire-configure.service` before `spire-agent.service` before `nke-agent.service`. `nke-agent` waits for the workload API socket before exec. |
-| First-boot renderer | `/usr/lib/nke/spire-configure.sh`, driven by `nke-spire-configure.service`. Renders `/etc/spire-agent/agent.conf` from instance identity. Does nothing unless `/etc/nke/spire.env` exists. |
+| `multipathd` | **Masked** — both `multipathd.service` and its socket. Ubuntu Server's installer leaves multipathd enabled, and with no blacklist it claims Longhorn's iSCSI-exported volumes (they present as `IET,VIRTUAL-DISK`) through device-mapper: `mkfs` then fails with `is apparently in use by the system; will not make a filesystem here` and newly provisioned volumes never format. No NVKE node boots from a multipath-backed disk, so nothing depends on it. Matches `node-images`' `packages` role, which disables the same unit. |
+| Background apt | **Masked** — `apt-daily.timer`, `apt-daily-upgrade.timer`, their services and `unattended-upgrades.service`. Ubuntu runs them a few minutes after first boot; the package job restarts journald, networkd and udevd, and a `systemctl daemon-reload` from kubeadm's kubelet-start phase in that window fails, so the kubelet never starts and the node's init or join is lost. Nodes take updates through a new image, never in place. |
+| Unit ordering | `nvke-spire-configure.service` before `spire-agent.service` before `nvke-agent.service`. `nvke-agent` waits for the workload API socket before exec. |
+| First-boot renderer | `/usr/lib/nvke/spire-configure.sh`, driven by `nvke-spire-configure.service`. Renders `/etc/spire-agent/agent.conf` from instance identity. Does nothing unless `/etc/nke/spire.env` exists. |
 | Plugin checksum | `/etc/spire-agent/spire-agent.env` holds `TPM_PLUGIN_CHECKSUM` and `DSX_IMDS_PLUGIN_CHECKSUM`, written by the .deb's postinst from the plugins it installed. `spire-agent.service` runs with `-expandEnv`, so an `agent.conf` that cloud-init wrote with the literal `${TPM_PLUGIN_CHECKSUM}` or `${DSX_IMDS_PLUGIN_CHECKSUM}` resolves against this image's own plugins. The two config paths are exclusive: a profile supplies `agent.conf` and no `/etc/nke/spire.env`, or it supplies `/etc/nke/spire.env` and the renderer writes `agent.conf`. |
+| Conntrack limits | `conntrack-tune.service` **enabled** (`WantedBy=sysinit.target`), ordered after `systemd-modules-load.service` and before `systemd-sysctl.service`. At every boot `/usr/lib/nvke/configure-conntrack.sh` writes `/run/sysctl.d/10-nke-conntrack.conf`, raising `net.netfilter.nf_conntrack_max` and `nf_conntrack_buckets` to `min(max(RAM_MiB × 64, 1024), 600000)` wherever that is above the kernel's value, and `systemd-sysctl` applies it. `/etc/sysctl.d/10-nke-conntrack-timeouts.conf` sets `nf_conntrack_tcp_timeout_time_wait` to 60s. `/etc/modules-load.d/nf_conntrack.conf` loads `nf_conntrack` at boot. See [Conntrack limits](#conntrack-limits). |
+
+### Conntrack limits
+
+The kernel caps its default conntrack table at 262144 entries on hosts with
+more than 4 GiB of RAM, and many short-lived connections through Services
+exhaust it. The image raises it to 600000 on any node with 9375 MiB of RAM or
+more, and to 64 entries per MiB on smaller VMs.
+
+How the values are applied:
+
+- `conntrack-tune.service` runs early in boot, after
+  `systemd-modules-load.service` has loaded `nf_conntrack` and before
+  `systemd-sysctl.service`. It computes the target from the booting node's
+  `MemTotal` and writes `/run/sysctl.d/10-nke-conntrack.conf` with only the
+  keys the target raises. When the kernel is already at or above the target,
+  it writes no file, so it never lowers the kernel's value.
+- `systemd-sysctl.service` applies that file along with every other
+  `sysctl.d` file, before `sysinit.target`, so containerd, kubelet and the CNI
+  all start with the limits in place.
+- The file lives in `/run`, which is emptied at every boot and is never part
+  of the image. The value therefore always comes from the RAM of the node that
+  is booting, never from the VM that built the image.
+- `/etc/sysctl.d/10-nke-conntrack-timeouts.conf` sets TIME_WAIT to 60s, the
+  TIME_WAIT Linux keeps for its own closed TCP sockets. The cost is that a FIN
+  retransmitted after 60s with no packets no longer matches its connection,
+  so it is not NATed; the file's comment explains when that happens. The UDP
+  stream timeout stays at the kernel's default of 120s.
+- `sysctl.d` files apply in file-name order, and the last value set for a key
+  wins. Both files use the `10-` prefix so that they sort before the files
+  operators normally add: a value in any later-sorting file, such as
+  `60-conntrack.conf` or `99-local.conf`, overrides them, higher or lower. A
+  same-named file in `/etc/sysctl.d` replaces the generated one outright.
+
+These files ship only in this image. Packer installs them as loose files, not
+from a package, so nodes built from another image, or imaged before this
+change, do not get them, and package updates cannot change them.
+
+The image cannot know which CNI a node will run, so the value it sets is the
+same for both; what happens next depends on whether the cluster runs
+kube-proxy:
+
+| CNI | kube-proxy | Effective `nf_conntrack_max` |
+|---|---|---|
+| OVN-Kubernetes | Not deployed | 600000, from `conntrack-tune.service` |
+| Calico | Deployed | `max(32768 × logical CPUs, 131072)`, from kube-proxy's defaults; from Kubernetes 1.36, 1048576 on nodes with more than 32 logical CPUs |
+
+kube-proxy computes its own limit from the node's CPU count (not RAM) and
+writes it every time it starts. Through Kubernetes 1.37 it writes that value
+even when it is lower than the current one, so on Calico nodes with 18 or
+fewer logical CPUs it replaces the image's 600000 with less (262144 on an
+8-CPU node), and nodes with 19 or more get more. The 600000 floor therefore
+holds only on OVN-Kubernetes clusters. kube-proxy leaves TIME_WAIT alone.
+
+Anything that re-applies `sysctl.d` after kube-proxy starts, such as the
+`sysctl --system` in `nvke-kubeadm-distro`'s postinst on a Kubernetes version
+change, sets `nf_conntrack_max` back to the image's value until kube-proxy
+next restarts. On Calico nodes with 18 or fewer CPUs that is a raise; on
+nodes with 19 or more it is a reduction.
 
 ## Must not bake (instance identity)
 
@@ -69,13 +129,13 @@ drop it.
 
 A worked `#cloud-config` is in [README.md](README.md).
 
-After a successful `nke-agent` start, the image touches
-`/var/lib/spire-agent/.nke-attested` and subsequent boots omit `-joinToken`
+After a successful `nvke-agent` start, the image touches
+`/var/lib/spire-agent/.nvke-attested` and subsequent boots omit `-joinToken`
 (the token is single-use).
 
 ## Must have (FDE variant)
 
-`nke-node-fde.pkr.hcl` is an **opt-in** build variant, not the default image.
+`nvke-node-fde.pkr.hcl` is an **opt-in** build variant, not the default image.
 It satisfies everything above, plus:
 
 | Item | Requirement |
@@ -90,7 +150,7 @@ It satisfies everything above, plus:
 
 ## Must have (non-FDE variant, no encryption)
 
-`nke-node-non-fde.pkr.hcl` is also **opt-in**, not the default image. It uses
+`nvke-node-non-fde.pkr.hcl` is also **opt-in**, not the default image. It uses
 the same LVM layout as the FDE image but configures no encryption. This layout
 parity is intentional.
 
@@ -102,14 +162,14 @@ parity is intentional.
 
 ## Identity rules (runtime)
 
-These are enforced by `nke-agent`, not by the image:
+These are enforced by `nvke-agent`, not by the image:
 
 - Client and agent SVIDs share a trust domain.
 - The **client** SPIFFE path must start with `/nke-service/` or the agent
   rejects the handshake.
 - The **agent** SVID is whatever this node's SPIRE registration issues. The
   site SPIRE server must have a workload entry for unix uid 0 (root
-  `nke-agent`) parented to the node's agent SPIFFE ID.
+  `nvke-agent`) parented to the node's agent SPIFFE ID.
 
 Join-token attestation and those workload entries are the operator's SPIRE
 server, not this image.
@@ -118,12 +178,13 @@ server, not this image.
 
 | What | Value |
 |---|---|
-| `nke-agent` gRPC | TCP `15005` |
+| `nvke-agent` gRPC | TCP `15005` |
 | SPIFFE workload API | `unix:///tmp/spire-agent/public/api.sock` |
-| Agent state | `/var/lib/nke/state.json` |
-| Agent env | `/etc/default/nke-agent` (`AGENT_ARGS`) |
+| Agent state | `/var/lib/nvke/state.json` |
+| Agent env | `/etc/default/nvke-agent` (`AGENT_ARGS`) |
 | SPIRE config | `/etc/spire-agent/agent.conf` (rendered, not a baked secret) |
 | SPIRE data | `/var/lib/spire-agent` |
+| Conntrack tuning | `/usr/lib/nvke/configure-conntrack.sh` writes `/run/sysctl.d/10-nke-conntrack.conf` (logs to `journalctl -u conntrack-tune`); TIME_WAIT in `/etc/sysctl.d/10-nke-conntrack-timeouts.conf` |
 
 ## Out of scope for this image
 
@@ -140,7 +201,7 @@ server that has issued a join token and a `/nke-service/...` identity for the
 checker, then:
 
 ```bash
-nke-os-image-check --endpoint <node-ip>:15005
+nvke-os-image-check --endpoint <node-ip>:15005
 ```
 
 The checker is a **client**. It uses the local workload API (same pattern as

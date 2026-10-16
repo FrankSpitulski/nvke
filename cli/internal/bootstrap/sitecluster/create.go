@@ -8,27 +8,29 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/sitespec"
-	"github.com/dsx-ai-factory/nke/cli/internal/clusterstate"
-	api "github.com/dsx-ai-factory/nke/controller/api"
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/sitespec"
+	"github.com/dsx-ai-factory/nvke/cli/internal/clients"
+	"github.com/dsx-ai-factory/nvke/cli/internal/clusterstate"
+	api "github.com/dsx-ai-factory/nvke/controller/api"
 )
 
-// pollInterval is how often WaitProvisioned asks CWE where it has got to. A
+// pollInterval is how often WaitProvisioned asks the controller where it has got to. A
 // var, not a const, so tests can shrink it rather than paying real wall-clock
-// time for a retry loop — the same shape cwedeploy's waitReadyPollInterval uses.
+// time for a retry loop — the same shape controllerdeploy's waitReadyPollInterval uses.
 var pollInterval = 10 * time.Second
 
 // DefaultWaitTimeout bounds a wait whose caller supplied no budget of its own.
 const DefaultWaitTimeout = 30 * time.Minute
 
-// ClusterAPI is the part of the CWE client this package needs.
+// ClusterAPI is the part of the controller client this package needs.
 //
-// An interface rather than *clients.CWEClient so the create-and-wait flow can
+// An interface rather than *clients.ControllerClient so the create-and-wait flow can
 // be tested against a fake that returns a scripted sequence of conditions,
 // which is the only way to exercise the paths that matter here: a cluster that
 // takes several polls to come up, one that starts deleting underneath us, and
@@ -39,13 +41,21 @@ type ClusterAPI interface {
 	ListControlPlaneNodes(ctx context.Context, clusterID openapi_types.UUID) ([]api.Node, error)
 }
 
-// ErrClusterFailed is returned when CWE reports a state the cluster cannot come
+// ErrClusterFailed is returned when the controller reports a state the cluster cannot come
 // back from on its own. Callers tell it apart from a timeout so they can say
 // which happened.
 var ErrClusterFailed = errors.New("cluster provisioning failed")
 
-// Create submits the cluster described by inv and returns what CWE recorded.
-// Provisioning is asynchronous; see WaitProvisioned.
+// ErrCreateUnconfirmed marks a Create whose request the controller may have
+// accepted: the request went out and no answer came back, or the answer was not
+// a refusal (a 4xx). The
+// controller commits the cluster and starts provisioning it before it answers,
+// so the cluster may exist and be provisioning.
+var ErrCreateUnconfirmed = errors.New("the controller may have created the cluster")
+
+// Create submits the cluster described by inv and returns what the controller recorded.
+// Provisioning is asynchronous; see WaitProvisioned. An error that wraps
+// ErrCreateUnconfirmed leaves open whether the cluster was created.
 func Create(ctx context.Context, client ClusterAPI, inv *sitespec.SiteSpec, log *slog.Logger) (*api.Cluster, error) {
 	req, err := ClusterRequest(inv)
 	if err != nil {
@@ -56,17 +66,34 @@ func Create(ctx context.Context, client ClusterAPI, inv *sitespec.SiteSpec, log 
 		"cluster", req.Name,
 		"kubernetesVersion", req.ControlPlaneKubernetesVersion,
 		"cni", req.CniPlugin,
-		"hosts", len(inv.Cluster.Nodes))
+		"infraProvider", inv.Infra.Provider,
+		"controlPlaneNodes", inv.ControlPlaneCount())
 
 	cluster, err := client.CreateCluster(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("sitecluster: creating cluster %q: %w", req.Name, err)
+		if notCreated(err) {
+			return nil, fmt.Errorf("sitecluster: creating cluster %q: %w", req.Name, err)
+		}
+		return nil, fmt.Errorf("sitecluster: creating cluster %q: %w: %w", req.Name, ErrCreateUnconfirmed, err)
 	}
 	log.Info("cluster created", "cluster", cluster.Name, "id", cluster.ID)
 	return cluster, nil
 }
 
-// WaitProvisioned polls CWE until the cluster reports Provisioned, reports a
+// notCreated reports whether a CreateCluster error proves the controller did
+// not create the cluster: it refused the request with a 4xx, or the connection
+// was never made. Anything else, a 5xx or a request that went out and got no
+// answer, may follow a committed create.
+func notCreated(err error) bool {
+	var status *clients.StatusError
+	if errors.As(err, &status) {
+		return status.StatusCode >= 400 && status.StatusCode < 500
+	}
+	var op *net.OpError
+	return errors.As(err, &op) && op.Op == "dial"
+}
+
+// WaitProvisioned polls the controller until the cluster reports Provisioned, reports a
 // state it cannot recover from, or timeout elapses.
 //
 // The state is logged on every change rather than every poll: a bootstrap takes
@@ -90,7 +117,7 @@ func WaitProvisioned(
 	for {
 		cluster, err := client.GetCluster(ctx, id)
 		if err != nil {
-			// A read can fail while the cluster is perfectly healthy — CWE
+			// A read can fail while the cluster is perfectly healthy — the controller
 			// restarting, for one. Keep polling and report the last error only
 			// if the wait runs out.
 			lastErr = err
@@ -108,6 +135,10 @@ func WaitProvisioned(
 				return cluster, fmt.Errorf("%w: cluster %q started deleting while it was being provisioned",
 					ErrClusterFailed, cluster.Name)
 			}
+			if clusterstate.IsProvisioningFailed(cluster) {
+				return cluster, fmt.Errorf("%w: cluster %q provisioning failed: %s",
+					ErrClusterFailed, cluster.Name, cluster.Conditions.Provisioning.Message)
+			}
 			if clusterstate.IsTrue(cluster.Conditions.UpdateFailed) {
 				return cluster, fmt.Errorf("%w: cluster %q reports updateFailed: %s",
 					ErrClusterFailed, cluster.Name, cluster.Conditions.UpdateFailed.Message)
@@ -123,11 +154,11 @@ func WaitProvisioned(
 	}
 }
 
-// WaitControlPlaneJoined polls CWE until want control-plane nodes report
+// WaitControlPlaneJoined polls the controller until want control-plane nodes report
 // Provisioned, or timeout elapses.
 //
 // This wait exists because the cluster's own Provisioned condition does not
-// mean what a caller tearing down orchestration needs it to mean. CWE sets it
+// mean what a caller tearing down orchestration needs it to mean. The controller sets it
 // as soon as the one node it picked as the initial control-plane node has run
 // kubeadm init and had its CNI installed — deliberately, because the remaining
 // nodes cannot join until there is something to join, and the controller that
@@ -174,7 +205,7 @@ func WaitControlPlaneJoined(
 		} else {
 			// The read recovered, so it is no longer what went wrong. Left set,
 			// it would be reported as the reason a node never joined and send
-			// the operator after CWE instead of the node.
+			// the operator after the controller instead of the node.
 			lastErr = nil
 			provisioned, pending := controlPlaneProgress(nodes, want)
 			outstanding = pending
@@ -204,7 +235,7 @@ func WaitControlPlaneJoined(
 // The description is what the operator gets when the wait runs out, so it
 // carries each outstanding node's condition message — the difference between
 // "a node is slow" and "a node is stuck on something" — and says how many
-// nodes CWE has not created a record for at all.
+// nodes the controller has not created a record for at all.
 func controlPlaneProgress(nodes []api.Node, want int) (int, string) {
 	provisioned := 0
 	pending := make([]string, 0, len(nodes))

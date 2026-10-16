@@ -5,6 +5,7 @@ package v1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // MachineImageSpec is the immutable identity of a bootable machine image and
@@ -13,8 +14,6 @@ import (
 type MachineImageSpec struct {
 	OperatingSystem OperatingSystem `json:"operatingSystem"`
 	// Architecture is a Go/OCI architecture name such as "amd64" or "arm64".
-	// The vocabulary is not enumerated here: which architectures are qualified
-	// is an operator decision, not a schema one.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=32
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
@@ -34,8 +33,7 @@ type MachineImageSpec struct {
 
 // OperatingSystem identifies the distribution an image was built from.
 type OperatingSystem struct {
-	// Family is the distribution name, such as "ubuntu". Like Architecture, it
-	// is shape-checked rather than enumerated.
+	// Family is the distribution name, such as "ubuntu".
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
@@ -51,8 +49,7 @@ type OperatingSystem struct {
 type NICoBoot struct {
 	// IPXEScript is a Go template rendered with machine-specific values, such as
 	// the disk selection strategy, and the result becomes the iPXE script of the
-	// NICo machine resource. The #!ipxe magic occupies the first line on its own
-	// and a command follows it.
+	// NICo machine resource.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=16384
 	// +kubebuilder:validation:XValidation:rule="self.startsWith('#!ipxe\\n') || self.startsWith('#!ipxe\\r\\n')",message="ipxeScript must begin with a #!ipxe line of its own"
@@ -82,4 +79,11 @@ type MachineImageList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []MachineImage `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(SchemeGroupVersion, &MachineImage{}, &MachineImageList{})
+		return nil
+	})
 }

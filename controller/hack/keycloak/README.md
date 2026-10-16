@@ -1,6 +1,6 @@
 # Lab Keycloak
 
-Local OpenID Connect issuer for NKE API and tenant-kubeconfig work. Lab only:
+Local OpenID Connect issuer for NVKE API and tenant-kubeconfig work. Lab only:
 the admin password, client secret, and test user are committed on purpose.
 
 The issuer hostname is `keycloak.nke.test`, not `localhost`. Tokens always
@@ -40,7 +40,7 @@ or `make capd-up` if Keycloak started first — it will then wire the cluster.
 | Audience | `https://nke.tilt.local` |
 | Group | `nke-operators` |
 | User | `nke-dev` / `nke-dev` |
-| Public client | `nke-cli` (authorization code + PKCE, localhost redirects, password grant) |
+| Public client | `nke-cli` (authorization code, device grant, localhost redirects, password grant) |
 | Static client | `nke-static` / `nke-static-lab-secret` (password and client-credentials grants) |
 
 Mint a token without a browser:

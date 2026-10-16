@@ -13,18 +13,19 @@ import (
 	"go.temporal.io/sdk/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/workflows"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/otelx"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/workflows"
 )
 
 // Service owns shared node scheduling side effects.
 type Service struct {
-	cfg               config.Config
-	db                db.DB
-	logger            *slog.Logger
-	cweTemporalClient WorkflowStarter
+	cfg                      config.Config
+	db                       db.DB
+	logger                   *slog.Logger
+	controllerTemporalClient WorkflowStarter
 }
 
 // WorkflowStarter is the Temporal client behavior needed by node scheduling.
@@ -37,13 +38,13 @@ func NewService(
 	cfg config.Config,
 	logger *slog.Logger,
 	dbInstance db.DB,
-	cweTemporalClient WorkflowStarter,
+	controllerTemporalClient WorkflowStarter,
 ) *Service {
 	return &Service{
-		cfg:               cfg,
-		db:                dbInstance,
-		logger:            logger,
-		cweTemporalClient: cweTemporalClient,
+		cfg:                      cfg,
+		db:                       dbInstance,
+		logger:                   logger,
+		controllerTemporalClient: controllerTemporalClient,
 	}
 }
 
@@ -66,16 +67,33 @@ func (s *Service) startProvisionNodeWorkflow(ctx context.Context, pendingNode db
 		WorkflowIDConflictPolicy: enums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 		WorkflowIDReusePolicy:    enums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY,
 	}
-	if _, err := s.cweTemporalClient.ExecuteWorkflow(ctx, workflowOpts, workflows.ProvisionNode, workflows.ProvisionNodeInput{
+	ctx, span := otelx.StartWorkflowSpan(ctx, otelx.WorkflowStart, otelx.WorkflowAttributes{
+		WorkflowType: workflows.ProvisionNodeWorkflowType,
+		WorkflowID:   workflowID,
+		ClusterID:    pendingNode.ClusterID,
+		NodePoolID:   pendingNode.NodePoolID,
+		NodeID:       pendingNode.ID,
+		NodeName:     pendingNode.Name,
+	})
+	run, err := s.controllerTemporalClient.ExecuteWorkflow(ctx, workflowOpts, workflows.ProvisionNode, workflows.ProvisionNodeInput{
 		NodeID:                         pendingNode.ID,
 		RebootNodeWaitForUptimeTimeout: s.cfg.NodeRebootMaxTimeout,
 		// Control-plane nodes defer join to the control-plane controller, which
-		// serializes joins one node at a time. Only when the control-plane
-		// controller owns the control plane; otherwise control-plane nodes
-		// auto-join inline like workers, preserving the pre-controller behavior.
-		SkipJoin: pendingNode.ControlPlane && s.cfg.UseControlPlaneControllerForControlPlane(),
-	}); err != nil {
-		return fmt.Errorf("failed to start ProvisionNode workflow: %w", err)
+		// serializes joins one node at a time.
+		SkipJoin: pendingNode.ControlPlane,
+	})
+	otelx.EndWorkflowSpan(span, err)
+	if err != nil {
+		return fmt.Errorf("starting ProvisionNode workflow for node %s: %w", pendingNode.ID, err)
 	}
+
+	s.logger.InfoContext(ctx, "Started (or already running) ProvisionNode workflow",
+		"cluster_id", pendingNode.ClusterID,
+		"node_pool_id", pendingNode.NodePoolID,
+		"node_id", pendingNode.ID,
+		"node_name", pendingNode.Name,
+		"workflow_id", workflowID,
+		"run_id", run.GetRunID(),
+	)
 	return nil
 }

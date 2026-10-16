@@ -81,8 +81,10 @@ declare -a DIGESTS=(
 # label.
 declare -a SHAPES=(
   # An NGC or Forge org id: sixteen digits, which nothing else here is shaped
-  # like. A repeated single digit is a placeholder and passes.
-  '(?<![0-9])(?!([0-9])\1{15})[0-9]{16}(?![0-9])|sixteen-digit NGC or Forge org id'
+  # like. A repeated single digit is a placeholder and passes. A hex digest can
+  # hold sixteen digits in a row, so a run with a hex digit on either side is
+  # part of a longer hex token, not an id.
+  '(?<![0-9a-fA-F])(?!([0-9])\1{15})[0-9]{16}(?![0-9a-fA-F])|sixteen-digit NGC or Forge org id'
   # The internal switch and node naming scheme embeds a management address in
   # the hostname: 10-91-69-85.<site>.<domain>.
   '\b10-[0-9]{1,3}-[0-9]{1,3}-[0-9]{1,3}\.[a-zA-Z]|management address embedded in a hostname'

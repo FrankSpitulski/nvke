@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 // MockDB is a testify mock for db.DB. Set MockTx (or GetTx) before use so RunInTx invokes the callback with it.
@@ -572,4 +572,18 @@ func (m *MockTx) CreateWorkflowOutboxEntry(
 		return db.WorkflowOutbox{}, args.Error(1)
 	}
 	return v, args.Error(1)
+}
+
+func (m *MockTx) ListUnprocessedWorkflowOutboxEntries(ctx context.Context, limit int) ([]db.WorkflowOutbox, error) {
+	args := m.Called(ctx, limit)
+	v, ok := args.Get(0).([]db.WorkflowOutbox)
+	if !ok {
+		return nil, args.Error(1)
+	}
+	return v, args.Error(1)
+}
+
+func (m *MockTx) MarkWorkflowOutboxEntryProcessed(ctx context.Context, id uuid.UUID) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
 }

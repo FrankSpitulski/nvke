@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/temporal"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 type ClusterConditionsUpdate struct {
@@ -28,8 +28,8 @@ type ClusterConditions struct {
 // UpdateClusterConditions updates the conditions of a cluster in the database.
 func (a *Activities) UpdateClusterConditions(ctx context.Context, update ClusterConditionsUpdate) error {
 	return a.db.RunInTx(ctx, func(ctx context.Context, tx db.Tx) error {
-		// Get existing cluster
-		cluster, err := tx.GetCluster(ctx, update.ClusterID)
+		// Serialize whole-row updates so other condition writers are preserved.
+		cluster, err := tx.GetClusterForUpdate(ctx, update.ClusterID)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
 				// This will not be resolved by retrying, so return a non-retryable temporal error

@@ -12,14 +12,20 @@ source "${repo_root}/hack/backend-e2e-lib.sh"
 # worked when run from here. Do not make the caller know that.
 cd "${repo_root}"
 state_dir="${LOCAL_NKE_E2E_STATE_DIR:-${repo_root}/.local/backend-e2e}"
-tmp_dir="$(mktemp -d)"
+mkdir -p "${state_dir}"
+# Keep Docker bind-mounted build output under the repository. Colima does not
+# share macOS's private /var/folders tree, so a default mktemp directory makes
+# packages created by the Linux OVN builder invisible to the host.
+tmp_dir="$(mktemp -d "${state_dir}/tmp.XXXXXX")"
+tmp_dir="$(cd "${tmp_dir}" && pwd)"
+# Kept as cwe-capi until a follow-up rename: changing it forces every developer to recreate their kind cluster.
 kind_cluster_name="${KIND_CLUSTER_NAME:-cwe-capi}"
 dockerhub_mirror="${NKE_E2E_DOCKERHUB_MIRROR:-}"
 runner_name="cwe-capd-local-e2e-${$}"
 runner_image="${LOCAL_NKE_E2E_RUNNER_IMAGE:-docker:29.1.3-cli@sha256:4fa0ee1f3a7e4354c4ea34558b6d4ee32859baf4973d4c8ccc8e7fe3dd730c04}"
 tilt_config="${repo_root}/tilt_config.json"
 tilt_config_backup="${tmp_dir}/tilt_config.json"
-host_kubeconfig="${tmp_dir}/management-host.kubeconfig"
+host_kubeconfig="${LOCAL_NKE_E2E_KUBECONFIG:-${tmp_dir}/management-host.kubeconfig}"
 internal_kubeconfig="${tmp_dir}/management-internal.kubeconfig"
 e2e_config="${tmp_dir}/e2e-config.json"
 e2e_binary="${tmp_dir}/cwe-e2e.test"
@@ -43,25 +49,6 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 is required"
 }
 
-configure_kind_dockerhub_mirror() {
-  local node_name="${kind_cluster_name}-control-plane"
-  local registry_host
-
-  if [[ -z "${dockerhub_mirror}" ]]; then
-    return
-  fi
-  log "routing management-cluster Docker Hub pulls through ${dockerhub_mirror}"
-  for registry_host in docker.io registry-1.docker.io; do
-    docker exec "${node_name}" mkdir -p "/etc/containerd/certs.d/${registry_host}"
-    printf '%s\n' \
-      "server = \"https://${dockerhub_mirror}\"" \
-      '' \
-      "[host.\"https://${dockerhub_mirror}\"]" \
-      '  capabilities = ["pull", "resolve"]' | \
-      docker exec -i "${node_name}" cp /dev/stdin "/etc/containerd/certs.d/${registry_host}/hosts.toml"
-  done
-}
-
 collect_diagnostics() {
   local rc=$?
   set +e
@@ -71,16 +58,16 @@ collect_diagnostics() {
   docker system df >"${state_dir}/docker-system-df.txt" 2>&1
   e2e_collect_node_diagnostics "${state_dir}/nodes" \
     "${CAPD_NODE_IMAGE:-cwe-capd-kindest-node:local}"
-  docker logs bgp-containers >"${state_dir}/bgp-containers.log" 2>&1
-  docker exec bgp-containers vtysh -c 'show bgp summary' >"${state_dir}/bgp-containers-summary.txt" 2>&1
-  docker exec bgp-containers vtysh -c 'show bgp ipv4 unicast' >"${state_dir}/bgp-containers-routes.txt" 2>&1
+  docker logs "${BGP_CONTAINER_NAME:-bgp-containers}" >"${state_dir}/bgp-containers.log" 2>&1
+  docker exec "${BGP_CONTAINER_NAME:-bgp-containers}" vtysh -c 'show bgp summary' >"${state_dir}/bgp-containers-summary.txt" 2>&1
+  docker exec "${BGP_CONTAINER_NAME:-bgp-containers}" vtysh -c 'show bgp ipv4 unicast' >"${state_dir}/bgp-containers-routes.txt" 2>&1
   if [[ "${management_ready}" == true ]]; then
     kubectl get nodes -o wide >"${state_dir}/management-nodes.txt" 2>&1
     kubectl get pods -A -o wide >"${state_dir}/management-pods.txt" 2>&1
     kubectl get events -A --sort-by=.lastTimestamp >"${state_dir}/management-events.txt" 2>&1
     kubectl get clusters,machines,kubeadmcontrolplanes,dockermachines -A -o yaml \
       >"${state_dir}/capi-resources.yaml" 2>&1
-    kubectl -n cloud-workflow-engine logs deployment/cloud-workflow-engine --all-containers --tail=-1 \
+    kubectl -n nke-controller logs deployment/nke-controller --all-containers --tail=-1 \
       >"${state_dir}/cwe.log" 2>&1
     kubectl -n capd-system logs deployment/capd-controller-manager --all-containers --tail=-1 \
       >"${state_dir}/capd-controller.log" 2>&1
@@ -165,18 +152,21 @@ log "SPIRE node attestation: ${CAPD_SPIRE_ATTESTATION_METHOD}"
 [[ -f "${NODE_AGENT_REPO_PATH}/Makefile" ]] || \
   fail "NODE_AGENT_REPO_PATH=${NODE_AGENT_REPO_PATH} does not look like an agent checkout"
 
-mkdir -p "${state_dir}"
-
 if curl --fail --silent --show-error --connect-timeout 1 --max-time 1 \
   http://localhost:10350/api/view >/dev/null 2>&1; then
   fail "another Tilt session is running on port 10350; stop it before running this script"
 fi
 
-if [[ "${host_os}" == darwin ]]; then
+if [[ "${LOCAL_NVKE_E2E_REUSE_DOCKER_HOST:-false}" == true ]]; then
+  docker info >/dev/null 2>&1 || fail "the existing Docker daemon is unavailable"
+elif [[ "${host_os}" == darwin ]]; then
   log "starting Colima with ${COLIMA_CPUS} CPUs, ${COLIMA_MEMORY_GIB} GiB memory, and ${COLIMA_DISK_GIB} GiB disk"
-  make -C "${repo_root}" colima-up
+  make -C "${repo_root}" host-up
 else
   log "using the host Docker daemon"
+  # `make host-up` loads /dev/vtpmx for a developer. This lane still falls back
+  # to join-token attestation when the device is absent, which is the GitHub
+  # runner case.
   docker info >/dev/null 2>&1 || fail "cannot reach the Docker daemon; is it running and is your user in the docker group?"
 fi
 
@@ -194,11 +184,27 @@ else
   log "preserving tenant node containers from other local E2E runs"
 fi
 
+# Before the cluster and the builds, for the reason given in backend-e2e-lib.sh:
+# the answer is a property of this host's kernel, so nothing below changes it,
+# and a host that cannot load the module has already lost the suite.
+log "checking this host can load the openvswitch module"
+ovs_probe_image="$(e2e_capd_base_image "${repo_root}")" \
+  || fail "could not resolve the CAPD base image to probe with"
+e2e_host_loads_openvswitch "${ovs_probe_image}" ||
+  fail "this host cannot load the openvswitch module (#1515)"
+
 log "ensuring the Kind management cluster exists"
-make -C "${repo_root}" kind-up
-configure_kind_dockerhub_mirror
-kind get kubeconfig --name "${kind_cluster_name}" >"${host_kubeconfig}"
+kind_config_for_mirror "${repo_root}/hack/controller-capi-kind.yaml" "${tmp_dir}/kind-config.yaml"
+[[ "${host_kubeconfig}" == /* ]] || fail "LOCAL_NKE_E2E_KUBECONFIG must be an absolute path"
+mkdir -p "$(dirname "${host_kubeconfig}")"
+existing_kind_clusters="$(kind get clusters)"
+if grep -Fx "${kind_cluster_name}" <<<"${existing_kind_clusters}" >/dev/null; then
+  kind get kubeconfig --name "${kind_cluster_name}" >"${host_kubeconfig}"
+fi
 export KUBECONFIG="${host_kubeconfig}"
+make -C "${repo_root}" kind-up KIND_CLUSTER_CONFIG="${tmp_dir}/kind-config.yaml"
+configure_kind_dockerhub_mirror "${kind_cluster_name}"
+kind get kubeconfig --name "${kind_cluster_name}" >"${host_kubeconfig}"
 management_ready=true
 
 log "building the CAPD bundle from public sources"
@@ -206,15 +212,21 @@ log "building the CAPD bundle from public sources"
 # tarballs are 22 MB of the 31 MB it collected, all of it re-downloadable.
 bundle_dir="${tmp_dir}/bundles"
 rm -rf "${bundle_dir}"
-BUNDLE_ARCH="${host_arch}" bash "${repo_root}/hack/ci/prepare-capd-bundles.sh" "${bundle_dir}"
+CNI_PLUGIN=ovn-kubernetes BUNDLE_ARCH="${host_arch}" bash "${repo_root}/hack/ci/prepare-capd-bundles.sh" "${bundle_dir}"
+if [[ "${LOCAL_NVKE_E2E_NODE_AGENT_UPGRADE:-false}" == true ]]; then
+  bash "${repo_root}/hack/prepare-node-agent-e2e.sh" "${bundle_dir}" "${host_arch}"
+fi
 
 export SPIRE_AGENT_BUNDLE_PATH="${bundle_dir}/spire-agent.tgz"
-CAPD_CNI_MANIFESTS_DEB_PATH="$(echo "${bundle_dir}"/nke-cni-calico-manifests-*_all.deb)"
-export CAPD_CNI_MANIFESTS_DEB_PATH
-[[ -f "${CAPD_CNI_MANIFESTS_DEB_PATH}" ]] \
-  || fail "prepare-capd-bundles.sh produced no Calico manifests package"
+CAPD_CNI_CHARTS_DEB_PATH="${bundle_dir}/nvke-cni-ovn-charts-1.6.0_1.6.0_${host_arch}.deb"
+export CAPD_CNI_CHARTS_DEB_PATH
+export INSTALL_CNI_AFTER_INIT="${INSTALL_CNI_AFTER_INIT:-false}"
+export CAPD_CNI_IMAGES_DEB_PATH="${bundle_dir}/nvke-cni-ovn-images-1.6.0_1.6.0_${host_arch}.deb"
+export CAPD_HELM_DEB_PATH="${bundle_dir}/nke-e2e-helm.deb"
+[[ -f "${CAPD_CNI_CHARTS_DEB_PATH}" ]] \
+  || fail "prepare-capd-bundles.sh produced no OVN charts package"
 
-# With INSTALL_CNI_AFTER_INIT the agent reads CNI from the Calico manifests deb
+# With INSTALL_CNI_AFTER_INIT the agent reads CNI from the OVN charts deb
 # baked into the node image, so no bundle mirror is started and the node image
 # bakes in no bundle flags. That is the whole point: a green run this way proves
 # a node with no bundle source can still get CNI.
@@ -230,7 +242,7 @@ else
   # Prove it serves before building an image that bakes the URL in. Poll rather
   # than probe once: nginx has only just been started, and a single wget raced
   # its first socket bind and failed a run with "Connection refused".
-  docker run --rm --network kind alpine:3.22 sh -c \
+  docker run --rm --network kind "$(dockerhub_image alpine:3.22)" sh -c \
     'for _ in $(seq 30); do wget -q -O /dev/null "$1" && exit 0; sleep 1; done; exit 1' \
     _ "${INDEX_FILE_URL}" \
     || fail "bundle mirror is not serving ${INDEX_FILE_URL}"
@@ -244,8 +256,55 @@ if [[ "${LOCAL_NKE_E2E_REUSE_CAPD_SETUP:-false}" == true ]]; then
   kubectl rollout status deployment/capi-controller-manager -n capi-system --timeout=120s
   kubectl rollout status deployment/capd-controller-manager -n capd-system --timeout=120s
   log "reusing the existing CAPD providers and node image ${node_image}"
+elif [[ "${LOCAL_NKE_E2E_REUSE_CAPD_NODE_IMAGE:-false}" == true ]]; then
+  node_image="${CAPD_NODE_IMAGE:-cwe-capd-kindest-node:local}"
+  docker image inspect "${node_image}" >/dev/null || fail "CAPD node image ${node_image} does not exist"
+  export CAPD_KINDEST_NODE_IMAGE_PREBUILT=true
+  make -C "${repo_root}" clusterctl-install
+  make -C "${repo_root}" registry-mirror REGISTRY_MIRROR_IMAGE="$(dockerhub_image registry:2)"
+  capi_core_version="$(make -C "${repo_root}" -s --no-print-directory print-CAPI_CORE_VERSION)"
+  capd_provider_version="$(make -C "${repo_root}" -s --no-print-directory print-CAPD_PROVIDER_VERSION)"
+  PATH="${repo_root}/.local/bin:${PATH}" CLUSTER_TOPOLOGY=true clusterctl init \
+    --core "cluster-api:${capi_core_version}" \
+    --bootstrap "kubeadm:${capi_core_version}" \
+    --control-plane "kubeadm:${capi_core_version}" \
+    --infrastructure "docker:${capd_provider_version}"
+  kubectl rollout status deployment/capi-controller-manager -n capi-system --timeout=300s
+  kubectl rollout status deployment/capd-controller-manager -n capd-system --timeout=300s
+  make -C "${repo_root}" capi-spiffe-exec-auth
+  log "installed CAPD with the cached node image ${node_image}"
 else
-  make -C "${repo_root}" capd-up
+  make -C "${repo_root}" capd-up REGISTRY_MIRROR_IMAGE="$(dockerhub_image registry:2)"
+fi
+
+if [[ "${LOCAL_NVKE_E2E_NODE_AGENT_UPGRADE:-false}" == true ]]; then
+  qualification_image_dir="${tmp_dir}/agent-qualification-image"
+  mkdir -p "${qualification_image_dir}"
+  cat >"${qualification_image_dir}/Dockerfile" <<'DOCKERFILE'
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+COPY kubeadm-record-version /usr/local/sbin/kubeadm-record-version
+RUN if [ ! -e /usr/local/sbin/kubeadm-container-original ]; then \
+      mv /usr/local/sbin/kubeadm-systemverification-shim /usr/local/sbin/kubeadm-container-original; \
+    fi && \
+    chmod 0755 /usr/local/sbin/kubeadm-record-version && \
+    ln -sf /usr/local/sbin/kubeadm-record-version /usr/local/sbin/kubeadm-systemverification-shim
+DOCKERFILE
+  cat >"${qualification_image_dir}/kubeadm-record-version" <<'WRAPPER'
+#!/bin/sh
+set -eu
+case "$1" in
+  init|join)
+    mkdir -p /var/lib/nvke
+    printf '%s %s\n' "$1" "$(/usr/local/bin/nvke-agent --version)" >>/var/lib/nvke/e2e-kubeadm-agent-versions.log
+    ;;
+esac
+exec /usr/local/sbin/kubeadm-container-original "$@"
+WRAPPER
+  node_image="${CAPD_NODE_IMAGE:-cwe-capd-kindest-node:local}"
+  qualification_image="nvke-capd-agent-qualification:$(basename "${tmp_dir}")"
+  docker build --build-arg "BASE_IMAGE=${node_image}" -t "${qualification_image}" "${qualification_image_dir}"
+  export CAPD_NODE_IMAGE="${qualification_image}"
 fi
 
 # The committed fixture, not the provider checkout: this script installs the
@@ -272,8 +331,8 @@ kubectl wait --for=condition=Established crd \
 
 if [[ "${INSTALL_CNI_AFTER_INIT:-false}" == "true" ]]; then
   node_image="${CAPD_NODE_IMAGE:-cwe-capd-kindest-node:local}"
-  agent_args="$(docker run --rm --entrypoint cat "${node_image}" /etc/default/nke-agent)" \
-    || fail "could not read /etc/default/nke-agent from ${node_image}"
+  agent_args="$(docker run --rm --entrypoint cat "${node_image}" /etc/default/nvke-agent)" \
+    || fail "could not read /etc/default/nvke-agent from ${node_image}"
   if grep -qE -- '--bundle-server-url|--index-file-url' <<<"${agent_args}"; then
     fail "${node_image} bakes in a bundle source, so this run would not prove the post-init CNI path: ${agent_args}"
   fi
@@ -298,43 +357,52 @@ e2e_write_tilt_config "${tilt_config}" \
   "${LOCAL_CWE_IMAGE:-}" "${management_vip}" "${BGP_CONTAINER_NAME:-bgp-containers}"
 tilt_config_staged=true
 
-# Sequential two-mode CAPD run (mirrors controller/hack/ci/backend-e2e.sh): a
-# default local run validates both control-plane paths on one cluster -- the
-# cp-controller leg (flag-on) first, then a light CWE redeploy to flag-off for
-# the node-pool leg. Set LOCAL_NKE_E2E_LABEL_FILTER to run a single explicit
-# filter instead, or LOCAL_NKE_E2E_SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES=false.
-sequential_modes="${LOCAL_NKE_E2E_SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES:-true}"
-if [[ -n "${LOCAL_NKE_E2E_LABEL_FILTER:-}" ]]; then
-  sequential_modes=false
-fi
-# The cp-controller leg needs a flag-on CWE, so deploy flag-on when sequential.
-# A single-filter run deploys one CWE and never redeploys, so it has to state
-# the mode rather than inherit it: CWE's own default is now true (#1054), and an
-# unset flag used to mean "node-pool control plane". Left unset, the node-pool
-# specs get a flag-on CWE, which rejects control-plane node pools outright --
-# `control-plane node pools are not allowed when control-plane controller
-# provisioning is enabled`. Defaulted, not forced, so an explicit
-# PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=true still selects the
-# cp-controller specs.
-if [[ "${sequential_modes}" == "true" ]]; then
-  export PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=true
-else
-  export PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER="${PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER:-false}"
-fi
-
-log "deploying local CWE through Tilt"
+log "deploying local controller through Tilt"
 TILT_DISABLE_ANALYTICS=1 tilt ci \
   --port=0 \
   --timeout=40m \
   --output-snapshot-on-exit="${state_dir}/tilt-snapshot.json" \
   >"${state_dir}/tilt.log" 2>&1
+if [[ "${LOCAL_NKE_E2E_BUILD_TAGS:-}" =~ (^|[[:space:],])oidc_acceptance($|[[:space:],]) ]]; then
+  log "checking the SPIRE exec-auth plugin in CAPI and CAPD controllers"
+  if [[ "${LOCAL_NKE_E2E_REUSE_CAPD_SETUP:-false}" == true ]]; then
+    make -C "${repo_root}" capi-spiffe-exec-auth
+  fi
+  for controller in \
+    "capi-system capi-controller-manager" \
+    "capi-kubeadm-control-plane-system capi-kubeadm-control-plane-controller-manager" \
+    "capi-kubeadm-bootstrap-system capi-kubeadm-bootstrap-controller-manager" \
+    "capd-system capd-controller-manager"; do
+    read -r namespace deployment <<<"${controller}"
+    kubectl rollout status "deployment/${deployment}" -n "${namespace}" --timeout=5m
+    kubectl exec "deployment/${deployment}" -n "${namespace}" -- \
+      /opt/spiffe/bin/k8s-spiffe-workload-jwt-exec-auth --help >/dev/null 2>&1 || \
+      fail "SPIRE exec-auth plugin is unavailable in ${namespace}/deployment/${deployment}"
+  done
+fi
 
 log "compiling the E2E suite for linux/${host_arch}"
-(
-  cd "${repo_root}/test/e2e"
-  GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH="${host_arch}" \
-    go test -c -o "${e2e_binary}" .
-)
+# `|` makes go fall back to a direct fetch on any proxy error; the default
+# `,` only does so on 404/410. See the same block in hack/ci/backend-e2e.sh.
+export GOPROXY="${GOPROXY:-https://proxy.golang.org|direct}"
+e2e_built=false
+e2e_build_flags=()
+if [[ -n "${LOCAL_NKE_E2E_BUILD_TAGS:-}" ]]; then
+  e2e_build_flags=(-tags="${LOCAL_NKE_E2E_BUILD_TAGS}")
+fi
+for attempt in 1 2 3; do
+  if (
+    cd "${repo_root}/test/e2e"
+    GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH="${host_arch}" \
+      go test -c ${e2e_build_flags[@]+"${e2e_build_flags[@]}"} -o "${e2e_binary}" .
+  ); then
+    e2e_built=true
+    break
+  fi
+  log "E2E compile attempt ${attempt} failed"
+  sleep $((attempt * 20))
+done
+[[ "${e2e_built}" == true ]] || fail "compiling the E2E suite failed three times"
 
 kind get kubeconfig --internal --name "${kind_cluster_name}" >"${internal_kubeconfig}"
 jq -n \
@@ -349,7 +417,7 @@ jq -n \
 
 log "starting the E2E client on the Kind Docker network"
 if ! docker image inspect "${runner_image}" >/dev/null 2>&1; then
-  docker pull "${runner_image}" >/dev/null
+  pull_with_retry "${runner_image}" >/dev/null || fail "could not pull the E2E runner image ${runner_image}"
 fi
 docker create \
   --name "${runner_name}" \
@@ -362,18 +430,21 @@ docker exec "${runner_name}" mkdir -p /state
 docker cp "${e2e_binary}" "${runner_name}:/state/cwe-e2e.test"
 docker cp "${internal_kubeconfig}" "${runner_name}:/state/management.kubeconfig"
 docker cp "${e2e_config}" "${runner_name}:/state/e2e-config.json"
+oidc_issuer_host=""
+if [[ "${LOCAL_NKE_E2E_BUILD_TAGS:-}" =~ (^|[[:space:],])oidc_acceptance($|[[:space:],]) ]]; then
+  oidc_issuer_host="$(docker inspect --format '{{(index .NetworkSettings.Networks "kind").IPAddress}}' "${runner_name}")"
+  [[ -n "${oidc_issuer_host}" ]] || fail "could not read the E2E runner IP on the Kind network"
+fi
 
-# Run one Ginkgo leg against the already-deployed CWE. suffix keeps each leg's
-# log and JUnit report distinct (empty for a single-mode run).
-# Tilt builds CWE with `make build`, which bakes BUILD_VERSION in, so ask the
+# Tilt builds the controller with `make build`, which bakes BUILD_VERSION in, so ask the
 # Makefile for the same value rather than deriving it again here. Without it the
-# health suite's version spec skips itself and the leg still reports success.
+# health suite's version spec skips itself and the run still reports success.
 cwe_expected_version="$(make -C "${repo_root}" -s --no-print-directory print-BUILD_VERSION)"
 
-# Exec adapter for the shared leg runner: locally the suite runs in a container
+# Exec adapter for the shared Ginkgo runner: locally the suite runs in a container
 # on the Kind network, reached with `docker exec`.
 local_e2e_exec() {
-  local cp_flag="$1"; shift
+  local -a oidc_env=()
   local e2e_bundle_server_url="${BUNDLE_SERVER_URL:-}"
   if [[ "${INSTALL_CNI_AFTER_INIT:-false}" == "true" ]]; then
     e2e_bundle_server_url=""
@@ -382,70 +453,39 @@ local_e2e_exec() {
   if jq -e 'index("dsx-identity-exchange") != null' <<<"${local_e2e_providers}" >/dev/null; then
     exchange_enabled=true
   fi
+  if [[ -n "${oidc_issuer_host}" ]]; then
+    oidc_env=(-e "NKE_E2E_OIDC_ISSUER_HOST=${oidc_issuer_host}")
+  fi
   docker exec \
-    -e "CWE_EXPECTED_VERSION=${cwe_expected_version}" \
+    -e "NKE_CONTROLLER_EXPECTED_VERSION=${cwe_expected_version}" \
     -e "NKE_E2E_DSX_IDENTITY_EXCHANGE=${exchange_enabled}" \
     -e "NKE_E2E_BUNDLE_SERVER_URL=${e2e_bundle_server_url}" \
-    -e "PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=${cp_flag}" \
-    -e E2E_BGP_CONTAINER_NAME=bgp-containers \
+    -e "NVKE_E2E_NODE_AGENT_BUNDLE_VOLUME=${bundle_mirror_volume}" \
+    -e "NVKE_E2E_NODE_AGENT_UPGRADE=${LOCAL_NVKE_E2E_NODE_AGENT_UPGRADE:-false}" \
+    -e "E2E_BGP_CONTAINER_NAME=${BGP_CONTAINER_NAME:-bgp-containers}" \
+    ${oidc_env[@]+"${oidc_env[@]}"} \
     "${runner_name}" "$@"
 }
 
-run_local_leg() {
-  local label_filter="$1" cp_flag="$2" suffix="$3" rc=0
-  # The nkectl row drives the CLI, so it needs nkectl and kubectl inside the
+run_local_e2e() {
+  local label_filter="$1" rc=0
+  # The nvkectl row drives the CLI, so it needs nvkectl and kubectl inside the
   # runner. ci/backend-e2e.sh builds and stages both; this script stages only
   # the test binary, the kubeconfig and the config, and its runner image
   # carries neither. Without this the row would skip, and the skip audit in
-  # e2e_run_ginkgo_leg fails the leg on a skip reported from an It.
+  # e2e_run_ginkgo fails the run on a skip reported from an It.
   #
   # Excluded here rather than in the shared filters, so CI -- where both
-  # binaries are present -- still runs it. Stage nkectl and a linux kubectl
+  # binaries are present -- still runs it. Stage nvkectl and a linux kubectl
   # into the runner to drop this.
-  label_filter="(${label_filter}) && !nkectl"
-  e2e_run_ginkgo_leg local_e2e_exec log "${state_dir}" \
-    "${label_filter}" "${cp_flag}" "${suffix}" || rc=$?
-  docker cp "${runner_name}:/state/junit${suffix}.xml" "${state_dir}/junit${suffix}.xml" >/dev/null 2>&1 || true
+  label_filter="(${label_filter}) && !nvkectl"
+  e2e_run_ginkgo local_e2e_exec log "${state_dir}" "${label_filter}" || rc=$?
+  docker cp "${runner_name}:/state/junit.xml" "${state_dir}/junit.xml" >/dev/null 2>&1 || true
   return "${rc}"
 }
 
-# Cleanup gate between legs: the cp-controller leg's delete spec should have
-# removed every tenant cluster before the node-pool leg starts. Count CAPI
-# Cluster objects directly (not the CWE API, which enforces auth); zero of them
-# is a faithful, auth-free "cluster is clean" signal.
-local_kubectl() { kubectl "$@"; }
-
-wait_for_zero_tenant_clusters() {
-  e2e_wait_for_zero_tenant_clusters local_kubectl log ||
-    fail "cleanup gate: tenant clusters still present"
-}
-
-# Flip the deployment-wide control-plane-controller flag with a light redeploy
-# (no re-run of Tilt), wait for the rollout, and confirm the new value stuck.
-redeploy_cwe() {
-  local value="$1" got
-  log "redeploying CWE with PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=${value}"
-  kubectl -n cloud-workflow-engine set env deployment/cloud-workflow-engine \
-    "PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=${value}"
-  kubectl -n cloud-workflow-engine rollout status deployment/cloud-workflow-engine --timeout=5m
-  got="$(kubectl -n cloud-workflow-engine get deployment/cloud-workflow-engine \
-    -o "jsonpath={.spec.template.spec.containers[0].env[?(@.name==\"PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER\")].value}")"
-  [[ "${got}" == "${value}" ]] || \
-    fail "PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER must be ${value} after redeploy, got ${got:-<empty>}"
-}
-
-if [[ "${sequential_modes}" == "true" ]]; then
-  log "sequential CAPD control-plane modes: cp-controller (flag-on) then node-pool (flag-off)"
-  run_local_leg "${E2E_CAPD_CP_CONTROLLER_FILTER}" "true" "-cp-controller" || \
-    fail "cp-controller leg failed with exit code $?; not running the node-pool leg"
-  log "cp-controller leg passed; confirming the cluster is clean before the node-pool leg"
-  wait_for_zero_tenant_clusters
-  redeploy_cwe false
-  run_local_leg "${E2E_CAPD_NODE_POOL_FILTER}" "false" "-nodepool" || \
-    fail "node-pool leg failed with exit code $?"
-  log "sequential CAPD control-plane E2E passed (cp-controller then node-pool)"
-else
-  label_filter="${LOCAL_NKE_E2E_LABEL_FILTER:-capd}"
-  run_local_leg "${label_filter}" "${PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER:-}" "" || exit "$?"
-  log "E2E specs matching ${label_filter} passed"
-fi
+# The full suite by default, as CI's full runs do. Set LOCAL_NKE_E2E_LABEL_FILTER
+# to run a narrower filter.
+label_filter="${LOCAL_NKE_E2E_LABEL_FILTER:-${E2E_CAPD_SUITE_FILTER}}"
+run_local_e2e "${label_filter}" || exit "$?"
+log "E2E specs matching ${label_filter} passed"

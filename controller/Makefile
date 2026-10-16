@@ -9,17 +9,17 @@ export GOTOOLCHAIN
 
 WORKER_BIN_NAME			?= controller
 TEMPORAL_CLI_DOWNLOAD_DIR	?= $(CURDIR)/.go/temporal-cli
-CWE_GOFAIL_E2E_WORKER_BINARY	?= $(CURDIR)/.go/bin/cwe-worker-gofail
+# The e2e-gofail settings are NKE_CONTROLLER_GOFAIL_E2E_*. An empty value counts as unset.
+# CWE_GOFAIL_E2E_* are deprecated aliases for them; #1399 removes them.
+gofail_e2e_worker_binary	= $(or $(NKE_CONTROLLER_GOFAIL_E2E_WORKER_BINARY),$(CWE_GOFAIL_E2E_WORKER_BINARY),$(CURDIR)/.go/bin/cwe-worker-gofail)
 GOFAIL				?= $(shell go env GOPATH)/bin/gofail
 SETUP_ENVTEST			?= $(shell go env GOPATH)/bin/setup-envtest
-SETUP_ENVTEST_VERSION		?= release-0.24
 # Explicit store, so CI can cache a known path instead of guessing setup-envtest's
 # platform-dependent default.
 ENVTEST_BIN_DIR			?= $(CURDIR)/.go/envtest
-# Kubernetes version for the envtest kube-apiserver and etcd binaries.
-ENVTEST_K8S_VERSION		?= 1.34.1
-CWE_GOFAIL_E2E_CLUSTER_CRDS	?= $(shell go env GOMODCACHE)/sigs.k8s.io/cluster-api@$(shell go list -m -f '{{.Version}}' sigs.k8s.io/cluster-api)/config/crd/bases
-CWE_GOFAIL_E2E_CAPNICO_CRDS	?= $(shell go env GOMODCACHE)/github.com/dsx-ai-factory/cluster-api-provider-nico@$(shell go list -m -f '{{.Version}}' github.com/dsx-ai-factory/cluster-api-provider-nico)/config/crd/bases
+OIDC_LIVE_CAPD_NODE_IMAGE	?= cwe-capd-kindest-node:oidc-acceptance-jointoken
+gofail_e2e_cluster_crds		= $(or $(NKE_CONTROLLER_GOFAIL_E2E_CLUSTER_CRDS),$(CWE_GOFAIL_E2E_CLUSTER_CRDS),$(shell go env GOMODCACHE)/sigs.k8s.io/cluster-api@$(shell go list -m -f '{{.Version}}' sigs.k8s.io/cluster-api)/config/crd/bases)
+gofail_e2e_capnico_crds		= $(or $(NKE_CONTROLLER_GOFAIL_E2E_CAPNICO_CRDS),$(CWE_GOFAIL_E2E_CAPNICO_CRDS),$(shell go env GOMODCACHE)/github.com/dsx-ai-factory/cluster-api-provider-nico@$(shell go list -m -f '{{.Version}}' github.com/dsx-ai-factory/cluster-api-provider-nico)/config/crd/bases)
 
 # The licence header template lives once, at the repository root.
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel)
@@ -36,9 +36,10 @@ endif
 GOLANGCI_LINT_GOWORK :=
 include ../make/tool-versions.mk
 include ../make/golangci.mk
+include ../make/coverage.mk
 
 # Image URL to use all building/pushing image targets
-IMG_NAME ?= nvcr.io/j7sbcjl3qgta/nke-controller
+IMG_NAME ?= nvcr.io/j7sbcjl3qgta/nvke-controller
 IMG_TAG ?= latest
 IMG ?= ${IMG_NAME}:${IMG_TAG}
 # Falls back to the commit before v0.0.0. A CI checkout is shallow and carries
@@ -70,18 +71,29 @@ lint: ## Lint source files. (run by the merge gate)
 
 ##@ MachineImage and releases
 
-# OS profiles are being replaced by MachineImage, ClusterRelease and
-# NodePoolRelease custom resources, generated from an OS profile tree (Argo CD
-# applies the fleet's, see nke-site-deploy/cwe-profiles/releases). The generator
-# validates each manifest against the CRDs before it writes anything.
+# OS images and releases are MachineImage, ClusterRelease and NodePoolRelease
+# custom resources. Argo CD applies the fleet's; the manifests under
+# test/fixtures/releases are this repository's own set, maintained by hand.
 
-.PHONY: fixture-releases
-fixture-releases: ## Regenerate test/fixtures/releases from test/fixtures/profiles.
-	go run ./hack/osprofiles-to-crs --profiles test/fixtures/profiles --output test/fixtures/releases --license Apache-2.0 --gitops=false
+RELEASE_CRD_DIR		?= $(REPO_ROOT)/management-engine/config/crd/bases
+RELEASE_CRD_NAMES	?= machineimages clusterreleases nodepoolreleases
+RELEASES_DIR		?= $(CURDIR)/test/fixtures/releases
+
+.PHONY: releases-install
+releases-install: ## Install the release CRDs and apply RELEASES_DIR to the cluster in KUBECONFIG (for a controller run outside the chart).
+	@set -eu; \
+	for name in $(RELEASE_CRD_NAMES); do \
+		kubectl apply --server-side --field-manager=releases -f "$(RELEASE_CRD_DIR)/internal.nvke.nvidia.com_$$name.yaml"; \
+		kubectl wait --for=condition=Established --timeout=60s "crd/$$name.internal.nvke.nvidia.com"; \
+	done; \
+	kubectl apply --server-side --field-manager=releases -f "$(RELEASES_DIR)"
 
 .PHONY: license
+# Ignored on purpose: third-party text (nico-sim/ui/vendor, capnico-crds) and golden
+# or chart files compared byte-for-byte or rendered by Helm (kubeadmconfig and tenantaccess
+# testdata, deploy/charts). Templates and fixtures are not ignored.
 license: ## Ensure license headers at code.
-	go run github.com/google/addlicense@v1.1.1 -f $(REPO_ROOT)/hack/license-header.tmpl -c "NVIDIA CORPORATION & AFFILIATES" -ignore '.local/**' -ignore 'hack/**' -ignore 'test/fixtures/profiles/**' -ignore 'test/fixtures/capnico-crds/**' -ignore '**/testUserData.yaml' -ignore 'internal/kubeadmconfig/testdata/**' -ignore 'internal/controllers/tenantaccess/testdata/**' -ignore 'nico-sim/ui/vendor/**' -ignore 'nico-sim/test/integration/testutil/testdata/**' -ignore 'nico-sim/.dev/**' -ignore 'deploy/charts/**' .
+	go run github.com/google/addlicense@$(ADDLICENSE_VERSION) -f $(REPO_ROOT)/hack/license-header.tmpl -c "NVIDIA CORPORATION & AFFILIATES" -ignore '.local/**' -ignore 'hack/**' -ignore 'test/fixtures/capnico-crds/**' -ignore '**/testUserData.yaml' -ignore 'internal/kubeadmconfig/testdata/**' -ignore 'internal/controllers/tenantaccess/testdata/**' -ignore 'nico-sim/ui/vendor/**' -ignore 'nico-sim/.dev/**' -ignore 'deploy/charts/**' .
 
 # Expected to be run on clean working directory.
 .PHONY: file-license-check
@@ -133,6 +145,28 @@ generate-check: generate-api ## Verify generated API code is up to date. (run by
 	 [ -z "$$untracked" ] \
 		|| { echo "ERROR: generated API files are not tracked. Run 'make generate' and commit them:"; printf '%s\n' "$$untracked" | sed 's/^/    /'; exit 1; }
 
+# The layer above generate-check. That target proves the committed Go matches
+# api/openapi.yaml; it says nothing about whether the specification change is
+# safe for an existing client. A removed field or a newly required property
+# regenerates perfectly and breaks every one of them.
+#
+# The baseline is the newest published controller/api version tag, not the merge
+# base: the tag is what a consumer can pin, so it is the only ref against which
+# "backward compatible" means anything to them. Override it with
+# API_COMPAT_BASELINE=<ref> to compare against something else.
+#
+# It needs tags. A shallow CI checkout has none, and the target fails rather
+# than silently comparing against nothing -- see hack/openapi-compat/README.md.
+API_COMPAT_BASELINE ?=
+API_COMPAT_REPORT   ?=
+
+.PHONY: api-compat-check
+api-compat-check: ## Verify api/openapi.yaml is backward compatible with the newest published controller/api tag. (run by the merge gate)
+	go run ./hack/openapi-compat \
+		--differ-version $(OPENAPI_CHANGES_VERSION) \
+		$(if $(API_COMPAT_BASELINE),--baseline $(API_COMPAT_BASELINE),) \
+		$(if $(API_COMPAT_REPORT),--report-out $(API_COMPAT_REPORT),)
+
 RELEASE_LDFLAGS ?= -s -w -buildid= -extldflags -static
 
 # Read one variable, so a caller that needs the same value this Makefile computes
@@ -144,37 +178,36 @@ print-%:
 .PHONY: build
 # -buildvcs=false because the version comes from the -X ldflag below.
 build: ## Build controller into bin/.
-	CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-X github.com/dsx-ai-factory/nke/controller/internal/version.Version=${BUILD_VERSION} $(RELEASE_LDFLAGS)" -o ./bin/$(WORKER_BIN_NAME) ./cmd/worker/
+	CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-X github.com/dsx-ai-factory/nvke/controller/internal/version.Version=${BUILD_VERSION} $(RELEASE_LDFLAGS)" -o ./bin/$(WORKER_BIN_NAME) ./cmd/worker/
 
 .PHONY: fmt
 fmt: ## Format code (gofumpt + goimports; matches .golangci.yml formatters).
-	go run mvdan.cc/gofumpt@v0.11.0 -w -extra .
-	go run golang.org/x/tools/cmd/goimports@v0.48.0 -w -local github.com/dsx-ai-factory/nke/controller .
+	go run mvdan.cc/gofumpt@$(GOFUMPT_VERSION) -w -extra .
+	go run golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION) -w -local github.com/dsx-ai-factory/nvke/controller .
 
 # GO_TEST_FLAGS lets CI add -race without the workflow having to restate the
 # test command, so `make test` stays the one definition of what "the tests" are.
 GO_TEST_FLAGS ?=
 
-# atomic, not count. Go rejects `-covermode count` outright when -race is on:
-# "-covermode must be \"atomic\", not \"count\", when -race is enabled". atomic
-# is valid with or without the race detector, so one setting covers both and
-# there is no conditional to get wrong.
-GO_COVER_MODE ?= atomic
-
 .PHONY: test
 test: ## Execute unit tests (excludes integration tests). (run by the merge gate)
-	# coverage.txt is kept: `go tool cover` reads it, and producing it is free.
+	# The profile lands in the repository-root coverage/ directory now, not in
+	# coverage.txt beside this Makefile. make/coverage.mk owns the path and the
+	# mode for every module, and hack/coverage.sh reads that one directory.
+	# What has not changed: no threshold gates on the number it holds. See
+	# docs/coverage-policy.md for why a percentage is not test adequacy.
+	#
 	# The cobertura.xml conversion that used to follow is gone. It existed for
 	# GitLab's coverage visualisation, and that pipeline is gone -- no
 	# .gitlab-ci.yml, no workflow reading either file, and both are gitignored.
 	# It cost about 9 seconds of download and compile per run on a cold cache,
 	# and pulled golang.org/x/tools, 15 MB, to convert one file to XML.
-	# nico-sim already produces a coverprofile without it.
 	#
 	# integration-test/ is behind the `integration_test` build tag, so
 	# `go list ./...` no longer needs filtering here. The old grep matched
 	# by accident anyway: `.` is a regex wildcard, not a path prefix.
-	go test $(GO_TEST_FLAGS) ./... -coverprofile=coverage.txt -covermode $(GO_COVER_MODE)
+	@$(COVERAGE_MKDIR)
+	go test $(GO_TEST_FLAGS) $(GO_COVER_FLAGS) ./...
 
 # The `integration` build tag covers two packages here, and neither needs a
 # service to be running. internal/agent binds a loopback socket and mints its
@@ -186,7 +219,7 @@ test-integration-local: ## Execute the `integration`-tagged tests that need no e
 	go test $(GO_TEST_FLAGS) -tags=integration -count=1 ./internal/agent/... ./internal/teleport/...
 
 .PHONY: test-integration
-test-integration: ## Execute tests against a running CWE deployment.
+test-integration: ## Execute tests against a running controller deployment.
 	@echo "Running integration tests..."
 	cd integration-test && go test -tags integration_test -timeout=3h
 
@@ -195,14 +228,14 @@ test-health: ## Run the health-labeled subset of the test/e2e suite against the 
 	$(MAKE) test-e2e E2E_TIMEOUT=10m ARGS='--label-filter=health'
 
 # The authentication specs. Both need deploy/k8s/nke-auth-dev.yaml applied and
-# an enforcing NKE; the chart binds the JWKS read permission.
+# an enforcing NVKE; the chart binds the JWKS read permission.
 #
 # The SPIRE spec carries both labels, so test-authn runs it too; it skips itself
 # with a message naming deploy/k8s/nke-spire-client.yaml when that scaffolding
 # is absent. test-authn-spire is the way to run only that one.
 #
-# The permissive specs have no target: they need an NKE deployed with
-# PERMISSIVE_MODE=true, which is a different deployment. Run them against one
+# The permissive specs have no target: they need an NVKE deployed with
+# permissiveMode: true, which is a different deployment. Run them against one
 # with `make test-e2e ARGS='--label-filter=authn-permissive'`.
 .PHONY: test-authn
 test-authn: ## Run the authn-labeled subset of the test/e2e suite against the cluster in KUBECONFIG.
@@ -219,12 +252,12 @@ test-integration-teleport: ## Execute Teleport client integration tests (require
 
 E2E_DIR := test/e2e
 E2E_TIMEOUT ?= 2h
-GINKGO_VERSION ?= v2.27.2
+OIDC_ACCEPTANCE_LABEL_FILTER ?= oidc-acceptance
 # Ginkgo CLI flags, e.g. ARGS='--label-filter="nico-vms && happy-path"'
 ARGS ?=
 
 .PHONY: test-e2e
-test-e2e: ## Run all NKE e2e tests; optional ARGS forwards ginkgo flags Example: make test-e2e ARGS='--label-filter="nico-vms && happy-path"'
+test-e2e: ## Run all NVKE e2e tests; optional ARGS forwards ginkgo flags Example: make test-e2e ARGS='--label-filter="nico-vms && happy-path"'
 	cd $(E2E_DIR) && go run github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION) run -v --timeout=$(E2E_TIMEOUT) $(ARGS) .
 
 .PHONY: test-e2e-core-capd test-e2e-core-nico-containers test-e2e-happy-path
@@ -242,16 +275,71 @@ test-e2e-capd: ## Run CAPD happy-path e2e tests
 	make test-e2e ARGS='--label-filter="capd && happy-path && (lifecycle || readiness) && !scale && !upgrade && !reboot"'
 
 .PHONY: test-e2e-capd-local
-test-e2e-capd-local: ## Run all CAPD e2e tests with local CWE and agent source. macOS bootstraps Colima; Linux uses the host Docker daemon.
+test-e2e-capd-local: ## Run all CAPD e2e tests with local controller and agent source. macOS bootstraps Colima; Linux uses the host Docker daemon.
 	./hack/local-backend-e2e.sh
+
+.PHONY: oidc-envtest-assets test-oidc-reference test-oidc-acceptance-live
+oidc-envtest-assets: ## Install the pinned setup-envtest and resolve the pinned Kubernetes assets.
+	@mkdir -p "$(dir $(SETUP_ENVTEST))" "$(ENVTEST_BIN_DIR)"
+	@GOBIN="$(dir $(SETUP_ENVTEST))" go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION)
+	@"$(SETUP_ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(ENVTEST_BIN_DIR)" -p path
+
+test-oidc-reference: oidc-envtest-assets ## Run the production-rendered OIDC config against envtest.
+	@set -euo pipefail; \
+	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir "$(ENVTEST_BIN_DIR)" -p path)"; \
+	test -n "$$KUBEBUILDER_ASSETS" || { echo "setup-envtest selected no Kubernetes $(ENVTEST_K8S_VERSION) assets" >&2; exit 1; }; \
+	output_file="$$(mktemp)"; \
+	trap 'rm -f "$$output_file"' EXIT; \
+	status=0; \
+	ENVTEST_K8S_VERSION="$(ENVTEST_K8S_VERSION)" KUBEBUILDER_ASSETS="$$KUBEBUILDER_ASSETS" go test -v -tags=oidc_integration -count=1 ./test/oidctest/... 2>&1 | tee "$$output_file" || status=$$?; \
+	test "$$status" -eq 0 || exit "$$status"; \
+	grep -Fq -- "--- PASS: TestReferenceOIDCAuthenticationMatrix (" "$$output_file" && \
+		grep -Eq -- "--- PASS: TestReferenceOIDCAuthenticationMatrix/[^/]+/[^/]+ [(]" "$$output_file" || \
+		{ echo "OIDC reference matrix and its cases must run and pass" >&2; exit 1; }
+
+test-oidc-acceptance-live: ## Run the tagged OIDC lifecycle on a fresh local CAPD management cluster.
+	@set -eu; \
+	if [ "$$(uname -s)" = Darwin ]; then \
+		export COLIMA_CPUS="$${COLIMA_CPUS:-10}" COLIMA_MEMORY_GIB="$${COLIMA_MEMORY_GIB:-24}" COLIMA_DISK_GIB="$${COLIMA_DISK_GIB:-150}"; \
+		export DOCKER_HOST="$${DOCKER_HOST:-$(COLIMA_DOCKER_HOST)}"; \
+		export COLIMA_DOCKER_HOST="$$DOCKER_HOST"; \
+		$(MAKE) host-up; \
+	fi; \
+	if ! docker image inspect "$(OIDC_LIVE_CAPD_NODE_IMAGE)" >/dev/null 2>&1; then \
+		$(MAKE) capd-image \
+			COLIMA_DOCKER_HOST="$${DOCKER_HOST:-$(COLIMA_DOCKER_HOST)}" \
+			CAPD_KINDEST_NODE_IMAGE="$(OIDC_LIVE_CAPD_NODE_IMAGE)" \
+			CAPD_SPIRE_ATTESTATION_METHOD=joinToken \
+			INSTALL_CNI_AFTER_INIT=true; \
+	fi; \
+	run_id="$$(date +%s)-$$$$"; \
+	kind_cluster_name="nke-oidc-live-$$run_id"; \
+	providers="$${LOCAL_NKE_E2E_PROVIDERS:-}"; \
+	if test -z "$$providers" && \
+		test "$$(docker inspect --format '{{.State.Running}}' "$${BGP_CONTAINER_NAME:-bgp-containers}" 2>/dev/null || true)" = true; then \
+		providers='["capi_core","capd","capd-reboot-controller"]'; \
+	fi; \
+	KIND_CLUSTER_NAME="$$kind_cluster_name" \
+	CAPD_KINDEST_NODE_IMAGE="$(OIDC_LIVE_CAPD_NODE_IMAGE)" \
+	CAPD_NODE_IMAGE="$(OIDC_LIVE_CAPD_NODE_IMAGE)" \
+	CAPD_SPIRE_ATTESTATION_METHOD=joinToken \
+	LOCAL_NKE_E2E_REUSE_CAPD_NODE_IMAGE=true \
+	LOCAL_NKE_E2E_STATE_DIR="$(CURDIR)/.local/nke-oidc-live-$$run_id" \
+	LOCAL_NKE_E2E_KUBECONFIG="$(CURDIR)/.local/nke-oidc-live-$$run_id/management.kubeconfig" \
+	LOCAL_NKE_E2E_BUILD_TAGS=oidc_acceptance \
+	LOCAL_NKE_E2E_LABEL_FILTER="$(OIDC_ACCEPTANCE_LABEL_FILTER)" \
+	LOCAL_NKE_E2E_PROVIDERS="$$providers" \
+	INSTALL_CNI_AFTER_INIT=true \
+	./hack/local-backend-e2e.sh; \
+	kind delete cluster --name "$$kind_cluster_name"
 
 .PHONY: test-e2e-nico-vms
 test-e2e-nico-vms: ## Run NICo VMs happy-path e2e tests
 	make test-e2e ARGS='--label-filter="nico-vms && happy-path && (lifecycle || readiness) && !scale && !upgrade && !reboot"'
 
-.PHONY: test-e2e-nico-vms-os-profiles
-test-e2e-nico-vms-os-profiles: ## Run the opt-in NICo VMs OS profile provisioning matrix
-	$(MAKE) test-e2e E2E_TIMEOUT=6h ARGS='--label-filter="nico-vms && os-profiles"'
+.PHONY: test-e2e-nico-vms-releases
+test-e2e-nico-vms-releases: ## Run the opt-in NICo VMs release provisioning matrix
+	$(MAKE) test-e2e E2E_TIMEOUT=6h ARGS='--label-filter="nico-vms && releases"'
 
 .PHONY: e2e-gofail
 e2e-gofail: ## Execute gofail e2e tests against a local Temporal dev server.
@@ -262,8 +350,8 @@ e2e-gofail: ## Execute gofail e2e tests against a local Temporal dev server.
 			printf "[gofail] %-22s %4ds (total %4ds)\n" "$$1" "$$((now - last))" "$$((now - start))"; \
 			last=$$now; \
 		}; \
-		mkdir -p "$(TEMPORAL_CLI_DOWNLOAD_DIR)" "$$(dirname "$(CWE_GOFAIL_E2E_WORKER_BINARY)")"; \
-		go install go.etcd.io/gofail@v0.2.0; \
+		mkdir -p "$(TEMPORAL_CLI_DOWNLOAD_DIR)" "$$(dirname "$(gofail_e2e_worker_binary)")"; \
+		go install go.etcd.io/gofail@$(GOFAIL_VERSION); \
 		go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION); \
 		phase "install-tools"; \
 		KUBEBUILDER_ASSETS="$$("$(SETUP_ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(ENVTEST_BIN_DIR)" -p path)"; \
@@ -275,18 +363,24 @@ e2e-gofail: ## Execute gofail e2e tests against a local Temporal dev server.
 		}; \
 		trap cleanup EXIT; \
 		phase "gofail-enable"; \
-		go build -tags gofail -o "$(CWE_GOFAIL_E2E_WORKER_BINARY)" ./cmd/worker; \
+		go build -tags gofail -o "$(gofail_e2e_worker_binary)" ./cmd/worker; \
 		phase "build-worker"; \
 		TEMPORAL_CLI_DOWNLOAD_DIR="$(TEMPORAL_CLI_DOWNLOAD_DIR)" \
-			CWE_GOFAIL_E2E_WORKER_BINARY="$(CWE_GOFAIL_E2E_WORKER_BINARY)" \
-			CWE_GOFAIL_E2E_CLUSTER_CRDS="$(CWE_GOFAIL_E2E_CLUSTER_CRDS)" \
-			CWE_GOFAIL_E2E_CAPNICO_CRDS="$(CWE_GOFAIL_E2E_CAPNICO_CRDS)" \
-			go test -v -tags gofail ./e2e/gofail -timeout 30m -count=1; \
+			NKE_CONTROLLER_GOFAIL_E2E_WORKER_BINARY="$(gofail_e2e_worker_binary)" \
+			NKE_CONTROLLER_GOFAIL_E2E_CLUSTER_CRDS="$(gofail_e2e_cluster_crds)" \
+			NKE_CONTROLLER_GOFAIL_E2E_CAPNICO_CRDS="$(gofail_e2e_capnico_crds)" \
+			go test -v -tags gofail ./e2e/gofail ./e2e/tracing -timeout 30m -count=1; \
 		phase "run-tests"; \
 		cleanup; \
 		trap - EXIT; \
 		test -z "$$(find . -name "*.fail.go" -print)" \
 	'
+
+
+.PHONY: e2e-tracing
+e2e-tracing: ## Execute the tracing e2e test against a local Temporal dev server and PostgreSQL (initdb and postgres on PATH, or set NKE_CONTROLLER_GOFAIL_E2E_DB_CONNECTION_STRING).
+	mkdir -p "$(TEMPORAL_CLI_DOWNLOAD_DIR)"
+	TEMPORAL_CLI_DOWNLOAD_DIR="$(TEMPORAL_CLI_DOWNLOAD_DIR)" go test -v -tags gofail ./e2e/tracing -timeout 10m -count=1
 
 
 .PHONY: docker-build-local
@@ -308,7 +402,7 @@ docker-build-local: ## Build the controller image for amd64 and load it into the
 .PHONY: docker-build-multiarch
 docker-build-multiarch: ## Build the controller image for linux/amd64 and linux/arm64 (requires --push or --output)
 	@# Builds both architectures but does not load them into the local daemon.
-	@# To push: add --push and set IMG. To export: add --output type=oci,dest=cwe.tar.
+	@# To push: add --push and set IMG. To export: add --output type=oci,dest=controller.tar.
 	docker buildx build -f Dockerfile \
 	  --platform linux/amd64,linux/arm64 \
 	  --progress=plain \
@@ -322,7 +416,7 @@ docker-build-multiarch: ## Build the controller image for linux/amd64 and linux/
 # Publish targets for pushing to an explicit registry (used by CI's
 # image-nvcr.yml). These deliberately do NOT use IMG_NAME/IMG: this OSS repo
 # must never default-push to the internal production image
-# (nvcr.io/j7sbcjl3qgta/nke-controller, IMG_NAME above). The destination
+# (nvcr.io/j7sbcjl3qgta/nvke-controller, IMG_NAME above). The destination
 # has no default and must be passed explicitly via IMG_REPO, guarded by
 # check-img-repo below, so a bare invocation cannot clobber it.
 #
@@ -391,6 +485,12 @@ docker-manifest: check-img-repo ## Stitch <t>-amd64 + <t>-arm64 into <t> under I
 ##@ Run
 
 .PHONY: run
+# Host-local runs read nke-controller-config from this file unless
+# CONTROLLER_CONFIG_PATH names another.
+LOCAL_CONTROLLER_CONFIG ?= $(CURDIR)/hack/local-controller-config.yaml
+
+run debug run-local: export CONTROLLER_CONFIG_PATH ?= $(LOCAL_CONTROLLER_CONFIG)
+
 run: ## Runs the worker.
 	go run cmd/worker/main.go
 
@@ -419,7 +519,7 @@ $(GO_LICENSES):
 # A named alias for the rule above, so another module can ask for the binary by
 # name. GO_LICENSES is an absolute path, which means the real rule's target is
 # also absolute and `make -C .. bin/go-licenses` does not match it -- it fails
-# with "No rule to make target 'bin/go-licenses'". nkectl's notices target hit
+# with "No rule to make target 'bin/go-licenses'". nvkectl's notices target hit
 # exactly that, and it was masked in CI because the controller step runs first
 # and leaves the binary behind.
 .PHONY: go-licenses
@@ -447,12 +547,12 @@ license-policy-check: $(GO_LICENSES) ## Verify every third-party dependency uses
 	@# --ignore= plus seven stray positional arguments that go-licenses reads as
 	@# package patterns. GOWORK=off narrows it to this module, and the siblings
 	@# that genuinely need ignoring are named explicitly.
-	@GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO_LICENSES) check ./cmd/worker \
+	@GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO_LICENSES) check ./cmd/worker ../cluster-api-provider-provisioned/cmd/manager \
 		--allowed_licenses=$(ALLOWED_LICENSES) \
-		--ignore="$$(GOWORK=off go list -m),github.com/dsx-ai-factory/nke/agent,github.com/dsx-ai-factory/cluster-api-provider-nico"
+		--ignore="$$(GOWORK=off go list -m),github.com/dsx-ai-factory/nvke/agent,github.com/dsx-ai-factory/nvke/management-engine,github.com/dsx-ai-factory/nvke/cluster-api-provider-provisioned,github.com/dsx-ai-factory/cluster-api-provider-nico"
 
 .PHONY: notices
-notices: $(GO_LICENSES) ## Regenerate THIRD_PARTY_NOTICES.md for the released worker binary.
+notices: $(GO_LICENSES) ## Regenerate THIRD_PARTY_NOTICES.md for the released worker and provider manager binaries.
 	@GO_LICENSES="$(GO_LICENSES)" ./hack/generate-notices
 
 # Not declared as depending on `notices`: the tracked-file gate below is cheap

@@ -30,6 +30,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	klabels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -40,6 +41,8 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/remotecommand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
 )
 
 const (
@@ -62,10 +65,9 @@ const (
 	// is why the derived names were previously hardcoded.
 	defaultSpireRelease = "spire"
 
-	cweSPIFFEPath = "/nke-service/cloud-workflow-engine"
 	// adminSPIFFEPath is bound to cluster-admin in every tenant by the
-	// nke:capi-cluster-admin ClusterRoleBinding the nke-rbac ConfigMap carries.
-	// GetAdminClient mints this rather than widening nke:cwe for test setup.
+	// nvke:capi-cluster-admin ClusterRoleBinding the nke-rbac ConfigMap carries.
+	// GetAdminClient mints this rather than widening nvke:cwe for test setup.
 	adminSPIFFEPath     = "/nke-service/capi-manager"
 	spireExecPluginName = "k8s-spiffe-workload-jwt-exec-auth"
 	spireAudienceEnv    = "SPIFFE_JWT_AUDIENCE"
@@ -96,7 +98,7 @@ type EndpointRelay func(ctx context.Context, hostPort string) (string, error)
 // A tenant's published kubeconfig names its own VIP, which is right for
 // anything inside the site and wrong for a test process outside it. On Forge
 // that address is unroutable from CI: run 36051890151 brought up a tenant
-// whose nodes CWE reported Ready, then spent its whole budget failing to
+// whose nodes the controller reported Ready, then spent its whole budget failing to
 // dial 10.91.194.69:6443 to confirm it from the cluster side.
 //
 // Left unset every tenant client talks to the published address directly,
@@ -141,7 +143,7 @@ func WithJWTExchangeCABundle(bundle []byte) TenantClientFactoryOption {
 // It obtains the tenant endpoint, CA, and authentication mode from the
 // TenantAccessController-published kubeconfig in nke-system. Plain kubeconfig
 // credentials are preserved; the SPIRE exec plugin is replaced by a lazily
-// minted JWT-SVID for CWE's identity.
+// minted JWT-SVID for the controller's identity.
 type TenantClientFactory struct {
 	coreClient coreclient.CoreV1Interface
 	coreREST   rest.Interface
@@ -200,12 +202,12 @@ func (f *TenantClientFactory) GetClient(ctx context.Context, clusterName string)
 
 // GetAdminClient returns a tenant client from the admin kubeconfig TenantAccess
 // publishes. Post-ready probes use it to create short-lived workloads without
-// widening the production CWE SPIFFE identity's permissions for test setup.
+// widening the production controller SPIFFE identity's permissions for test setup.
 //
 // With OIDC off TenantAccess publishes the admin kubeconfig itself, and that
 // Secret is used as it stands. With OIDC on it publishes a SPIRE exec-auth
-// kubeconfig for the CWE identity, which is deliberately not an admin
-// credential, so authenticate as adminSPIFFEPath instead. nke:capi-cluster-admin
+// kubeconfig for the controller identity, which is deliberately not an admin
+// credential, so authenticate as adminSPIFFEPath instead. nvke:capi-cluster-admin
 // binds that identity to cluster-admin in every tenant.
 func (f *TenantClientFactory) GetAdminClient(ctx context.Context, clusterName string) (client.Client, error) {
 	restConfig, err := f.tenantRESTConfigAs(ctx, clusterName, adminSPIFFEPath)
@@ -218,12 +220,13 @@ func (f *TenantClientFactory) GetAdminClient(ctx context.Context, clusterName st
 func newTenantClient(restConfig *rest.Config, clusterName string) (client.Client, error) {
 	scheme := runtime.NewScheme()
 	for name, addToScheme := range map[string]func(*runtime.Scheme) error{
-		"apps/v1":                appsv1.AddToScheme,
-		"certificates.k8s.io/v1": certificatesv1.AddToScheme,
-		"coordination/v1":        coordinationv1.AddToScheme,
-		"core/v1":                corev1.AddToScheme,
-		"networking.k8s.io/v1":   networkingv1.AddToScheme,
-		"policy/v1":              policyv1.AddToScheme,
+		"apps/v1":                      appsv1.AddToScheme,
+		"certificates.k8s.io/v1":       certificatesv1.AddToScheme,
+		"coordination/v1":              coordinationv1.AddToScheme,
+		"core/v1":                      corev1.AddToScheme,
+		"networking.k8s.io/v1":         networkingv1.AddToScheme,
+		"policy/v1":                    policyv1.AddToScheme,
+		"rbac.authorization.k8s.io/v1": rbacv1.AddToScheme,
 	} {
 		if err := addToScheme(scheme); err != nil {
 			return nil, fmt.Errorf("registering %s tenant scheme: %w", name, err)
@@ -270,7 +273,7 @@ func (f *TenantClientFactory) relayEndpoint(ctx context.Context, cfg *rest.Confi
 }
 
 func (f *TenantClientFactory) tenantRESTConfig(ctx context.Context, clusterName string) (*rest.Config, error) {
-	return f.tenantRESTConfigAs(ctx, clusterName, cweSPIFFEPath)
+	return f.tenantRESTConfigAs(ctx, clusterName, controllerSPIFFEPath())
 }
 
 // tenantRESTConfigAs builds a REST config for a tenant, authenticating as the
@@ -313,7 +316,7 @@ func (f *TenantClientFactory) tenantRESTConfigAs(ctx context.Context, clusterNam
 	if err != nil {
 		return nil, fmt.Errorf("reading SPIRE JWT audience from tenant kubeconfig for %q: %w", clusterName, err)
 	}
-	trustDomain, err := f.managementTrustDomain(ctx)
+	trustDomain, err := f.ManagementTrustDomain(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +389,7 @@ func (f *TenantClientFactory) AdminKubeconfig(ctx context.Context, clusterName s
 	if err != nil {
 		return nil, fmt.Errorf("reading SPIRE JWT audience from tenant kubeconfig for %q: %w", clusterName, err)
 	}
-	trustDomain, err := f.managementTrustDomain(ctx)
+	trustDomain, err := f.ManagementTrustDomain(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -557,21 +560,47 @@ func (f *TenantClientFactory) exchangeJWT(ctx context.Context, endpoint, sourceT
 }
 
 func (f *TenantClientFactory) mintJWT(ctx context.Context, trustDomain, audience string) (string, error) {
-	return f.mintJWTAs(ctx, trustDomain, audience, cweSPIFFEPath)
+	return f.mintJWTAs(ctx, trustDomain, audience, controllerSPIFFEPath())
 }
 
 func (f *TenantClientFactory) mintJWTAs(ctx context.Context, trustDomain, audience, spiffePath string) (string, error) {
+	spiffeID := "spiffe://" + trustDomain + spiffePath
+	stdout, err := f.execSPIREServer(ctx, "minting tenant JWT", []string{
+		"bin/spire-server", "jwt", "mint",
+		"-spiffeID", spiffeID,
+		"-audience", audience,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	fields := strings.Fields(stdout)
+	if len(fields) != 1 {
+		return "", fmt.Errorf("SPIRE server returned %d whitespace-delimited fields while minting a tenant JWT", len(fields))
+	}
+	return fields[0], nil
+}
+
+// ShowSPIREAgent returns what the management cluster's SPIRE server reports for
+// the agent with spiffeID, and an error when it has no such agent.
+//
+// An agent is listed only once it has attested, so a nil error says a node
+// proved the identity to the server, not merely that an entry names it.
+func (f *TenantClientFactory) ShowSPIREAgent(ctx context.Context, spiffeID string) (string, error) {
+	return f.execSPIREServer(ctx, "showing SPIRE agent "+spiffeID, []string{
+		"bin/spire-server", "agent", "show", "-spiffeID", spiffeID,
+	})
+}
+
+// execSPIREServer runs command in the ready SPIRE server pod and returns its
+// stdout. what names the operation in an error, which carries the server's
+// stderr when it wrote any.
+func (f *TenantClientFactory) execSPIREServer(ctx context.Context, what string, command []string) (string, error) {
 	pod, err := f.readySPIREServerPod(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	spiffeID := "spiffe://" + trustDomain + spiffePath
-	command := []string{
-		"bin/spire-server", "jwt", "mint",
-		"-spiffeID", spiffeID,
-		"-audience", audience,
-	}
 	execRequest := f.coreREST.Post().
 		Namespace(spireServerNamespace).
 		Resource("pods").
@@ -596,19 +625,16 @@ func (f *TenantClientFactory) mintJWTAs(ctx context.Context, trustDomain, audien
 	}); err != nil {
 		message := strings.TrimSpace(stderr.String())
 		if message == "" {
-			return "", fmt.Errorf("minting tenant JWT in %s/%s: %w", spireServerNamespace, pod.Name, err)
+			return "", fmt.Errorf("%s in %s/%s: %w", what, spireServerNamespace, pod.Name, err)
 		}
-		return "", fmt.Errorf("minting tenant JWT in %s/%s: %w: %s", spireServerNamespace, pod.Name, err, message)
+		return "", fmt.Errorf("%s in %s/%s: %w: %s", what, spireServerNamespace, pod.Name, err, message)
 	}
-
-	fields := strings.Fields(stdout.String())
-	if len(fields) != 1 {
-		return "", fmt.Errorf("SPIRE server returned %d whitespace-delimited fields while minting a tenant JWT", len(fields))
-	}
-	return fields[0], nil
+	return stdout.String(), nil
 }
 
-func (f *TenantClientFactory) managementTrustDomain(ctx context.Context) (string, error) {
+// ManagementTrustDomain reads the SPIRE server's trust domain from its own
+// configuration, so it holds whatever the kubeconfig context is called.
+func (f *TenantClientFactory) ManagementTrustDomain(ctx context.Context) (string, error) {
 	configMap, err := f.coreClient.ConfigMaps(spireServerNamespace).Get(
 		ctx, spireServerConfigMapName(), metav1.GetOptions{},
 	)
@@ -648,11 +674,11 @@ func trustDomainFromSPIREServerConfig(data []byte) (string, error) {
 
 	for _, adminID := range config.Server.AdminIDs {
 		parsed, err := url.Parse(strings.TrimSpace(adminID))
-		if err == nil && parsed.Scheme == "spiffe" && parsed.Host != "" && parsed.Path == cweSPIFFEPath {
+		if err == nil && parsed.Scheme == "spiffe" && parsed.Host != "" && parsed.Path == controllerSPIFFEPath() {
 			return parsed.Host, nil
 		}
 	}
-	return "", errors.New("server configuration has neither trust_domain nor a CWE admin_id")
+	return "", errors.New("server configuration has neither trust_domain nor a controller admin_id")
 }
 
 func validateTrustDomain(trustDomain string) error {
@@ -909,3 +935,7 @@ func discardAndClose(body io.ReadCloser) error {
 	closeErr := body.Close()
 	return errors.Join(copyErr, closeErr)
 }
+
+// controllerSPIFFEPath is the SPIFFE ID path the controller presents and the
+// tenant nvke:cwe bindings name: its ServiceAccount under /nke-service/.
+func controllerSPIFFEPath() string { return "/nke-service/" + controller.ServiceAccount() }

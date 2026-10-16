@@ -27,14 +27,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/agent"
-	"github.com/dsx-ai-factory/nke/controller/internal/capi"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/dbwrapper"
-	dbfilters "github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/filters"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/internal/agent"
+	"github.com/dsx-ai-factory/nvke/controller/internal/capi"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/dbwrapper"
+	dbfilters "github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/filters"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kube"
 )
 
 const (
@@ -44,23 +44,23 @@ const (
 	// SecretsNamespace is the management-cluster namespace that holds the
 	// per-cluster Secrets this controller owns (kubeconfig + trust bundle). It is
 	// exported because the teardown activity deletes those Secrets on cluster
-	// removal. The chart creates the namespace and scopes CWE's Secret grant to
+	// removal. The chart creates the namespace and scopes the controller's Secret grant to
 	// it, so this is a constant rather than a config knob.
-	SecretsNamespace = constants.NamespaceNKESystem
+	SecretsNamespace = constants.NamespaceNVKESystem
 )
 
 // KubeconfigSecretName returns the Secret name that holds the per-cluster
-// kubeconfig CWE consumes to access tenant clusters.
+// kubeconfig the controller consumes to access tenant clusters.
 func KubeconfigSecretName(clusterName string) string { return clusterName + "-kubeconfig" }
 
-// AdminKubeconfigSecretName returns the Secret name that always holds the
-// verbatim control-plane admin.conf
+// AdminKubeconfigSecretName returns the Secret name that holds the
+// nvke:breakglass admin kubeconfig.
 func AdminKubeconfigSecretName(clusterName string) string {
 	return clusterName + "-admin-kubeconfig"
 }
 
-// IsCWEKubeconfigSecretName reports whether name is the CWE-consumed kubeconfig secret.
-func IsCWEKubeconfigSecretName(name string) bool {
+// IsControllerKubeconfigSecretName reports whether name is the controller-consumed kubeconfig secret.
+func IsControllerKubeconfigSecretName(name string) bool {
 	return strings.HasSuffix(name, "-kubeconfig") && !strings.HasSuffix(name, "-admin-kubeconfig")
 }
 
@@ -73,14 +73,15 @@ type TenantManagerSet interface {
 // Controller publishes one cluster's access material into the tenant-access
 // Secret plane for each cluster-keyed reconciliation.
 type Controller struct {
-	cfg             config.Config
-	logger          *slog.Logger
-	db              *dbwrapper.DB
-	k8sClient       ctrlclient.Client
-	nodeAgentClient agent.Client
-	tenantManagers  TenantManagerSet
-	tenantClientFor func(adminConf []byte) (ctrlclient.Client, error)
-	scheme          *runtime.Scheme
+	cfg                  config.Config
+	logger               *slog.Logger
+	db                   *dbwrapper.DB
+	k8sClient            ctrlclient.Client
+	nodeAgentClient      agent.Client
+	tenantManagers       TenantManagerSet
+	tenantClientFor      func(adminConf []byte) (ctrlclient.Client, error)
+	issueAdminKubeconfig func(ctx context.Context, adminConf []byte, cluster db.Cluster, existing []byte) ([]byte, error)
+	scheme               *runtime.Scheme
 }
 
 // NewController creates a new TenantAccessController.
@@ -92,7 +93,7 @@ func NewController(
 	nodeAgentClient agent.Client,
 	tenantManagers TenantManagerSet,
 ) *Controller {
-	return &Controller{
+	c := &Controller{
 		cfg:             cfg,
 		logger:          logger.With("controller", "tenant-access"),
 		db:              dbInstance,
@@ -101,6 +102,8 @@ func NewController(
 		tenantManagers:  tenantManagers,
 		tenantClientFor: newTenantClient,
 	}
+	c.issueAdminKubeconfig = c.issueAdminBreakglass
+	return c
 }
 
 // SetupWithManager registers the CAPI-Cluster-scoped tenant-access
@@ -191,7 +194,8 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 }
 
 // reconcileCluster fetches a control-plane node's admin kubeconfig and publishes
-// it into the tenant-access Secret plane (admin.conf, or SPIRE when OIDC is on).
+// tenant access from it. The admin Secret gets an nvke:breakglass kubeconfig.
+// The controller Secret gets admin.conf, or a SPIRE kubeconfig when OIDC is on.
 func (c *Controller) reconcileCluster(ctx context.Context, cluster db.Cluster) error {
 	adminConf, ready, err := c.fetchAdminKubeconfig(ctx, cluster)
 	if err != nil {
@@ -225,15 +229,43 @@ func (c *Controller) publish(ctx context.Context, cluster db.Cluster, adminConf 
 		return err
 	}
 
-	if err := c.upsertKubeconfigSecret(ctx, live, AdminKubeconfigSecretName(live.Name), adminConf, constants.LabelValueKubeconfigModeAdmin); err != nil {
+	var publishErr error
+	if live.OIDCAuthEnabled {
+		publishErr = c.publishSPIRE(ctx, live, adminConf)
+	} else {
+		publishErr = c.upsertKubeconfigSecret(ctx, live, KubeconfigSecretName(live.Name), adminConf, constants.LabelValueKubeconfigModeAdmin)
+	}
+	return errors.Join(publishErr, c.publishBreakglass(ctx, live, adminConf))
+}
+
+// publishBreakglass stores the nvke:breakglass kubeconfig in the admin Secret.
+func (c *Controller) publishBreakglass(ctx context.Context, live db.Cluster, adminConf []byte) error {
+	existing, err := c.currentAdminKubeconfig(ctx, live.Name)
+	if err != nil {
 		return err
 	}
-
-	if live.OIDCAuthEnabled {
-		return c.publishSPIRE(ctx, live, adminConf)
+	adminKubeconfig, err := c.issueAdminKubeconfig(ctx, adminConf, live, existing)
+	if err != nil {
+		return fmt.Errorf("issuing breakglass kubeconfig for cluster %s: %w", live.Name, err)
 	}
+	return c.upsertKubeconfigSecret(ctx, live, AdminKubeconfigSecretName(live.Name), adminKubeconfig, constants.LabelValueKubeconfigModeAdmin)
+}
 
-	return c.upsertKubeconfigSecret(ctx, live, KubeconfigSecretName(live.Name), adminConf, constants.LabelValueKubeconfigModeAdmin)
+// currentAdminKubeconfig returns the admin Secret payload, or nil when it
+// does not exist yet.
+func (c *Controller) currentAdminKubeconfig(ctx context.Context, clusterName string) ([]byte, error) {
+	secret := &corev1.Secret{}
+	err := c.k8sClient.Get(ctx, types.NamespacedName{
+		Name:      AdminKubeconfigSecretName(clusterName),
+		Namespace: SecretsNamespace,
+	}, secret)
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting admin kubeconfig secret for cluster %s: %w", clusterName, err)
+	}
+	return secret.Data[KubeconfigSecretKey], nil
 }
 
 // upsertKubeconfigSecret upserts one Opaque kubeconfig Secret in SecretsNamespace.
@@ -279,9 +311,9 @@ func (c *Controller) refreshCluster(ctx context.Context, cluster db.Cluster) (db
 	return live, false, nil
 }
 
-// publishSPIRE applies the NKE tenant RBAC first, then publishes the SPIRE
+// publishSPIRE applies the NVKE tenant RBAC first, then publishes the SPIRE
 // exec-auth kubeconfig and the tenant CA trust bundle. RBAC lands before the
-// kubeconfig Secret because the Secret is only useful once NKE has access to the
+// kubeconfig Secret because the Secret is only useful once NVKE has access to the
 // tenant cluster.
 func (c *Controller) publishSPIRE(ctx context.Context, cluster db.Cluster, adminConf []byte) error {
 	if err := c.applyRBAC(ctx, cluster, adminConf); err != nil {
@@ -327,7 +359,7 @@ func (c *Controller) publishSPIRE(ctx context.Context, cluster db.Cluster, admin
 func (c *Controller) applyRBAC(ctx context.Context, cluster db.Cluster, adminConf []byte) error {
 	manifest, err := c.readRBACManifest(ctx)
 	if apierrors.IsNotFound(err) {
-		// Do not publish a SPIRE kubeconfig that cannot authenticate as nke:cwe /
+		// Do not publish a SPIRE kubeconfig that cannot authenticate as nvke:cwe /
 		// CAPI SPIFFE IDs. The chart renders this ConfigMap when spiffe.trustDomain
 		// is set, independent of the live OIDC flag.
 		return fmt.Errorf("nke-rbac ConfigMap not found; refusing to publish SPIRE kubeconfig for cluster %s: %w", cluster.Name, err)
@@ -341,7 +373,10 @@ func (c *Controller) applyRBAC(ctx context.Context, cluster db.Cluster, adminCon
 		return fmt.Errorf("building tenant client for cluster %s: %w", cluster.Name, err)
 	}
 	if err := applyManifestSSA(ctx, tenantClient, manifest, rbacFieldManager); err != nil {
-		return fmt.Errorf("applying NKE RBAC to cluster %s: %w", cluster.Name, err)
+		return fmt.Errorf("applying NVKE RBAC to cluster %s: %w", cluster.Name, err)
+	}
+	if err := pruneLegacyRBAC(ctx, tenantClient, manifest); err != nil {
+		return fmt.Errorf("pruning legacy NVKE RBAC from cluster %s: %w", cluster.Name, err)
 	}
 
 	return nil
@@ -352,7 +387,7 @@ func (c *Controller) applyRBAC(ctx context.Context, cluster db.Cluster, adminCon
 //
 // The REST timeout is set explicitly because node-agent serves admin.conf
 // verbatim without rewriting its server URL, so the endpoint it names is not
-// guaranteed to be routable from CWE. Both client construction (which performs
+// guaranteed to be routable from the controller. Both client construction (which performs
 // discovery) and every subsequent apply would otherwise block on the
 // long-lived reconcile context.
 func newTenantClient(adminConf []byte) (ctrlclient.Client, error) {

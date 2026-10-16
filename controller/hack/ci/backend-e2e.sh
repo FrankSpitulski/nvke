@@ -8,8 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTROLLER_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # shellcheck source=controller/hack/backend-e2e-lib.sh
 source "${CONTROLLER_ROOT}/hack/backend-e2e-lib.sh"
-# shellcheck source=controller/hack/ci/nkectl-smoke.sh
-source "${SCRIPT_DIR}/nkectl-smoke.sh"
+# shellcheck source=controller/hack/ci/nvkectl-smoke.sh
+source "${SCRIPT_DIR}/nvkectl-smoke.sh"
 WORKSPACE_ROOT="$(cd "${CONTROLLER_ROOT}/.." && pwd)"
 cd "${CONTROLLER_ROOT}"
 
@@ -17,13 +17,22 @@ RUN_ID="${NKE_E2E_RUN_ID:-${GITHUB_RUN_ID:-local-$$}}"
 RUN_ID="${RUN_ID//[^a-zA-Z0-9_.-]/-}"
 RUN_ID="${RUN_ID:0:64}"
 STATE_DIR="${NKE_E2E_STATE_DIR:-${CONTROLLER_ROOT}/.local/backend-e2e/${RUN_ID}}"
+# Kept as cwe-capi until a follow-up rename: changing it forces every developer to recreate their kind cluster.
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-cwe-capi}"
 DOCKERHUB_MIRROR="${NKE_E2E_DOCKERHUB_MIRROR:-}"
 # Names the backend in this script's own output. Both lanes share the script, so
 # without it a NICo run reports itself as CAPD.
 BACKEND="${NKE_E2E_BACKEND:-capd}"
+# Passing CAPD suites run within minutes of the shared 100-minute timeout.
+if [[ "${BACKEND}" == capd ]]; then
+  export E2E_SUITE_TIMEOUT_MINUTES="${E2E_SUITE_TIMEOUT_MINUTES:-120}"
+fi
+# Keep the existing in-init default; focused lanes can select InstallCNI.
+export INSTALL_CNI_AFTER_INIT="${INSTALL_CNI_AFTER_INIT:-false}"
 RUNNER_NAME="capd-e2e-runner-${RUN_ID}"
-RUNNER_IMAGE="${NKE_E2E_RUNNER_IMAGE:-docker:29.1.3-cli@sha256:4fa0ee1f3a7e4354c4ea34558b6d4ee32859baf4973d4c8ccc8e7fe3dd730c04}"
+# The runner image comes through the Docker Hub mirror when one is set, like
+# every other image this lane pulls on the host; the digest is the same there.
+RUNNER_IMAGE="${NKE_E2E_RUNNER_IMAGE:-${DOCKERHUB_MIRROR:+${DOCKERHUB_MIRROR}/library/}docker:29.1.3-cli@sha256:4fa0ee1f3a7e4354c4ea34558b6d4ee32859baf4973d4c8ccc8e7fe3dd730c04}"
 STATE_VOLUME="capd-e2e-state-${RUN_ID}"
 BUNDLE_MIRROR_NAME="capd-e2e-bundle-mirror-${RUN_ID}"
 BUNDLE_LOADER_NAME="capd-e2e-bundle-loader-${RUN_ID}"
@@ -31,39 +40,10 @@ BUNDLE_VOLUME="capd-e2e-bundles-${RUN_ID}"
 CAPD_NODE_IMAGE="cwe-capd-kindest-node:run-${RUN_ID}"
 BGP_CONTAINER_NAME="bgp-containers-${RUN_ID}"
 DIAGNOSTICS_MARKER="${STATE_DIR}/SAFE_TO_UPLOAD"
-# Sequential two-mode run: the cp-controller and node-pool provisioning modes run
-# back to back on one kind cluster. The cp-controller leg runs first, so CWE is
-# brought up flag-on here and the node-pool leg flips the deployment-wide flag
-# off between the legs. A caller that drives the flag itself leaves this unset
-# and takes the single-mode path below.
-SINGLE_RUNNER_CONTROL_PLANE_MODES="${NKE_E2E_SINGLE_RUNNER_CONTROL_PLANE_MODES:-${NKE_E2E_SINGLE_RUNNER_CAPD_CONTROL_PLANE_MODES:-false}}"
-# The ginkgo label for this backend's rows. BACKEND names the lane; the label is
-# what tenant_test.go tags with, and for NICo the two differ.
-case "${BACKEND}" in
-  nico) BACKEND_LABEL=nico-containers ;;
-  *) BACKEND_LABEL="${BACKEND}" ;;
-esac
-# Run the nkectl checks in hack/ci/nkectl-smoke.sh once the suite passes. This
+# Run the nvkectl checks in hack/ci/nvkectl-smoke.sh once the suite passes. This
 # lane has an inner runner, so the smoke drives the CLI inside it.
-NKECTL_SMOKE="${NKE_E2E_NKECTL_SMOKE:-false}"
-NKECTL_SMOKE_RUNNER="${RUNNER_NAME}"
-# Resolve the control-plane mode to a concrete value exactly once, here. The
-# sequential path drives the flag per leg, so it starts flag-on for the
-# cp-controller leg. The single-mode path deploys one CWE and never redeploys,
-# so it has to state the mode rather than inherit it: CWE's own default is now
-# true (#1054), and an unset flag used to mean "node-pool control plane". Left
-# unset, the node-pool specs would get a flag-on CWE, which rejects
-# control-plane node pools outright -- `control-plane node pools are not
-# allowed when control-plane controller provisioning is enabled`. Defaulted,
-# not forced, so an explicit
-# PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=true still selects the
-# cp-controller specs. Every use below is then unconditional: the CWE deploy
-# and the e2e spec selection cannot diverge.
-if [[ "${SINGLE_RUNNER_CONTROL_PLANE_MODES}" == "true" ]]; then
-  PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=true
-else
-  PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER="${PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER:-false}"
-fi
+NVKECTL_SMOKE="${NKE_E2E_NVKECTL_SMOKE:-false}"
+NVKECTL_SMOKE_RUNNER="${RUNNER_NAME}"
 TMP_DIR="$(mktemp -d)"
 MANAGEMENT_KUBECONFIG="${TMP_DIR}/management.kubeconfig"
 CLUSTERCTL_BIN="${TMP_DIR}/clusterctl"
@@ -74,7 +54,7 @@ SOURCE_ARCHIVE="${TMP_DIR}/cwe-source.tgz"
 CAPNICO_SOURCE_CONTAINER_DIR=/workspace/cluster-api-provider-nico
 E2E_BIN="${TMP_DIR}/cwe-e2e.test"
 NICO_SIM_BIN="${TMP_DIR}/nico-sim"
-NKECTL_BIN="${TMP_DIR}/nkectl"
+NVKECTL_BIN="${TMP_DIR}/nvkectl"
 E2E_CONFIG="${TMP_DIR}/e2e-config.json"
 RUNNER_DOCKER_HOST="${DOCKER_HOST:-unix:///var/run/docker.sock}"
 RUNNER_DOCKER_ARGS=()
@@ -89,7 +69,7 @@ STATE_VOLUME_OWNED=false
 BUNDLE_VOLUME_OWNED=false
 CAPD_NODE_IMAGE_OWNED=false
 STATE_MONITOR_PID=""
-CWE_LOG_PID=""
+CONTROLLER_LOG_PID=""
 
 if [[ "${RUNNER_DOCKER_HOST}" == "unix:///var/run/docker.sock" ]]; then
   [[ -S /var/run/docker.sock ]] || {
@@ -100,7 +80,7 @@ if [[ "${RUNNER_DOCKER_HOST}" == "unix:///var/run/docker.sock" ]]; then
 fi
 
 # Mirrors local-backend-e2e.sh's detection: this runner's own architecture,
-# used to build the CWE image, the E2E binary, and the CAPD node image for
+# used to build the controller image, the E2E binary, and the CAPD node image for
 # the platform actually running them, instead of the amd64 this script used
 # to hardcode everywhere.
 case "$(uname -m)" in
@@ -135,17 +115,24 @@ else
   NICO_PROVIDER_ENABLED=false
 fi
 
-# Which deploy path use-nke-sbom.sh installs, one per backend. The trees are not
-# interchangeable: capd-e2e carries the reboot test double, CWE's RBAC over
+# Which deploy path nvke-deploy.sh installs, one per backend. The trees are not
+# interchangeable: capd-e2e carries the reboot test double, the controller's RBAC over
 # dockerclusters and nke-spire-client, while capnico-e2e carries the
-# nico-credentials Secret instead. deploy-sbom.sh defaults to capd-e2e, so the
+# nico-credentials Secret instead. deploy-stack.sh defaults to capd-e2e, so the
 # NICo lane has to name its own or it would install the wrong management plane
 # and fail somewhere far from the cause.
 if [[ "${NICO_PROVIDER_ENABLED}" == true ]]; then
-  SBOM_TARGET=capnico-e2e
+  DEPLOY_TARGET=capnico-e2e
 else
-  SBOM_TARGET=capd-e2e
+  DEPLOY_TARGET=capd-e2e
 fi
+
+# The controller's namespace, and the name of its Deployment, Service and
+# container. Tilt and the deploy paths both install it as nke-controller. The
+# e2e suite and the nvkectl smoke are pointed at it.
+CONTROLLER_NAME=nke-controller
+NVKECTL_SMOKE_CONTROLLER_NAMESPACE="${CONTROLLER_NAME}"
+NVKECTL_SMOKE_CONTROLLER_SERVICE="${CONTROLLER_NAME}"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -156,15 +143,8 @@ require_command() {
 
 # Every other long-running call here is bounded by the tool's own flag: kubectl
 # --timeout, kind --wait, curl --connect-timeout, ginkgo --timeout. Docker has
-# no equivalent, so the three calls that reach a registry use coreutils
-# `timeout` instead. It is absent from a stock macOS, where this script is also
-# run by hand, so fall back to running unbounded rather than failing outright.
-: "${DOCKER_PULL_TIMEOUT:=10m}"
-if command -v timeout >/dev/null 2>&1; then
-  bounded() { timeout "$@"; }
-else
-  bounded() { shift; "$@"; }
-fi
+# no equivalent, so the calls that reach a registry go through `bounded` from
+# backend-e2e-lib.sh, with DOCKER_PULL_TIMEOUT.
 
 redact_diagnostics() {
   local file_list="${TMP_DIR}/diagnostic-files"
@@ -231,6 +211,25 @@ curl_with_retry() {
     log "curl failed after retries: ${description}" >&2
     return 1
   fi
+}
+
+# The same 404 fails a build while it loads a base image, and a Go proxy stream
+# reset fails it mid-module-download, past where GOPROXY's |direct fallback
+# applies; a second build gets both.
+build_with_retry() {
+  local out attempt rc
+  out=$(mktemp)
+  for attempt in 1 2; do
+    rc=0
+    docker build "$@" 2>&1 | tee "${out}" || rc=$?
+    if ((rc == 0 || attempt == 2)) ||
+      ! grep -q -E 'could not fetch content descriptor|proxy\.golang\.org.*(stream error|unexpected EOF|connection reset)' "${out}"; then
+      rm -f "${out}"
+      return "${rc}"
+    fi
+    log "docker build hit a transient fetch error, retrying in 15s"
+    sleep 15
+  done
 }
 
 runner_exec() {
@@ -309,25 +308,6 @@ wait_for_runner_tilt() {
   done
 }
 
-configure_kind_dockerhub_mirror() {
-  local node_name="${KIND_CLUSTER_NAME}-control-plane"
-  local registry_host
-
-  if [[ -z "${DOCKERHUB_MIRROR}" ]]; then
-    return
-  fi
-  log "routing management-cluster Docker Hub pulls through ${DOCKERHUB_MIRROR}"
-  for registry_host in docker.io registry-1.docker.io; do
-    docker exec "${node_name}" mkdir -p "/etc/containerd/certs.d/${registry_host}"
-    printf '%s\n' \
-      "server = \"https://${DOCKERHUB_MIRROR}\"" \
-      '' \
-      "[host.\"https://${DOCKERHUB_MIRROR}\"]" \
-      '  capabilities = ["pull", "resolve"]' | \
-      docker exec -i "${node_name}" cp /dev/stdin "/etc/containerd/certs.d/${registry_host}/hosts.toml"
-  done
-}
-
 start_state_monitor() {
   (
     while true; do
@@ -364,10 +344,9 @@ start_state_monitor() {
   start_cwe_log_follower
 }
 
-# CWE is the one deployment this run rolls: redeploy_cwe flips the
-# control-plane-controller flag between the legs, and it rolls again near the
-# end. `kubectl logs deployment/...` at teardown only reaches the pod that
-# survived, so every line before the last roll is gone. Run 35364887944
+# The controller is the one deployment this run can roll. `kubectl logs deployment/...` at
+# teardown only reaches the pod that survived, so every line before the last roll
+# is gone. Run 35364887944
 # shipped a 20-line cwe.log starting 50 minutes after the first spec failed,
 # which is why that failure was never root-caused. Follow the deployment for
 # the whole run instead and re-attach after each roll; --prefix names the pod
@@ -375,19 +354,19 @@ start_state_monitor() {
 start_cwe_log_follower() {
   (
     while true; do
-      runner_exec kubectl -n cloud-workflow-engine logs -f deployment/cloud-workflow-engine \
+      runner_exec kubectl -n "${CONTROLLER_NAME}" logs -f "deployment/${CONTROLLER_NAME}" \
         --all-containers --prefix --tail=-1 --pod-running-timeout=1m || true
       sleep 5
     done
   ) >"${STATE_DIR}/cwe-follow.log" 2>&1 &
-  CWE_LOG_PID=$!
+  CONTROLLER_LOG_PID=$!
 }
 
 stop_state_monitor() {
-  if [[ -n "${CWE_LOG_PID}" ]]; then
-    kill "${CWE_LOG_PID}" >/dev/null 2>&1 || true
-    wait "${CWE_LOG_PID}" >/dev/null 2>&1 || true
-    CWE_LOG_PID=""
+  if [[ -n "${CONTROLLER_LOG_PID}" ]]; then
+    kill "${CONTROLLER_LOG_PID}" >/dev/null 2>&1 || true
+    wait "${CONTROLLER_LOG_PID}" >/dev/null 2>&1 || true
+    CONTROLLER_LOG_PID=""
   fi
   if [[ -z "${STATE_MONITOR_PID}" ]]; then
     return
@@ -397,75 +376,52 @@ stop_state_monitor() {
   STATE_MONITOR_PID=""
 }
 
-# Run one Ginkgo leg against the already-deployed management plane. The label
-# filter and the control-plane-controller flag differ per leg; the flag is
-# forwarded to the e2e binary the same way the single-mode run always has. The
-# suffix keeps each leg's e2e log and JUnit report distinct (empty for the
-# single-mode run, so its artifact names are unchanged). Returns the suite's
-# exit code rather than aborting, so the caller decides what a failure means.
-# Exec adapter for the shared leg runner: CI runs the suite inside its runner
+# Run the Ginkgo suite against the already-deployed management plane. Returns
+# the suite's exit code rather than aborting, so the caller decides what a
+# failure means.
+# Exec adapter for the shared Ginkgo runner: CI runs the suite inside its runner
 # container, with two env vars the local path has no equivalent for.
-# CWE_EXPECTED_VERSION turns the third health spec from a self-skip into a real
+# NKE_CONTROLLER_EXPECTED_VERSION turns the third health spec from a self-skip into a real
 # assertion, so a stale image fails here rather than passing quietly.
 ci_e2e_exec() {
-  local cp_flag="$1"; shift
   local e2e_bundle_server_url="http://${BUNDLE_MIRROR_NAME}/"
   if [[ "${INSTALL_CNI_AFTER_INIT:-false}" == "true" ]]; then
     e2e_bundle_server_url=""
   fi
   runner_exec env \
-    "CWE_EXPECTED_VERSION=${CWE_BUILD_VERSION}" \
-    "CWE_PROFILES_DIR=${NKE_E2E_PROFILES_DIR}" \
+    "NKE_CONTROLLER_EXPECTED_VERSION=${NKE_CONTROLLER_BUILD_VERSION}" \
+    "NKE_CONTROLLER_RELEASES_DIR=${NKE_E2E_RELEASES_DIR}" \
+    "NKE_CONTROLLER_NAMESPACE=${CONTROLLER_NAME}" \
+    "NKE_CONTROLLER_SERVICE=${CONTROLLER_NAME}" \
     "NKE_E2E_DSX_IDENTITY_EXCHANGE=${DSX_IDENTITY_EXCHANGE_ENABLED}" \
     "NKE_E2E_BUNDLE_SERVER_URL=${e2e_bundle_server_url}" \
     "E2E_BGP_CONTAINER_NAME=${BGP_CONTAINER_NAME}" \
-    "PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=${cp_flag}" \
     "NKE_E2E_SPIRE_RELEASE=${NKE_E2E_SPIRE_RELEASE:-}" \
     "$@"
 }
 
-run_ginkgo_leg() {
-  local label_filter="$1" cp_flag="$2" suffix="$3"
+run_ginkgo() {
+  local label_filter="$1"
   local -a extra=()
   [[ -n "${NKE_E2E_FOCUS}" ]] && extra+=("-ginkgo.focus=${NKE_E2E_FOCUS}")
-  e2e_run_ginkgo_leg ci_e2e_exec log "${STATE_DIR}" \
-    "${label_filter}" "${cp_flag}" "${suffix}" -- "${extra[@]}"
+  e2e_run_ginkgo ci_e2e_exec log "${STATE_DIR}" \
+    "${label_filter}" -- "${extra[@]}"
 }
 
-# Cleanup gate between the two sequential legs: the cp-controller leg's delete
-# spec should have removed every tenant cluster before the node-pool leg starts.
-# Count CAPI Cluster objects directly with kubectl rather than the CWE API: the
-# apiserver service proxy authenticates the caller to the apiserver but does not
-# forward a bearer token to CWE, so a flag-on, auth-enforcing CWE 401s the raw
-# /api/clusters probe. Every tenant owns a cluster.cluster.x-k8s.io object CWE
+# Cleanup gate after the suite: its delete specs should have removed every
+# tenant cluster. Count CAPI Cluster objects directly with kubectl rather than
+# the controller API: the apiserver service proxy authenticates the caller to the
+# apiserver but does not forward a bearer token to the controller, so an auth-enforcing controller
+# 401s the raw /api/clusters probe. Every tenant owns a cluster.cluster.x-k8s.io object the controller
 # deletes on teardown, so zero of them is a faithful, auth-free "cluster is clean"
 # signal (no DB access needed).
 ci_kubectl() { runner_exec kubectl "$@"; }
 
 wait_for_zero_tenant_clusters() {
   e2e_wait_for_zero_tenant_clusters ci_kubectl log && return 0
-  log "refusing the node-pool leg" >&2
+  log "tenant clusters remain after the suite" >&2
   runner_exec kubectl get clusters.cluster.x-k8s.io -A >&2 2>/dev/null || true
   return 1
-}
-
-# Flip the deployment-wide control-plane-controller flag via a light redeploy
-# (no re-run of Tilt), wait for the rollout, then confirm the deployment now
-# carries the requested value. Mirrors the flag-on verification the Tilt deploy
-# already does, so a forwarding regression fails here rather than mid-leg.
-redeploy_cwe() {
-  local value="$1"
-  log "redeploying CWE with PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=${value}"
-  runner_exec kubectl -n cloud-workflow-engine set env deployment/cloud-workflow-engine \
-    "PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=${value}"
-  runner_exec kubectl -n cloud-workflow-engine rollout status deployment/cloud-workflow-engine --timeout=5m
-  local got
-  got="$(runner_exec kubectl -n cloud-workflow-engine get deployment/cloud-workflow-engine \
-    -o "jsonpath={.spec.template.spec.containers[0].env[?(@.name==\"PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER\")].value}")"
-  if [[ "${got}" != "${value}" ]]; then
-    log "PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER must be ${value} after redeploy, got ${got:-<empty>}" >&2
-    exit 1
-  fi
 }
 
 handle_signal() {
@@ -503,10 +459,12 @@ collect_diagnostics() {
         [[ -n "${node_name}" ]] || continue
         docker logs "${node_name}" >"${STATE_DIR}/nodes/${node_name}-console.log" 2>&1
         docker exec "${node_name}" systemctl status \
-          nke-agent spire-agent swtpm-local containerd kubelet --no-pager \
+          nvke-agent spire-agent swtpm-local containerd kubelet \
+          ovsdb-server ovs-vswitchd nke-container-network nke-container-cni-images --no-pager \
           >"${STATE_DIR}/nodes/${node_name}-systemd.txt" 2>&1
         docker exec "${node_name}" journalctl --no-pager \
-          -u nke-agent -u spire-agent -u swtpm-local -u containerd -u kubelet \
+          -u nvke-agent -u spire-agent -u swtpm-local -u containerd -u kubelet \
+          -u ovsdb-server -u ovs-vswitchd -u nke-container-network -u nke-container-cni-images \
           >"${STATE_DIR}/nodes/${node_name}-journal.log" 2>&1
         docker exec "${node_name}" crictl ps -a \
           >"${STATE_DIR}/nodes/${node_name}-crictl-ps.txt" 2>&1
@@ -516,14 +474,14 @@ collect_diagnostics() {
           >"${STATE_DIR}/nodes/${node_name}-crictl-images.txt" 2>&1
         docker exec "${node_name}" crictl info \
           >"${STATE_DIR}/nodes/${node_name}-crictl-info.json" 2>&1
-        # Static control-plane container logs. crictl ps -a already records
+        # Static control-plane and OVN container logs. crictl ps -a already records
         # that, say, kube-apiserver is on its third attempt, but without the
         # containers' own stderr a crashloop is only diagnosable by inference:
         # every other signal (kubelet unable to reach :6443, SPIFFE identity
         # never issued, CNI uninitialised) is downstream of it. -a covers the
         # exited attempts, which are the ones carrying the failure.
         docker exec "${node_name}" sh -c '
-          for comp in kube-apiserver etcd kube-controller-manager kube-scheduler; do
+          for comp in kube-apiserver etcd kube-controller-manager kube-scheduler ovnkube-controller ovnkube-cluster-manager; do
             echo "===== ${comp} ====="
             ids=$(crictl ps -a --label io.kubernetes.container.name="${comp}" -q 2>/dev/null)
             if [ -z "${ids}" ]; then
@@ -559,7 +517,7 @@ collect_diagnostics() {
           >"${STATE_DIR}/capi-kubeadm-control-plane-controller.log" 2>&1
         runner_exec kubectl -n capd-reboot-system logs deployment/capd-reboot-controller --all-containers --tail=-1 \
           >"${STATE_DIR}/capd-reboot-controller.log" 2>&1
-        runner_exec kubectl -n cloud-workflow-engine logs deployment/cloud-workflow-engine --all-containers --tail=-1 \
+        runner_exec kubectl -n "${CONTROLLER_NAME}" logs "deployment/${CONTROLLER_NAME}" --all-containers --tail=-1 \
           >"${STATE_DIR}/cwe.log" 2>&1
         if [[ "${DSX_IDENTITY_EXCHANGE_ENABLED}" == "true" ]]; then
           runner_exec kubectl -n spire-server logs deployment/dsx-identity-exchange-mock --all-containers --tail=-1 \
@@ -573,8 +531,7 @@ collect_diagnostics() {
           clusters,machinedeployments,machinesets,machines,kubeadmcontrolplanes,kubeadmconfigs,dockerclusters,dockermachines \
           -A \
           >"${STATE_DIR}/capi-describe.txt" 2>&1
-        for artifact in tilt.log tilt-snapshot.json nico-sim.log e2e.log junit.xml \
-          junit-cp-controller.xml junit-nodepool.xml; do
+        for artifact in tilt.log tilt-snapshot.json nico-sim.log e2e.log junit.xml; do
           docker cp "${RUNNER_NAME}:/state/${artifact}" "${STATE_DIR}/${artifact}" >/dev/null 2>&1 || true
         done
       fi
@@ -706,56 +663,87 @@ TARGETS_VALIDATED=true
   log "this entrypoint requires a Linux Docker host" >&2
   exit 1
 }
-: "${CAPI_CORE_VERSION:=v1.12.3}"
-: "${CAPD_PROVIDER_VERSION:=v1.12.3}"
+# Share the release and committed digests with local development and bootstrap.
+capi_version="$(make --no-print-directory -C "${WORKSPACE_ROOT}" -f make/versions.mk print-CAPI_VERSION)"
+: "${CAPI_CORE_VERSION:=${capi_version}}"
+: "${CAPD_PROVIDER_VERSION:=${capi_version}}"
+if [[ "${CAPI_CORE_VERSION}" != "${capi_version}" && -z "${CLUSTERCTL_SHA256:-}" ]]; then
+  log "overriding CAPI_CORE_VERSION requires a matching CLUSTERCTL_SHA256" >&2
+  exit 1
+fi
+: "${CLUSTERCTL_SHA256:=$(make --no-print-directory -C "${WORKSPACE_ROOT}" -f make/versions.mk "print-CLUSTERCTL_SHA256_${host_arch^^}")}"
 : "${TILT_VERSION:=v0.37.5}"
 # Per-arch pins. host_arch was already validated above, so this is exhaustive.
 case "${host_arch}" in
   amd64)
-    : "${CLUSTERCTL_SHA256:=9b75287b15656a62ece65c8ad7491412cebfd30c78e085a9d61396a50df17349}"
     : "${TILT_SHA256:=9efb56969c48ddea4adfb56a604b9ca5ed254924ddf140fc3e068a305cacf558}"
     ;;
   arm64)
-    : "${CLUSTERCTL_SHA256:=974bdf47fc58864df3d87766f4bdc72164171655c54b759e73596efc98f5e3e1}"
     : "${TILT_SHA256:=1f9c62dcce0608aeb0c63533b14e260fc2e8c5797f81589b0914c398ba53d5b0}"
     ;;
 esac
 
 git_sha="$(git -C "${WORKSPACE_ROOT}" rev-parse HEAD)"
 git_short_sha="$(git -C "${WORKSPACE_ROOT}" rev-parse --short=12 HEAD)"
-CWE_IMAGE="${CWE_IMAGE:-cwe-e2e:${git_short_sha}}"
-CWE_BUILD_VERSION="${CWE_BUILD_VERSION:-e2e-${git_short_sha}}"
-CWE_PROFILES_TILT_IMAGE="docker.local/cwe-profiles:tilt"
+# CWE_IMAGE and CWE_BUILD_VERSION are the deprecated names for these two; #1399 removes them.
+NKE_CONTROLLER_IMAGE="${NKE_CONTROLLER_IMAGE:-${CWE_IMAGE:-cwe-e2e:${git_short_sha}}}"
+NKE_CONTROLLER_BUILD_VERSION="${NKE_CONTROLLER_BUILD_VERSION:-${CWE_BUILD_VERSION:-e2e-${git_short_sha}}}"
+NKE_CONTROLLER_PROFILES_TILT_IMAGE="docker.local/cwe-profiles:tilt"
 # Matches the ref the manifest names; Tilt builds the same tag via custom_build.
 CAPD_REBOOT_IMAGE="ko.local/capd-reboot-controller"
 DSX_IDENTITY_EXCHANGE_IMAGE=""
 
+# Before any of the builds below, not after them. This is a property of the
+# runner's kernel, so nothing built in between can change the answer, and on a
+# host that cannot load the module the suite is already lost. Asking here costs
+# nothing the run was not going to pay anyway -- the probe image is the node
+# image's own base, pulled by that build regardless. Asking after the build cost
+# ~6 minutes of a cpu16 runner per job (#1515).
+log "checking this host can load the openvswitch module"
+ovs_probe_image="$(NKE_E2E_DOCKERHUB_MIRROR="${DOCKERHUB_MIRROR}" e2e_capd_base_image "${CONTROLLER_ROOT}")" \
+  || { log "could not resolve the CAPD base image to probe with" >&2; exit 1; }
+# The node image build pulls this a few minutes from now regardless, so this
+# only moves that pull earlier.
+pull_with_retry "${ovs_probe_image}"
+if ! e2e_host_loads_openvswitch "${ovs_probe_image}"; then
+  log "this runner host cannot load the openvswitch module (#1515)" >&2
+  exit 1
+fi
+
+# Every host build below pulls its bases through the mirror; see
+# dockerhub_build_args in backend-e2e-lib.sh.
 log "building the sanitized profiles fixture image"
-docker build \
+mapfile -t profiles_build_args < <(dockerhub_build_args test/fixtures/Dockerfile)
+build_with_retry \
   --platform "linux/${host_arch}" \
   --file test/fixtures/Dockerfile \
-  --tag "${CWE_PROFILES_TILT_IMAGE}" \
+  "${profiles_build_args[@]}" \
+  --tag "${NKE_CONTROLLER_PROFILES_TILT_IMAGE}" \
   test/fixtures
-printf '%s\n' "${CWE_PROFILES_TILT_IMAGE}" >"${STATE_DIR}/cwe-profiles-image-ref.txt"
-docker image inspect "${CWE_PROFILES_TILT_IMAGE}" >"${STATE_DIR}/cwe-profiles-image.json"
+printf '%s\n' "${NKE_CONTROLLER_PROFILES_TILT_IMAGE}" >"${STATE_DIR}/cwe-profiles-image-ref.txt"
+docker image inspect "${NKE_CONTROLLER_PROFILES_TILT_IMAGE}" >"${STATE_DIR}/cwe-profiles-image.json"
 
-log "building controller image ${CWE_IMAGE} for the ${host_arch} CAPD runner"
-DOCKER_BUILDKIT=1 docker build \
+log "building controller image ${NKE_CONTROLLER_IMAGE} for the ${host_arch} CAPD runner"
+mapfile -t cwe_build_args < <(dockerhub_build_args "${CONTROLLER_ROOT}/Dockerfile")
+DOCKER_BUILDKIT=1 build_with_retry \
   --platform "linux/${host_arch}" \
   --file "${CONTROLLER_ROOT}/Dockerfile" \
-  --build-arg "BUILD_VERSION=${CWE_BUILD_VERSION}" \
+  --build-arg "BUILD_VERSION=${NKE_CONTROLLER_BUILD_VERSION}" \
   --build-arg "GIT_VERSION=${git_sha}" \
-  --tag "${CWE_IMAGE}" \
+  "${cwe_build_args[@]}" \
+  --tag "${NKE_CONTROLLER_IMAGE}" \
   "${WORKSPACE_ROOT}"
-printf '%s\n' "${CWE_IMAGE}" >"${STATE_DIR}/cwe-image-ref.txt"
-docker image inspect "${CWE_IMAGE}" >"${STATE_DIR}/cwe-image.json"
+printf '%s\n' "${NKE_CONTROLLER_IMAGE}" >"${STATE_DIR}/cwe-image-ref.txt"
+docker image inspect "${NKE_CONTROLLER_IMAGE}" >"${STATE_DIR}/cwe-image.json"
 
 if [[ "${DSX_IDENTITY_EXCHANGE_ENABLED}" == "true" ]]; then
   DSX_IDENTITY_EXCHANGE_IMAGE="dsx-identity-exchange-e2e:${git_short_sha}"
   log "building DSX identity exchange mock ${DSX_IDENTITY_EXCHANGE_IMAGE}"
-  DOCKER_BUILDKIT=1 docker build \
+  mapfile -t dsx_build_args < <(dockerhub_build_args "${CONTROLLER_ROOT}/hack/dsx-identity-exchange-mock/Dockerfile")
+  DOCKER_BUILDKIT=1 build_with_retry \
     --platform "linux/${host_arch}" \
     --file "${CONTROLLER_ROOT}/hack/dsx-identity-exchange-mock/Dockerfile" \
+    "${dsx_build_args[@]}" \
     --tag "${DSX_IDENTITY_EXCHANGE_IMAGE}" \
     "${WORKSPACE_ROOT}"
   printf '%s\n' "${DSX_IDENTITY_EXCHANGE_IMAGE}" >"${STATE_DIR}/dsx-identity-exchange-image-ref.txt"
@@ -770,21 +758,21 @@ NODE_AGENT_VERSION="${NODE_AGENT_VERSION#agent/}"
 printf '%s\n' "${NODE_AGENT_VERSION}" >"${STATE_DIR}/agent-version.txt"
 log "using agent source version ${NODE_AGENT_VERSION}"
 
-log "preparing verified SPIRE and local Calico bundles"
-BUNDLE_ARCH="${host_arch}" bash hack/ci/prepare-capd-bundles.sh "${BUNDLE_DIR}"
-CALICO_MANIFESTS_DEB="${BUNDLE_DIR}/nke-cni-calico-manifests-3.30.1_3.30.1_all.deb"
-[[ -f "${CALICO_MANIFESTS_DEB}" ]] || {
-  log "Calico manifests package was not produced: ${CALICO_MANIFESTS_DEB}" >&2
+log "preparing verified SPIRE and OVN-Kubernetes charts"
+CNI_PLUGIN=ovn-kubernetes BUNDLE_ARCH="${host_arch}" bash hack/ci/prepare-capd-bundles.sh "${BUNDLE_DIR}"
+OVN_CHARTS_DEB="${BUNDLE_DIR}/nvke-cni-ovn-charts-1.6.0_1.6.0_${host_arch}.deb"
+[[ -f "${OVN_CHARTS_DEB}" ]] || {
+  log "OVN charts package was not produced: ${OVN_CHARTS_DEB}" >&2
   exit 1
 }
 
-log "installing clusterctl ${CAPD_PROVIDER_VERSION}"
+log "installing clusterctl ${CAPI_CORE_VERSION}"
 if [[ ! "${CLUSTERCTL_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
   log "clusterctl checksum is not configured for linux/${host_arch}"
   exit 1
 fi
-clusterctl_url="https://github.com/kubernetes-sigs/cluster-api/releases/download/${CAPD_PROVIDER_VERSION}/clusterctl-linux-${host_arch}"
-curl_with_retry "downloading clusterctl ${CAPD_PROVIDER_VERSION}" \
+clusterctl_url="https://github.com/kubernetes-sigs/cluster-api/releases/download/${CAPI_CORE_VERSION}/clusterctl-linux-${host_arch}"
+curl_with_retry "downloading clusterctl ${CAPI_CORE_VERSION}" \
   "${clusterctl_url}" \
   -o "${CLUSTERCTL_BIN}"
 printf '%s  %s\n' "${CLUSTERCTL_SHA256}" "${CLUSTERCTL_BIN}" | sha256sum -c -
@@ -826,6 +814,11 @@ git -C "${WORKSPACE_ROOT}" ls-files --cached --others --exclude-standard -z cont
     --file "${SOURCE_ARCHIVE}"
 
 log "compiling the ${BACKEND} E2E suite for linux/${host_arch}"
+# `|` makes go fall back to a direct fetch on any proxy error; the default
+# `,` only does so on 404/410. A proxy.golang.org TLS handshake timeout took
+# all three attempts of one leg on 2026-10-03: 5s apart, each a minute in the
+# handshake. The pause now grows so the attempts spread over an outage.
+export GOPROXY="${GOPROXY:-https://proxy.golang.org|direct}"
 e2e_built=false
 for attempt in 1 2 3; do
   if (cd test/e2e && CGO_ENABLED=0 GOOS=linux GOARCH="${host_arch}" go test -c -o "${E2E_BIN}" .); then
@@ -833,7 +826,7 @@ for attempt in 1 2 3; do
     break
   fi
   log "E2E compile attempt ${attempt} failed"
-  sleep 5
+  sleep $((attempt * 20))
 done
 if [[ "${e2e_built}" != true ]]; then
   exit 1
@@ -856,8 +849,8 @@ if [[ "${NICO_PROVIDER_ENABLED}" == true ]]; then
   NICO_SIM_BINARY_PREBUILT=true
 fi
 
-if [[ "${NKECTL_SMOKE}" == "true" ]]; then
-  nkectl_smoke_build "${host_arch}"
+if [[ "${NVKECTL_SMOKE}" == "true" ]]; then
+  nvkectl_smoke_build "${host_arch}"
 fi
 
 log "building CAPD node image with agent source ${NODE_AGENT_VERSION}"
@@ -866,7 +859,9 @@ CAPD_NODE_AGENT_LOCAL_BUILD=true \
 NODE_AGENT_VERSION="${NODE_AGENT_VERSION}" \
 NODE_AGENT_REPO_PATH="${WORKSPACE_ROOT}/agent" \
 SPIRE_AGENT_BUNDLE_PATH="${BUNDLE_DIR}/spire-agent.tgz" \
-CAPD_CNI_MANIFESTS_DEB_PATH="${CALICO_MANIFESTS_DEB}" \
+CAPD_CNI_CHARTS_DEB_PATH="${OVN_CHARTS_DEB}" \
+CAPD_CNI_IMAGES_DEB_PATH="${BUNDLE_DIR}/nvke-cni-ovn-images-1.6.0_1.6.0_${host_arch}.deb" \
+CAPD_HELM_DEB_PATH="${BUNDLE_DIR}/nke-e2e-helm.deb" \
 CAPD_SPIRE_ATTESTATION_METHOD="${CAPD_SPIRE_ATTESTATION_METHOD}" \
 BUNDLE_SERVER_URL="http://${BUNDLE_MIRROR_NAME}/" \
 INDEX_FILE_URL="http://${BUNDLE_MIRROR_NAME}/index.json" \
@@ -879,13 +874,14 @@ docker image inspect "${CAPD_NODE_IMAGE}" >"${STATE_DIR}/capd-node-image.json"
 
 log "creating Kind management cluster ${KIND_CLUSTER_NAME}"
 KIND_CLUSTER_OWNED=true
+kind_config_for_mirror hack/controller-capi-kind.yaml "${STATE_DIR}/kind-config.yaml"
 kind create cluster \
   --name "${KIND_CLUSTER_NAME}" \
-  --config hack/cwe-capi-kind.yaml \
+  --config "${STATE_DIR}/kind-config.yaml" \
   --wait 5m
-configure_kind_dockerhub_mirror
-kind load docker-image --name "${KIND_CLUSTER_NAME}" "${CWE_IMAGE}"
-kind load docker-image --name "${KIND_CLUSTER_NAME}" "${CWE_PROFILES_TILT_IMAGE}"
+configure_kind_dockerhub_mirror "${KIND_CLUSTER_NAME}"
+kind load docker-image --name "${KIND_CLUSTER_NAME}" "${NKE_CONTROLLER_IMAGE}"
+kind load docker-image --name "${KIND_CLUSTER_NAME}" "${NKE_CONTROLLER_PROFILES_TILT_IMAGE}"
 
 # The suite finds SPIRE's ConfigMap and pods from the release name. Its own
 # default is "spire", which is what both paths now install: Tilt installs SPIRE
@@ -898,7 +894,9 @@ NKE_E2E_SPIRE_RELEASE="${NKE_E2E_SPIRE_RELEASE:-}"
 
 if [[ "${NKE_E2E_USE_STACK:-false}" == "true" ]]; then
   log "building capd-reboot-controller for the deploy-path lane"
-  docker build \
+  mapfile -t reboot_build_args < <(dockerhub_build_args "${CONTROLLER_ROOT}/hack/capd-reboot-controller/Dockerfile")
+  build_with_retry \
+    "${reboot_build_args[@]}" \
     -t "${CAPD_REBOOT_IMAGE}" \
     -f "${CONTROLLER_ROOT}/hack/capd-reboot-controller/Dockerfile" \
     "${CONTROLLER_ROOT}/hack/capd-reboot-controller"
@@ -913,19 +911,21 @@ log "starting the CAPD bundle mirror on the Kind Docker network"
 docker volume create "${BUNDLE_VOLUME}" >/dev/null
 BUNDLE_VOLUME_OWNED=true
 BUNDLE_LOADER_OWNED=true
-bounded "${DOCKER_PULL_TIMEOUT}" docker create --name "${BUNDLE_LOADER_NAME}" -v "${BUNDLE_VOLUME}:/bundle" alpine:3.22 true >/dev/null
+pull_with_retry "$(dockerhub_image alpine:3.22)"
+bounded "${DOCKER_PULL_TIMEOUT}" docker create --name "${BUNDLE_LOADER_NAME}" -v "${BUNDLE_VOLUME}:/bundle" "$(dockerhub_image alpine:3.22)" true >/dev/null
 docker cp "${BUNDLE_DIR}/." "${BUNDLE_LOADER_NAME}:/bundle/"
 docker rm "${BUNDLE_LOADER_NAME}" >/dev/null
 BUNDLE_LOADER_OWNED=false
 BUNDLE_MIRROR_OWNED=true
+pull_with_retry "$(dockerhub_image nginx:alpine)"
 bounded "${DOCKER_PULL_TIMEOUT}" docker run -d \
   --name "${BUNDLE_MIRROR_NAME}" \
   --network kind \
   -v "${BUNDLE_VOLUME}:/usr/share/nginx/html:ro" \
-  nginx:alpine >/dev/null
+  "$(dockerhub_image nginx:alpine)" >/dev/null
 
 log "starting inner runner on the Kind Docker network"
-bounded "${DOCKER_PULL_TIMEOUT}" docker pull "${RUNNER_IMAGE}"
+pull_with_retry "${RUNNER_IMAGE}"
 docker volume create "${STATE_VOLUME}" >/dev/null
 STATE_VOLUME_OWNED=true
 RUNNER_OWNED=true
@@ -946,8 +946,8 @@ if [[ ! "${runner_kind_ip}" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
 fi
 docker cp "${MANAGEMENT_KUBECONFIG}" "${RUNNER_NAME}:/state/management.kubeconfig"
 docker cp "${CLUSTERCTL_BIN}" "${RUNNER_NAME}:/usr/local/bin/clusterctl"
-if [[ "${NKECTL_SMOKE}" == "true" ]]; then
-  nkectl_smoke_stage
+if [[ "${NVKECTL_SMOKE}" == "true" ]]; then
+  nvkectl_smoke_stage
 fi
 docker cp "${TILT_BIN}" "${RUNNER_NAME}:/usr/local/bin/tilt"
 docker cp "$(command -v helm)" "${RUNNER_NAME}:/usr/local/bin/helm-real"
@@ -1002,22 +1002,21 @@ runner_exec sh -lc '
 runner_exec mkdir -p /workspace/cloud-workflow-engine
 runner_exec tar -xzf /state/cwe-source.tgz -C /workspace/cloud-workflow-engine
 
-# The source archive carries only controller/ (tar --transform), so the umbrella
-# chart's build scripts and metadata -- which live at the monorepo root -- are
-# not in it. Stage them separately, preserving the build/ + generated/ layout the
-# script derives REPO_ROOT from. Only when the stack path is selected.
+# The source archive carries only controller/ (tar --transform), so the
+# executor and its helpers under deploy/ at the monorepo root are not in it.
+# Stage them separately. Only when the stack path is selected.
 if [[ "${NKE_E2E_USE_STACK:-false}" == "true" ]]; then
   # docker cp will not create a missing parent, so the root has to exist before
   # the first copy. It used to arrive as a side effect of mkdir -p on the
   # generated chart directory, which no longer gets staged.
   runner_exec mkdir -p /workspace/nke-stack
-  docker cp "${WORKSPACE_ROOT}/build" "${RUNNER_NAME}:/workspace/nke-stack/build"
-  docker cp "${WORKSPACE_ROOT}/controller/hack/ci/deploy-sbom.sh" \
-    "${RUNNER_NAME}:/usr/local/bin/deploy-sbom.sh"
+  docker cp "${WORKSPACE_ROOT}/deploy" "${RUNNER_NAME}:/workspace/nke-stack/deploy"
+  docker cp "${WORKSPACE_ROOT}/controller/hack/ci/deploy-stack.sh" \
+    "${RUNNER_NAME}:/usr/local/bin/deploy-stack.sh"
   # The deploy paths and the charts they install from live under one root, so
-  # this is a single copy. build/use-nke-sbom.sh reads nke-deploy.yaml from
+  # this is a single copy. deploy/nvke-deploy.sh reads nvke-deploy.yaml from
   # here; controller/deploy/<target>/controller/release.yaml reaches its chart
-  # as ../../charts/controller, which resolves inside the same tree.
+  # as ../charts/controller, which resolves inside the same tree.
   runner_exec mkdir -p /workspace/nke-stack/controller
   docker cp "${WORKSPACE_ROOT}/controller/deploy" \
     "${RUNNER_NAME}:/workspace/nke-stack/controller/deploy"
@@ -1046,6 +1045,8 @@ docker exec "${KIND_CLUSTER_NAME}-control-plane" test -S /var/run/docker.sock
 log "installing CAPI core ${CAPI_CORE_VERSION} and CAPD ${CAPD_PROVIDER_VERSION}"
 runner_exec env CLUSTER_TOPOLOGY=true clusterctl init \
   --core "cluster-api:${CAPI_CORE_VERSION}" \
+  --bootstrap "kubeadm:${CAPI_CORE_VERSION}" \
+  --control-plane "kubeadm:${CAPI_CORE_VERSION}" \
   --infrastructure "docker:${CAPD_PROVIDER_VERSION}"
 runner_exec kubectl rollout status deployment/capi-controller-manager -n capi-system --timeout=5m
 runner_exec kubectl rollout status deployment/capd-controller-manager -n capd-system --timeout=5m
@@ -1077,20 +1078,21 @@ if ! management_vip="$(e2e_management_vip "${KIND_CLUSTER_NAME}")"; then
 fi
 # The provider list is the main thing that varies by backend. The default is
 # the CAPD set this script has always used; nico-e2e.yml passes the NICo one.
-# Where the suite reads the OS profile index it builds the nico-vms matrix
+# Where the suite reads the releases it builds the nico-vms matrix
 # from. This has to be a path on the inner runner. The suite is compiled on the
-# outer runner, so the fallback resolveOSProfileMetadataPath derives from
+# outer runner, so the fallback resolveReleasesDir derives from
 # runtime.Caller names a directory that does not exist where the binary runs,
 # and without this the matrix soft-skips and 21 specs never register.
 #
-# fleet-profiles, not profiles. The latter is the synthetic index the CWE
-# deployment serves below, and it omits the profiles the matrix documents as
-# exclusions, so building the matrix from it panics the suite.
+# fleet-releases, not releases. The latter is the set the controller deployment
+# installs, and it omits the releases the matrix documents as exclusions, so
+# building the matrix from it panics the suite.
 #
-# A lane with a real nke-site-deploy checkout can point this at that instead.
-: "${NKE_E2E_PROFILES_DIR:=/workspace/cloud-workflow-engine/test/fixtures/fleet-profiles}"
+# A lane with a real nke-site-deploy checkout can point this at its releases
+# directory instead.
+: "${NKE_E2E_RELEASES_DIR:=/workspace/cloud-workflow-engine/test/fixtures/fleet-releases}"
 e2e_write_tilt_config "${TMP_DIR}/tilt_config.json" \
-  "${NKE_E2E_PROVIDERS}" "${CWE_IMAGE}" "${management_vip}" "${BGP_CONTAINER_NAME}" \
+  "${NKE_E2E_PROVIDERS}" "${NKE_CONTROLLER_IMAGE}" "${management_vip}" "${BGP_CONTAINER_NAME}" \
   "${DSX_IDENTITY_EXCHANGE_IMAGE}"
 if [[ "${NICO_PROVIDER_ENABLED}" == true ]]; then
   jq '.nico_vms_observability = false | .nico_sim_backends = ["container"]' "${TMP_DIR}/tilt_config.json" \
@@ -1119,12 +1121,12 @@ docker cp "${E2E_CONFIG}" "${RUNNER_NAME}:/state/e2e-config.json"
 
 # Installs the management plane from controller/deploy/capd-e2e, one helm release per
 # component, instead of Tilt. Everything below -- rollout checks, CAPI probes,
-# the Ginkgo legs -- is identical either way. Tilt stays available for the
+# the Ginkgo run -- is identical either way. Tilt stays available for the
 # inner loop, which the deploy path has no live_update equivalent for. The
 # pieces its providers deploy that the deploy path does not carry -- the BGP
 # container -- are handled explicitly here.
 if [[ "${NKE_E2E_USE_STACK:-false}" == "true" ]]; then
-  log "deploying the management plane from the ${SBOM_TARGET} deploy path"
+  log "deploying the management plane from the ${DEPLOY_TARGET} deploy path"
 
   # FRR, so kube-vip on container-based tenant nodes can peer through the kind
   # gateway. Tilt's bgp-containers provider runs this; without Tilt nothing did,
@@ -1146,7 +1148,7 @@ if [[ "${NKE_E2E_USE_STACK:-false}" == "true" ]]; then
   # long after both.
   #
   # It listens inside the runner, so the address CAPNICo dials is the runner's
-  # own kind-network IP, passed as NICO_SIM_ENDPOINT_HOST below. deploy-sbom.sh
+  # own kind-network IP, passed as NICO_SIM_ENDPOINT_HOST below. deploy-stack.sh
   # falls back to KIND_GATEWAY_IP when that is unset, which is right for a
   # developer running the simulator on the host and wrong here.
   if [[ "${NICO_PROVIDER_ENABLED}" == true ]]; then
@@ -1167,10 +1169,10 @@ if [[ "${NKE_E2E_USE_STACK:-false}" == "true" ]]; then
   # from the checkout controller/go.mod pins and installed by the same script
   # Tilt's nico provider runs, so the two paths deploy the provider identically.
   #
-  # Before the install, not after: CWE watches the NICo CRDs this chart brings,
-  # and the controller item is the last thing use-nke-sbom.sh installs.
+  # Before the install, not after: the controller watches the NICo CRDs this chart brings,
+  # and the controller item is the last thing nvke-deploy.sh installs.
   # nico-credentials is the other way round -- the deploy path renders it as
-  # part of nke-base-config -- which is fine, because CAPNICo reads that Secret
+  # part of nvke-base-config -- which is fine, because CAPNICo reads that Secret
   # when it reconciles rather than at startup.
   if [[ "${NICO_PROVIDER_ENABLED}" == true ]]; then
     log "installing CAPNICo from ${CAPNICO_SOURCE_CONTAINER_DIR}"
@@ -1182,12 +1184,12 @@ if [[ "${NKE_E2E_USE_STACK:-false}" == "true" ]]; then
   fi
   # VERSION is passed in because the runner holds a tar of the working tree, not
   # a clone: `git describe` inside it finds no repository, so build-local cannot
-  # derive one. It is NOT CWE_BUILD_VERSION -- that is an image tag
+  # derive one. It is NOT NKE_CONTROLLER_BUILD_VERSION -- that is an image tag
   # (e2e-<sha>), and a chart version has to be semver. The commit is carried in
   # the prerelease field instead. The controller image tag is set separately
-  # from CWE_IMAGE, so the two need not match.
+  # from NKE_CONTROLLER_IMAGE, so the two need not match.
   runner_exec env \
-    SBOM_TARGET="${SBOM_TARGET}" \
+    DEPLOY_TARGET="${DEPLOY_TARGET}" \
     NICO_SIM_ENDPOINT_HOST="${runner_kind_ip}" \
     VERSION="0.0.0-e2e.${git_short_sha}" \
     MANAGEMENT_VIP="${management_vip}" \
@@ -1198,13 +1200,12 @@ if [[ "${NKE_E2E_USE_STACK:-false}" == "true" ]]; then
     CNPG_SUPERUSER_PASSWORD=example-password \
     CNPG_CLOUD_PASSWORD=example-password \
     CNPG_TEMPORAL_PASSWORD=example-password \
-    PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER="${PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER}" \
     NODE_REBOOT_SOFT_REBOOT_ENABLED="${NODE_REBOOT_SOFT_REBOOT_ENABLED:-}" \
     NODE_AGENT_SPIRE_ATTESTATION_METHOD="${CAPD_SPIRE_ATTESTATION_METHOD}" \
     SPIRE_TPM_ATTESTOR_SERVER_CHECKSUM="${SPIRE_TPM_ATTESTOR_SERVER_CHECKSUM:-}" \
     NKE_E2E_STACK_CHART="${NKE_E2E_STACK_CHART}" \
     NKE_E2E_STACK_VERSION="${NKE_E2E_STACK_VERSION:-}" \
-    bash /usr/local/bin/deploy-sbom.sh "${CWE_IMAGE}"
+    bash /usr/local/bin/deploy-stack.sh "${NKE_CONTROLLER_IMAGE}"
 
   log "injecting SPIRE exec-auth plugin into CAPI/CAPD controllers"
   runner_exec bash /workspace/cloud-workflow-engine/hack/apply-capi-spiffe-exec-auth.sh
@@ -1216,14 +1217,14 @@ BGP_CONTAINER_OWNED=true
 tilt_exec=runner_exec
 tilt_mode=ci
 if [[ "${NICO_PROVIDER_ENABLED}" == true ]]; then
-  # NICo's simulator is a Tilt local resource. Keep Tilt alive through both
-  # E2E legs; `tilt ci` exits after deployment and stops the simulator.
+  # NICo's simulator is a Tilt local resource. Keep Tilt alive through the
+  # E2E run; `tilt ci` exits after deployment and stops the simulator.
   tilt_exec=runner_exec_detached
   tilt_mode=up
 fi
 "${tilt_exec}" env \
   KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" \
-  CWE_PROFILES_PRELOADED=true \
+  NKE_CONTROLLER_PROFILES_PRELOADED=true \
   TENANT_ACCESS_ENABLED=true \
   NKE_OIDC_AUTH_ENABLED=true \
   DGXC_TENANT_USER=capd-e2e \
@@ -1231,7 +1232,7 @@ fi
   CNPG_SUPERUSER_PASSWORD=example-password \
   CNPG_CLOUD_PASSWORD=example-password \
   CNPG_TEMPORAL_PASSWORD=example-password \
-  CWE_PROFILES_DIR=/workspace/cloud-workflow-engine/test/fixtures/profiles \
+  NKE_CONTROLLER_PROFILES_DIR=/workspace/cloud-workflow-engine/test/fixtures/profiles \
   CAPNICO_SOURCE_DIR="${CAPNICO_SOURCE_CONTAINER_DIR}" \
   CAPD_KINDEST_NODE_IMAGE="${CAPD_NODE_IMAGE}" \
   CAPD_KINDEST_NODE_IMAGE_PREBUILT=true \
@@ -1240,7 +1241,6 @@ fi
   NICO_VMS_VM_BACKEND=mock \
   NKE_E2E_TILT_MODE="${tilt_mode}" \
   INSTALL_CNI_AFTER_INIT="${INSTALL_CNI_AFTER_INIT:-false}" \
-  PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER="${PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER}" \
   NODE_REBOOT_SOFT_REBOOT_ENABLED="${NODE_REBOOT_SOFT_REBOOT_ENABLED:-}" \
   NODE_AGENT_SPIRE_ATTESTATION_METHOD="${CAPD_SPIRE_ATTESTATION_METHOD}" \
   TILT_DISABLE_ANALYTICS=1 \
@@ -1268,92 +1268,41 @@ fi
 for controller in \
   "capi-system capi-controller-manager" \
   "capi-kubeadm-control-plane-system capi-kubeadm-control-plane-controller-manager" \
+  "capi-kubeadm-bootstrap-system capi-kubeadm-bootstrap-controller-manager" \
   "capd-system capd-controller-manager"; do
   read -r namespace deployment <<<"${controller}"
   runner_exec kubectl rollout status "deployment/${deployment}" -n "${namespace}" --timeout=5m
   runner_exec kubectl exec "deployment/${deployment}" -n "${namespace}" -- \
     /opt/spiffe/bin/k8s-spiffe-workload-jwt-exec-auth --help >/dev/null 2>&1
 done
-runner_exec kubectl -n cloud-workflow-engine rollout status deployment/cloud-workflow-engine --timeout=5m
-for env_name in TENANT_ACCESS_ENABLED NKE_OIDC_AUTH_ENABLED; do
-  env_value="$(runner_exec kubectl -n cloud-workflow-engine get deployment/cloud-workflow-engine \
-    -o "jsonpath={.spec.template.spec.containers[0].env[?(@.name==\"${env_name}\")].value}")"
-  if [[ "${env_value}" != "true" ]]; then
-    log "${env_name} must be true in the CAPD E2E deployment, got ${env_value:-<empty>}"
+runner_exec kubectl -n "${CONTROLLER_NAME}" rollout status "deployment/${CONTROLLER_NAME}" --timeout=5m
+# Both deploy paths set these as chart values, which the chart renders into
+# nke-controller-config.
+controller_values="$(runner_exec helm -n "${CONTROLLER_NAME}" get values "${CONTROLLER_NAME}" --all -o json)"
+for setting in tenantAccess.enabled nvkeOIDCAuth.enabled; do
+  value="$(jq -r ".${setting}" <<<"${controller_values}")"
+  if [[ "${value}" != "true" ]]; then
+    log "${setting} must be true in the CAPD E2E deployment, got ${value:-<empty>}"
     exit 1
   fi
 done
-# When the caller asked for control-plane-controller provisioning, confirm the
-# flag actually reached the CWE deployment. This catches a Tiltfile forwarding
-# regression before the cp-controller specs would mis-fail at cluster create.
-if [[ "${PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER}" == "true" ]]; then
-  cp_flag_value="$(runner_exec kubectl -n cloud-workflow-engine get deployment/cloud-workflow-engine \
-    -o "jsonpath={.spec.template.spec.containers[0].env[?(@.name==\"PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER\")].value}")"
-  if [[ "${cp_flag_value}" != "true" ]]; then
-    log "PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER must be true in the CWE deployment, got ${cp_flag_value:-<empty>}"
-    exit 1
-  fi
-fi
 runner_exec kubectl get --raw \
-  /api/v1/namespaces/cloud-workflow-engine/services/cloud-workflow-engine:8080/proxy/api/version \
+  "/api/v1/namespaces/${CONTROLLER_NAME}/services/${CONTROLLER_NAME}:8080/proxy/api/version" \
   >"${STATE_DIR}/cwe-version.json"
 
 NKE_E2E_FOCUS="${NKE_E2E_FOCUS:-}"
 
-if [[ "${SINGLE_RUNNER_CONTROL_PLANE_MODES}" == "true" ]]; then
-  # Two provisioning modes, one cluster, back to back. cp-controller runs first,
-  # against the flag-on CWE the Tilt deploy just verified, so a regression in the
-  # newer control-plane-controller path fails fast -- before the long node-pool
-  # leg spends a runner on a feature the first leg already showed is broken.
-  #
-  # `health` rides along with the cp-controller leg so CWE's /healthz, /readyz and
-  # version endpoints are probed against a flag-on deployment too.
-  start_state_monitor
-  leg_rc=0
-  run_ginkgo_leg "$(e2e_cp_controller_filter "${BACKEND_LABEL}")" "true" "-cp-controller" || leg_rc=$?
-  if ((leg_rc != 0)); then
-    stop_state_monitor
-    log "cp-controller leg failed with exit code ${leg_rc}; not running the node-pool leg" >&2
-    exit "${leg_rc}"
-  fi
-  log "cp-controller leg passed; confirming the cluster is clean before the node-pool leg"
-  if ! wait_for_zero_tenant_clusters; then
-    stop_state_monitor
-    exit 1
-  fi
-  redeploy_cwe false
-  # Node-pool control plane (flag off): the long-standing CAPD lane. `!cp-controller`
-  # keeps the flag-on spec out of this flag-off CWE. `health` and the authn specs
-  # ride along here -- both need a deployed, enforcing NKE, which this leg has;
-  # authn-spire is excluded (needs SPIRE pod attestation not yet wired in CAPD).
-  leg_rc=0
-  run_ginkgo_leg "$(e2e_node_pool_filter "${BACKEND_LABEL}")" "false" "-nodepool" || leg_rc=$?
-  stop_state_monitor
-  if ((leg_rc != 0)); then
-    log "node-pool leg failed with exit code ${leg_rc}" >&2
-    exit "${leg_rc}"
-  fi
-  if [[ "${NKECTL_SMOKE}" == "true" ]]; then
-    nkectl_smoke
-  fi
-  log "${BACKEND} sequential management-plane E2E passed (cp-controller then node-pool)"
-  exit 0
-fi
-
-# Single-mode (default): one label filter, one flag. Every other backend and any
-# local run takes this path unchanged.
+# One label filter. The default is the CAPD lane's filter, for a local run with
+# nothing set. A caller passes its own; the NICo lane passes nico-containers.
 #
-# The default is the CAPD lane's filter, for a local run with nothing set. A
-# caller passes its own; the NICo lane passes nico-containers.
-#
-# `health` rides along with `capd`. Those specs need a cluster running CWE in
-# namespace cloud-workflow-engine on port 8080, which this script has already
+# `health` rides along with `capd`. Those specs need a cluster running the controller in
+# namespace ${CONTROLLER_NAME} on port 8080, which this script has already
 # built and waited on above. They are three HTTP probes through a service proxy,
 # so they cost seconds rather than minutes.
 NKE_E2E_LABEL_FILTER="${NKE_E2E_LABEL_FILTER:-capd || health}"
 start_state_monitor
 e2e_rc=0
-run_ginkgo_leg "${NKE_E2E_LABEL_FILTER}" "${PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER}" "" || e2e_rc=$?
+run_ginkgo "${NKE_E2E_LABEL_FILTER}" || e2e_rc=$?
 stop_state_monitor
 
 if ((e2e_rc != 0)); then
@@ -1361,17 +1310,15 @@ if ((e2e_rc != 0)); then
   exit "${e2e_rc}"
 fi
 
-# A focused pull-request run takes the single-mode path, so it does not pass
-# through the cleanup gate between sequential legs above. Assert the same
-# invariant before reporting success: a green core run must not leave a tenant
-# behind on its management cluster.
+# Assert before reporting success that a green run left no tenant behind on its
+# management cluster.
 log "E2E specs passed; confirming the cluster is clean"
 if ! wait_for_zero_tenant_clusters; then
   exit 1
 fi
 
-if [[ "${NKECTL_SMOKE}" == "true" ]]; then
-  nkectl_smoke
+if [[ "${NVKECTL_SMOKE}" == "true" ]]; then
+  nvkectl_smoke
 fi
 
 log "${BACKEND} management-plane E2E passed"

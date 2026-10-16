@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/state"
-	vmruntime "github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/state"
+	vmruntime "github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/vm"
 )
 
 // darwinNetwork uses Apple's DHCP allocator. It never writes the system lease

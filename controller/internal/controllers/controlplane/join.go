@@ -13,9 +13,10 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/workflows"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/otelx"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/workflows"
 )
 
 const (
@@ -75,12 +76,7 @@ type joinCandidate struct {
 // control plane has finished growing, so a cluster that is both adding and removing
 // a member does the addition first.
 func (r *reconciler) reconcileControlPlaneJoins(ctx context.Context, cluster db.Cluster, cp *controlPlane) (bool, error) {
-	// The control-plane controller only owns joins when it owns the control
-	// plane; otherwise control-plane nodes auto-join inline in ProvisionNode.
-	if !r.cfg.UseControlPlaneControllerForControlPlane() {
-		return false, nil
-	}
-	if r.cweTemporalClient == nil {
+	if r.controllerTemporalClient == nil {
 		return false, nil
 	}
 	if cluster.Conditions.Provisioned.Status != db.ConditionStatusTrue {
@@ -153,19 +149,30 @@ func (r *reconciler) reconcileControlPlaneJoins(ctx context.Context, cluster db.
 			MaximumAttempts:    controlPlaneJoinMaxAttempts,
 		},
 	}
-	run, err := r.cweTemporalClient.ExecuteWorkflow(ctx, options, workflows.JoinNode, workflows.JoinNodeInput{
+	ctx, span := otelx.StartWorkflowSpan(ctx, otelx.WorkflowStart, otelx.WorkflowAttributes{
+		WorkflowType: workflows.JoinNodeWorkflowType,
+		WorkflowID:   workflowID,
+		ClusterID:    cluster.ID,
+		ClusterName:  cluster.Name,
+		NodePoolID:   node.NodePoolID,
+		NodeID:       node.ID,
+		NodeName:     node.Name,
+	})
+	run, err := r.controllerTemporalClient.ExecuteWorkflow(ctx, options, workflows.JoinNode, workflows.JoinNodeInput{
 		NodeID: node.ID,
 	})
+	otelx.EndWorkflowSpan(span, err)
 	if err != nil {
 		return false, fmt.Errorf("starting JoinNode workflow for node %s: %w", node.Name, err)
 	}
 
-	r.logger.Info("Started control-plane JoinNode workflow",
-		"clusterID", cluster.ID,
-		"nodeID", node.ID,
-		"nodeName", node.Name,
-		"workflowID", run.GetID(),
-		"runID", run.GetRunID(),
+	r.logger.InfoContext(ctx, "Started control-plane JoinNode workflow",
+		"cluster_id", cluster.ID,
+		"node_pool_id", node.NodePoolID,
+		"node_id", node.ID,
+		"node_name", node.Name,
+		"workflow_id", workflowID,
+		"run_id", run.GetRunID(),
 	)
 	return true, nil
 }
@@ -180,7 +187,7 @@ func (r *reconciler) reconcileControlPlaneJoins(ctx context.Context, cluster db.
 // status is joinStatusExhausted.
 func (r *reconciler) joinWorkflowStatus(ctx context.Context, node db.Node) (joinStatus, time.Time, error) {
 	workflowID := constants.JoinNodeWorkflowPrefix + node.ID.String()
-	desc, err := r.cweTemporalClient.DescribeWorkflowExecution(ctx, workflowID, "")
+	desc, err := r.controllerTemporalClient.DescribeWorkflowExecution(ctx, workflowID, "")
 	if err != nil {
 		if isWorkflowNotFoundError(err) {
 			return joinStatusNotStarted, time.Time{}, nil

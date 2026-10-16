@@ -15,32 +15,33 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/dbwrapper"
-	dbfilters "github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/filters"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/workflows"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/dbwrapper"
+	dbfilters "github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/filters"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/otelx"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/workflows"
 )
 
 type Controller struct {
-	cfg               config.Config
-	db                *dbwrapper.DB
-	logger            *slog.Logger
-	cweTemporalClient workflowStarter
+	cfg                      config.Config
+	db                       *dbwrapper.DB
+	logger                   *slog.Logger
+	controllerTemporalClient workflowStarter
 }
 
 type workflowStarter interface {
 	ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error)
 }
 
-func NewController(cfg config.Config, logger *slog.Logger, dbInstance *dbwrapper.DB, cweTemporalClient workflowStarter) *Controller {
+func NewController(cfg config.Config, logger *slog.Logger, dbInstance *dbwrapper.DB, controllerTemporalClient workflowStarter) *Controller {
 	return &Controller{
-		cfg:               cfg,
-		db:                dbInstance,
-		logger:            logger,
-		cweTemporalClient: cweTemporalClient,
+		cfg:                      cfg,
+		db:                       dbInstance,
+		logger:                   logger,
+		controllerTemporalClient: controllerTemporalClient,
 	}
 }
 
@@ -72,7 +73,13 @@ func (c *Controller) Reconcile(ctx context.Context, key dbreconcile.Key) (reconc
 	}
 
 	workflowID := constants.RenewK8sCertsWorkflowPrefix + cluster.ID.String()
-	if _, err := c.cweTemporalClient.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+	workflowCtx, span := otelx.StartWorkflowSpan(ctx, otelx.WorkflowStart, otelx.WorkflowAttributes{
+		WorkflowType: workflows.RenewK8sCertsWorkflowType,
+		WorkflowID:   workflowID,
+		ClusterID:    cluster.ID,
+		ClusterName:  cluster.Name,
+	})
+	_, err = c.controllerTemporalClient.ExecuteWorkflow(workflowCtx, client.StartWorkflowOptions{
 		TaskQueue:                c.cfg.TemporalTaskQueue,
 		ID:                       workflowID,
 		WorkflowIDConflictPolicy: enums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
@@ -80,8 +87,10 @@ func (c *Controller) Reconcile(ctx context.Context, key dbreconcile.Key) (reconc
 	}, workflows.RenewK8sCerts, workflows.RenewK8sCertsInput{
 		ClusterID:     cluster.ID,
 		ThresholdDays: c.cfg.CertRenewalThresholdDays,
-	}); err != nil {
-		c.logger.Error("Failed to start cert renewal workflow", "error", err, "clusterID", cluster.ID, "workflowID", workflowID)
+	})
+	otelx.EndWorkflowSpan(span, err)
+	if err != nil {
+		c.logger.ErrorContext(workflowCtx, "Failed to start cert renewal workflow", "error", err, "cluster_id", cluster.ID, "workflow_id", workflowID)
 		return reconcile.Result{}, fmt.Errorf("start cert renewal workflow for cluster %s: %w", cluster.ID, err)
 	}
 

@@ -15,12 +15,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/dbwrapper"
-	dbfilters "github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/filters"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/nodescheduling"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/dbwrapper"
+	dbfilters "github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/filters"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/nodescheduling"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 // ControlPlaneNodeScheduler schedules pending no-nodepool control-plane nodes.
@@ -36,13 +36,13 @@ func NewControlPlaneNodeScheduler(
 	cfg config.Config,
 	logger *slog.Logger,
 	dbInstance *dbwrapper.DB,
-	cweTemporalClient nodescheduling.WorkflowStarter,
+	controllerTemporalClient nodescheduling.WorkflowStarter,
 ) *ControlPlaneNodeScheduler {
 	return &ControlPlaneNodeScheduler{
 		cfg:     cfg,
 		db:      dbInstance,
 		logger:  logger,
-		service: nodescheduling.NewService(cfg, logger, dbInstance, cweTemporalClient),
+		service: nodescheduling.NewService(cfg, logger, dbInstance, controllerTemporalClient),
 	}
 }
 

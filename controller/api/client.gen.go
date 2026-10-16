@@ -118,9 +118,6 @@ type ClientInterface interface {
 	// GetClusterControlPlaneConfigHistory request
 	GetClusterControlPlaneConfigHistory(ctx context.Context, clusterID openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListCNIPlugins request
-	ListCNIPlugins(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ListConfigProfiles request
 	ListConfigProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -143,9 +140,6 @@ type ClientInterface interface {
 
 	UpdateNodePool(ctx context.Context, nodePoolID openapi_types.UUID, body UpdateNodePoolJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetNodePoolConfigHistory request
-	GetNodePoolConfigHistory(ctx context.Context, nodePoolID openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// ListNodeSets request
 	ListNodeSets(ctx context.Context, params *ListNodeSetsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -163,11 +157,8 @@ type ClientInterface interface {
 	// GetNode request
 	GetNode(ctx context.Context, nodeID openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetNodeHistory request
-	GetNodeHistory(ctx context.Context, nodeID openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListOSProfiles request
-	ListOSProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// ListReleases request
+	ListReleases(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) ListClusters(ctx context.Context, params *ListClustersParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -278,18 +269,6 @@ func (c *Client) GetClusterControlPlaneConfigHistory(ctx context.Context, cluste
 	return c.Client.Do(req)
 }
 
-func (c *Client) ListCNIPlugins(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListCNIPluginsRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) ListConfigProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListConfigProfilesRequest(c.Server)
 	if err != nil {
@@ -386,18 +365,6 @@ func (c *Client) UpdateNodePool(ctx context.Context, nodePoolID openapi_types.UU
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetNodePoolConfigHistory(ctx context.Context, nodePoolID openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetNodePoolConfigHistoryRequest(c.Server, nodePoolID)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 func (c *Client) ListNodeSets(ctx context.Context, params *ListNodeSetsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListNodeSetsRequest(c.Server, params)
 	if err != nil {
@@ -470,20 +437,8 @@ func (c *Client) GetNode(ctx context.Context, nodeID openapi_types.UUID, reqEdit
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetNodeHistory(ctx context.Context, nodeID openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetNodeHistoryRequest(c.Server, nodeID)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ListOSProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListOSProfilesRequest(c.Server)
+func (c *Client) ListReleases(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListReleasesRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -764,33 +719,6 @@ func NewGetClusterControlPlaneConfigHistoryRequest(server string, clusterID open
 	return req, nil
 }
 
-// NewListCNIPluginsRequest generates requests for ListCNIPlugins
-func NewListCNIPluginsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/cniPlugins")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
 // NewListConfigProfilesRequest generates requests for ListConfigProfiles
 func NewListConfigProfilesRequest(server string) (*http.Request, error) {
 	var err error
@@ -1044,40 +972,6 @@ func NewUpdateNodePoolRequestWithBody(server string, nodePoolID openapi_types.UU
 	}
 
 	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewGetNodePoolConfigHistoryRequest generates requests for GetNodePoolConfigHistory
-func NewGetNodePoolConfigHistoryRequest(server string, nodePoolID openapi_types.UUID) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "nodePoolID", runtime.ParamLocationPath, nodePoolID)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/nodePools/%s/configHistory", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
 
 	return req, nil
 }
@@ -1347,42 +1241,8 @@ func NewGetNodeRequest(server string, nodeID openapi_types.UUID) (*http.Request,
 	return req, nil
 }
 
-// NewGetNodeHistoryRequest generates requests for GetNodeHistory
-func NewGetNodeHistoryRequest(server string, nodeID openapi_types.UUID) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "nodeID", runtime.ParamLocationPath, nodeID)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/nodes/%s/history", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewListOSProfilesRequest generates requests for ListOSProfiles
-func NewListOSProfilesRequest(server string) (*http.Request, error) {
+// NewListReleasesRequest generates requests for ListReleases
+func NewListReleasesRequest(server string) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -1390,7 +1250,7 @@ func NewListOSProfilesRequest(server string) (*http.Request, error) {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/osProfiles")
+	operationPath := fmt.Sprintf("/releases")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -1476,9 +1336,6 @@ type ClientWithResponsesInterface interface {
 	// GetClusterControlPlaneConfigHistoryWithResponse request
 	GetClusterControlPlaneConfigHistoryWithResponse(ctx context.Context, clusterID openapi_types.UUID, reqEditors ...RequestEditorFn) (*GetClusterControlPlaneConfigHistoryClientResponse, error)
 
-	// ListCNIPluginsWithResponse request
-	ListCNIPluginsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListCNIPluginsClientResponse, error)
-
 	// ListConfigProfilesWithResponse request
 	ListConfigProfilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListConfigProfilesClientResponse, error)
 
@@ -1501,9 +1358,6 @@ type ClientWithResponsesInterface interface {
 
 	UpdateNodePoolWithResponse(ctx context.Context, nodePoolID openapi_types.UUID, body UpdateNodePoolJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateNodePoolClientResponse, error)
 
-	// GetNodePoolConfigHistoryWithResponse request
-	GetNodePoolConfigHistoryWithResponse(ctx context.Context, nodePoolID openapi_types.UUID, reqEditors ...RequestEditorFn) (*GetNodePoolConfigHistoryClientResponse, error)
-
 	// ListNodeSetsWithResponse request
 	ListNodeSetsWithResponse(ctx context.Context, params *ListNodeSetsParams, reqEditors ...RequestEditorFn) (*ListNodeSetsClientResponse, error)
 
@@ -1521,11 +1375,8 @@ type ClientWithResponsesInterface interface {
 	// GetNodeWithResponse request
 	GetNodeWithResponse(ctx context.Context, nodeID openapi_types.UUID, reqEditors ...RequestEditorFn) (*GetNodeClientResponse, error)
 
-	// GetNodeHistoryWithResponse request
-	GetNodeHistoryWithResponse(ctx context.Context, nodeID openapi_types.UUID, reqEditors ...RequestEditorFn) (*GetNodeHistoryClientResponse, error)
-
-	// ListOSProfilesWithResponse request
-	ListOSProfilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListOSProfilesClientResponse, error)
+	// ListReleasesWithResponse request
+	ListReleasesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListReleasesClientResponse, error)
 }
 
 type ListClustersClientResponse struct {
@@ -1696,30 +1547,6 @@ func (r GetClusterControlPlaneConfigHistoryClientResponse) StatusCode() int {
 	return 0
 }
 
-type ListCNIPluginsClientResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *ListCNIPluginsResponse
-	JSON401      *Unauthorized
-	JSON403      *Forbidden
-}
-
-// Status returns HTTPResponse.Status
-func (r ListCNIPluginsClientResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListCNIPluginsClientResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 type ListConfigProfilesClientResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1867,30 +1694,6 @@ func (r UpdateNodePoolClientResponse) StatusCode() int {
 	return 0
 }
 
-type GetNodePoolConfigHistoryClientResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *NodePoolConfigHistory
-	JSON401      *Unauthorized
-	JSON403      *Forbidden
-}
-
-// Status returns HTTPResponse.Status
-func (r GetNodePoolConfigHistoryClientResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetNodePoolConfigHistoryClientResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
 type ListNodeSetsClientResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2011,16 +1814,16 @@ func (r GetNodeClientResponse) StatusCode() int {
 	return 0
 }
 
-type GetNodeHistoryClientResponse struct {
+type ListReleasesClientResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *NodeHistory
+	JSON200      *ListReleasesResponse
 	JSON401      *Unauthorized
 	JSON403      *Forbidden
 }
 
 // Status returns HTTPResponse.Status
-func (r GetNodeHistoryClientResponse) Status() string {
+func (r ListReleasesClientResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -2028,31 +1831,7 @@ func (r GetNodeHistoryClientResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetNodeHistoryClientResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type ListOSProfilesClientResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *ListOSProfilesResponse
-	JSON401      *Unauthorized
-	JSON403      *Forbidden
-}
-
-// Status returns HTTPResponse.Status
-func (r ListOSProfilesClientResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListOSProfilesClientResponse) StatusCode() int {
+func (r ListReleasesClientResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -2138,15 +1917,6 @@ func (c *ClientWithResponses) GetClusterControlPlaneConfigHistoryWithResponse(ct
 	return ParseGetClusterControlPlaneConfigHistoryClientResponse(rsp)
 }
 
-// ListCNIPluginsWithResponse request returning *ListCNIPluginsClientResponse
-func (c *ClientWithResponses) ListCNIPluginsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListCNIPluginsClientResponse, error) {
-	rsp, err := c.ListCNIPlugins(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListCNIPluginsClientResponse(rsp)
-}
-
 // ListConfigProfilesWithResponse request returning *ListConfigProfilesClientResponse
 func (c *ClientWithResponses) ListConfigProfilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListConfigProfilesClientResponse, error) {
 	rsp, err := c.ListConfigProfiles(ctx, reqEditors...)
@@ -2217,15 +1987,6 @@ func (c *ClientWithResponses) UpdateNodePoolWithResponse(ctx context.Context, no
 	return ParseUpdateNodePoolClientResponse(rsp)
 }
 
-// GetNodePoolConfigHistoryWithResponse request returning *GetNodePoolConfigHistoryClientResponse
-func (c *ClientWithResponses) GetNodePoolConfigHistoryWithResponse(ctx context.Context, nodePoolID openapi_types.UUID, reqEditors ...RequestEditorFn) (*GetNodePoolConfigHistoryClientResponse, error) {
-	rsp, err := c.GetNodePoolConfigHistory(ctx, nodePoolID, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetNodePoolConfigHistoryClientResponse(rsp)
-}
-
 // ListNodeSetsWithResponse request returning *ListNodeSetsClientResponse
 func (c *ClientWithResponses) ListNodeSetsWithResponse(ctx context.Context, params *ListNodeSetsParams, reqEditors ...RequestEditorFn) (*ListNodeSetsClientResponse, error) {
 	rsp, err := c.ListNodeSets(ctx, params, reqEditors...)
@@ -2279,22 +2040,13 @@ func (c *ClientWithResponses) GetNodeWithResponse(ctx context.Context, nodeID op
 	return ParseGetNodeClientResponse(rsp)
 }
 
-// GetNodeHistoryWithResponse request returning *GetNodeHistoryClientResponse
-func (c *ClientWithResponses) GetNodeHistoryWithResponse(ctx context.Context, nodeID openapi_types.UUID, reqEditors ...RequestEditorFn) (*GetNodeHistoryClientResponse, error) {
-	rsp, err := c.GetNodeHistory(ctx, nodeID, reqEditors...)
+// ListReleasesWithResponse request returning *ListReleasesClientResponse
+func (c *ClientWithResponses) ListReleasesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListReleasesClientResponse, error) {
+	rsp, err := c.ListReleases(ctx, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetNodeHistoryClientResponse(rsp)
-}
-
-// ListOSProfilesWithResponse request returning *ListOSProfilesClientResponse
-func (c *ClientWithResponses) ListOSProfilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListOSProfilesClientResponse, error) {
-	rsp, err := c.ListOSProfiles(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListOSProfilesClientResponse(rsp)
+	return ParseListReleasesClientResponse(rsp)
 }
 
 // ParseListClustersClientResponse parses an HTTP response from a ListClustersWithResponse call
@@ -2552,46 +2304,6 @@ func ParseGetClusterControlPlaneConfigHistoryClientResponse(rsp *http.Response) 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest ControlPlaneConfigHistory
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListCNIPluginsClientResponse parses an HTTP response from a ListCNIPluginsWithResponse call
-func ParseListCNIPluginsClientResponse(rsp *http.Response) (*ListCNIPluginsClientResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListCNIPluginsClientResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ListCNIPluginsResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -2877,46 +2589,6 @@ func ParseUpdateNodePoolClientResponse(rsp *http.Response) (*UpdateNodePoolClien
 	return response, nil
 }
 
-// ParseGetNodePoolConfigHistoryClientResponse parses an HTTP response from a GetNodePoolConfigHistoryWithResponse call
-func ParseGetNodePoolConfigHistoryClientResponse(rsp *http.Response) (*GetNodePoolConfigHistoryClientResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetNodePoolConfigHistoryClientResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest NodePoolConfigHistory
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	}
-
-	return response, nil
-}
-
 // ParseListNodeSetsClientResponse parses an HTTP response from a ListNodeSetsWithResponse call
 func ParseListNodeSetsClientResponse(rsp *http.Response) (*ListNodeSetsClientResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -3117,62 +2789,22 @@ func ParseGetNodeClientResponse(rsp *http.Response) (*GetNodeClientResponse, err
 	return response, nil
 }
 
-// ParseGetNodeHistoryClientResponse parses an HTTP response from a GetNodeHistoryWithResponse call
-func ParseGetNodeHistoryClientResponse(rsp *http.Response) (*GetNodeHistoryClientResponse, error) {
+// ParseListReleasesClientResponse parses an HTTP response from a ListReleasesWithResponse call
+func ParseListReleasesClientResponse(rsp *http.Response) (*ListReleasesClientResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetNodeHistoryClientResponse{
+	response := &ListReleasesClientResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest NodeHistory
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest Unauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Forbidden
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListOSProfilesClientResponse parses an HTTP response from a ListOSProfilesWithResponse call
-func ParseListOSProfilesClientResponse(rsp *http.Response) (*ListOSProfilesClientResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListOSProfilesClientResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ListOSProfilesResponse
+		var dest ListReleasesResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

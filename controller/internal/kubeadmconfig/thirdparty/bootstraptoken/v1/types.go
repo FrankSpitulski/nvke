@@ -1,11 +1,34 @@
+/*
+Copyright 2021 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
 // Package v1 contains local copies of upstream kubeadm bootstrap token types.
 //
-// Source:
+// Source (Kubernetes v1.34.0, commit f28b4c9efbca5c5c0af716d9f2d5702667ee8a45):
 //
-//	https://github.com/kubernetes/kubernetes/blob/master/cmd/kubeadm/app/apis/bootstraptoken/v1/types.go
+//	https://github.com/kubernetes/kubernetes/blob/v1.34.0/cmd/kubeadm/app/apis/bootstraptoken/v1/types.go
+//	https://github.com/kubernetes/kubernetes/blob/v1.34.0/cmd/kubeadm/app/apis/bootstraptoken/v1/utils.go
+//
+// The revision is inferred; see THIRD_PARTY_NOTICES.md.
+//
+// Local changes:
+//   - BootstrapTokenString methods are reimplemented from utils.go without
+//     k8s.io/kubernetes
 package v1
 
 import (

@@ -424,7 +424,7 @@ func TestProfileStruct(t *testing.T) {
 	profile := Profile{
 		Name:        "standard-profile",
 		Version:     "v1.0.0",
-		Summary:     "Standard NKE profile",
+		Summary:     "Standard NVKE profile",
 		Description: "Contains basic components for Kubernetes",
 		Bundles: []Bundle{
 			{Name: "kubeadm", Version: semver.MustParse("v1.28.0")},
@@ -486,15 +486,15 @@ func TestParseBundleSourceURI(t *testing.T) {
 	}{
 		{
 			name:         "OCI registry with oci:// prefix",
-			uri:          "oci://registry.example.com/nke/bundles",
+			uri:          "oci://registry.example.com/nvke/bundles",
 			expectedType: BundleSourceOCI,
-			expectedURL:  "registry.example.com/nke/bundles",
+			expectedURL:  "registry.example.com/nvke/bundles",
 		},
 		{
 			name:         "OCI registry with trailing slash",
-			uri:          "oci://registry.example.com/nke/bundles/",
+			uri:          "oci://registry.example.com/nvke/bundles/",
 			expectedType: BundleSourceOCI,
-			expectedURL:  "registry.example.com/nke/bundles",
+			expectedURL:  "registry.example.com/nvke/bundles",
 		},
 		{
 			name:         "HTTPS URL",
@@ -633,4 +633,20 @@ func TestFetchBundleFromIndex(t *testing.T) {
 		_, err := FetchBundleFromIndex(context.Background(), srv.URL+"/", srv.URL+"/missing/index.json", "calico", version, "x86_64")
 		assert.ErrorContains(t, err, "unable to fetch index")
 	})
+}
+
+func TestVersionString(t *testing.T) {
+	tests := []struct {
+		name    string
+		version *semver.Version
+		want    string
+	}{
+		{name: "nil version", version: nil, want: ""},
+		{name: "parsed version", version: semver.MustParse("1.30.2"), want: "1.30.2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, VersionString(tt.version))
+		})
+	}
 }

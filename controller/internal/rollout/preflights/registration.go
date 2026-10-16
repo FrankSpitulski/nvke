@@ -4,8 +4,8 @@
 package preflights
 
 import (
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout"
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout/nodeagent"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout/nodeagent"
 )
 
 // RegisterDefaults installs every preflight in this package onto reg
@@ -33,7 +33,7 @@ func DefaultNodePreflights() []rollout.NodePreflightRef {
 	return nil
 }
 
-// PrependDefaults is the SpecMutator the CWE worker installs to
+// PrependDefaults is the SpecMutator the controller worker installs to
 // prepend DefaultClusterPreflights + DefaultNodePreflights so the
 // floor runs ahead of consumer-supplied entries. Returns a fresh
 // spec; the caller's slices are not mutated.

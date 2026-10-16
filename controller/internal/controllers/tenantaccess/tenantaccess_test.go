@@ -35,15 +35,15 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/agent"
-	"github.com/dsx-ai-factory/nke/controller/internal/agent/agenttest"
-	"github.com/dsx-ai-factory/nke/controller/internal/capi"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/dbwrapper"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/kube"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/agent"
+	"github.com/dsx-ai-factory/nvke/controller/internal/agent/agenttest"
+	"github.com/dsx-ai-factory/nvke/controller/internal/capi"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/dbwrapper"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 const (
@@ -74,7 +74,7 @@ users:
 	testRBACManifest = `apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: nke-role
+  name: nvke-role
 rules: []
 `
 )
@@ -91,7 +91,7 @@ func newPublishTestController(database db.DB, k8sClient ctrlclient.Client) *Cont
 	)
 }
 
-func nkeRBACConfigMap() *corev1.ConfigMap {
+func nvkeRBACConfigMap() *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: "nke-rbac", Namespace: SecretsNamespace},
 		Data:       map[string]string{"manifest.yaml": testRBACManifest},
@@ -113,8 +113,8 @@ const (
 func TestKubeconfigSecretName(t *testing.T) {
 	assert.Equal(t, "prod-a-kubeconfig", KubeconfigSecretName("prod-a"))
 	assert.Equal(t, "prod-a-admin-kubeconfig", AdminKubeconfigSecretName("prod-a"))
-	assert.True(t, IsCWEKubeconfigSecretName("prod-a-kubeconfig"))
-	assert.False(t, IsCWEKubeconfigSecretName("prod-a-admin-kubeconfig"))
+	assert.True(t, IsControllerKubeconfigSecretName("prod-a-kubeconfig"))
+	assert.False(t, IsControllerKubeconfigSecretName("prod-a-admin-kubeconfig"))
 }
 
 func TestExtractCAFromKubeconfig(t *testing.T) {
@@ -202,7 +202,7 @@ func TestController_Reconcile(t *testing.T) {
 	mockDB.On("ListClusters", mock.Anything, clusterNameFilter(activeCluster.Name)).Return([]db.Cluster{activeCluster}, nil).Once()
 	mockDB.On("ListClusters", mock.Anything, clusterNameFilter(deletingCluster.Name)).Return([]db.Cluster{deletingCluster}, nil).Once()
 	mockDB.On("ListClusters", mock.Anything, clusterNameFilter(notReadyCluster.Name)).Return([]db.Cluster{notReadyCluster}, nil).Once()
-	// Active is read by the mode refresh, admin Secret upsert, and CWE kubeconfig
+	// Active is read by the mode refresh, admin Secret upsert, and controller kubeconfig
 	// Secret upsert.
 	mockDB.On("GetCluster", mock.Anything, activeCluster.ID).Return(activeCluster, nil).Times(3)
 	mockDB.On("ListNodes", mock.Anything, mock.MatchedBy(func(f db.NodeFilters) bool {
@@ -237,6 +237,9 @@ func TestController_Reconcile(t *testing.T) {
 	tenantManagers := &recordingTenantManagerSet{}
 	c := NewController(cfg, slog.New(slog.DiscardHandler), dbwrapper.New(mockDB, slog.New(slog.DiscardHandler)), k8sClient, nodeAgentClient, tenantManagers)
 	c.scheme = testScheme(t)
+	c.issueAdminKubeconfig = func(_ context.Context, adminConf []byte, _ db.Cluster, _ []byte) ([]byte, error) {
+		return adminConf, nil
+	}
 
 	_, err := c.Reconcile(ctx, reconcileRequest(activeCluster.Name))
 	require.NoError(t, err)
@@ -466,7 +469,7 @@ func TestController_ReconcileOIDC(t *testing.T) {
 
 	// RBAC-first: the ClusterRole is server-side-applied into the tenant cluster.
 	var role rbacv1.ClusterRole
-	require.NoError(t, tenantClient.Get(ctx, types.NamespacedName{Name: "nke-role"}, &role))
+	require.NoError(t, tenantClient.Get(ctx, types.NamespacedName{Name: "nvke-role"}, &role))
 
 	// kubeconfig Secret carries the SPIRE exec-auth kubeconfig (not verbatim admin.conf).
 	kcSecret := &corev1.Secret{}
@@ -502,13 +505,14 @@ func TestController_ReconcileOIDC(t *testing.T) {
 		Namespace: SecretsNamespace,
 	}, tbSecret))
 	assert.Equal(t, []byte("test-ca"), tbSecret.Data[TrustBundleSecretKey])
-	assert.Equal(t, "cloud-workflow-engine", tbSecret.Labels[constants.LabelKeyNkeManagedBy])
+	assert.Equal(t, "cloud-workflow-engine", tbSecret.Labels[constants.LabelKeyNvkeManagedBy])
 	assert.Equal(t, oidcCluster.ID.String(), tbSecret.Labels[constants.LabelKeyClusterID])
 	assert.Equal(t, constants.LabelValueKubeconfigModeSPIRE, kcSecret.Labels[constants.LabelKeyKubeconfigMode])
 	assert.Equal(t, corev1.SecretTypeOpaque, kcSecret.Type)
 	assertOwnedByCAPICluster(t, tbSecret, oidcCluster)
 
-	// Always-admin Secret carries verbatim admin.conf even when OIDC is on.
+	// The test issuer stores the node admin.conf. The real issuer is covered
+	// by TestPublish_StoresIssuedAdminKubeconfig.
 	assertAdminSecret(t, ctx, k8sClient, oidcCluster, testAdminConf)
 
 	mockDB.AssertExpectations(t)
@@ -573,7 +577,7 @@ func TestController_ReconcileMixed(t *testing.T) {
 	// OIDC cluster (same Reconcile pass): RBAC applied into the tenant, and the
 	// SPIRE exec-auth kubeconfig + trust-bundle Secrets published.
 	var role rbacv1.ClusterRole
-	require.NoError(t, tenantClient.Get(ctx, types.NamespacedName{Name: "nke-role"}, &role))
+	require.NoError(t, tenantClient.Get(ctx, types.NamespacedName{Name: "nvke-role"}, &role))
 
 	kcSecret := &corev1.Secret{}
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{
@@ -660,7 +664,7 @@ func assertSecret(t *testing.T, ctx context.Context, k8sClient ctrlclient.Client
 	assert.Equal(t, []byte(testKubeconfig), secret.Data[KubeconfigSecretKey])
 	assert.Equal(t, corev1.SecretTypeOpaque, secret.Type)
 	assert.Equal(t, cluster.Name, secret.Labels[clusterv1.ClusterNameLabel])
-	assert.Equal(t, "cloud-workflow-engine", secret.Labels[constants.LabelKeyNkeManagedBy])
+	assert.Equal(t, "cloud-workflow-engine", secret.Labels[constants.LabelKeyNvkeManagedBy])
 	assert.Equal(t, cluster.ID.String(), secret.Labels[constants.LabelKeyClusterID])
 	assert.Equal(t, constants.LabelValueKubeconfigModeAdmin, secret.Labels[constants.LabelKeyKubeconfigMode])
 	assertOwnedByCAPICluster(t, secret, cluster)
@@ -679,7 +683,7 @@ func assertAdminSecret(t *testing.T, ctx context.Context, k8sClient ctrlclient.C
 	assert.Equal(t, []byte(wantKubeconfig), secret.Data[KubeconfigSecretKey])
 	assert.Equal(t, corev1.SecretTypeOpaque, secret.Type)
 	assert.Equal(t, cluster.Name, secret.Labels[clusterv1.ClusterNameLabel])
-	assert.Equal(t, "cloud-workflow-engine", secret.Labels[constants.LabelKeyNkeManagedBy])
+	assert.Equal(t, "cloud-workflow-engine", secret.Labels[constants.LabelKeyNvkeManagedBy])
 	assert.Equal(t, cluster.ID.String(), secret.Labels[constants.LabelKeyClusterID])
 	assert.Equal(t, constants.LabelValueKubeconfigModeAdmin, secret.Labels[constants.LabelKeyKubeconfigMode])
 	assertOwnedByCAPICluster(t, secret, cluster)
@@ -721,6 +725,11 @@ func newTestController(
 	logger := slog.New(slog.DiscardHandler)
 	c := NewController(cfg, logger, dbwrapper.New(database, logger), k8sClient, nodeAgentClient, &recordingTenantManagerSet{})
 	c.scheme = testSchemeForController()
+	// Publish tests assert the admin Secret bytes. The real issuer is covered
+	// in breakglass_test.go; here the node admin.conf is stored as-is.
+	c.issueAdminKubeconfig = func(_ context.Context, adminConf []byte, _ db.Cluster, _ []byte) ([]byte, error) {
+		return adminConf, nil
+	}
 	return c
 }
 
@@ -740,7 +749,7 @@ func testScheme(t *testing.T) *runtime.Scheme {
 }
 
 // tenantScheme registers the API types the OIDC path server-side-applies into a
-// tenant cluster (the NKE RBAC manifest).
+// tenant cluster (the NVKE RBAC manifest).
 func tenantScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	scheme := runtime.NewScheme()
@@ -855,7 +864,7 @@ func TestController_PublishesOIDCWhenTenantAccessDisabled(t *testing.T) {
 	mockDB.On("GetCluster", mock.Anything, oidcID).Return(oidcCluster, nil).Times(4)
 	mockDB.On("ListNodes", mock.Anything, mock.Anything).Return([]db.Node{joinedCPNode(oidcNodeID, oidcID)}, nil)
 
-	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(nkeRBACConfigMap(), capiClusterFixture(oidcCluster)).Build()
+	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(nvkeRBACConfigMap(), capiClusterFixture(oidcCluster)).Build()
 	c := newTestController(
 		config.Config{TenantAccessEnabled: false, SpiffeEndpointSocket: "unix:///run/spire/agent.sock"},
 		mockDB,
@@ -914,7 +923,7 @@ func TestPublish_RefusesWrongOwnerSecret(t *testing.T) {
 			},
 		},
 	}
-	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(existing, nkeRBACConfigMap(), capiClusterFixture(cluster)).Build()
+	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(existing, nvkeRBACConfigMap(), capiClusterFixture(cluster)).Build()
 
 	mockDB := &testutil.MockDB{}
 	mockDB.On("GetCluster", mock.Anything, cluster.ID).Return(cluster, nil)
@@ -952,6 +961,80 @@ func TestController_PublishesAdminForCAPIWhenFlagsOff(t *testing.T) {
 	_, err := c.Reconcile(ctx, reconcileRequest(cluster.Name))
 	require.NoError(t, err)
 	assertSecret(t, ctx, k8sClient, cluster, true)
+}
+
+func TestPublish_StoresIssuedAdminKubeconfig(t *testing.T) {
+	ctx := context.Background()
+	cluster := db.Cluster{ID: uuid.New(), Name: "plain"}
+
+	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(capiClusterFixture(cluster)).Build()
+	mockDB := &testutil.MockDB{}
+	mockDB.On("GetCluster", mock.Anything, cluster.ID).Return(cluster, nil)
+	c := newPublishTestController(mockDB, k8sClient)
+	c.issueAdminKubeconfig = func(_ context.Context, _ []byte, cluster db.Cluster, existing []byte) ([]byte, error) {
+		assert.Equal(t, "plain", cluster.Name)
+		assert.Nil(t, existing)
+		return []byte("breakglass-kubeconfig"), nil
+	}
+
+	require.NoError(t, c.publish(ctx, cluster, []byte(testAdminConf)))
+
+	assertAdminSecret(t, ctx, k8sClient, cluster, "breakglass-kubeconfig")
+	controllerSecret := &corev1.Secret{}
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{
+		Name:      KubeconfigSecretName(cluster.Name),
+		Namespace: SecretsNamespace,
+	}, controllerSecret))
+	assert.Equal(t, []byte(testAdminConf), controllerSecret.Data[KubeconfigSecretKey])
+}
+
+func TestPublish_PublishesControllerKubeconfigWhenIssuanceFails(t *testing.T) {
+	ctx := context.Background()
+	cluster := db.Cluster{ID: uuid.New(), Name: "plain"}
+
+	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(capiClusterFixture(cluster)).Build()
+	mockDB := &testutil.MockDB{}
+	mockDB.On("GetCluster", mock.Anything, cluster.ID).Return(cluster, nil)
+	c := newPublishTestController(mockDB, k8sClient)
+	c.issueAdminKubeconfig = func(context.Context, []byte, db.Cluster, []byte) ([]byte, error) {
+		return nil, errors.New("client CSR nvke-breakglass is not signed yet")
+	}
+
+	err := c.publish(ctx, cluster, []byte(testAdminConf))
+	require.ErrorContains(t, err, "issuing breakglass kubeconfig for cluster plain")
+	require.ErrorContains(t, err, "not signed yet")
+
+	adminSecret := &corev1.Secret{}
+	err = k8sClient.Get(ctx, types.NamespacedName{
+		Name:      AdminKubeconfigSecretName(cluster.Name),
+		Namespace: SecretsNamespace,
+	}, adminSecret)
+	assert.True(t, apierrors.IsNotFound(err), err)
+
+	controllerSecret := &corev1.Secret{}
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{
+		Name:      KubeconfigSecretName(cluster.Name),
+		Namespace: SecretsNamespace,
+	}, controllerSecret))
+	assert.Equal(t, []byte(testAdminConf), controllerSecret.Data[KubeconfigSecretKey])
+}
+
+func TestPublish_ReturnsSPIREAndBreakglassErrors(t *testing.T) {
+	ctx := context.Background()
+	cluster := db.Cluster{ID: uuid.New(), Name: "oidc", OIDCAuthEnabled: true}
+
+	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(capiClusterFixture(cluster)).Build()
+	mockDB := &testutil.MockDB{}
+	mockDB.On("GetCluster", mock.Anything, cluster.ID).Return(cluster, nil)
+	c := newPublishTestController(mockDB, k8sClient)
+	c.issueAdminKubeconfig = func(context.Context, []byte, db.Cluster, []byte) ([]byte, error) {
+		return nil, errors.New("client CSR nvke-breakglass failed: denied by kubectl certificate deny")
+	}
+
+	err := c.publish(ctx, cluster, []byte(testAdminConf))
+	require.ErrorContains(t, err, "nke-rbac ConfigMap not found")
+	require.ErrorContains(t, err, "issuing breakglass kubeconfig for cluster oidc")
+	require.ErrorContains(t, err, "denied by kubectl certificate deny")
 }
 
 func TestPublish_SkipsMissingCluster(t *testing.T) {
@@ -996,7 +1079,7 @@ func TestPublish_RewritesAdminToSPIRE(t *testing.T) {
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{KubeconfigSecretKey: []byte(testKubeconfig)},
 	}
-	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(existing, nkeRBACConfigMap(), capiClusterFixture(cluster)).Build()
+	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(existing, nvkeRBACConfigMap(), capiClusterFixture(cluster)).Build()
 	mockDB := &testutil.MockDB{}
 	mockDB.On("GetCluster", mock.Anything, cluster.ID).Return(cluster, nil)
 	c := newPublishTestController(mockDB, k8sClient)
@@ -1016,7 +1099,7 @@ func TestPublish_RewritesAdminToSPIRE(t *testing.T) {
 	assertOwnedByCAPICluster(t, got, cluster)
 }
 
-func TestPublish_CAPIClusterOIDCConsumedFromNKESystem(t *testing.T) {
+func TestPublish_CAPIClusterOIDCConsumedFromNVKESystem(t *testing.T) {
 	ctx := context.Background()
 	cluster := db.Cluster{
 		ID:              uuid.New(),
@@ -1025,7 +1108,7 @@ func TestPublish_CAPIClusterOIDCConsumedFromNKESystem(t *testing.T) {
 	}
 	cluster.SetCAPIProvider(db.CAPIClusterProvider{InfraCluster: []byte(`{"kind":"DockerCluster"}`)})
 
-	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(nkeRBACConfigMap(), capiClusterFixture(cluster)).Build()
+	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(nvkeRBACConfigMap(), capiClusterFixture(cluster)).Build()
 	mockDB := &testutil.MockDB{}
 	mockDB.On("GetCluster", mock.Anything, cluster.ID).Return(cluster, nil)
 	c := newPublishTestController(mockDB, k8sClient)
@@ -1046,7 +1129,7 @@ func TestPublish_UsesLiveOIDCAuthEnabled(t *testing.T) {
 	snapshot := db.Cluster{ID: id, Name: "stale", OIDCAuthEnabled: false}
 	live := db.Cluster{ID: id, Name: "stale", OIDCAuthEnabled: true}
 
-	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(nkeRBACConfigMap(), capiClusterFixture(live)).Build()
+	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(nvkeRBACConfigMap(), capiClusterFixture(live)).Build()
 	mockDB := &testutil.MockDB{}
 	mockDB.On("GetCluster", mock.Anything, id).Return(live, nil)
 	c := newPublishTestController(mockDB, k8sClient)
@@ -1076,16 +1159,15 @@ func TestPublish_RefusesSPIREWithoutRBAC(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, apierrors.IsNotFound(err), err)
 
-	// The always-admin Secret is written before the SPIRE path; missing nke-rbac
-	// must not leave operators without break-glass admin.conf.
+	// The breakglass Secret is still published when the SPIRE kubeconfig cannot be written.
 	assertAdminSecret(t, ctx, k8sClient, cluster, testAdminConf)
 
-	cweSecret := &corev1.Secret{}
-	cweErr := k8sClient.Get(ctx, types.NamespacedName{
+	controllerSecret := &corev1.Secret{}
+	controllerErr := k8sClient.Get(ctx, types.NamespacedName{
 		Name:      KubeconfigSecretName(cluster.Name),
 		Namespace: SecretsNamespace,
-	}, cweSecret)
-	assert.True(t, apierrors.IsNotFound(cweErr), "SPIRE kubeconfig must not publish without RBAC")
+	}, controllerSecret)
+	assert.True(t, apierrors.IsNotFound(controllerErr), "SPIRE kubeconfig must not publish without RBAC")
 }
 
 func kubeconfigWithParseableCA(t *testing.T) []byte {

@@ -11,16 +11,27 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/temporal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+
+	nvkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 )
 
 const (
 	legacyKubernetesCertificateRenewalRunbook = "k8s-cert-renewal"
 	certificateRenewalStatusPollInterval      = 5 * time.Second
+	// A cluster renews one node at a time, and the scheduled renewal and an
+	// operator-started one can overlap, so a held reservation is worth waiting
+	// for: about one node's renewal, far longer than the activity's three attempts.
+	certificateRenewalReservationPollInterval = 5 * time.Second
+	certificateRenewalReservationWait         = 20 * time.Minute
 )
+
+// errCertificateRenewalBusy reports a renewal reservation held by another node.
+var errCertificateRenewalBusy = errors.New("certificate renewal is in progress on another node")
 
 // KubernetesCertificateRenewalInput identifies one node-local renewal
 // operation. OperationID must remain stable across Temporal activity retries.
@@ -56,13 +67,16 @@ func (a *Activities) RenewKubernetesCertificates(
 	if input.ThresholdDays <= 0 || input.ThresholdDays > math.MaxInt32 {
 		return KubernetesCertificateRenewalResult{}, fmt.Errorf("threshold days must be between 1 and %d", math.MaxInt32)
 	}
-	response, err := a.nodeAgentClient.StartKubernetesCertificateRenewal(ctx, node, &nkeproto.StartKubernetesCertificateRenewalRequest{
+	if err := a.awaitCertificateRenewalReservation(ctx, node, &input, certificateRenewalReservationPollInterval, certificateRenewalReservationWait); err != nil {
+		return KubernetesCertificateRenewalResult{}, err
+	}
+	response, err := a.nodeAgentClient.StartKubernetesCertificateRenewal(ctx, node, &nvkeproto.StartKubernetesCertificateRenewalRequest{
 		OperationId:   input.OperationID,
 		ThresholdDays: int32(input.ThresholdDays),
 	})
 	if err != nil {
 		if status.Code(err) != codes.Unimplemented {
-			return KubernetesCertificateRenewalResult{}, fmt.Errorf("failed to start certificate renewal on node %s: %w", node.Name, err)
+			return KubernetesCertificateRenewalResult{}, a.releaseAfterFailedStart(ctx, node, input.OperationID, fmt.Errorf("failed to start certificate renewal on node %s: %w", node.Name, err))
 		}
 		legacy, legacyErr := a.ExecuteHostRunbook(ctx, ExecuteHostRunbookInput{
 			HostID:      node.ID,
@@ -72,12 +86,15 @@ func (a *Activities) RenewKubernetesCertificates(
 			},
 		})
 		if legacyErr != nil {
-			return KubernetesCertificateRenewalResult{}, fmt.Errorf("failed to execute legacy certificate renewal on node %s: %w", node.Name, legacyErr)
+			return KubernetesCertificateRenewalResult{}, a.releaseAfterFailedStart(ctx, node, input.OperationID, fmt.Errorf("failed to execute legacy certificate renewal on node %s: %w", node.Name, legacyErr))
+		}
+		if err := a.releaseCertificateRenewal(ctx, node, input.OperationID); err != nil {
+			return KubernetesCertificateRenewalResult{}, err
 		}
 		return KubernetesCertificateRenewalResult(legacy), nil
 	}
 	if response == nil || response.GetOperation() == nil {
-		return KubernetesCertificateRenewalResult{}, errors.New("node agent returned an empty certificate renewal operation")
+		return KubernetesCertificateRenewalResult{}, a.releaseAfterFailedStart(ctx, node, input.OperationID, errors.New("node agent returned an empty certificate renewal operation"))
 	}
 
 	operation := response.GetOperation()
@@ -85,6 +102,12 @@ func (a *Activities) RenewKubernetesCertificates(
 	for {
 		result, done, err := certificateRenewalTerminalResult(operation)
 		if err != nil || done {
+			phase := operation.GetOperation().GetPhase()
+			if phase == nvkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_SUCCEEDED || phase == nvkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_FAILED {
+				if releaseErr := a.releaseCertificateRenewal(ctx, node, input.OperationID); releaseErr != nil {
+					return result, releaseErr
+				}
+			}
 			return result, err
 		}
 		if waitBeforePoll {
@@ -99,7 +122,7 @@ func (a *Activities) RenewKubernetesCertificates(
 		statusResponse, statusErr := a.nodeAgentClient.GetKubernetesCertificateRenewalStatus(
 			ctx,
 			node,
-			&nkeproto.GetKubernetesCertificateRenewalStatusRequest{OperationId: input.OperationID},
+			&nvkeproto.GetKubernetesCertificateRenewalStatusRequest{OperationId: input.OperationID},
 		)
 		if statusErr != nil {
 			return KubernetesCertificateRenewalResult{}, fmt.Errorf(
@@ -118,26 +141,26 @@ func (a *Activities) RenewKubernetesCertificates(
 }
 
 func certificateRenewalTerminalResult(
-	operation *nkeproto.KubernetesCertificateRenewalOperation,
+	operation *nvkeproto.KubernetesCertificateRenewalOperation,
 ) (KubernetesCertificateRenewalResult, bool, error) {
 	statusOperation := operation.GetOperation()
 	if statusOperation == nil {
 		return KubernetesCertificateRenewalResult{}, true, errors.New("certificate renewal operation status is empty")
 	}
 	switch statusOperation.GetPhase() {
-	case nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_RUNNING:
+	case nvkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_RUNNING:
 		return KubernetesCertificateRenewalResult{}, false, nil
-	case nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_SUCCEEDED:
+	case nvkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_SUCCEEDED:
 		switch operation.GetOutcome() {
-		case nkeproto.KubernetesCertificateRenewalOperation_OUTCOME_UNCHANGED,
-			nkeproto.KubernetesCertificateRenewalOperation_OUTCOME_RENEWED:
+		case nvkeproto.KubernetesCertificateRenewalOperation_OUTCOME_UNCHANGED,
+			nvkeproto.KubernetesCertificateRenewalOperation_OUTCOME_RENEWED:
 			return KubernetesCertificateRenewalResult{
 				Output: fmt.Sprintf("certificate renewal %s", operation.GetOutcome()),
 			}, true, nil
-		case nkeproto.KubernetesCertificateRenewalOperation_OUTCOME_UNSPECIFIED,
-			nkeproto.KubernetesCertificateRenewalOperation_OUTCOME_FAILED_BEFORE_RESTART,
-			nkeproto.KubernetesCertificateRenewalOperation_OUTCOME_FAILED_RESTORED,
-			nkeproto.KubernetesCertificateRenewalOperation_OUTCOME_FAILED_NOT_RESTORED:
+		case nvkeproto.KubernetesCertificateRenewalOperation_OUTCOME_UNSPECIFIED,
+			nvkeproto.KubernetesCertificateRenewalOperation_OUTCOME_FAILED_BEFORE_RESTART,
+			nvkeproto.KubernetesCertificateRenewalOperation_OUTCOME_FAILED_RESTORED,
+			nvkeproto.KubernetesCertificateRenewalOperation_OUTCOME_FAILED_NOT_RESTORED:
 			return KubernetesCertificateRenewalResult{}, true, fmt.Errorf(
 				"certificate renewal operation %s succeeded with invalid outcome %s",
 				statusOperation.GetOperationId(),
@@ -150,7 +173,7 @@ func certificateRenewalTerminalResult(
 				operation.GetOutcome(),
 			)
 		}
-	case nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_FAILED:
+	case nvkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_FAILED:
 		return KubernetesCertificateRenewalResult{}, true, fmt.Errorf(
 			"certificate renewal operation %s failed at %s with outcome %s: %s",
 			statusOperation.GetOperationId(),
@@ -158,7 +181,7 @@ func certificateRenewalTerminalResult(
 			operation.GetOutcome(),
 			statusOperation.GetErrorMessage(),
 		)
-	case nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_UNSPECIFIED:
+	case nvkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_UNSPECIFIED:
 		return KubernetesCertificateRenewalResult{}, true, fmt.Errorf(
 			"certificate renewal operation %s returned invalid phase %s",
 			statusOperation.GetOperationId(),
@@ -171,4 +194,92 @@ func certificateRenewalTerminalResult(
 			statusOperation.GetPhase(),
 		)
 	}
+}
+
+// releaseAfterFailedStart drops the reservation a start that never reached the node left behind, so another
+// workflow's renewal is not blocked until this one's retries end; the release error, if any, is joined.
+func (a *Activities) releaseAfterFailedStart(ctx context.Context, node db.Node, operationID string, startErr error) error {
+	if releaseErr := a.releaseCertificateRenewal(ctx, node, operationID); releaseErr != nil {
+		return errors.Join(startErr, releaseErr)
+	}
+	return startErr
+}
+
+// awaitCertificateRenewalReservation retries the reservation while another
+// node holds it, for at most wait, so two RenewK8sCerts workflows on one
+// cluster serialize instead of the later one failing.
+func (a *Activities) awaitCertificateRenewalReservation(ctx context.Context, node db.Node, input *KubernetesCertificateRenewalInput, poll, wait time.Duration) error {
+	deadline := time.Now().Add(wait)
+	for {
+		err := a.reserveCertificateRenewal(ctx, node, input)
+		if !errors.Is(err, errCertificateRenewalBusy) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("waited %s: %w", wait, err)
+		}
+		timer := time.NewTimer(poll)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+// reserveCertificateRenewal admits actual agent work. Merely scheduling the
+// Temporal workflow does not block upgrades. Both callers use the cluster row
+// so an agent restart cannot begin between this check and the renewal RPC.
+func (a *Activities) reserveCertificateRenewal(ctx context.Context, node db.Node, input *KubernetesCertificateRenewalInput) error {
+	if !node.IsManagedByControlPlaneController() {
+		return nil
+	}
+	return a.db.RunInTx(ctx, func(ctx context.Context, tx db.Tx) error {
+		cluster, err := tx.GetClusterForUpdate(ctx, node.ClusterID)
+		if err != nil {
+			return err
+		}
+		locked, err := tx.GetNodeForUpdate(ctx, node.ID)
+		if err != nil {
+			return err
+		}
+		if cluster.Conditions.Deleting.Status == db.ConditionStatusTrue || nodeAgentRemovalRequested(locked) {
+			return temporal.NewCanceledError("node or cluster is deleting")
+		}
+		if cluster.NodeAgentUpgrade != nil {
+			return fmt.Errorf("node-agent installation is in progress")
+		}
+		if active := cluster.CertificateRenewal; active != nil {
+			if active.NodeID != node.ID {
+				return fmt.Errorf("%w (node %s)", errCertificateRenewalBusy, active.NodeID)
+			}
+			// A later activity attempt reattaches even if its workflow run changed.
+			input.OperationID = active.OperationID
+			return nil
+		}
+		cluster.CertificateRenewal = &db.NodeAgentCertificateRenewal{NodeID: node.ID, OperationID: input.OperationID}
+		_, err = tx.UpdateCluster(ctx, &cluster)
+		return err
+	})
+}
+
+func (a *Activities) releaseCertificateRenewal(ctx context.Context, node db.Node, operationID string) error {
+	if !node.IsManagedByControlPlaneController() {
+		return nil
+	}
+	return a.db.RunInTx(ctx, func(ctx context.Context, tx db.Tx) error {
+		cluster, err := tx.GetClusterForUpdate(ctx, node.ClusterID)
+		if errors.Is(err, db.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if active := cluster.CertificateRenewal; active != nil && active.NodeID == node.ID && active.OperationID == operationID {
+			cluster.CertificateRenewal = nil
+			_, err = tx.UpdateCluster(ctx, &cluster)
+		}
+		return err
+	})
 }

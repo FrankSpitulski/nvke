@@ -1,7 +1,7 @@
 # Getting started
 
 This guide walks you through setting up a local development environment
-for nke and verifying that the modules build and test cleanly. The repository is
+for NVKE and verifying that the modules build and test cleanly. The repository is
 a Go workspace of several modules, listed in `go.work`. The repository README
 says what each one is.
 
@@ -22,16 +22,16 @@ than the declared one panics at startup with a `strcase.UnicodeVersion` mismatch
 ## Clone the repository
 
 ```bash
-git clone https://github.com/dsx-ai-factory/nke.git
-cd nke
+git clone https://github.com/dsx-ai-factory/nvke.git
+cd nvke
 ```
 
-## controller (Cloud Workflow Engine)
+## controller
 
 > **`controller/` builds without NVIDIA credentials.** The carbide SDK and
 > cluster-api-provider-nico dependencies are now public. A cold build needs
 > access to the public Go module proxy; from the repository root,
-> `make build` compiles all eleven modules. See
+> `make build` compiles all twelve modules. See
 > [AGENTS.md](../AGENTS.md).
 
 The repository uses [Flox](https://flox.dev/) to pin its toolchain, in one
@@ -77,20 +77,20 @@ Never hand-edit `*.gen.go` files — they will be overwritten.
 ### Run locally
 
 ```bash
-kind create cluster                       # CWE watches a cluster
-make -C controller run-local              # Postgres, Temporal, then CWE
+kind create cluster                       # the NVKE controller watches a cluster
+make -C controller run-local              # Postgres, Temporal, then the controller
 ```
 
-Swagger is on <http://localhost:8080/api/docs/>. Infrastructure credentials are
-configured on the Cluster API provider rather than CWE.
+Swagger is on [http://localhost:8080/api/docs/](http://localhost:8080/api/docs/). Infrastructure credentials are
+configured on the Cluster API provider rather than the controller.
 
 [first-cluster.md](first-cluster.md#api-only) covers this path in
 full, and goes on to tenant clusters.
 
-## agent (nke-agent)
+## agent (nvke-agent)
 
 The source lives in `agent/`. The binary installed on a node is called
-`nke-agent`.
+`nvke-agent`.
 
 ```bash
 cd agent
@@ -99,8 +99,8 @@ make build             # cross-compiles for linux; a host go build on macOS
 go test ./...          # or: make test
 ```
 
-`nke-agent` and `spire-agent` must be present on each managed node before
-the NKE controller can communicate with it. The binaries are typically
+`nvke-agent` and `spire-agent` must be present on each managed node before
+the NVKE controller can communicate with it. The binaries are typically
 pre-built into the OS image or added via cloud-init — the controller does
 not install them. See `agent/AGENTS.md` for the full build, proto and test
 commands.

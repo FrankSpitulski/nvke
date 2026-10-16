@@ -19,12 +19,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/internal/capi"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/server"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/internal/capi"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/server"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 func ptrString(v string) *string { return &v }
@@ -40,23 +40,10 @@ func openAPIForgeCreateClusterRequest() api.CreateClusterRequest {
 			SiteID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440001"),
 			VpcID:  uuid.MustParse("550e8400-e29b-41d4-a716-446655440002"),
 		},
-		CniPlugin:                     "calico",
+		CniPlugin:                     "ovn-kubernetes",
 		EtcdEncrypted:                 false,
 		ControlPlaneKubernetesVersion: "1.29.7",
-		NodePools: &[]api.NodePoolCreateConfig{
-			{
-				Name:           "cp",
-				NodeNamePrefix: "cp-prefix",
-				Nico: &api.NicoNodePoolProvider{
-					InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440004"),
-					OSProfile:      "ubuntu",
-					ConfigProfile:  "default",
-					SubnetIDs:      []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440003")},
-				},
-				ControlPlane:     true,
-				DesiredNodeCount: 1,
-			},
-		},
+		ControlPlaneConfig:            nicoCreateControlPlaneConfig(1, false),
 	}
 }
 
@@ -68,6 +55,11 @@ func stubOpenAPICreateClusterTx(mockDB *testutil.MockDB) {
 		db.Cluster{ID: uuid.New(), Name: "test-cluster", KubernetesVersion: "1.29.7"},
 		nil,
 	).Maybe()
+	mockDB.MockTx.On("CreateControlPlaneConfiguration", mock.Anything, mock.Anything).Return(
+		db.ControlPlaneConfiguration{ID: uuid.New()},
+		nil,
+	).Maybe()
+	mockDB.MockTx.On("UpdateCluster", mock.Anything, mock.Anything).Return(db.Cluster{}, nil).Maybe()
 	mockDB.MockTx.On("CreateWorkflowOutboxEntry", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
 		db.WorkflowOutbox{},
 		nil,
@@ -254,6 +246,7 @@ func TestOpenAPIValidator_CreateCluster(t *testing.T) {
 		mockDB.MockTx = &testutil.MockTx{}
 		mockDB.GetTx = func() db.Tx { return mockDB.MockTx }
 		mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil).Maybe()
+		stubOpenAPICreateClusterTx(mockDB)
 
 		handler := newTestServerWithValidator(t, mockDB)
 
@@ -442,7 +435,7 @@ func TestOpenAPIValidator_CreateClusterControlPlaneConfig(t *testing.T) {
 				"siteID": "550e8400-e29b-41d4-a716-446655440001",
 				"vpcID": "550e8400-e29b-41d4-a716-446655440002"
 			},
-			"cniPlugin": "calico",
+			"cniPlugin": "ovn-kubernetes",
 			"controlPlaneKubernetesVersion": "1.29.7",
 			"etcdEncrypted": false,
 			"controlPlaneConfig": {"desiredCount": 3, "nico": ` + nico + `}
@@ -456,7 +449,7 @@ func TestOpenAPIValidator_CreateClusterControlPlaneConfig(t *testing.T) {
 	}{
 		{
 			name: "settable nested fields are accepted",
-			nico: `{"osProfile":"ubuntu","configProfile":"default"}`,
+			nico: `{"release":"ubuntu","configProfile":"default"}`,
 		},
 		{
 			name:         "nico.diskSelectionStrategy is rejected",
@@ -474,9 +467,8 @@ func TestOpenAPIValidator_CreateClusterControlPlaneConfig(t *testing.T) {
 			rr := httptest.NewRecorder()
 			newTestServerWithValidator(t, &testutil.MockDB{}).ServeHTTP(rr, req)
 
-			// The accepted case still fails in the handler, because this test server
-			// has no control-plane controller provisioning enabled. Distinguish the
-			// two by the message rather than the status code.
+			// The accepted case may still fail in the handler; assert on the message
+			// rather than the status code.
 			if tt.expectReject {
 				assert.Contains(t, rr.Body.String(), "diskSelectionStrategy")
 				return
@@ -501,12 +493,12 @@ func TestOpenAPIValidator_CreateRequiresExactlyOneProvider(t *testing.T) {
 		clusterInfra = `"infra":{"cluster":{"apiVersion":"infrastructure.cluster.x-k8s.io/v1beta1",` +
 			`"kind":"DockerCluster","metadata":{"name":"test-cluster"}}}`
 		cpNico = `"nico":{"instanceTypePreference":["550e8400-e29b-41d4-a716-446655440003"],` +
-			`"osProfile":"ubuntu","configProfile":"default"}`
+			`"release":"ubuntu","configProfile":"default"}`
 		cpInfra = `"infra":{"machineTemplate":{` +
 			`"apiVersion":"infrastructure.cluster.x-k8s.io/v1beta1",` +
 			`"kind":"DockerMachineTemplate","metadata":{"name":"cp"}}}`
 		poolNico = `"nico":{"instanceTypeID":"550e8400-e29b-41d4-a716-446655440004",` +
-			`"osProfile":"ubuntu","configProfile":"default"}`
+			`"release":"ubuntu","configProfile":"default"}`
 		poolInfra = `"infra":{"machineTemplate":{"apiVersion":"infrastructure.cluster.x-k8s.io/v1beta1",` +
 			`"kind":"DockerMachineTemplate","metadata":{"name":"worker"}}}`
 	)
@@ -522,7 +514,7 @@ func TestOpenAPIValidator_CreateRequiresExactlyOneProvider(t *testing.T) {
 	body := func(cluster, controlPlane, nodePool string) []byte {
 		return []byte(`{
 			"name": "test-cluster",
-			"cniPlugin": "calico",
+			"cniPlugin": "ovn-kubernetes",
 			"controlPlaneKubernetesVersion": "1.29.7",
 			"etcdEncrypted": false` + field(cluster) + `,
 			"controlPlaneConfig": {"desiredCount": 3` + field(controlPlane) + `},
@@ -596,9 +588,7 @@ func TestOpenAPIValidator_CreateRequiresExactlyOneProvider(t *testing.T) {
 			rr := httptest.NewRecorder()
 			newTestServerWithValidator(t, &testutil.MockDB{}).ServeHTTP(rr, req)
 
-			// The accepted case still fails in the handler, because this test server
-			// has no control-plane controller provisioning enabled. Distinguish a
-			// schema rejection from a handler rejection by the validator's message.
+			// Distinguish a schema rejection from a handler rejection by the validator's message.
 			if tt.expectReject {
 				assert.Equal(t, http.StatusBadRequest, rr.Code, "body: %s", rr.Body.String())
 				assert.Contains(t, rr.Body.String(), "request body has an error",
@@ -625,7 +615,7 @@ func TestOpenAPIValidator_UpdateClusterControlPlaneConfig(t *testing.T) {
 	}{
 		{
 			name:         "configurable nested fields are accepted",
-			body:         `{"controlPlaneConfig":{"nico":{"osProfile":"ubuntu","configProfile":"default"}}}`,
+			body:         `{"controlPlaneConfig":{"nico":{"release":"ubuntu","configProfile":"default"}}}`,
 			expectReject: false,
 		},
 		{
@@ -688,7 +678,7 @@ func TestOpenAPIValidator_UpdateNodePool(t *testing.T) {
 	}{
 		{
 			name:         "mutable nested fields are accepted",
-			body:         `{"nico":{"subnetIDs":["550e8400-e29b-41d4-a716-446655440001"],"osProfile":"ubuntu","configProfile":"default"}}`,
+			body:         `{"nico":{"subnetIDs":["550e8400-e29b-41d4-a716-446655440001"],"release":"ubuntu","configProfile":"default"}}`,
 			expectReject: false,
 		},
 		{
@@ -713,7 +703,7 @@ func TestOpenAPIValidator_UpdateNodePool(t *testing.T) {
 		},
 		{
 			name:         "a full nico object echoed from GET is rejected",
-			body:         `{"nico":{"subnetIDs":[],"vpcPrefixIDs":[],"instanceTypeID":"550e8400-e29b-41d4-a716-446655440002","sshKeyGroupIDs":[],"osProfile":"ubuntu","configProfile":"default"}}`,
+			body:         `{"nico":{"subnetIDs":[],"vpcPrefixIDs":[],"instanceTypeID":"550e8400-e29b-41d4-a716-446655440002","sshKeyGroupIDs":[],"release":"ubuntu","configProfile":"default"}}`,
 			expectReject: true,
 		},
 	}
@@ -785,7 +775,7 @@ func TestStdServerErrorStatus_MalformedPathUUID(t *testing.T) {
 // middleware as production. The caller must configure mockDB (GetTx, RunInTx, and
 // any tx method mocks) as needed; invalid requests are rejected by the validator.
 // When MockTx is set, CreateCluster path stubs are installed so valid forge
-// creates (no longer blocked by CWE Forge CIDR overlap checks) do not panic.
+// creates (no longer blocked by controller Forge CIDR overlap checks) do not panic.
 func newTestServerWithValidator(t *testing.T, mockDB *testutil.MockDB) http.Handler {
 	t.Helper()
 
@@ -800,7 +790,7 @@ func newTestServerWithValidator(t *testing.T, mockDB *testutil.MockDB) http.Hand
 		ProfilesDir:          "./profiles",
 	}
 
-	srv, err := server.NewServer(cfg, logger, mockDB, nil, nil)
+	srv, err := server.NewServer(cfg, logger, mockDB, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, srv)
 

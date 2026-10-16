@@ -6,7 +6,6 @@ package v1
 import (
 	"testing"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 )
@@ -32,31 +31,29 @@ func TestTypedResourcesRoundTrip(t *testing.T) {
 		verify func(t *testing.T, decoded runtime.Object)
 	}{
 		{
-			resource: "nkeclusters", kind: "NKECluster",
-			object: &NKECluster{
-				ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "org-demo"},
-				Spec: NKEClusterSpec{
+			resource: "nvkeclusters", kind: "NVKECluster",
+			object: &NVKECluster{
+				Name: "demo", Namespace: "org-demo",
+				Spec: NVKEClusterSpec{
 					ClusterNetwork: ClusterNetwork{
 						Pods:          NetworkRanges{CIDRBlocks: []NetworkCIDR{"10.244.0.0/16"}},
 						Services:      NetworkRanges{CIDRBlocks: []NetworkCIDR{"10.96.0.0/12"}},
 						ServiceDomain: "cluster.local",
 					},
-					Release:           ClusterReleaseSelection{Channel: ReleaseChannelReference{Name: "stable"}},
-					ControlPlaneClass: "standard",
-				},
-			},
-		},
-		{
-			resource: "nodepools", kind: "NodePool",
-			object: &NodePool{
-				ObjectMeta: metav1.ObjectMeta{Name: "workers", Namespace: "org-demo"},
-				Spec: NodePoolSpec{
-					ClusterName: "demo", Replicas: &zero, InstanceType: "gpu-small",
-					Release: ReleaseReference{Name: "ubuntu", Version: "2026.09.1"},
+					Release:            ReleaseSelection{Channel: ReleaseChannelReference{Name: "stable"}},
+					ControlPlaneClass:  "standard",
+					AcceleratedRuntime: &AcceleratedRuntimeSelection{Name: "gb200-ubuntu", Version: "1.2.3"},
+					Network: &Network{
+						VPCID: "147ca92b-a90f-4094-92cd-7a0b3f10c30d",
+					},
+					NodePools: []NodePool{{
+						Name: "workers", Replicas: &zero, InstanceType: "gpu-small", NodeProfile: "ubuntu:2026.09.1",
+						VPCSubnetID: "b91c0605-17aa-4ade-aa2c-6a5eb1601dcd",
+					}},
 				},
 			},
 			verify: func(t *testing.T, decoded runtime.Object) {
-				if replicas := decoded.(*NodePool).Spec.Replicas; replicas == nil || *replicas != 0 {
+				if replicas := decoded.(*NVKECluster).Spec.NodePools[0].Replicas; replicas == nil || *replicas != 0 {
 					t.Fatal("explicit zero replicas lost during round-trip")
 				}
 			},
@@ -64,7 +61,7 @@ func TestTypedResourcesRoundTrip(t *testing.T) {
 		{
 			resource: "machineimages", kind: "MachineImage",
 			object: &MachineImage{
-				ObjectMeta: metav1.ObjectMeta{Name: "nke-nico-vms-24.04-amd64-fde"},
+				Name: "nvke-nico-vms-24.04-amd64-fde",
 				Spec: MachineImageSpec{
 					OperatingSystem: OperatingSystem{Family: "ubuntu", Version: "24.04"},
 					Architecture:    "amd64",
@@ -77,9 +74,9 @@ func TestTypedResourcesRoundTrip(t *testing.T) {
 		{
 			resource: "clusterreleases", kind: "ClusterRelease",
 			object: &ClusterRelease{
-				ObjectMeta: metav1.ObjectMeta{Name: "nke-nico-vms-24.04-amd64-fde"},
+				Name: "nvke-nico-vms-24.04-amd64-fde",
 				Spec: ClusterReleaseSpec{
-					MachineImageRef: MachineImageReference{Name: "nke-nico-vms-24.04-amd64-fde"},
+					MachineImageRef: MachineImageReference{Name: "nvke-nico-vms-24.04-amd64-fde"},
 					MachineInit:     testMachineInit(),
 				},
 			},
@@ -87,9 +84,9 @@ func TestTypedResourcesRoundTrip(t *testing.T) {
 		{
 			resource: "nodepoolreleases", kind: "NodePoolRelease",
 			object: &NodePoolRelease{
-				ObjectMeta: metav1.ObjectMeta{Name: "nke-nico-vms-24.04-amd64-fde"},
+				Name: "nvke-nico-vms-24.04-amd64-fde",
 				Spec: NodePoolReleaseSpec{
-					MachineImageRef: MachineImageReference{Name: "nke-nico-vms-24.04-amd64-fde"},
+					MachineImageRef: MachineImageReference{Name: "nvke-nico-vms-24.04-amd64-fde"},
 					MachineInit:     testMachineInit(),
 				},
 			},
@@ -116,33 +113,15 @@ func TestTypedResourcesRoundTrip(t *testing.T) {
 		})
 	}
 
-	for _, kind := range []string{"NKEClusterList", "NodePoolList", "MachineImageList", "ClusterReleaseList", "NodePoolReleaseList"} {
+	for _, kind := range []string{"NVKEClusterList", "MachineImageList", "ClusterReleaseList", "NodePoolReleaseList"} {
 		if _, err := scheme.New(GroupVersion.WithKind(kind)); err != nil {
 			t.Fatal(err)
 		}
 	}
-}
-
-func TestNodePoolDeepCopyIsolatesMutableFields(t *testing.T) {
-	replicas := int32(2)
-	original := &NodePool{
-		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"team": "research"}},
-		Spec: NodePoolSpec{
-			Replicas: &replicas,
-			Template: &NodeTemplate{Metadata: &NodeTemplateMetadata{Labels: map[string]LabelValue{"workload": "training"}}},
-		},
-		Status: NodePoolStatus{ClusterRef: &ClusterReference{Name: "demo", UID: "original"}},
-	}
-
-	clone := original.DeepCopy()
-	clone.Labels["team"] = "other"
-	*clone.Spec.Replicas = 0
-	clone.Spec.Template.Metadata.Labels["workload"] = "inference"
-	clone.Status.ClusterRef.UID = "other"
-
-	if original.Labels["team"] != "research" || *original.Spec.Replicas != 2 ||
-		original.Spec.Template.Metadata.Labels["workload"] != "training" || original.Status.ClusterRef.UID != "original" {
-		t.Fatal("deepcopy mutation changed the cached resource")
+	for _, kind := range []string{"NodePool", "NodePoolList"} {
+		if _, err := scheme.New(GroupVersion.WithKind(kind)); !runtime.IsNotRegisteredError(err) {
+			t.Fatalf("removed kind %s is still registered: %v", kind, err)
+		}
 	}
 }
 
@@ -151,11 +130,11 @@ func TestNodePoolDeepCopyIsolatesMutableFields(t *testing.T) {
 // edits something unrelated and writes it back must not look like an
 // authentication change just because the value passed through the Go types.
 func TestAuthenticationRoundTripPreservesImmutability(t *testing.T) {
-	schema := loadResourceSchema(t, "nkeclusters")
+	schema := loadResourceSchema(t, "nvkeclusters")
 
 	for _, tt := range []struct {
 		name string
-		// auth is spec.authentication as JSON; empty leaves the field absent.
+		// auth is spec.authentication as JSON. An empty value leaves the field absent.
 		auth string
 	}{
 		{name: "absent"},
@@ -173,13 +152,13 @@ func TestAuthenticationRoundTripPreservesImmutability(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			old := baseResource(t, "nkeclusters")
+			old := baseResource(t, "nvkeclusters")
 			if tt.auth != "" {
 				setField(old, []string{"spec", "authentication"}, decodeJSON[map[string]any](t, []byte(tt.auth)))
 			}
 			schema.admit(t, old, nil)
 
-			cluster := decodeJSON[NKECluster](t, encodeJSON(t, old))
+			cluster := decodeJSON[NVKECluster](t, encodeJSON(t, old))
 			cluster.Spec.APIServerAccess.PublicAccessEnabled = true
 			updated := decodeJSON[map[string]any](t, encodeJSON(t, cluster))
 			if errs := schema.validate(updated, old); len(errs) != 0 {
@@ -232,7 +211,7 @@ func firstAuthenticator(t *testing.T, obj map[string]any) map[string]any {
 // Deprecating a release goes through the Go types, so a decode/edit/encode
 // cycle must not itself look like a change to the immutable content. Without
 // this, the spec-level rule could pass its own unit tests and still reject
-// every write a controller or nkectl makes.
+// every write a controller or nvkectl makes.
 func TestLifecycleEditRoundTripsThroughGoTypes(t *testing.T) {
 	for _, resource := range releaseResources {
 		t.Run(resource, func(t *testing.T) {

@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,11 +16,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nvkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kubeadmconfig"
 )
 
 const (
@@ -45,22 +44,10 @@ func (a *Activities) kubeadmContainerMode(ctx context.Context, cluster db.Cluste
 	return isKubeadmContainerMode, nil
 }
 
-func nodeLabels(labels []string) kubeadmconfig.KubeLabels {
-	out := kubeadmconfig.KubeLabels{}
-	for _, label := range labels {
-		key, value, ok := strings.Cut(label, "=")
-		if !ok || key == "" {
-			continue
-		}
-		out[key] = value
-	}
-	return out
-}
-
-func toNodeAgentFiles(files []kubeadmconfig.File) []*nkeproto.File {
-	out := make([]*nkeproto.File, 0, len(files))
+func toNodeAgentFiles(files []kubeadmconfig.File) []*nvkeproto.File {
+	out := make([]*nvkeproto.File, 0, len(files))
 	for _, file := range files {
-		out = append(out, &nkeproto.File{
+		out = append(out, &nvkeproto.File{
 			Path:    file.Path,
 			Content: file.Content,
 			Mode:    file.Mode,
@@ -70,17 +57,15 @@ func toNodeAgentFiles(files []kubeadmconfig.File) []*nkeproto.File {
 	return out
 }
 
-func (a *Activities) buildOIDCAuthenticationConfig(ctx context.Context, clusterName string) (*kubeadmconfig.OIDCAuthenticationConfig, error) {
-	var caBundle []byte
-	if ref := a.cfg.NkeOIDCAuth.CABundleSecret; !ref.Empty() {
-		var err error
-		caBundle, err = kubeadmconfig.ReadOIDCCABundle(ctx, a.k8sClient, ref)
-		if err != nil {
-			return nil, err
-		}
+// clusterAuthentication uses the providers pinned on the cluster, never the live file.
+func (a *Activities) clusterAuthentication(cluster db.Cluster) kubeadmconfig.ClusterAuthentication {
+	return kubeadmconfig.ClusterAuthentication{
+		ClusterName:   cluster.Name,
+		Shared:        a.cfg.NvkeOIDCAuth,
+		SharedEnabled: cluster.OIDCAuthEnabled,
+		Providers:     db.ClusterOIDCProvidersToConfig(cluster.OIDCProviders),
+		TrustDomain:   a.trustDomain,
 	}
-
-	return kubeadmconfig.BuildOIDCAuthenticationConfig(clusterName, a.cfg.NkeOIDCAuth, caBundle)
 }
 
 func (a *Activities) ensureKubeAPIEncryptionKey(ctx context.Context, clusterID uuid.UUID) (string, error) {

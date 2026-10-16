@@ -1,22 +1,22 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# The bootstrap manifest lists the charts `nkectl bootstrap site` fetches and
-# installs with Helm, and the images the bootstrap runs. nkectl embeds this
-# file. `nkectl get bootstrap-manifest` prints it.
+# The bootstrap manifest lists the charts `nvkectl bootstrap site` fetches and
+# installs with Helm, and the images the bootstrap runs. nvkectl embeds this
+# file. `nvkectl get bootstrap-manifest` prints it.
 #
-# nkectl installs each chart at the version listed here. The digests are a
+# nvkectl installs each chart at the version listed here. The digests are a
 # record for whoever mirrors these artifacts. The bootstrap does not verify
 # them.
 #
 # Two kinds of image entries: images the bootstrap pulls, with a digest; and
 # the two images you build, with the default tag `make -C cli images` gives
-# them and no digest. NKECTL_CWE_IMAGE and NKECTL_CAPI_PROVISIONED_IMAGE
-# replace those two.
+# them and no digest. The --controller-image and --provisioned-provider-image flags,
+# or NVKECTL_CONTROLLER_IMAGE and NVKECTL_CAPI_PROVISIONED_IMAGE, replace those two.
 #
 # Not listed:
-# - The controller chart, the Postgres chart and the provisioned provider's
-#   manifest. They ship inside nkectl.
+# - The controller chart, the Postgres chart, the provisioned provider's
+#   manifest and the CAPNICo manifest. They ship inside nvkectl.
 # - The components `clusterctl init` installs: Cluster API core, the kubeadm
 #   providers and cert-manager.
 # - The kindest/node image kind boots.
@@ -44,7 +44,7 @@ components:
         ref: docker.io/temporalio/ui:2.48.1
         digest: sha256:edb5dd1b3e0ddb35611939dde9b573533afd6fbafbbf077b73c7131a30ca91ff
 
-  # The Postgres chart ships inside nkectl, so it has no chart entry. The
+  # The Postgres chart ships inside nvkectl, so it has no chart entry. The
   # image is an upstream release.
   postgresql:
     images:
@@ -61,7 +61,8 @@ components:
       sha256: ce982e63fc375e392b014fc99e621a55442ab886052413e9bb052f72d66580a8
 
   # Upstream release. tpm-attestor is pulled only when the site spec lists TPM
-  # thumbprints.
+  # thumbprints, or with infra.provider nico, whose nodes' keys CWE adds to the
+  # allowlist as CAPNICo allocates them.
   spire:
     chart:
       repo: https://spiffe.github.io/helm-charts-hardened/
@@ -97,8 +98,8 @@ components:
 
   # Built by you from controller/Dockerfile. The ref below is the default:
   # the tag `make -C cli images` builds, side-loaded from the local image
-  # store. NKECTL_CWE_IMAGE overrides it. The controller chart ships inside
-  # nkectl, so there is no chart entry.
+  # store. --controller-image or NVKECTL_CONTROLLER_IMAGE overrides it. The controller chart ships inside
+  # nvkectl, so there is no chart entry.
   controller:
     images:
       controller:
@@ -106,9 +107,21 @@ components:
 
   # Built by you from cluster-api-provider-provisioned/Dockerfile. The ref
   # below is the default: the tag `make -C cli images` builds, side-loaded.
-  # NKECTL_CAPI_PROVISIONED_IMAGE overrides it. Its manifest ships inside
-  # nkectl.
+  # --provisioned-provider-image or NVKECTL_CAPI_PROVISIONED_IMAGE overrides it. Its manifest ships inside
+  # nvkectl.
   cluster-api-provider-provisioned:
     images:
       manager:
         ref: cluster-api-provider-provisioned:latest
+
+  # Pulled only with `infra.provider: nico`. An upstream release: the image the
+  # embedded CAPNICo manifest names by tag. The install runs the digest below
+  # instead, so a retagged image does not change what runs; --release replaces
+  # it for one run with the capnico-controller digest of an NVKR release. The
+  # manifest ships inside nvkectl, so there is no chart entry. The digest is
+  # the multi-architecture index's.
+  cluster-api-provider-nico:
+    images:
+      controller:
+        ref: ghcr.io/dsx-ai-factory/cluster-api-provider-nico/controller:v0.0.45
+        digest: sha256:bca9d77a25e605a5c39faf0a71b45b484d363edc4535f8a37aa811a639738595

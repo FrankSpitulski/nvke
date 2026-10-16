@@ -1,6 +1,6 @@
 # agent
 
-gRPC agent that runs as a systemd service on each NKE node. An orchestrator
+gRPC agent that runs as a systemd service on each NVKE node. An orchestrator
 calls it to drive kubeadm lifecycle, package/CNI install, API encryption, and
 related node-local operations — without interactive SSH.
 
@@ -12,7 +12,7 @@ related node-local operations — without interactive SSH.
 | [pkg/agent/proto/node_agent.proto](pkg/agent/proto/node_agent.proto) | Canonical RPC definitions |
 | [config.env.example](config.env.example) | Build/runtime artifact endpoint knobs |
 
-**Module:** `github.com/dsx-ai-factory/nke/agent`
+**Module:** `github.com/dsx-ai-factory/nvke/agent`
 
 ## Quick start
 
@@ -30,12 +30,12 @@ Install a release tarball on a node (as root):
 
 1. Extract the package on the host
 2. Run `scripts/agent-installer.sh` (or the bundled installer from the release)
-3. Configure flags via `/etc/default/nke-agent` (see below)
+3. Configure flags via `/etc/default/nvke-agent` (see below)
 
 ## Configuration
 
 Copy `config.env.example` → `config.env` (gitignored) for local build/publish
-overrides. On nodes, set flags via `/etc/default/nke-agent`.
+overrides. On nodes, set flags via `/etc/default/nvke-agent`.
 
 Important flags (also settable via env; see `AGENT_ARGS`):
 
@@ -58,7 +58,7 @@ AGENT_ARGS="--disable-mtls"
 # Optional: enable legacy HTTP/OCI bundle installs
 AGENT_ARGS="--bundle-server-url https://artifacts.example.com/ --disable-mtls"
 # OCI bundles:
-# AGENT_ARGS="--bundle-server-url oci://registry.example.com/nke/bundles --disable-mtls"
+# AGENT_ARGS="--bundle-server-url oci://registry.example.com/nvke/bundles --disable-mtls"
 ```
 
 There is no built-in artifact host. When using bundles, consumers must point the
@@ -72,9 +72,9 @@ gRPC reflection is enabled on the same port (useful with `grpcurl`).
 
 | Path | Purpose |
 |------|---------|
-| `/var/log/nke-agent-audit.log` | Audit log (`--audit-log-file`) |
-| `/var/log/nke-execute-scripts.log` | `ExecuteScript` / `StreamExecuteScript` results |
-| `journalctl -u nke-agent` | Service journal |
+| `/var/log/nvke-agent-audit.log` | Audit log (`--audit-log-file`) |
+| `/var/log/nvke-execute-scripts.log` | `ExecuteScript` / `StreamExecuteScript` results |
+| `journalctl -u nvke-agent` | Service journal |
 
 `GetSupportBundle` returns a tarball with state, journals, and related diagnostics.
 
@@ -84,7 +84,7 @@ gRPC reflection is enabled on the same port (useful with `grpcurl`).
 - **CNI:** `InstallCNI` after packages are present; prefer `noCniInstall: true` on init for new orchestration (legacy in-init CNI remains when `noCniInstall` is false)
 - **Packages / collections:** apt packages, apt repos, bundles, collections
 - **Encryption:** Kubernetes API/etcd encryption-at-rest
-- **Control-plane ops:** graceful shutdown / kube-vip restore, apiserver manifest patch, NKE RBAC apply
+- **Control-plane ops:** graceful shutdown / kube-vip restore, apiserver manifest patch, NVKE RBAC apply
 - **Utilities:** script execution, file upload, support bundle
 
 Full RPC list: `pkg/agent/proto/node_agent.proto` and [docs/DESIGN.md](docs/DESIGN.md).
@@ -157,12 +157,12 @@ see [AGENTS.md](AGENTS.md)). Override with `VERSION=...` when needed.
 ### Binaries (GHCR)
 
 Every commit on `main` and every `agent/vX.Y.Z` tag publishes the binaries to
-`ghcr.io/dsx-ai-factory/nke/agent` as OCI artifacts, joined by a multi-arch index
+`ghcr.io/dsx-ai-factory/nvke/agent` as OCI artifacts, joined by a multi-arch index
 (`.github/workflows/agent-artifact.yml`). Pull one by platform:
 
 ```bash
-oras pull ghcr.io/dsx-ai-factory/nke/agent:v0.3.0 --platform linux/arm64   # release
-oras pull ghcr.io/dsx-ai-factory/nke/agent:edge   --platform linux/amd64   # tip of main
+oras pull ghcr.io/dsx-ai-factory/nvke/agent:v0.3.0 --platform linux/arm64   # release
+oras pull ghcr.io/dsx-ai-factory/nvke/agent:edge   --platform linux/amd64   # tip of main
 ```
 
 These are binaries, **not** container images — `docker pull` will fetch one but
@@ -171,7 +171,7 @@ there is nothing to run. Use `oras`.
 ⚠️ **The path changed twice.** Releases `agent/v0.2.1-rc.1` to `agent/v0.2.1-rc.4`
 were published before the repository moved to `dsx-ai-factory` on 2026-09-12 and
 are at `ghcr.io/nvidia/nke/agent`. Releases up to and including `agent/v0.2.1-rc.0`
-are at the older `ghcr.io/nvidia/nke-agent`. Both are frozen and still serve them.
+are at the older `ghcr.io/nvidia/nvke-agent`. Both are frozen and still serve them.
 
 Tags are `edge`, `sha-<commit>`, and `vX.Y.Z`, each with `-amd64` / `-arm64`
 single-platform variants underneath. These are artifacts, not container images
@@ -186,13 +186,13 @@ not ingest — only `refs/tags/agent/v*`. The same packages are attached as asse
 on the GitHub Release for that tag and published to GHCR as an OCI artifact:
 
 ```bash
-oras pull ghcr.io/dsx-ai-factory/nke/agent-deb:v0.3.0 --platform linux/amd64
+oras pull ghcr.io/dsx-ai-factory/nvke/agent-deb:v0.3.0 --platform linux/amd64
 ```
 
 Apt remains the node install path; the OCI binary above is the same executable
 without the packaging/systemd unit. The reference OS image (`os-image/`) installs the
 `.deb` built from this checkout. The package spec and maintainer scripts live in
-`os-image/packages/nke-agent/packaging/`; `make -C agent deb-amd64` or
+`os-image/packages/nvke-agent/packaging/`; `make -C agent deb-amd64` or
 `deb-arm64` builds it with the shared pinned nfpm.
 
 The intake destination comes from the GitHub `apt-intake` environment

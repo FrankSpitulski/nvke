@@ -16,7 +16,7 @@ import (
 
 	"google.golang.org/grpc/credentials"
 
-	"github.com/dsx-ai-factory/nke/agent/pkg/nkeauth"
+	"github.com/dsx-ai-factory/nvke/agent/pkg/nkeauth"
 )
 
 // authRecordTimeout bounds the base handshake and the record read together.
@@ -65,7 +65,7 @@ func (c *authRecordCredentials) ClientHandshake(
 	token, err := nkeauth.ReadJWT(conn)
 	if err != nil {
 		_ = conn.Close()
-		return nil, nil, fmt.Errorf("reading nke-agent authentication record: %w", err)
+		return nil, nil, fmt.Errorf("reading nvke-agent authentication record: %w", err)
 	}
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		_ = conn.Close()

@@ -13,15 +13,17 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/metrics"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/activities"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/metrics"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/activities"
 )
 
 type HookType string
 
 const (
+	ProvisionNodeWorkflowType = "ProvisionNode"
+
 	BeforeJoinNode   HookType = "before-join"
 	AfterJoinNode    HookType = "after-join"
 	BeforeRemoveNode HookType = "before-remove"
@@ -79,7 +81,7 @@ func ProvisionNode(ctx workflow.Context, input ProvisionNodeInput) error {
 	}
 	recordPhase("capi_create", infraProvisionStart, workflow.Now(ctx))
 
-	if err := provisionNode(ctx, input, labels); err != nil {
+	if err := provisionNode(ctx, input, labels, nodeCtx); err != nil {
 		// Best effort to update the node conditions to indicate the provisioning workflow failed
 		if err := updateNodeProvisioningMessage(ctx, input.NodeID, fmt.Sprintf("Workflow failed: %s", err)); err != nil {
 			logger.Error("failed to update node conditions", "error", err)
@@ -186,7 +188,34 @@ func getNodeProvisioningContext(ctx workflow.Context, nodeID uuid.UUID) (activit
 	return nodeCtx, nil
 }
 
-func provisionNode(ctx workflow.Context, input ProvisionNodeInput, labels nodeMetricLabels) error {
+func ensureNodeAgentVersion(ctx workflow.Context, nodeCtx activities.NodeProvisioningContext) error {
+	// GetVersion checks workflow history, not the node-agent version.
+	// Existing workflows must replay without this new activity.
+	historyVersion := workflow.GetVersion(ctx, "node-agent-before-preflight", workflow.DefaultVersion, 1)
+	if historyVersion == workflow.DefaultVersion {
+		return nil
+	}
+	if nodeCtx.NodeAgentVersion == "" {
+		return nil
+	}
+	var a *activities.Activities
+	input := activities.EnsureNodeAgentVersionInput{
+		NodeID:  nodeCtx.NodeID,
+		Version: nodeCtx.NodeAgentVersion,
+		Method:  nodeCtx.NodeAgentUpdateMethod,
+	}
+	options := workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 10 * time.Second,
+			MaximumInterval: time.Minute,
+			MaximumAttempts: 0, // Retry until the desired agent version runs.
+		},
+	}
+	return workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, options), a.EnsureNodeAgentVersion, input).Get(ctx, nil)
+}
+
+func provisionNode(ctx workflow.Context, input ProvisionNodeInput, labels nodeMetricLabels, nodeCtx activities.NodeProvisioningContext) error {
 	recordPhase := func(phase string, start, end time.Time) {
 		if !workflow.IsReplaying(ctx) {
 			metrics.RecordProvisionPhase(labels.ClusterName, labels.NodeType, phase, end.Sub(start))
@@ -203,6 +232,9 @@ func provisionNode(ctx workflow.Context, input ProvisionNodeInput, labels nodeMe
 	hostPrepStart := workflow.Now(ctx)
 	endHostPrep := func() { recordPhase("host_preparation", hostPrepStart, workflow.Now(ctx)) }
 
+	if err := ensureNodeAgentVersion(ctx, nodeCtx); err != nil {
+		return fmt.Errorf("converging node agent before preflight: %w", err)
+	}
 	if err := waitForNodePreflight(ctx, input.NodeID); err != nil {
 		endHostPrep()
 		return fmt.Errorf("failed to wait for node preflight to succeed: %w", err)
@@ -636,19 +668,19 @@ func joinNode(ctx workflow.Context, nodeID uuid.UUID, boundJoinAttempt bool) (bo
 // nothing, and etcd removal reports success when the name is not a member.
 //
 // It is unconditional rather than gated on a retry count because the
-// NKE controllers start a fresh JoinNode workflow (attempt resets to
+// NVKE controllers start a fresh JoinNode workflow (attempt resets to
 // 1) once a node exhausts its retry budget, so the workflow attempt number is
 // not a reliable "is this a retry" signal -- only node/cluster state is, and
 // unconditional cleanup sidesteps having to read it. Both steps are best-effort
 // so a transient agent failure never fails an otherwise-healthy first
 // join; a genuinely dirty node is simply cleaned again on the next attempt.
 //
-// FIXME: https://github.com/dsx-ai-factory/nke/issues/936 - kubeadm reset belongs in
+// FIXME: https://github.com/dsx-ai-factory/nvke/issues/936 - kubeadm reset belongs in
 // the node-agent, run before every kubeadm join,
 // and is needed for workers too: a worker that partially joins then fails loops
 // on preflight leftovers, because the agent re-runs join without a reset and the
 // worker retry lives in the KubeadmJoin activity loop rather than here. This
-// CWE-side, control-plane-only cleanup is a fallback until the agent does
+// controller-side, control-plane-only cleanup is a fallback until the agent does
 // reset-before-join for all nodes.
 func cleanBeforeControlPlaneRejoin(ctx workflow.Context, nodeID uuid.UUID) {
 	logger := workflow.GetLogger(ctx)
@@ -696,7 +728,7 @@ func cleanBeforeControlPlaneRejoin(ctx workflow.Context, nodeID uuid.UUID) {
 	// Call the activity directly rather than the teardown helper: an empty
 	// condition message tells the activity to skip the condition update, so a
 	// joining node's Deleting condition is never touched (the teardown helper
-	// writes it). Skip the etcd phase -- CWE removed the member above.
+	// writes it). Skip the etcd phase -- the controller removed the member above.
 	resetOptions := workflow.ActivityOptions{
 		StartToCloseTimeout: 7 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{

@@ -49,9 +49,9 @@ goes:
 ```mermaid
 flowchart TB
     S1["1 — Infrastructure<br/>a bare machine, booted and reachable"]
-    S2K["2a — Kubernetes<br/>nkectl bootstrap site"]
-    S2N["2b — the NKE stack<br/>deployed from the staged assets"]
-    S3["3 — Tenant cluster<br/>created through CWE, not through Forge"]
+    S2K["2a — Kubernetes<br/>nvkectl bootstrap site"]
+    S2N["2b — the NVKE stack<br/>deployed from the staged assets"]
+    S3["3 — Tenant cluster<br/>created through the NVKE controller, not through Forge"]
     S4["4 — Node pools<br/>the machines that cluster runs on"]
 
     S1 --> S2K --> S2N --> S3 --> S4
@@ -62,14 +62,14 @@ flowchart TB
 ```
 
 `bootstrap` is the one worth noticing: it stops after vanilla Kubernetes and
-*before* the NKE stack, so it proves `nkectl` can build a cluster on this
+*before* the NVKE stack, so it proves `nvkectl` can build a cluster on this
 hardware without spending the rest of the run on the product.
 
 | Step | Owned by | What it produces |
 |---|---|---|
 | [Infrastructure](#1-forge-infrastructure) | `internal/infra/forge` | One bare machine, booted and reachable |
-| [Site controller](#2-the-site-controller) | `internal/site` | Kubernetes plus the NKE stack on that machine |
-| [Tenant cluster](#3-tenant-clusters) | `tenant_test.go`, CWE | A tenant cluster created through the product API |
+| [Site controller](#2-the-site-controller) | `internal/site` | Kubernetes plus the NVKE stack on that machine |
+| [Tenant cluster](#3-tenant-clusters) | `tenant_test.go`, the controller | A tenant cluster created through the product API |
 | [Node pools](#4-node-pools) | `forgeNodePoolSpecs` | The machines that tenant cluster runs on |
 
 ## 1. Forge infrastructure
@@ -157,33 +157,33 @@ step 1:
 
 ```mermaid
 flowchart TB
-    B1["1 stage nkectl<br/>the binary built from the commit under test"] --> B2
+    B1["1 stage nvkectl<br/>the binary built from the commit under test"] --> B2
     B2["2 stage assets<br/>the deploy path as a tarball, tracked files only"] --> B3
 
     subgraph root [steps 3 to 6 run as root in a login shell, sudo -n -i]
         direction TB
         B3["3 import images<br/>into both containerd namespaces, k8s.io and default"] --> B4
         B4["4 generate site spec<br/>a hosts CSV plus --set for Kubernetes, CNI, SPIRE"] --> B5
-        B5["5 bootstrap site<br/>nkectl bootstrap site"] --> B6
-        B6["6 deploy<br/>the NKE stack from the staged assets"]
+        B5["5 bootstrap site<br/>nvkectl bootstrap site"] --> B6
+        B6["6 deploy<br/>the NVKE stack from the staged assets"]
     end
 ```
 
 A *login* shell, not a plain `sudo`, and the subgraph label is the reason: the
 step titles alone would not tell you why.
 
-1. **stage nkectl** — upload the binary built from the commit under test and
-   run `nkectl version`.
+1. **stage nvkectl** — upload the binary built from the commit under test and
+   run `nvkectl version`.
 2. **stage assets** — upload the deploy path as a tarball, exported from the
    commit under test with tracked files only, so nothing in a working tree
    reaches the node.
 3. **import images** — into *both* containerd namespaces: `k8s.io` for the
    cluster and `default` for the kind bootstrap cluster nerdctl runs.
-4. **generate site spec** — `nkectl generate sitespec` from a hosts CSV
+4. **generate site spec** — `nvkectl generate sitespec` from a hosts CSV
    (`name,ip,tpm_ek_thumbprint`) plus `--set` for the Kubernetes version, the
    CNI, and the SPIRE trust domain.
-5. **bootstrap site** — `nkectl bootstrap site`.
-6. **deploy** — install the NKE stack from the staged assets.
+5. **bootstrap site** — `nvkectl bootstrap site`.
+6. **deploy** — install the NVKE stack from the staged assets.
 
 Steps 3 through 6 run as root in a *login* shell (`sudo -n -i`). Under a plain
 `sudo` the bootstrap's nerdctl inherits the calling user's environment and goes
@@ -195,11 +195,11 @@ handshake error. This mirrors the documented provisioning procedure, which
 brings SPIRE and TPM attestation up in the management-plane install rather than
 at bootstrap.
 
-**Verification is not "nkectl exited 0".** The admin kubeconfig is forwarded
-off the node to the runner, CWE is polled on `/healthz` and then `/api/version`,
+**Verification is not "nvkectl exited 0".** The breakglass admin kubeconfig is forwarded
+off the node to the runner, the controller is polled on `/healthz` and then `/api/version`,
 and the reported version is compared against the candidate's expected version.
 
-**Evidence.** On failure `CollectDiagnostics` tars nkectl's diagnostics
+**Evidence.** On failure `CollectDiagnostics` tars nvkectl's diagnostics
 directory off the node before the machine is released, since nothing else
 preserves it and the release is minutes away. It distinguishes "there is no
 diagnostics directory" — the ordinary case, meaning the deploy worked and the
@@ -219,15 +219,15 @@ place is not covered.
 ## 3. Tenant clusters
 
 The architectural point worth stating plainly: **tenant clusters are created
-through CWE on the site controller, not through the Forge API.** The suite
-posts an `nke.ClusterSpec` with `Backend: BackendNicoForge` naming the org,
+through the controller's API on the site controller machine, not through the Forge API.** The suite
+posts an `nvke.ClusterSpec` with `Backend: BackendNicoForge` naming the org,
 site and VPC; CAPNico inside the cluster is what calls Forge. That keeps the
 lane on the product's own front door rather than a test-only path.
 
 ```mermaid
 flowchart LR
-    SUITE["the suite<br/>posts an nke.ClusterSpec with<br/>Backend: BackendNicoForge"] --> CWE["CWE<br/>on the site controller"]
-    CWE --> CAPN["CAPNico<br/>inside that cluster"]
+    SUITE["the suite<br/>posts an nvke.ClusterSpec with<br/>Backend: BackendNicoForge"] --> CTRL["the NVKE controller<br/>on the site controller machine"]
+    CTRL --> CAPN["CAPNico<br/>inside that cluster"]
     CAPN --> FORGE["the Forge API"]
     SUITE --x FORGE
 ```
@@ -239,26 +239,31 @@ path was broken.
 What the suite passes down is `NodePayloads` — the iPXE script and
 `preKubeadmCommands` rendered by the same `BuildForgeNodePayloads` the site
 node was built from, so tenant nodes are constructed the same way. The
-pre-kubeadm script adds the NKE apt repository and installs `nke-agent`, the
-pinned `nke-kubeadm-distro`, both OVN packages, `openvswitch-switch` and
-`spire-agent`.
+pre-kubeadm script adds the NVKE apt repository and installs the pinned
+`nvke-kubeadm-distro`, both OVN packages and `openvswitch-switch`.
+
+`nvke-agent` and `spire-agent` are deliberately absent. The image builds both
+from the checkout it was baked from and installs them with dpkg, so they are
+the builds under qualification. Installing the repository's own unpinned
+copies would swap a component being qualified for whichever one the suite
+currently holds, without the run saying so.
 
 "Both OVN packages" is load-bearing and was learned on hardware. The agent
-checks that `nke-cni-ovn-charts` is *already installed* and terminates the
+checks that `nvke-cni-ovn-charts` is *already installed* and terminates the
 provisioning workflow when it is not, so installing it afterwards does not
 recover the run.
 
 **No control-plane VIP, and what follows from it.** The spec leaves
-`ControlPlaneVIP` empty, which CWE reads as "do not configure kube-vip". The
+`ControlPlaneVIP` empty, which the controller reads as "do not configure kube-vip". The
 simulator backends advertise a VIP through a BGP speaker the runner hosts, and
 a real site has no equivalent to borrow. So a tenant's API server lives on its
-control-plane node's own address — reachable from the site node, and not from a
+control-plane node's own address — reachable from the site controller machine, and not from a
 CI runner outside the site.
 
 That is what the endpoint relay solves. `tenantRESTConfigAs` is the single
 point at which both tenant client paths resolve an endpoint, so one hook there
 covers every tenant spec. It substitutes a local forward address carried
-through the site node and pins `tls-server-name` to the published host, because
+through the site controller machine and pins `tls-server-name` to the published host, because
 the API server certificate has no `127.0.0.1` SAN. Lanes that share a network
 with their clusters set no relay and talk to the published address directly.
 
@@ -268,7 +273,7 @@ Every hop, since this is the part that reads as magic until you have seen it:
 flowchart LR
     RUN["the CI runner<br/>outside the site entirely"]
     JH["the jump host<br/>the only Teleport-enrolled hop"]
-    SN["the site node<br/>not enrolled, so reachable only through the jump host"]
+    SN["the site controller machine<br/>not enrolled, so reachable only through the jump host"]
     TCP["a tenant's API server<br/>on its own control-plane node, no VIP to borrow"]
 
     RUN -->|Teleport| JH
@@ -280,11 +285,16 @@ flowchart LR
 
 The blocked arrow from the runner is why the relay exists at all, and the
 dotted edge is the relay: a local address on the runner whose traffic comes out
-of the site node.
+of the site controller machine.
 
-**Teardown.** `SweepTenants` deletes every tenant cluster CWE knows about
-before the site node is released, so a tenant is never orphaned by the machine
-its control plane ran on going away.
+**Teardown.** Before the site controller machine is released, `SweepTenants` asks the controller to
+delete every tenant cluster it knows about and waits for each to go, so a
+tenant's Forge instances are not left allocated by the site controller machine going away
+first. The sweep is an attempt, not a guarantee: it runs inside a 20-minute
+budget, and when it fails the site controller machine is released anyway. The run log then
+carries `tenant sweep failed; releasing the site anyway` with the tenants it
+could not delete, and the instances of their tenant control-plane pools and
+tenant worker pools have to be released by hand in the Forge site.
 
 ## 4. Node pools
 
@@ -313,23 +323,21 @@ nico-vms, but none are enabled for `nico-forge`.
 
 **Site controller upgrade and scale.** There are no specs for either. The site
 is a single node, and the upgrade specs act on a tenant cluster's control-plane
-version through CWE.
+version through the controller.
 
-**GPUs.** `gpu.l40sx8` is declared in `environments/forge.yaml` and the
-capability match would select it, but three things stand between that and a
-meaningful GPU test:
+**GPUs.** A run names the accelerator its workers need with `-e2e.capabilities
+gpu=<model>`, and the lane has qualified a GB200 tenant at ytl on both amd64
+and arm64 CPU nodes.
 
-- The lane passes no `-e2e.capabilities`, so the match is vacuous — every type
-  satisfies an empty request and the first declared type always wins. The
-  selection machinery has never actually selected anything.
-- One capability set is resolved per run and applied to every pool, so "CPU
-  control plane, GPU workers" cannot be expressed through capabilities. The
-  supported route is pinning `InstanceTypeID` on the worker pool, as the
-  nico-vms entries already do.
+`Resolve` returns two shapes rather than one, so "CPU control plane, GPU
+workers" is expressed through capabilities rather than by pinning
+`InstanceTypeID`. `arch` applies to the CPU machines alone, because that is
+the one a caller chooses: a GPU model already determines its own architecture,
+so asking for both could only contradict the hardware.
+
+One thing still stands between that and a meaningful GPU test:
+
 - Nothing in the deploy path installs a GPU operator or device plugin, so a GPU
-  node would come up Ready without advertising `nvidia.com/gpu`. A test written
-  today would prove the machine schedules, not that a GPU workload runs.
-
-Site capacity also constrains this: the declared site offers no GB200. The
-sites that have that capacity attach an interface by VPC prefix rather than by
-subnet, and the environment schema has no prefix alternative yet.
+  node comes up Ready without advertising `nvidia.com/gpu`. What has been
+  proved is that the machines provision, join and release cleanly, not that a
+  GPU workload runs.

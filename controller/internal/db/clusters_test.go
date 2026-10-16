@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 func TestListClusters(t *testing.T) {
@@ -205,7 +205,7 @@ func TestControlPlaneConfigFromNodePool(t *testing.T) {
 
 		assert.Nil(t, db.ControlPlaneConfigFromNodePool(nil))
 		worker := &db.NodePool{ControlPlane: false}
-		worker.SetNico(db.NicoNodePoolProvider{OSProfile: "os"})
+		worker.SetNico(db.NicoNodePoolProvider{Release: "os"})
 		assert.Nil(t, db.ControlPlaneConfigFromNodePool(worker))
 	})
 
@@ -217,7 +217,7 @@ func TestControlPlaneConfigFromNodePool(t *testing.T) {
 		np := &db.NodePool{
 			ControlPlane:                true,
 			DesiredCount:                3,
-			NodeLabels:                  []string{"role=cp"},
+			NodeLabels:                  map[string]string{"role": "cp"},
 			SystemReservedMemory:        "8Gi",
 			KubeReservedMemory:          "250Mi",
 			TeleportEnabled:             true,
@@ -230,8 +230,8 @@ func TestControlPlaneConfigFromNodePool(t *testing.T) {
 			SubnetIDs:             []uuid.UUID{sub},
 			VpcPrefixIDs:          []uuid.UUID{},
 			SSHKeyGroupIDs:        []uuid.UUID{},
-			OSProfile:             "nke-test-os",
-			ConfigProfile:         "nke-test-cfg",
+			Release:               "nvke-test-os",
+			ConfigProfile:         "nvke-test-cfg",
 			DiskSelectionStrategy: db.DiskSelectionStrategyLargest,
 		})
 
@@ -239,14 +239,14 @@ func TestControlPlaneConfigFromNodePool(t *testing.T) {
 		require.NotNil(t, cfg)
 		assert.Equal(t, 3, cfg.DesiredCount)
 		assert.Equal(t, "250Mi", cfg.KubeReservedMemory)
-		assert.Equal(t, []string{"role=cp"}, cfg.NodeLabels)
+		assert.Equal(t, map[string]string{"role": "cp"}, cfg.NodeLabels)
 		assert.True(t, cfg.TeleportEnabled)
 		assert.True(t, cfg.ProvisioningMonitorDisabled)
 		assert.Equal(t, "1.31.0", cfg.KubernetesVersion)
 		// Typed Nico provider carries all provider-specific fields.
 		require.NotNil(t, cfg.Nico)
-		assert.Equal(t, "nke-test-os", cfg.Nico.OSProfile)
-		assert.Equal(t, "nke-test-cfg", cfg.Nico.ConfigProfile)
+		assert.Equal(t, "nvke-test-os", cfg.Nico.Release)
+		assert.Equal(t, "nvke-test-cfg", cfg.Nico.ConfigProfile)
 		assert.Equal(t, db.DiskSelectionStrategyLargest, cfg.Nico.DiskSelectionStrategy)
 		assert.Equal(t, []uuid.UUID{sub}, cfg.Nico.SubnetIDs)
 		assert.Equal(t, []uuid.UUID{inst}, cfg.Nico.InstanceTypePreference)
@@ -260,7 +260,7 @@ func TestControlPlaneConfigFromNodePool(t *testing.T) {
 		np := &db.NodePool{
 			ControlPlane:                true,
 			DesiredCount:                2,
-			NodeLabels:                  []string{"role=cp"},
+			NodeLabels:                  map[string]string{"role": "cp"},
 			SystemReservedMemory:        "8Gi",
 			KubeReservedMemory:          "250Mi",
 			TeleportEnabled:             true,
@@ -304,7 +304,7 @@ func TestMergeControlPlaneConfigFromNodePools(t *testing.T) {
 		DesiredCount:                3,
 		Name:                        "gpu-control-plane",
 		NodeNamePrefix:              "cp-",
-		NodeLabels:                  []string{"a=1"},
+		NodeLabels:                  map[string]string{"a": "1"},
 		TeleportEnabled:             false,
 		ProvisioningMonitorDisabled: true,
 		MaxSurge:                    1,
@@ -316,7 +316,7 @@ func TestMergeControlPlaneConfigFromNodePools(t *testing.T) {
 		InstanceTypeID:        instA,
 		SubnetIDs:             []uuid.UUID{sub1},
 		VpcPrefixIDs:          []uuid.UUID{},
-		OSProfile:             "os-a",
+		Release:               "os-a",
 		ConfigProfile:         "cfg-a",
 		DiskSelectionStrategy: db.DiskSelectionStrategySmallest,
 	})
@@ -325,7 +325,7 @@ func TestMergeControlPlaneConfigFromNodePools(t *testing.T) {
 		DesiredCount:      2,
 		Name:              "cpu-control-plane",
 		NodeNamePrefix:    "cp2-",
-		NodeLabels:        []string{"b=2"},
+		NodeLabels:        map[string]string{"b": "2"},
 		TeleportEnabled:   true,
 		MaxSurge:          0,
 		KubernetesVersion: "1.31.0",
@@ -335,7 +335,7 @@ func TestMergeControlPlaneConfigFromNodePools(t *testing.T) {
 		InstanceTypeID:        instB,
 		SubnetIDs:             []uuid.UUID{sub1, sub2},
 		VpcPrefixIDs:          []uuid.UUID{},
-		OSProfile:             "os-b",
+		Release:               "os-b",
 		ConfigProfile:         "cfg-b",
 		DiskSelectionStrategy: db.DiskSelectionStrategyLargest,
 	})
@@ -344,13 +344,13 @@ func TestMergeControlPlaneConfigFromNodePools(t *testing.T) {
 	cfg := db.MergeControlPlaneConfigFromNodePools([]db.NodePool{p2, p1})
 	require.NotNil(t, cfg)
 	assert.Equal(t, 5, cfg.DesiredCount)
-	assert.ElementsMatch(t, []string{"a=1", "b=2"}, cfg.NodeLabels)
+	assert.Equal(t, map[string]string{"a": "1", "b": "2"}, cfg.NodeLabels)
 	assert.True(t, cfg.TeleportEnabled)
 	assert.True(t, cfg.ProvisioningMonitorDisabled)
 	assert.Equal(t, 0, cfg.MaxSurge)
 	// Typed Nico provider in the merged snapshot has the aggregated fields.
 	require.NotNil(t, cfg.Nico)
-	assert.Equal(t, "os-b", cfg.Nico.OSProfile)
+	assert.Equal(t, "os-b", cfg.Nico.Release)
 	assert.Equal(t, "cfg-b", cfg.Nico.ConfigProfile)
 	assert.Equal(t, db.DiskSelectionStrategyLargest, cfg.Nico.DiskSelectionStrategy)
 	assert.Equal(t, []uuid.UUID{sub1, sub2}, cfg.Nico.SubnetIDs)
@@ -373,10 +373,10 @@ func TestMergeControlPlaneConfigFromNodePools_InstanceTypeOrderOldestFirst(t *te
 
 	// Newest first (required contract); resulting instance preference must be oldest-first.
 	pools := []db.NodePool{
-		{ControlPlane: true, Name: "mixed", DesiredCount: 1, Nico: &db.NicoNodePoolProvider{InstanceTypeID: instOther, OSProfile: "os", ConfigProfile: "cfg"}, CreatedAt: now.Add(3 * time.Second)},
-		{ControlPlane: true, Name: "cpu-cp", DesiredCount: 1, Nico: &db.NicoNodePoolProvider{InstanceTypeID: instCPU, OSProfile: "os", ConfigProfile: "cfg"}, CreatedAt: now.Add(2 * time.Second)},
-		{ControlPlane: true, Name: "storage-cp", DesiredCount: 1, Nico: &db.NicoNodePoolProvider{InstanceTypeID: instStorage, OSProfile: "os", ConfigProfile: "cfg"}, CreatedAt: now.Add(time.Second)},
-		{ControlPlane: true, Name: "gpu-cp", DesiredCount: 1, Nico: &db.NicoNodePoolProvider{InstanceTypeID: instGPU, OSProfile: "os", ConfigProfile: "cfg"}, CreatedAt: now},
+		{ControlPlane: true, Name: "mixed", DesiredCount: 1, Nico: &db.NicoNodePoolProvider{InstanceTypeID: instOther, Release: "os", ConfigProfile: "cfg"}, CreatedAt: now.Add(3 * time.Second)},
+		{ControlPlane: true, Name: "cpu-cp", DesiredCount: 1, Nico: &db.NicoNodePoolProvider{InstanceTypeID: instCPU, Release: "os", ConfigProfile: "cfg"}, CreatedAt: now.Add(2 * time.Second)},
+		{ControlPlane: true, Name: "storage-cp", DesiredCount: 1, Nico: &db.NicoNodePoolProvider{InstanceTypeID: instStorage, Release: "os", ConfigProfile: "cfg"}, CreatedAt: now.Add(time.Second)},
+		{ControlPlane: true, Name: "gpu-cp", DesiredCount: 1, Nico: &db.NicoNodePoolProvider{InstanceTypeID: instGPU, Release: "os", ConfigProfile: "cfg"}, CreatedAt: now},
 	}
 	cfg := db.MergeControlPlaneConfigFromNodePools(pools)
 	require.NotNil(t, cfg)
@@ -399,7 +399,7 @@ func TestMergeControlPlaneConfigFromNodePools_CAPIPools(t *testing.T) {
 		ControlPlane:      true,
 		DesiredCount:      3,
 		Name:              "capi-cp-a",
-		NodeLabels:        []string{"a=1"},
+		NodeLabels:        map[string]string{"a": "1"},
 		TeleportEnabled:   false,
 		KubernetesVersion: "1.31.0",
 		CreatedAt:         t1,
@@ -414,7 +414,7 @@ func TestMergeControlPlaneConfigFromNodePools_CAPIPools(t *testing.T) {
 		ControlPlane:      true,
 		DesiredCount:      2,
 		Name:              "capi-cp-b",
-		NodeLabels:        []string{"b=2"},
+		NodeLabels:        map[string]string{"b": "2"},
 		TeleportEnabled:   true,
 		KubernetesVersion: "1.31.0",
 		CreatedAt:         t2,
@@ -431,7 +431,7 @@ func TestMergeControlPlaneConfigFromNodePools_CAPIPools(t *testing.T) {
 
 	// Counts and labels aggregate across all pools.
 	assert.Equal(t, 5, cfg.DesiredCount)
-	assert.ElementsMatch(t, []string{"a=1", "b=2"}, cfg.NodeLabels)
+	assert.Equal(t, map[string]string{"a": "1", "b": "2"}, cfg.NodeLabels)
 	assert.True(t, cfg.TeleportEnabled)
 
 	// Typed Capi provider carries all aggregated and scalar fields.
@@ -486,7 +486,7 @@ func TestSyncClusterControlPlaneConfigFromCPNodePools_NoActiveCPPools(t *testing
 				NodeNamePrefix:       "cp",
 				SystemReservedMemory: "1Gi",
 				ControlPlane:         true,
-				NodeLabels:           []string{},
+				NodeLabels:           map[string]string{},
 				KubernetesVersion:    "1.34.2",
 				Conditions: db.NodePoolConditions{
 					Deleting: db.Condition{Status: db.ConditionStatusTrue},
@@ -496,7 +496,7 @@ func TestSyncClusterControlPlaneConfigFromCPNodePools_NoActiveCPPools(t *testing
 					VpcPrefixIDs:          []uuid.UUID{},
 					InstanceTypeID:        uuid.Nil,
 					SSHKeyGroupIDs:        []uuid.UUID{},
-					OSProfile:             "",
+					Release:               "",
 					ConfigProfile:         "",
 					DiskSelectionStrategy: "",
 				},
@@ -518,8 +518,8 @@ func TestSyncClusterControlPlaneConfigFromCPNodePools_NoActiveCPPools(t *testing
 // Note: GetClusterForUpdate uses SQL SELECT ... FOR UPDATE which is
 // Postgres-only; SQLite (used by SetupDB) rejects the syntax. Matches the
 // existing GetNodePoolForUpdate pattern — no SQLite unit test. The behavior
-// is exercised via MockTx in server-layer tests and end-to-end via the
-// CAPD/Tilt local stack.
+// is exercised via MockTx in server-layer tests and against PostgreSQL in
+// e2e/gofail/cluster_condition_locking_test.go.
 
 func TestSyncClusterControlPlaneConfigFromCPNodePools_PreservesClusterOverrides(t *testing.T) {
 	t.Parallel()
@@ -573,7 +573,7 @@ func TestSyncClusterControlPlaneConfigFromCPNodePools_PreservesClusterOverrides(
 		NodeNamePrefix:       "cp",
 		SystemReservedMemory: "1Gi",
 		ControlPlane:         true,
-		NodeLabels:           []string{},
+		NodeLabels:           map[string]string{},
 		KubernetesVersion:    "1.34.2",
 		MaxSurge:             0,
 		Conditions: db.NodePoolConditions{
@@ -583,7 +583,7 @@ func TestSyncClusterControlPlaneConfigFromCPNodePools_PreservesClusterOverrides(
 	cpPool.SetNico(db.NicoNodePoolProvider{
 		InstanceTypeID:        poolInst,
 		SSHKeyGroupIDs:        []uuid.UUID{},
-		OSProfile:             "os",
+		Release:               "os",
 		ConfigProfile:         "cfg",
 		SubnetIDs:             []uuid.UUID{},
 		VpcPrefixIDs:          []uuid.UUID{},
@@ -622,7 +622,7 @@ func TestLoadClusterControlPlaneConfig_LoadsSnapshotConfig(t *testing.T) {
 	snapshotCfg := db.ControlPlaneConfigSpec{
 		ProvisioningMonitorDisabled: true,
 		Nico: &db.NicoControlPlaneProvider{
-			OSProfile:              "ubuntu-24",
+			Release:                "ubuntu-24",
 			DiskSelectionStrategy:  db.DiskSelectionStrategyLargest,
 			ConfigProfile:          "cp-default",
 			InstanceTypePreference: []uuid.UUID{uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001")},
@@ -655,7 +655,7 @@ func TestLoadClusterControlPlaneConfig_LoadsSnapshotConfig(t *testing.T) {
 	assert.Equal(t, 1, got.ControlPlaneConfig.MaxSurge)
 	gotNico, err := got.ControlPlaneConfig.NicoProvider()
 	require.NoError(t, err)
-	assert.Equal(t, "ubuntu-24", gotNico.OSProfile)
+	assert.Equal(t, "ubuntu-24", gotNico.Release)
 	assert.Equal(t, db.DiskSelectionStrategyLargest, gotNico.DiskSelectionStrategy)
 	assert.Equal(t, "cp-default", gotNico.ConfigProfile)
 	assert.True(t, got.ControlPlaneConfig.ProvisioningMonitorDisabled)
@@ -678,7 +678,7 @@ func TestCreateControlPlaneConfigRowIfChanged_NoOpWhenUnchanged(t *testing.T) {
 
 	snapshotCfg := db.ControlPlaneConfigSpec{
 		Nico: &db.NicoControlPlaneProvider{
-			OSProfile:             "ubuntu-24",
+			Release:               "ubuntu-24",
 			DiskSelectionStrategy: db.DiskSelectionStrategySmallest,
 			ConfigProfile:         "cp-default",
 		},
@@ -696,7 +696,7 @@ func TestCreateControlPlaneConfigRowIfChanged_NoOpWhenUnchanged(t *testing.T) {
 
 	count, err := bunDB.NewSelect().TableExpr("control_plane_configurations").Count(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 1, count)
+	assert.Equal(t, int64(1), count)
 }
 
 func TestCreateControlPlaneConfigRowIfChanged_CreatesRowWhenDiskStrategyChanges(t *testing.T) {
@@ -716,7 +716,7 @@ func TestCreateControlPlaneConfigRowIfChanged_CreatesRowWhenDiskStrategyChanges(
 
 	initial := db.ControlPlaneConfigSpec{
 		Nico: &db.NicoControlPlaneProvider{
-			OSProfile:             "ubuntu-24",
+			Release:               "ubuntu-24",
 			ConfigProfile:         "cp-default",
 			DiskSelectionStrategy: db.DiskSelectionStrategySmallest,
 		},
@@ -742,5 +742,5 @@ func TestCreateControlPlaneConfigRowIfChanged_CreatesRowWhenDiskStrategyChanges(
 
 	count, err := bunDB.NewSelect().TableExpr("control_plane_configurations").Count(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 2, count)
+	assert.Equal(t, int64(2), count)
 }

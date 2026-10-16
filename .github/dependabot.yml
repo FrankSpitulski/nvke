@@ -34,7 +34,7 @@ updates:
       #
       #   k8s.io/api | dependency_file_not_resolvable
       #     go: finding module for package k8s.io/api/autoscaling/v2beta1
-      #     github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube imports
+      #     github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube imports
       #       k8s.io/client-go/kubernetes/scheme imports
       #       k8s.io/api/autoscaling/v2beta1
       kubernetes:
@@ -87,14 +87,23 @@ updates:
       # import in nico-sim rewritten rather than go.mod edited.
       - dependency-name: "github.com/NVIDIA/ncx-infra-controller-rest"
 
+      # Since the go 1.27.1 toolchain the updater reads the module path of
+      # github.com/google/cel-go as "downloading" (go_module_path_mismatch; the
+      # real path is cel.dev/cel-go) and marks every gomod run red, although it
+      # still updates the group PR. Nothing here requires cel-go directly.
+      - dependency-name: "github.com/google/cel-go"
+
   # Dockerfiles anywhere in the tree (controller/, controller/hack/*, agent/, ...).
   #
   # This only reaches an image named on a FROM. Two forms in this tree are
   # invisible to it: a variable registry (FROM ${BASE_REGISTRY}/alpine:3.24.1)
   # and an image named through an ARG (ARG ALPINE_IMAGE=docker.io/alpine:...).
   # The second one matters -- it is how the two published images name their
-  # golang and alpine bases, so those digests are bumped by hand. Recorded with
-  # the evidence in the header of hack/base-image-check.sh.
+  # golang and alpine bases. Those digests are followed by
+  # .github/workflows/base-image-digests.yml instead, which re-resolves the tag
+  # weekly and opens a pull request when it has been republished. Tag bumps
+  # there are still manual. Recorded with the evidence in the header of
+  # hack/base-image-check.sh.
   - package-ecosystem: docker
     directories:
       - "/**/*"
@@ -108,9 +117,15 @@ updates:
         patterns:
           - "*"
     ignore:
+      # registry.k8s.io images: Dependabot cannot query that registry anonymously.
+      - dependency-name: "dns/k8s-dns-node-cache"
+      - dependency-name: "kube-state-metrics/kube-state-metrics"
       # Keep the Go minor version fixed. Patch bumps such as 1.26.6 to 1.26.7
-      # still come through. A minor bump such as 1.26 to 1.27 also needs the
-      # go directive in every go.mod to move, so we do that by hand.
+      # still come through, and land red: go.work owns the version, so a bump
+      # here fails `make go-version-check` until go.work moves with it. Run
+      # `make go-version-sync` to carry it into every go.mod. A minor bump such
+      # as 1.26 to 1.27 is the same mechanics plus a decision, so we do that by
+      # hand. See docs/go-workspace.md, "The Go version".
       - dependency-name: "golang"
         update-types:
           - "version-update:semver-major"

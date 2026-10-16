@@ -12,10 +12,11 @@ import (
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/sdk/client"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/workflows"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/otelx"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/workflows"
 )
 
 // reconcileRequestedDeletes turns accepted control-plane node deletes into
@@ -34,10 +35,6 @@ func (r *reconciler) reconcileRequestedDeletes(
 	cluster db.Cluster,
 	cp *controlPlane,
 ) (bool, error) {
-	if !r.cfg.UseControlPlaneControllerForControlPlane() {
-		return false, nil
-	}
-
 	requested := cp.nodesWithDeleteRequested()
 
 	logger := r.logger.With(
@@ -98,12 +95,12 @@ func (r *reconciler) reconcileRequestedDeletes(
 // etcd member removal succeeds when the member is absent -- so a second run
 // picks up wherever the first stopped.
 func (r *reconciler) restartFailedTeardown(ctx context.Context, node db.Node) (bool, error) {
-	if r.cweTemporalClient == nil {
+	if r.controllerTemporalClient == nil {
 		return false, nil
 	}
 
 	workflowID := constants.TeardownNodeWorkflowPrefix + node.ID.String()
-	desc, err := r.cweTemporalClient.DescribeWorkflowExecution(ctx, workflowID, "")
+	desc, err := r.controllerTemporalClient.DescribeWorkflowExecution(ctx, workflowID, "")
 	if err != nil {
 		if isWorkflowNotFoundError(err) {
 			// The outbox has not delivered the start yet. Leave it alone.
@@ -120,21 +117,30 @@ func (r *reconciler) restartFailedTeardown(ctx context.Context, node db.Node) (b
 		return false, err
 	}
 
-	run, err := r.cweTemporalClient.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+	ctx, span := otelx.StartWorkflowSpan(ctx, otelx.WorkflowStart, otelx.WorkflowAttributes{
+		WorkflowType: constants.TeardownNodeWorkflowType,
+		WorkflowID:   workflowID,
+		ClusterID:    node.ClusterID,
+		NodePoolID:   node.NodePoolID,
+		NodeID:       node.ID,
+		NodeName:     node.Name,
+	})
+	run, err := r.controllerTemporalClient.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:                       workflowID,
 		TaskQueue:                r.cfg.TemporalTaskQueue,
 		WorkflowIDConflictPolicy: enums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 		WorkflowIDReusePolicy:    enums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY,
 	}, workflows.TeardownNode, input)
+	otelx.EndWorkflowSpan(span, err)
 	if err != nil {
 		return false, fmt.Errorf("restarting teardown workflow for node %s (%s): %w", node.ID, node.Name, err)
 	}
 
-	r.logger.Warn("Restarted a control-plane node teardown whose workflow closed without completing",
-		"nodeID", node.ID,
-		"nodeName", node.Name,
-		"workflowID", run.GetID(),
-		"runID", run.GetRunID(),
+	r.logger.WarnContext(ctx, "Restarted a control-plane node teardown whose workflow closed without completing",
+		"node_id", node.ID,
+		"node_name", node.Name,
+		"workflow_id", workflowID,
+		"run_id", run.GetRunID(),
 	)
 	return true, nil
 }

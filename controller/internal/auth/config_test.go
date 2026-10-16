@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/auth"
+	"github.com/dsx-ai-factory/nvke/controller/internal/auth"
 )
 
 // configHeader is the apiVersion/kind preamble every valid file carries.
@@ -457,8 +457,12 @@ issuers:
 		wantErr string
 	}{
 		{
-			name:   "the supported pair loads",
+			name:   "the legacy apiVersion loads",
 			header: configHeader,
+		},
+		{
+			name:   "the current apiVersion loads",
+			header: "apiVersion: " + auth.ConfigAPIVersion + "\nkind: AuthenticationConfiguration\n",
 		},
 		{
 			name:    "apiVersion absent",
@@ -496,7 +500,7 @@ issuers:
 			cfg, err := auth.Load(writeConfig(t, tt.header+body))
 			if tt.wantErr == "" {
 				require.NoError(t, err)
-				assert.Equal(t, auth.ConfigAPIVersion, cfg.APIVersion)
+				assert.Contains(t, []string{auth.ConfigAPIVersion, auth.ConfigAPIVersionLegacy}, cfg.APIVersion)
 				assert.Equal(t, auth.ConfigKind, cfg.Kind)
 				return
 			}

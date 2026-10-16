@@ -22,11 +22,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/auth"
+	"github.com/dsx-ai-factory/nvke/controller/internal/auth"
 )
 
 // errUnknownKeyID is deliberately an ordinary error, not auth.ErrKeysStale: an
-// unknown kid means the token is wrong, not that CWE's key set is.
+// unknown kid means the token is wrong, not that the controller's key set is.
 var errUnknownKeyID = errors.New("static key source: unknown key id")
 
 const (

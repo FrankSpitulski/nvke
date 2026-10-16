@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -16,26 +17,26 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nvkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/agent/agenttest"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/agent/agenttest"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 func TestRenewKubernetesCertificatesTypedHappyPath(t *testing.T) {
-	node := certificateRenewalTestNode()
+	node := pooledCertificateRenewalTestNode()
 	database := &testutil.MockDB{}
 	database.On("GetNode", mock.Anything, node.ID).Return(node, nil).Once()
 	fakeAgent := &agenttest.FakeClient{
-		StartKubernetesCertificateRenewalHook: func(_ db.Node, req *nkeproto.StartKubernetesCertificateRenewalRequest) (*nkeproto.StartKubernetesCertificateRenewalResponse, error) {
+		StartKubernetesCertificateRenewalHook: func(_ db.Node, req *nvkeproto.StartKubernetesCertificateRenewalRequest) (*nvkeproto.StartKubernetesCertificateRenewalResponse, error) {
 			require.Equal(t, "stable-operation", req.GetOperationId())
 			require.Equal(t, int32(14), req.GetThresholdDays())
 			return certificateRenewalStartResponse(
 				req.GetOperationId(),
-				nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_SUCCEEDED,
-				nkeproto.KubernetesCertificateRenewalOperation_OUTCOME_RENEWED,
+				nvkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_SUCCEEDED,
+				nvkeproto.KubernetesCertificateRenewalOperation_OUTCOME_RENEWED,
 				"",
 			), nil
 		},
@@ -57,36 +58,36 @@ func TestRenewKubernetesCertificatesTypedHappyPath(t *testing.T) {
 func TestRenewKubernetesCertificatesFallbackBoundary(t *testing.T) {
 	tests := []struct {
 		name         string
-		startHook    func(db.Node, *nkeproto.StartKubernetesCertificateRenewalRequest) (*nkeproto.StartKubernetesCertificateRenewalResponse, error)
-		statusHook   func(db.Node, *nkeproto.GetKubernetesCertificateRenewalStatusRequest) (*nkeproto.GetKubernetesCertificateRenewalStatusResponse, error)
+		startHook    func(db.Node, *nvkeproto.StartKubernetesCertificateRenewalRequest) (*nvkeproto.StartKubernetesCertificateRenewalResponse, error)
+		statusHook   func(db.Node, *nvkeproto.GetKubernetesCertificateRenewalStatusRequest) (*nvkeproto.GetKubernetesCertificateRenewalStatusResponse, error)
 		wantFallback bool
 		wantError    string
 	}{
 		{
 			name: "wrapped start unimplemented uses legacy runbook",
-			startHook: func(db.Node, *nkeproto.StartKubernetesCertificateRenewalRequest) (*nkeproto.StartKubernetesCertificateRenewalResponse, error) {
+			startHook: func(db.Node, *nvkeproto.StartKubernetesCertificateRenewalRequest) (*nvkeproto.StartKubernetesCertificateRenewalResponse, error) {
 				return nil, fmt.Errorf("wrapped: %w", status.Error(codes.Unimplemented, "unknown method"))
 			},
 			wantFallback: true,
 		},
 		{
 			name: "supported start failure propagates",
-			startHook: func(db.Node, *nkeproto.StartKubernetesCertificateRenewalRequest) (*nkeproto.StartKubernetesCertificateRenewalResponse, error) {
+			startHook: func(db.Node, *nvkeproto.StartKubernetesCertificateRenewalRequest) (*nvkeproto.StartKubernetesCertificateRenewalResponse, error) {
 				return nil, status.Error(codes.Internal, "cannot persist operation")
 			},
 			wantError: "cannot persist operation",
 		},
 		{
 			name: "status unimplemented after accepted start does not fall back",
-			startHook: func(_ db.Node, req *nkeproto.StartKubernetesCertificateRenewalRequest) (*nkeproto.StartKubernetesCertificateRenewalResponse, error) {
+			startHook: func(_ db.Node, req *nvkeproto.StartKubernetesCertificateRenewalRequest) (*nvkeproto.StartKubernetesCertificateRenewalResponse, error) {
 				return certificateRenewalStartResponse(
 					req.GetOperationId(),
-					nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_RUNNING,
-					nkeproto.KubernetesCertificateRenewalOperation_OUTCOME_UNSPECIFIED,
+					nvkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_RUNNING,
+					nvkeproto.KubernetesCertificateRenewalOperation_OUTCOME_UNSPECIFIED,
 					"",
 				), nil
 			},
-			statusHook: func(db.Node, *nkeproto.GetKubernetesCertificateRenewalStatusRequest) (*nkeproto.GetKubernetesCertificateRenewalStatusResponse, error) {
+			statusHook: func(db.Node, *nvkeproto.GetKubernetesCertificateRenewalStatusRequest) (*nvkeproto.GetKubernetesCertificateRenewalStatusResponse, error) {
 				return nil, status.Error(codes.Unimplemented, "unknown status method")
 			},
 			wantError: "accepted certificate renewal operation",
@@ -95,7 +96,7 @@ func TestRenewKubernetesCertificatesFallbackBoundary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node := certificateRenewalTestNode()
+			node := pooledCertificateRenewalTestNode()
 			database := &testutil.MockDB{}
 			database.On("GetNode", mock.Anything, node.ID).Return(node, nil).Once()
 			cfg := config.Config{}
@@ -113,10 +114,10 @@ func TestRenewKubernetesCertificatesFallbackBoundary(t *testing.T) {
 			fakeAgent := &agenttest.FakeClient{
 				StartKubernetesCertificateRenewalHook: tt.startHook,
 				GetKubernetesCertificateRenewalHook:   tt.statusHook,
-				ExecuteScriptHook: func(_ db.Node, name, script string) (*nkeproto.ExecuteScriptResponse, error) {
+				ExecuteScriptHook: func(_ db.Node, name, script string) (*nvkeproto.ExecuteScriptResponse, error) {
 					require.Equal(t, legacyKubernetesCertificateRenewalRunbook, name)
 					require.Contains(t, script, "export THRESHOLD_DAYS='7'")
-					return &nkeproto.ExecuteScriptResponse{Output: "legacy success"}, nil
+					return &nvkeproto.ExecuteScriptResponse{Output: "legacy success"}, nil
 				},
 			}
 			a := &Activities{cfg: cfg, db: database, nodeAgentClient: fakeAgent}
@@ -140,8 +141,8 @@ func TestRenewKubernetesCertificatesFallbackBoundary(t *testing.T) {
 func TestCertificateRenewalTerminalFailureIncludesStructuredOutcome(t *testing.T) {
 	operation := certificateRenewalStartResponse(
 		"failed-operation",
-		nkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_FAILED,
-		nkeproto.KubernetesCertificateRenewalOperation_OUTCOME_FAILED_NOT_RESTORED,
+		nvkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_FAILED,
+		nvkeproto.KubernetesCertificateRenewalOperation_OUTCOME_FAILED_NOT_RESTORED,
 		"manifest conflict",
 	).GetOperation()
 
@@ -172,13 +173,13 @@ func executeCertificateRenewalActivity(
 
 func certificateRenewalStartResponse(
 	operationID string,
-	phase nkeproto.NodeAgentOperationPhase,
-	outcome nkeproto.KubernetesCertificateRenewalOperation_Outcome,
+	phase nvkeproto.NodeAgentOperationPhase,
+	outcome nvkeproto.KubernetesCertificateRenewalOperation_Outcome,
 	errorMessage string,
-) *nkeproto.StartKubernetesCertificateRenewalResponse {
-	return &nkeproto.StartKubernetesCertificateRenewalResponse{
-		Operation: &nkeproto.KubernetesCertificateRenewalOperation{
-			Operation: &nkeproto.NodeAgentOperationStatus{
+) *nvkeproto.StartKubernetesCertificateRenewalResponse {
+	return &nvkeproto.StartKubernetesCertificateRenewalResponse{
+		Operation: &nvkeproto.KubernetesCertificateRenewalOperation{
+			Operation: &nvkeproto.NodeAgentOperationStatus{
 				OperationId:  operationID,
 				Phase:        phase,
 				Step:         "test-step",
@@ -192,5 +193,135 @@ func certificateRenewalStartResponse(
 func certificateRenewalTestNode() db.Node {
 	return db.Node{
 		ID: uuid.New(), ClusterID: uuid.New(), Name: "cp-0", ControlPlane: true,
+	}
+}
+
+// pooledCertificateRenewalTestNode is not managed by the control-plane controller,
+// so the renewal skips cluster admission and the test exercises the agent RPC only.
+func pooledCertificateRenewalTestNode() db.Node {
+	node := certificateRenewalTestNode()
+	node.NodePoolID = uuid.New()
+	return node
+}
+
+func TestRenewalWaitsForAnotherNodesReservation(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		release   bool
+		wantError string
+	}{
+		{name: "reserves once the other node releases", release: true},
+		{name: "gives up after the wait", wantError: "waited"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			node := certificateRenewalTestNode()
+			other := uuid.New()
+			database := &agentAdmissionDatabase{node: node, cluster: db.Cluster{
+				ID:                 node.ClusterID,
+				CertificateRenewal: &db.NodeAgentCertificateRenewal{NodeID: other, OperationID: "other-operation"},
+			}}
+			if test.release {
+				go func() {
+					time.Sleep(20 * time.Millisecond)
+					database.mu.Lock()
+					database.cluster.CertificateRenewal = nil
+					database.mu.Unlock()
+				}()
+			}
+			a := &Activities{db: database}
+			input := KubernetesCertificateRenewalInput{NodeID: node.ID, OperationID: "new-operation", ThresholdDays: 14}
+
+			err := a.awaitCertificateRenewalReservation(t.Context(), node, &input, time.Millisecond, 2*time.Second)
+
+			if test.wantError == "" {
+				require.NoError(t, err)
+				require.Equal(t, node.ID, database.cluster.CertificateRenewal.NodeID)
+				return
+			}
+			require.ErrorIs(t, err, errCertificateRenewalBusy)
+			require.ErrorContains(t, err, test.wantError)
+			require.Equal(t, other, database.cluster.CertificateRenewal.NodeID)
+		})
+	}
+}
+
+func TestRenewalReleasesReservationWhenStartFails(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		response  *nvkeproto.StartKubernetesCertificateRenewalResponse
+		err       error
+		wantError string
+	}{
+		{name: "start RPC fails", err: status.Error(codes.Unavailable, "connection refused"), wantError: "failed to start certificate renewal"},
+		{name: "start returns no operation", response: &nvkeproto.StartKubernetesCertificateRenewalResponse{}, wantError: "empty certificate renewal operation"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			node := certificateRenewalTestNode()
+			database := &agentAdmissionDatabase{node: node, cluster: db.Cluster{ID: node.ClusterID}}
+			fakeAgent := &agenttest.FakeClient{
+				StartKubernetesCertificateRenewalHook: func(db.Node, *nvkeproto.StartKubernetesCertificateRenewalRequest) (*nvkeproto.StartKubernetesCertificateRenewalResponse, error) {
+					require.NotNil(t, database.cluster.CertificateRenewal, "the reservation is held while the RPC runs")
+					return test.response, test.err
+				},
+			}
+			a := &Activities{db: database, nodeAgentClient: fakeAgent}
+
+			_, err := executeCertificateRenewalActivity(t, a, KubernetesCertificateRenewalInput{NodeID: node.ID, OperationID: "new-operation", ThresholdDays: 14})
+
+			require.ErrorContains(t, err, test.wantError)
+			require.Nil(t, database.cluster.CertificateRenewal, "a failed start must not keep the cluster's renewal reservation")
+		})
+	}
+}
+
+func TestRenewalAdmissionAndRecovery(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		upgrade      bool
+		accepted     bool
+		statusError  bool
+		phase        nvkeproto.NodeAgentOperationPhase
+		wantRetained bool
+		wantError    string
+	}{
+		{name: "upgrade blocks renewal before its first RPC", upgrade: true, wantError: "installation is in progress"},
+		{name: "completed renewal releases admission", phase: nvkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_SUCCEEDED},
+		{name: "lost response retains accepted work", statusError: true, phase: nvkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_RUNNING, wantRetained: true, wantError: "connection lost"},
+		{name: "later workflow reattaches to accepted work", accepted: true, phase: nvkeproto.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_SUCCEEDED},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			node := certificateRenewalTestNode()
+			database := &agentAdmissionDatabase{cluster: db.Cluster{ID: node.ClusterID}, node: node}
+			if test.upgrade {
+				database.cluster.NodeAgentUpgrade = &db.NodeAgentUpgrade{NodeID: node.ID, TargetVersion: "v0.1.2", Method: "apt", Phase: "Running"}
+			}
+			if test.accepted {
+				database.cluster.CertificateRenewal = &db.NodeAgentCertificateRenewal{NodeID: node.ID, OperationID: "accepted-operation"}
+			}
+			fake := &agenttest.FakeClient{
+				StartKubernetesCertificateRenewalHook: func(_ db.Node, req *nvkeproto.StartKubernetesCertificateRenewalRequest) (*nvkeproto.StartKubernetesCertificateRenewalResponse, error) {
+					require.False(t, test.upgrade, "renewal must not call the agent during an upgrade")
+					require.True(t, database.mu.TryLock(), "renewal RPC must not hold the database transaction")
+					require.NotNil(t, database.cluster.CertificateRenewal, "record admission before the RPC")
+					require.Equal(t, req.GetOperationId(), database.cluster.CertificateRenewal.OperationID)
+					if test.accepted {
+						require.Equal(t, "accepted-operation", req.GetOperationId())
+					}
+					database.mu.Unlock()
+					return certificateRenewalStartResponse(req.GetOperationId(), test.phase, nvkeproto.KubernetesCertificateRenewalOperation_OUTCOME_RENEWED, ""), nil
+				},
+				GetKubernetesCertificateRenewalHook: func(db.Node, *nvkeproto.GetKubernetesCertificateRenewalStatusRequest) (*nvkeproto.GetKubernetesCertificateRenewalStatusResponse, error) {
+					return nil, status.Error(codes.Unavailable, "connection lost")
+				},
+			}
+			a := &Activities{cfg: config.Config{}, db: database, nodeAgentClient: fake}
+			_, err := executeCertificateRenewalActivity(t, a, KubernetesCertificateRenewalInput{NodeID: node.ID, OperationID: "new-operation", ThresholdDays: 14})
+			if test.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, test.wantError)
+			}
+			require.Equal(t, test.wantRetained, database.cluster.CertificateRenewal != nil)
+		})
 	}
 }

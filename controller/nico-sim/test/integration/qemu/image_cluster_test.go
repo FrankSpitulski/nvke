@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	forgesdk "github.com/NVIDIA/ncx-infra-controller-rest/sdk/standard"
+	forgesdk "github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/test/integration/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/test/integration/testutil"
 )
 
 // TestNKEImageCluster boots the actual reference image in two native VMs and
@@ -35,7 +35,7 @@ func TestNKEImageCluster(t *testing.T) {
 	create := func(role string) string {
 		name := testutil.UniqueInstanceName("nke-" + role)
 		inst := env.CreateInstance(&forgesdk.InstanceCreateRequest{
-			Name: name, TenantId: "d282929f-49d5-4dec-8d27-21ceb30ade19", InstanceTypeId: forgesdk.PtrString("itype-mock-001"), VpcId: "vpc-mock-001",
+			Name: name, TenantId: "d282929f-49d5-4dec-8d27-21ceb30ade19", InstanceTypeId: *forgesdk.NewNullableString(forgesdk.PtrString("itype-mock-001")), VpcId: "vpc-mock-001",
 			Interfaces: []forgesdk.InterfaceCreateRequest{{SubnetId: forgesdk.PtrString("subnet-mock-001")}},
 			UserData:   *forgesdk.NewNullableString(forgesdk.PtrString(testutil.RebootFlowUserData(name))),
 		})

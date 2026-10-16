@@ -11,7 +11,7 @@ development. One server and one API support two lifecycle backends:
 Both backends can run at the same time. They share the catalog, API, and common
 instance records while keeping backend-specific runtime behavior separate.
 
-This service was called `forge-vms` until [#279](https://github.com/dsx-ai-factory/nke/pull/279). The rename is a hard cut with
+This service was called `forge-vms` until [#279](https://github.com/dsx-ai-factory/nvke/pull/279). The rename is a hard cut with
 no compatibility shims, so a host that ran the old build needs a one-time migration.
 
 ## Selecting a backend
@@ -111,7 +111,7 @@ and TPM behavior.
 ### Migrating from `forge-vms`
 
 This service was called `forge-vms` until
-[#279](https://github.com/dsx-ai-factory/nke/pull/279). The rename is a hard cut with no
+[#279](https://github.com/dsx-ai-factory/nvke/pull/279). The rename is a hard cut with no
 compatibility shims, so a host that ran the old build needs a one-time migration.
 
 First destroy any VMs the old build left behind. They are named `forge-vm-*`,
@@ -206,7 +206,7 @@ By default nico-sim's VM backend **owns its networking**: `scripts/setup-linux.s
 - The base image must boot with **DHCP** (the libvirt network runs the DHCP server); network mode forces DHCP regardless of iPXE presence.
 - `NICO_VMS_BGP_ENABLED=false` is **optional** — BGP is auto-skipped in this mode — but setting it makes intent explicit.
 
-**Readiness (no `phone_home`).** Because there is no nico-vms metadata server on the VM's network, cloud-init's `phone_home` can't report back. Drive readiness by **SSH-probing port 22** (fires early in boot) and then polling whatever agent the VM runs. The NKE cluster-bringup driver does exactly this: SSH-probe, then a `WaitForAgent` gRPC poll on the nke-agent port.
+**Readiness (no `phone_home`).** Because there is no nico-vms metadata server on the VM's network, cloud-init's `phone_home` can't report back. Drive readiness by **SSH-probing port 22** (fires early in boot) and then polling whatever agent the VM runs. The NVKE cluster-bringup driver does exactly this: SSH-probe, then a `WaitForAgent` gRPC poll on the nvke-agent port.
 
 **Host prep — `scripts/setup-libvirt-network.sh`.** The network-mode counterpart to `setup-linux.sh`. It (1) ensures the target libvirt network is active, and (2) exempts intra-subnet (VM↔VM) traffic from MASQUERADE by inserting a `RETURN` at the top of the nat `POSTROUTING` chain. Some hosts SNAT inter-VM traffic to the node's own IP — e.g. **AWS EKS via the VPC CNI `AWS-SNAT-CHAIN`**, which masquerades anything not bound for the VPC CIDR. That rewritten source IP breaks IP-bound peer TLS: etcd control-plane joins fail with `"<node-ip>" does not match any of DNSNames [...]`. The `RETURN` preserves the real VM source IPs for VM↔VM traffic while leaving VM→internet NAT intact. The subnet is derived from the network's own XML (not hardcoded), the rule is idempotent, and `--cleanup` removes it (call that from a CI `after_script` so it always runs).
 
@@ -225,7 +225,7 @@ NICO_VMS_BASE_IMAGE=/var/lib/libvirt/images/noble-server-cloudimg-amd64.img \
 scripts/setup-libvirt-network.sh --network default --cleanup
 ```
 
-> This is how the NKE kubeadm `cluster-bringup` test runs its 4-VM HA cluster on the shared GitLab libvirt runner. The kubeadm repo wraps the above in `tests/cluster-bringup/scripts/setup-gitlab-runner.sh`.
+> This is how the NVKE kubeadm `cluster-bringup` test runs its 4-VM HA cluster on the shared GitLab libvirt runner. The kubeadm repo wraps the above in `tests/cluster-bringup/scripts/setup-gitlab-runner.sh`.
 
 ### CIDR ranges
 
@@ -237,12 +237,12 @@ Ranges used by a nico-vms deployment and the tenant clusters it creates — keep
 | Control-plane VIP range | `172.31.0.0/24` | B | tenant API VIPs (off-link, via BGP) | `NICO_VMS_VIP_CIDR` (Tiltfile) |
 | Tenant pod CIDR | `192.168.0.0/16` | C | Calico pods in tenant clusters | defaulted in `internal/server/cluster_network.go` |
 | Tenant service CIDR | `10.96.0.0/12` | A | tenant cluster Services | kubeadm default |
-| kind mgmt network | `172.18.0.0/16` | B | Docker network hosting the nke-controller/Kind management cluster | Kind / Docker |
+| kind mgmt network | assigned by Docker; see the note below | B (C on the `192.168` fallback) | Docker network hosting the nke-controller/Kind management cluster | Kind / Docker |
 
 > **Why `172.30`/`172.31`?** The bridge and VIP ranges are deliberately kept clear of every other consumer:
 > - tenant **pod CIDR** `192.168.0.0/16` (class C, Calico default) — a node or VIP inside it gets shadowed by Calico's per-node `/26` `blackhole` routes;
 > - tenant **service CIDR** `10.96.0.0/12` and the commonly used corporate/VPN `10.0.0.0/8` (class A) — a `10.x` bridge could shadow a real corporate route on the host;
-> - Docker's default pool `172.16.0.0/12` (class B), which fills bottom-up — today only `172.17` (docker0) and `172.18` (kind) are used, so `172.30`/`172.31` (top of the pool) are reached last. If Docker's `default-address-pools` are reconfigured to reach that high, revisit these.
+> - Docker's default address pools (class B, then C). Docker gives each user-defined network the next free `/16` from `172.17.0.0/16` through `172.31.0.0/16`. The `kind` subnet therefore depends on the networks that already exist on the host: `172.18.0.0/16` when `kind` is the first, `172.19.0.0/16` when another network holds `172.18`, and so on. Read the actual value with `docker network inspect kind -f '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' | grep -v :`. The `grep` drops the IPv6 subnet, which can be listed first. Use the inspected value for any address-based rule derived from this row. Docker reaches `172.30`/`172.31` only after it has used `172.17` through `172.29`. After `172.31`, it hands out `/20`s from `192.168.0.0/16`, which overlaps the tenant pod CIDR. Revisit these ranges if a host has that many networks or its `default-address-pools` are reconfigured.
 >
 > The bridge previously lived at `192.168.200.0/24`, *inside* the pod CIDR, which intermittently blackholed nodes whose IP landed in a Calico `/26` (`ip route get <nodeIP>` → `Invalid argument`; apiserver→kubelet dials fail `connect: invalid argument`). The bridge and VIP ranges were moved out of the pod CIDR to fix this, and pod/service CIDRs were made configurable as the complementary root-cause fix.
 
@@ -306,11 +306,11 @@ The diagnostics endpoints execute commands on a running VM over SSH (using the d
 
 | ID | Description | Streamable |
 |---|---|---|
-| `agent-logs` | Node Agent (`nke-agent`) journal logs | Yes |
+| `agent-logs` | Node Agent (`nvke-agent`) journal logs | Yes |
 | `kubelet-logs` | Kubelet journal logs | Yes |
 | `containerd-logs` | Containerd journal logs | Yes |
 | `cloud-init-logs` | Cloud-init journal logs | No |
-| `agent-state` | `/var/lib/nke/state.json` | No |
+| `agent-state` | `/var/lib/nvke/state.json` | No |
 | `kubelet-config` | `/var/lib/kubelet/config.yaml` | No |
 
 ```bash
@@ -366,7 +366,7 @@ parts required by node bootstrap:
 
 The node image replaces `cloud-init` with a small status shim. Calling
 `cloud-init status` reads that file and prints the normal `status: running`,
-`status: done`, or `status: error` contract, so the NKE agent follows the same
+`status: done`, or `status: error` contract, so the NVKE agent follows the same
 wait path it uses on a real node.
 
 ### Reboot simulation
@@ -580,41 +580,41 @@ var/files/
   images/
     custom-image.qcow2
   agent/
-    nke-agent
+    nvke-agent
 ```
 
 Example URLs:
 
 ```text
 http://localhost:18080/files/images/custom-image.qcow2
-http://localhost:18080/files/agent/nke-agent
+http://localhost:18080/files/agent/nvke-agent
 ```
 
-The nico-vms dev OS profile uses `carbide-pxe.forge` inside the VM, so the
+The nico-vms dev release uses `carbide-pxe.forge` inside the VM, so the
 same agent URL becomes:
 
 ```text
-http://carbide-pxe.forge:18080/files/agent/nke-agent
+http://carbide-pxe.forge:18080/files/agent/nvke-agent
 ```
 
-To try a local `nke-agent` build without rebuilding the full node image, build
-the agent and copy it into the file root. From the sibling `agent` repo:
+To try a local `nvke-agent` build without rebuilding the full node image, build
+the agent and copy it into the file root. From the repository root:
 
 ```bash
 cd agent
 make build-amd64
 
-mkdir -p ../cloud-workflow-engine/nico-sim/var/files/agent
-cp bin/linux_amd64/nke-agent ../cloud-workflow-engine/nico-sim/var/files/agent/nke-agent
+mkdir -p ../controller/nico-sim/var/files/agent
+cp bin/linux_amd64/nvke-agent ../controller/nico-sim/var/files/agent/nvke-agent
 ```
 
-The cloud-init pickup command used by `nke-nico-vms-24.04-amd64-fde` is:
+The cloud-init pickup command used by `nvke-nico-vms-24.04-amd64-fde` is:
 
 ```bash
-sh -c 'u=http://carbide-pxe.forge:18080/files/agent/nke-agent; if curl -fsSL "$u" -o /tmp/nke-agent; then install -m 0755 /tmp/nke-agent /usr/local/bin/nke-agent && echo "downloaded local nke-agent" && /usr/local/bin/nke-agent -version; else echo "local nke-agent not available at $u; using image agent"; fi'
+sh -c 'u=http://carbide-pxe.forge:18080/files/agent/nvke-agent; if curl -fsSL "$u" -o /tmp/nvke-agent; then install -m 0755 /tmp/nvke-agent /usr/local/bin/nvke-agent && echo "downloaded local nvke-agent" && /usr/local/bin/nvke-agent -version; else echo "local nvke-agent not available at $u; using image agent"; fi'
 ```
 
-Remove or omit `files/agent/nke-agent` to fall back to the
+Remove or omit `files/agent/nvke-agent` to fall back to the
 image-provided agent.
 
 
@@ -782,6 +782,7 @@ sudo ./scripts/setup-linux.sh
 
 This installs QEMU, libvirt, swtpm, and configures:
 
+- `/dev/vtpmx` for container nodes, through `controller/hack/ensure-vtpm-proxy.sh`
 - Bridge `cwebr0` with `172.30.0.0/24`
 - Metadata IP `169.254.169.254` on the bridge
 - dnsmasq DHCP on the bridge
@@ -825,7 +826,7 @@ For one-shot nico-vms integration tests, sync just this tree and run on the remo
 
 ```bash
 ./scripts/sync-to-remote.sh [--ssh|--tsh] hostname
-# syncs to ~/dev/cloud-workflow-engine/nico-sim/ on the remote
+# syncs to ~/dev/nvke/controller/nico-sim/ on the remote (override: NICO_SIM_REMOTE_DIR)
 ```
 
 ## Helper Scripts
@@ -835,7 +836,7 @@ For one-shot nico-vms integration tests, sync just this tree and run on the remo
 | ---------------------------------- | ----------------------------------------------------------------- |
 | `scripts/run-vm-server.sh`         | Start the server with auto-detected backend and base image        |
 | `scripts/run-dnsmasq.sh`           | Start dnsmasq for VM DHCP/DNS on the bridge (used by Tilt)        |
-| `scripts/get-kubeconfig.sh`        | Extract kubeconfig from a running NKE cluster via the nke-controller API + SSH   |
+| `scripts/get-kubeconfig.sh`        | Extract kubeconfig from a running NVKE cluster via the nke-controller API + SSH   |
 | `scripts/inspect-vm-ips.sh`        | Compare DB IPs vs actual ARP IPs to detect IP drift               |
 | `scripts/create-prod-vm.sh`        | Create a production FDE VM with iPXE + LUKS + kubeadm             |
 | `scripts/nico-vms-console-log.sh` | View VM console output from disk                                  |
@@ -909,7 +910,7 @@ The default seed (`internal/seed/default-seed.yaml`) provides IDs used throughou
 | Backend | Resource | ID | Name |
 |---|---|---|---|
 | shared | Org | `novxwn552ssc` | |
-| shared | Tenant | `d282929f-49d5-4dec-8d27-21ceb30ade19` | Forge-Tenant-NKE |
+| shared | Tenant | `d282929f-49d5-4dec-8d27-21ceb30ade19` | Forge-Tenant-NVKE |
 | nico-vms | Site | `a1b2c3d4-0001-4000-8000-000000000001` | NICo VMs Site |
 | nico-vms | VPC | `a1b2c3d4-0002-4000-8000-000000000001` | mock-vpc |
 | nico-vms | Subnet | `a1b2c3d4-0003-4000-8000-000000000001` | mock-subnet |
@@ -943,7 +944,7 @@ The Tilt workflow runs nke-controller and nico-sim locally with hot-reload. The 
 Prerequisites: [Tilt](https://tilt.dev), a Kind cluster, Docker.
 
 ```bash
-# From the cloud-workflow-engine root:
+# From the controller/ directory:
 tilt up
 ```
 

@@ -14,19 +14,17 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	capiexternal "sigs.k8s.io/cluster-api/controllers/external"
 	capiconditions "sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	nicov1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
-
-	"github.com/dsx-ai-factory/nke/controller/internal/capi"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
-	"github.com/dsx-ai-factory/nke/controller/internal/spiffe"
+	"github.com/dsx-ai-factory/nvke/controller/internal/clients"
+	"github.com/dsx-ai-factory/nvke/controller/internal/clients/shared"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/spiffe"
 )
 
 type CreateCAPIInfraMachineForNodeInput struct {
@@ -51,14 +49,12 @@ type DeleteCAPIMachineRebootAnnotationInput struct {
 	NodeID uuid.UUID
 }
 
-type capiMachineCreateContext struct {
-	node      db.Node
-	nodeSet   db.NodeSet
-	nodePool  db.NodePool
-	cluster   db.Cluster
-	namespace string
-}
-
+// CreateCAPIInfraMachineForNode resolves the node's provider client via
+// clients.GetProviderClient — the only place this flow decides which
+// provider it's dealing with — and delegates the entire create (render,
+// apply, SPIRE token, bootstrap, generic CAPI Machine) to that client's
+// CreateMachine. Provider-specific behavior lives in internal/clients/capi
+// and internal/clients/nico, not here.
 func (a *Activities) CreateCAPIInfraMachineForNode(ctx context.Context, input CreateCAPIInfraMachineForNodeInput) error {
 	node, err := a.db.GetNode(ctx, input.NodeID)
 	if err != nil {
@@ -72,106 +68,38 @@ func (a *Activities) CreateCAPIInfraMachineForNode(ctx context.Context, input Cr
 	if err != nil {
 		return err
 	}
-	createCtx := &capiMachineCreateContext{
-		node:      node,
-		nodeSet:   nodeSet,
-		nodePool:  nodePool,
-		cluster:   cluster,
-		namespace: constants.NamespaceNKESystem,
+
+	provider, err := clients.GetProviderClient(cluster)
+	if err != nil {
+		return err
+	}
+	machineClient := provider.MachineMaterialization()
+
+	deps := shared.MachineCreateDeps{
+		K8sClient:                    a.k8sClient,
+		FieldManagerName:             a.cfg.FieldManagerName,
+		ProfilesDir:                  a.cfg.ProfilesDir,
+		Namespace:                    constants.NamespaceNVKESystem,
+		Config:                       a.cfg,
+		ControllerClientCABundle:     a.controllerClientCABundle,
+		GetTrustDomainBundle:         a.getTrustDomainBundle,
+		NodeAgentBootstrapFiles:      a.nodeAgentBootstrapFiles,
+		CreateSpireJoinToken:         a.createCAPISpireJoinToken,
+		SeedControlPlaneInstanceType: a.seedControlPlaneInstanceType,
 	}
 
-	capiNodeSetProvider, err := nodeSet.CAPIProvider()
-	if err != nil || capi.IsEmptyManifest(capiNodeSetProvider.InfraMachineTemplate) {
-		return a.createTemplateLessForgeCAPIMachineForNode(ctx, createCtx)
-	}
-
-	return a.createTemplateBackedCAPIMachineForNode(ctx, createCtx)
+	return machineClient.CreateMachine(ctx, deps, node, nodeSet, nodePool, cluster)
 }
 
-func (a *Activities) createTemplateBackedCAPIMachineForNode(ctx context.Context, createCtx *capiMachineCreateContext) error {
-	capiNodeSetProvider, err := createCtx.nodeSet.CAPIProvider()
-	if err != nil {
-		return fmt.Errorf("failed to read node set capi provider: %w", err)
-	}
-	templateObj, err := capi.ParseManifest(capiNodeSetProvider.InfraMachineTemplate)
-	if err != nil {
-		return fmt.Errorf("failed to parse infra.machineTemplate: %w", err)
-	}
-
-	templateRef := &corev1.ObjectReference{
-		APIVersion: templateObj.GetAPIVersion(),
-		Kind:       templateObj.GetKind(),
-		Name:       templateObj.GetName(),
-		Namespace:  createCtx.namespace,
-	}
-	infraMachine, err := capiexternal.GenerateTemplate(&capiexternal.GenerateTemplateInput{
-		Template:    templateObj,
-		TemplateRef: templateRef,
-		Namespace:   createCtx.namespace,
-		Name:        createCtx.node.Name,
-		ClusterName: createCtx.cluster.Name,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to render infra machine template: %w", err)
-	}
-	if err := a.applyNicoMachineInstanceLabels(createCtx, infraMachine); err != nil {
-		return err
-	}
-
-	if err := a.k8sClient.Patch(ctx, infraMachine, client.Apply, client.FieldOwner(a.cfg.FieldManagerName), client.ForceOwnership); err != nil {
-		return fmt.Errorf("failed to apply infra machine %s: %w", infraMachine.GetName(), err)
-	}
-
-	spireJoinToken, spireAgentAlternateIDPath, err := a.createCAPISpireJoinToken(ctx, createCtx)
-	if err != nil {
-		return err
-	}
-
-	userData, err := a.renderCAPIBootstrapUserData(ctx, createCtx.node, createCtx.nodeSet, spireJoinToken)
-	if err != nil {
-		return fmt.Errorf("failed to render CAPI bootstrap user data: %w", err)
-	}
-
-	bootstrapSecret := buildCAPIBootstrapSecret(createCtx, userData)
-	if err := a.k8sClient.Patch(ctx, bootstrapSecret, client.Apply, client.FieldOwner(a.cfg.FieldManagerName), client.ForceOwnership); err != nil {
-		return fmt.Errorf("failed to apply bootstrap secret %s: %w", bootstrapSecret.Name, err)
-	}
-
-	infraMachineGV, err := schema.ParseGroupVersion(infraMachine.GetAPIVersion())
-	if err != nil {
-		return fmt.Errorf("failed to parse infra machine apiVersion %q: %w", infraMachine.GetAPIVersion(), err)
-	}
-	if infraMachineGV.Group == "" {
-		return fmt.Errorf("infra machine apiVersion %q must include an API group", infraMachine.GetAPIVersion())
-	}
-
-	machine, err := buildCAPIMachineForNode(createCtx.node, createCtx.nodeSet, createCtx.nodePool, createCtx.cluster, createCtx.namespace, bootstrapSecret.Name, clusterv1.ContractVersionedObjectReference{
-		APIGroup: infraMachineGV.Group,
-		Kind:     infraMachine.GetKind(),
-		Name:     infraMachine.GetName(),
-	})
-	if err != nil {
-		return err
-	}
-	if spireJoinToken != "" {
-		machine.Annotations[constants.MachineAnnotationKeySpireAgentSpiffeIDPath] = spireAgentAlternateIDPath
-	}
-	if err := a.applyCAPIMachine(ctx, machine); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (a *Activities) createCAPISpireJoinToken(ctx context.Context, createCtx *capiMachineCreateContext) (string, string, error) {
-	if createCtx.node.SpireAttestationMethod != db.SpireAttestationMethodJoinToken {
+func (a *Activities) createCAPISpireJoinToken(ctx context.Context, node db.Node) (string, string, error) {
+	if node.SpireAttestationMethod != db.SpireAttestationMethodJoinToken {
 		return "", "", nil
 	}
 	// A site stood up without SPIFFE has no SPIRE server to mint against, and no
 	// trust domain to build the alternate ID from. Asking anyway fails with
 	// "trust domain is missing", which is not retryable, so the node never gets
 	// a CAPI machine and the cluster sits in Provisioning for good.
-	if !createCtx.node.SpiffeEnabled {
+	if !node.SpiffeEnabled {
 		return "", "", nil
 	}
 
@@ -179,7 +107,7 @@ func (a *Activities) createCAPISpireJoinToken(ctx context.Context, createCtx *ca
 	// value into the InfraMachine annotation and the derived ClusterStaticEntry would expose a
 	// credential. So instead we specify a non-sensitive alternate SPIFFE ID in CreateJoinToken,
 	// which we can safely pass around without exposing the join token.
-	spireAgentAlternateIDPath := constants.JoinTokenAlternateSpireAgentPath + createCtx.node.ID.String()
+	spireAgentAlternateIDPath := constants.JoinTokenAlternateSpireAgentPath + node.ID.String()
 	spireAgentAlternateID := fmt.Sprintf("spiffe://%s%s", a.trustDomain, spireAgentAlternateIDPath)
 	spireJoinToken, err := spiffe.CreateJoinToken(ctx, a.cfg, spireAgentAlternateID)
 	if err != nil {
@@ -187,78 +115,6 @@ func (a *Activities) createCAPISpireJoinToken(ctx context.Context, createCtx *ca
 	}
 
 	return spireJoinToken, spireAgentAlternateIDPath, nil
-}
-
-func (a *Activities) createTemplateLessForgeCAPIMachineForNode(ctx context.Context, createCtx *capiMachineCreateContext) error {
-	// Seed the initial instance type for a control-plane node that CWE did not
-	// pre-fill (the Nico/CAPI path leaves selection to Nico). No-op otherwise.
-	if err := a.seedControlPlaneInstanceType(ctx, createCtx); err != nil {
-		return err
-	}
-
-	nicoMachine, err := a.buildNicoMachineForNode(createCtx)
-	if err != nil {
-		return err
-	}
-	if err := a.k8sClient.Patch(ctx, nicoMachine, client.Apply, client.FieldOwner(a.cfg.FieldManagerName), client.ForceOwnership); err != nil {
-		return fmt.Errorf("failed to apply NicoMachine %s: %w", nicoMachine.Name, err)
-	}
-
-	userData, err := a.renderTemplateLessForgeCAPIBootstrapUserData(ctx, createCtx)
-	if err != nil {
-		return err
-	}
-	bootstrapSecret := buildCAPIBootstrapSecret(createCtx, userData)
-	if err := a.k8sClient.Patch(ctx, bootstrapSecret, client.Apply, client.FieldOwner(a.cfg.FieldManagerName), client.ForceOwnership); err != nil {
-		return fmt.Errorf("failed to apply bootstrap secret %s: %w", bootstrapSecret.Name, err)
-	}
-
-	machine, err := buildCAPIMachineForNode(createCtx.node, createCtx.nodeSet, createCtx.nodePool, createCtx.cluster, createCtx.namespace, bootstrapSecret.Name, clusterv1.ContractVersionedObjectReference{
-		APIGroup: nicov1.GroupVersion.Group,
-		Kind:     "NicoMachine",
-		Name:     nicoMachine.Name,
-	})
-	if err != nil {
-		return err
-	}
-	if err := a.applyCAPIMachine(ctx, machine); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (a *Activities) applyNicoMachineInstanceLabels(
-	createCtx *capiMachineCreateContext,
-	infraMachine *unstructured.Unstructured,
-) error {
-	gv, err := schema.ParseGroupVersion(infraMachine.GetAPIVersion())
-	if err != nil {
-		return fmt.Errorf("parse infrastructure machine apiVersion %q: %w", infraMachine.GetAPIVersion(), err)
-	}
-	if gv.Group != nicov1.GroupVersion.Group || infraMachine.GetKind() != "NicoMachine" {
-		return nil
-	}
-
-	labels := buildNicoInstanceLabels(
-		createCtx.node,
-		createCtx.cluster,
-		createCtx.nodePool.ID,
-	)
-	existingLabels, _, err := unstructured.NestedStringMap(infraMachine.Object, "spec", "labels")
-	if err != nil {
-		return fmt.Errorf("read NicoMachine instance labels: %w", err)
-	}
-	if existingLabels == nil {
-		existingLabels = map[string]string{}
-	}
-	for key, value := range labels {
-		existingLabels[key] = value
-	}
-	if err := unstructured.SetNestedStringMap(infraMachine.Object, existingLabels, "spec", "labels"); err != nil {
-		return fmt.Errorf("set NicoMachine instance labels: %w", err)
-	}
-	return nil
 }
 
 type DeleteCAPIMachineForNodeInput struct {
@@ -283,7 +139,7 @@ func (a *Activities) DeleteCAPIMachineForNode(ctx context.Context, input DeleteC
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.Name,
-			Namespace: constants.NamespaceNKESystem,
+			Namespace: constants.NamespaceNVKESystem,
 		},
 	}
 
@@ -324,7 +180,7 @@ func (a *Activities) DeleteCAPIMachineForNode(ctx context.Context, input DeleteC
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-bootstrap-data", node.Name),
-			Namespace: constants.NamespaceNKESystem,
+			Namespace: constants.NamespaceNVKESystem,
 		},
 	}
 	if err := a.k8sClient.Delete(ctx, bootstrapSecret); err != nil && !apierrors.IsNotFound(err) {
@@ -358,10 +214,14 @@ func (a *Activities) waitForCAPIMachineReady(ctx context.Context, input WaitForC
 	if err != nil {
 		return "", err
 	}
+	provider, err := clients.GetProviderClient(cluster)
+	if err != nil {
+		return "", err
+	}
 
 	machine := &clusterv1.Machine{}
 	if err := a.k8sClient.Get(ctx, client.ObjectKey{
-		Namespace: constants.NamespaceNKESystem,
+		Namespace: constants.NamespaceNVKESystem,
 		Name:      node.Name,
 	}, machine); err != nil {
 		return "", fmt.Errorf("failed to get CAPI machine: %w", err)
@@ -388,19 +248,19 @@ func (a *Activities) waitForCAPIMachineReady(ctx context.Context, input WaitForC
 		}
 	}
 	if ipAddress == "" {
-		// Template-backed nodes have no rotation fallback (nil); templateless
-		// Nico nodes advance to the next pinned option in place.
-		if fb := a.provisioningFallbackFor(nodeSet); fb != nil {
-			if _, err := fb.tryNext(ctx, node, nodeSet, machine); err != nil {
-				return "", err
-			}
+		advanceDeps := shared.MachineAdvanceDeps{
+			K8sClient:                  a.k8sClient,
+			ControlPlaneConfigSnapshot: a.controlPlaneConfigSnapshot,
+		}
+		if _, err := provider.MachineMaterialization().TryAdvanceStuckMachine(ctx, advanceDeps, node, nodeSet, machine); err != nil {
+			return "", err
 		}
 
 		return "", fmt.Errorf("capi machine %s has no IP addresses in status or infrastructure ref", machine.Name)
 	}
 
 	// Record the type the infra provider settled on for templateless Nico nodes
-	// (which carry no CWE-selected type). Only authoritative once ready, and must
+	// (which carry no controller-selected type). Only authoritative once ready, and must
 	// never block provisioning; CAPD and template-backed nodes are unaffected.
 	var observedInstanceTypeID uuid.UUID
 	if node.NicoInstanceTypeID() == uuid.Nil {
@@ -429,10 +289,19 @@ func (a *Activities) waitForCAPIMachineReady(ctx context.Context, input WaitForC
 		}
 		nodeForUpdate.IP = ipAddress
 		// Sticky: only stamp the type when the node has no type yet, so we never
-		// clobber a CWE-selected (Forge) type or an already-recorded value.
+		// clobber a controller-selected (Forge) type or an already-recorded value.
 		stampInstanceType := observedInstanceTypeID != uuid.Nil && nodeForUpdate.NicoInstanceTypeID() == uuid.Nil
 		// Stamp only when there is something to record or nico already exists.
 		// Empty CAPD lookups must not invent a nico payload.
+		//
+		// Intentionally not routed through a provider-capability client:
+		// this is the already-documented edge case of a CAPI cluster whose
+		// own template happens to render a NicoMachine (see
+		// applyNicoMachineInstanceLabels) — provider-blending by template
+		// choice, not by cluster.ProviderType, so it does not generalize to
+		// another provider the way a true dispatch point would. Revisit only
+		// if this edge case needs to be handled for more than NICo-flavored
+		// CAPI machines.
 		if stampInstanceType || observedInstanceID != "" || observedMachineID != "" || nodeForUpdate.Nico != nil {
 			nico := db.NicoNodeProvider{}
 			if nodeForUpdate.Nico != nil {
@@ -647,7 +516,7 @@ func (a *Activities) applyCAPIMachineRebootAnnotation(ctx context.Context, nodeI
 	if err != nil {
 		return nonRetryableIfNotFound("failed to get node", err)
 	}
-	namespace := constants.NamespaceNKESystem
+	namespace := constants.NamespaceNVKESystem
 	machineName := node.Name
 
 	// Note: With SSA, a field manager can give up ownership of a field by applying an object that no longer includes that field.

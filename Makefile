@@ -37,7 +37,7 @@ BIN_DIR ?= $(CURDIR)/bin
 # proprietary identifier into a repository that ships Apache-2.0.
 LICENSE_HOLDER   ?= NVIDIA CORPORATION & AFFILIATES
 LICENSE_TEMPLATE ?= $(CURDIR)/hack/license-header.tmpl
-ADDLICENSE       ?= $(GO) run github.com/google/addlicense@v1.1.1
+ADDLICENSE       ?= $(GO) run github.com/google/addlicense@$(ADDLICENSE_VERSION)
 
 # The files that carry a licence header.
 #
@@ -64,7 +64,8 @@ WORK_MODULES := agent \
                 cli \
                 controller/test/e2e \
                 management-engine \
-                os-image
+                os-image \
+                release
 
 # Modules whose commands `build` can compile with `go build -o bin/ ./cmd/...`,
 # which names each binary after its package directory. controller/api and
@@ -115,7 +116,9 @@ cmd_ldflags = -X 'main.version=$(call cmd_version,$(1))' \
 RELEASE_LDFLAGS ?= -s -w -buildid= -extldflags -static
 
 # Must match WORKER_BIN_NAME in controller/Makefile. `build` fails if it does not.
-CWE_BIN_NAME ?= controller
+# NKE_CONTROLLER_BIN_NAME overrides it. An empty value counts as unset.
+# CWE_BIN_NAME is a deprecated alias for NKE_CONTROLLER_BIN_NAME; #1399 removes it.
+controller_bin_name = $(or $(NKE_CONTROLLER_BIN_NAME),$(CWE_BIN_NAME),controller)
 
 # No module is excluded from the workspace any more; kept (empty) because
 # work-check accounts for every go.mod in the tree against these two lists.
@@ -123,15 +126,17 @@ PRIVATE_MODULES :=
 
 # Every place an artefact ships LICENSE and NOTICE from.
 #
-# The root files cannot be COPYed into the controller image directly: that image
-# builds with `controller/` as its context, and Docker cannot reach outside a
-# build context. So the files are copied to a location inside it. The Helm chart
-# has the same constraint and the same answer.
+# `helm package` includes only files inside the chart directory, so the root
+# files are copied into the chart. The controller image does not need a copy:
+# it builds with the repository root as its context and COPYs them directly.
 #
 # The chart copies existed before this and nothing maintained them -- they were
 # committed by hand and happened to match. `licenses-check` now enforces it.
-LICENSE_DESTS := controller/licenses \
-                 controller/deploy/charts/controller
+LICENSE_DESTS := controller/deploy/charts/controller
+
+# Chart directories that ship the root LICENSE but keep a NOTICE of their own,
+# which `make licenses` must not overwrite.
+LICENSE_ONLY_DESTS := nktp/deploy/charts/nktp
 
 # Redistributed binaries with generated third-party attribution.
 NOTICE_MODULES := agent controller cli os-image
@@ -144,7 +149,7 @@ include make/versions.mk
 include make/checks.mk
 
 .DEFAULT_GOAL := help
-.PHONY: help show-versions tools-check lint-workflows lint-shell docs-check internal-config-check lint-chart chart-rbac-check chart-package-check chart-check vulncheck fmt lint gate test-compile test-e2e-backend-ci work work-sync work-check build test preflight version-check clean licenses licenses-check license-deps-check notices notices-check license-header-check
+.PHONY: help show-versions tools-check lint-workflows lint-shell docs-check internal-config-check lint-chart chart-rbac-check chart-package-check chart-controller-config-check chart-check vulncheck fmt lint gate test-compile test-e2e-backend-ci work work-sync work-check build test coverage coverage-report coverage-check preflight version-check clean licenses licenses-check license-deps-check notices notices-check license-header-check
 
 ##@ Help
 
@@ -253,6 +258,13 @@ work-check: ## Verify go.work and go.work.sum are complete and current. (run by 
 	   printf '%s\n' "$$gone" | sed 's/^/    /'; exit 1; \
 	 fi
 	@echo "- Checking the workspace, go.work.sum and every go.mod agree..."
+	@# This refreshes the manifests in place, then compares a hash of the diff
+	@# before and after, so it asserts that the refresh changed nothing rather
+	@# than that the tree is clean. A tree already dirty in these paths passes,
+	@# and a refresh that creates a previously absent go.sum is untracked, so it
+	@# shows no diff and passes too -- nothing here catches that. Only
+	@# dependabot-fixup.yml folds `git ls-files --others` into what it inspects,
+	@# and it permits a new go.sum and commits it rather than failing on it.
 	@before=$$(git diff --binary -- go.work go.work.sum '*/go.mod' '*/go.sum' | shasum); \
 		$(GO) work sync || exit 1; \
 		for m in $(WORK_MODULES); do \
@@ -286,6 +298,21 @@ test: ## Run each module's own test suite.
 		fi; \
 	done
 
+coverage: ## Run the tests of every collecting module and report the coverage.
+	@# Not folded into `test` above. `test` runs every workspace module, this
+	@# runs the nine that collect, and a developer wanting one does not always
+	@# want the other. The profiles land in coverage/ at the root; the report
+	@# fails on a missing, malformed or empty one, and on a test package that
+	@# nothing ran. It does not fail on a percentage -- see
+	@# docs/coverage-policy.md for why not.
+	@MAKE='$(MAKE)' ./hack/coverage.sh run
+
+coverage-report: ## Validate and summarise the profiles already in coverage/.
+	@./hack/coverage.sh report
+
+coverage-check: ## Check the coverage registry against the tree. Runs no tests.
+	@./hack/coverage.sh check
+
 test-compile: ## Type-check test variants that need external services to run.
 	@echo "- compile controller/test/e2e"
 	@cd controller/test/e2e && CGO_ENABLED=1 $(GO) vet ./...
@@ -311,7 +338,8 @@ PREFLIGHT_MODULES := controller/hack/capd-reboot-controller \
                      cli \
                      controller \
                      management-engine \
-                     os-image
+                     os-image \
+                     release
 
 # controller/api ships no tests of its own, so linting and testing it alone
 # compiles nothing that uses it. These are the modules that import it, and a
@@ -319,7 +347,7 @@ PREFLIGHT_MODULES := controller/hack/capd-reboot-controller \
 API_DEPENDENTS := controller cli controller/test/e2e
 
 # The modules that import controller/deploy/charts, so a chart change builds
-# what ships it. nkectl is the consumer; until it imports the module, this only
+# what ships it. nvkectl is the consumer; until it imports the module, this only
 # costs the cli suite a run it cannot fail.
 CHARTS_DEPENDENTS := cli
 
@@ -377,9 +405,9 @@ preflight: ## Lint and test the modules you changed. MODULES=... to choose them 
 	build_system=no; workflows=no; shell=no; chart=no; nktp=no; workspace=no; licences=no; provider_manifest=no; \
 	printf '%s\n' "$$changed" | grep -qE '^Makefile$$|^make/[^/]+\.mk$$' && build_system=yes || true; \
 	printf '%s\n' "$$changed" | grep -qE '^\.github/workflows/.*\.ya?ml$$' && workflows=yes || true; \
-	printf '%s\n' "$$changed" | grep -qE '^controller/deploy/charts/|^controller/hack/chart-.*-assertions\.(py|sh)$$|^\.github/workflows/chart\.yml$$' && chart=yes || true; \
+	printf '%s\n' "$$changed" | grep -qE '^controller/deploy/charts/|^controller/hack/chart-.*-assertions\.(py|sh)$$|^controller/internal/(config|controllerconfig)/|^\.github/workflows/chart\.yml$$' && chart=yes || true; \
 	printf '%s\n' "$$changed" | grep -qE '^nktp/deploy/charts/|^nktp/hack/chart-.*\.sh$$|^\.github/workflows/nktp-chart\.yml$$' && nktp=yes || true; \
-	printf '%s\n' "$$changed" | grep -qE '^cluster-api-provider-provisioned/config/|^cli/internal/bootstrap/cwedeploy/manifests/provisioned-provider\.yaml$$' && provider_manifest=yes || true; \
+	printf '%s\n' "$$changed" | grep -qE '^cluster-api-provider-provisioned/config/|^cli/internal/bootstrap/controllerdeploy/manifests/(provisioned-provider|capnico)\.yaml$$|^deploy/nico/capnico/capnico\.yaml$$' && provider_manifest=yes || true; \
 	printf '%s\n' "$$changed" | grep -qE '(^|/)(go\.mod|go\.sum)$$|^go\.work|^vendor/' && workspace=yes || true; \
 	printf '%s\n' "$$changed" | grep -qE '\.(go|sh|py|js|css|html|ya?ml)$$' && licences=yes || true; \
 	for f in $$changed; do \
@@ -423,7 +451,7 @@ preflight: ## Lint and test the modules you changed. MODULES=... to choose them 
 	[ "$$shell" = yes ] && echo "  lint-shell           (shell or build-system changes)" || true; \
 	[ "$$chart" = yes ] && echo "  chart-check          (chart or build-system changes)" || true; \
 	[ "$$nktp" = yes ] && echo "  nktp-chart-check     (NKTP chart or build-system changes)" || true; \
-	[ "$$provider_manifest" = yes ] && echo "  provider-manifest-check (the provisioned provider's manifests changed)" || true; \
+	[ "$$provider_manifest" = yes ] && echo "  provider-manifest-check (the provisioned provider's or CAPNICo's manifests changed)" || true; \
 	echo; \
 	echo "Will NOT run, and is not covered:"; \
 	echo "  - the e2e lanes (kind, Docker; CAPD additionally needs Linux amd64)"; \
@@ -504,20 +532,20 @@ build: ## Build every workspace package, and the released commands into bin/.
 	@# delegate rather than repeat either here. See CMD_MODULES above.
 	@echo "- building controller"
 	@$(MAKE) --no-print-directory -C controller build >/dev/null || exit 1
-	@cp controller/bin/$(CWE_BIN_NAME) $(BIN_DIR)/ \
-		|| { echo "ERROR: controller/Makefile no longer produces bin/$(CWE_BIN_NAME). Update CWE_BIN_NAME here to match its WORKER_BIN_NAME."; exit 1; }
-	@# Same reason as controller: cli/Makefile owns nkectl's
+	@cp controller/bin/$(controller_bin_name) $(BIN_DIR)/ \
+		|| { echo "ERROR: controller/Makefile no longer produces bin/$(controller_bin_name). Update controller_bin_name here to match its WORKER_BIN_NAME."; exit 1; }
+	@# Same reason as controller: cli/Makefile owns nvkectl's
 	@# version ldflags, and it asserts the stamp took.
 	@echo "- building cli"
 	@$(MAKE) --no-print-directory -C cli build >/dev/null || exit 1
-	@cp cli/bin/nkectl $(BIN_DIR)/ \
-		|| { echo "ERROR: cli/Makefile no longer produces bin/nkectl."; exit 1; }
+	@cp cli/bin/nvkectl $(BIN_DIR)/ \
+		|| { echo "ERROR: cli/Makefile no longer produces bin/nvkectl."; exit 1; }
 	@echo "- building management-engine"
-	@$(MAKE) --no-print-directory -C management-engine build BIN_DIR=$(BIN_DIR) VERSION=$(call cmd_version,management-engine) >/dev/null || exit 1
+	@$(MAKE) --no-print-directory -C management-engine build-bin BIN_DIR=$(BIN_DIR) VERSION=$(call cmd_version,management-engine) >/dev/null || exit 1
 	@echo "Built into $(BIN_DIR):"
 	@ls -1 $(BIN_DIR) | sed 's/^/    /'
 
-# Every binary `build` produces, and how each reports its version. nkectl takes a
+# Every binary `build` produces, and how each reports its version. nvkectl takes a
 # subcommand, the rest take a flag. Both answer the same question.
 #
 # name:argument pairs, because the check below reads them at make level. A shell
@@ -526,8 +554,8 @@ VERSION_CMDS := agent:--version \
                 capd-reboot-controller:--version \
                 controller:--version \
                 management-engine:--version \
-                nke-os-image-check:--version \
-                nkectl:version \
+                nvke-os-image-check:--version \
+                nvkectl:version \
                 updater:--version
 
 version-check: build ## Verify every built binary reports a real version. (run by the merge gate)
@@ -538,10 +566,10 @@ version-check: build ## Verify every built binary reports a real version. (run b
 	@#
 	@# The declared/built comparison sorts LC_ALL=C, because the two sides are
 	@# sorted by different tools: make's $(sort) is byte order, while the shell's
-	@# sort follows the locale, which folds punctuation and puts nkectl before
-	@# nke-os-image-check where bytes put nke-os-image-check first. Every name that
+	@# sort follows the locale, which folds punctuation and puts nvkectl before
+	@# nvke-os-image-check where bytes put nvke-os-image-check first. Every name that
 	@# existed before sorted the same both ways, so this surfaced only when
-	@# nke-os-image-check was added -- as a mismatch listing the identical six names.
+	@# nvke-os-image-check was added -- as a mismatch listing the identical six names.
 	@fail=0; \
 	check() { \
 		out=$$("$(BIN_DIR)/$$1" $$2 2>&1) || { \
@@ -583,7 +611,7 @@ license-deps-check: ## Check dependency licenses in every workspace module. (run
 		echo "- dependency licences: $$module"; \
 		GOTOOLCHAIN=local ./controller/bin/go-licenses check "./$$module/..." \
 			--disallowed_types=restricted,reciprocal,forbidden,unknown \
-			--ignore github.com/dsx-ai-factory/nke \
+			--ignore github.com/dsx-ai-factory/nvke \
 			--ignore github.com/dsx-ai-factory/cluster-api-provider-nico || exit 1; \
 	 done
 
@@ -603,17 +631,21 @@ licenses: ## Copy LICENSE and NOTICE everywhere an artefact ships them from.
 	@for d in $(LICENSE_DESTS); do \
 		mkdir -p $$d && cp LICENSE NOTICE $$d/ || exit 1; \
 	done
+	@for d in $(LICENSE_ONLY_DESTS); do \
+		mkdir -p $$d && cp LICENSE $$d/ || exit 1; \
+	done
 	@echo "LICENSE and NOTICE copied to: $(LICENSE_DESTS)"
+	@echo "LICENSE copied to: $(LICENSE_ONLY_DESTS)"
 
 licenses-check: licenses ## Verify the shipped LICENSE and NOTICE copies match the root files. (run by the merge gate)
 	@# The image and the chart redistribute this work, so they carry its terms.
 	@# Both read from a copy inside their own build context, and a copy is a
 	@# thing that goes stale -- this is the assertion that it has not.
-	@git diff --exit-code -- $(LICENSE_DESTS) \
+	@git diff --exit-code -- $(LICENSE_DESTS) $(addsuffix /LICENSE,$(LICENSE_ONLY_DESTS)) \
 		|| { echo "ERROR: a shipped LICENSE/NOTICE copy is stale. Run 'make licenses' and commit the change."; exit 1; }
 	@# git diff says nothing about a path git is not tracking, so a newly added
 	@# destination would otherwise pass while shipping nothing.
-	@untracked=$$(git ls-files --others --exclude-standard -- $(LICENSE_DESTS)); \
+	@untracked=$$(git ls-files --others --exclude-standard -- $(LICENSE_DESTS) $(addsuffix /LICENSE,$(LICENSE_ONLY_DESTS))); \
 	 [ -z "$$untracked" ] \
 		|| { echo "ERROR: these shipped licence files are not tracked:"; printf '%s\n' "$$untracked" | sed 's/^/    /'; exit 1; }
 	@echo "Shipped LICENSE and NOTICE copies are current."
@@ -679,8 +711,8 @@ license-header-check: ## Verify every source file carries the Apache-2.0 SPDX he
 
 ##@ Housekeeping
 
-clean: ## Remove the built binaries.
-	@rm -rf $(BIN_DIR)
+clean: ## Remove the built binaries and the coverage profiles.
+	@rm -rf $(BIN_DIR) $(CURDIR)/coverage
 
 ##@ End-to-end
 

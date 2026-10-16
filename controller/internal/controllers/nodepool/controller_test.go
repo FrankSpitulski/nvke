@@ -16,12 +16,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/dbwrapper"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/nodepool"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/dbwrapper"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/nodepool"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 func TestUnit_NewController(t *testing.T) {
@@ -34,12 +34,11 @@ func mustParse(s string) uuid.UUID {
 	return uuid.MustParse(s)
 }
 
-// setupProfilesDir creates a temp dir with osProfiles and configProfiles so
-// isOSProfileDeprecated / isConfigProfileDeprecated return false for test profile names.
-func setupProfilesDir(t *testing.T, osProfile, configProfile string) string {
+// setupProfilesDir creates a temp dir with a configProfiles entry so
+// isConfigProfileDeprecated returns false for the test profile name.
+func setupProfilesDir(t *testing.T, configProfile string) string {
 	t.Helper()
 	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "osProfiles", osProfile), 0o755))
 	configPath := filepath.Join(dir, "configProfiles", configProfile+".yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(configPath), 0o755))
 	require.NoError(t, os.WriteFile(configPath, []byte(""), 0o644))
@@ -48,7 +47,7 @@ func setupProfilesDir(t *testing.T, osProfile, configProfile string) string {
 
 func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 	ctx := context.Background()
-	osProfile := "test-os-profile"
+	release := "test-os-profile"
 	configProfile := "test-config-profile"
 
 	t.Run("node_pool_not_found", func(t *testing.T) {
@@ -59,7 +58,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 		mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 		mockTx.On("GetNodePoolForUpdate", mock.Anything, poolID).Return(db.NodePool{}, db.ErrNotFound)
 
-		profilesDir := setupProfilesDir(t, osProfile, configProfile)
+		profilesDir := setupProfilesDir(t, configProfile)
 		cfg := config.Config{ProfilesDir: profilesDir}
 		npc := nodepool.NewController(cfg, slog.Default(), dbwrapper.New(mockDB, slog.Default()))
 
@@ -82,7 +81,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			Conditions:   db.NodePoolConditions{},
 		}
 		pool.SetNico(db.NicoNodePoolProvider{
-			OSProfile:     osProfile,
+			Release:       release,
 			ConfigProfile: configProfile,
 			SubnetIDs:     []uuid.UUID{subnetID},
 			VpcPrefixIDs:  []uuid.UUID{},
@@ -105,9 +104,10 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 		mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 
 		mockTx.On("GetNodePoolForUpdate", mock.Anything, poolID).Return(pool, nil)
+		mockTx.On("GetCluster", mock.Anything, clusterID).Return(db.Cluster{ID: clusterID, ProviderType: db.ProviderTypeNico}, nil)
 		mockTx.On("CreateNodeSet", mock.Anything, mock.MatchedBy(func(ns *db.NodeSet) bool {
 			nico, err := ns.NicoProvider()
-			return err == nil && ns.NodePoolID == poolID && nico.OSProfile == osProfile && nico.ConfigProfile == configProfile
+			return err == nil && ns.NodePoolID == poolID && nico.Release == release && nico.ConfigProfile == configProfile
 		})).Return(newNodeSet, nil)
 		mockTx.On("GetNodePool", mock.Anything, poolID).Return(pool, nil)
 		mockTx.On("UpdateNodePool", mock.Anything, mock.MatchedBy(func(np *db.NodePool) bool {
@@ -117,13 +117,12 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			return f.NodePoolID != nil && *f.NodePoolID == poolID
 		})).Return([]db.NodeSet{newNodeSet}, nil).Once()
 		// ListNodes is only called for non-current node sets; with a single (current) set it is not called
-		mockTx.On("CreateWorkflowOutboxEntry", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(db.WorkflowOutbox{}, nil)
 		mockTx.On("GetNodeSet", mock.Anything, newNodeSetID).Return(newNodeSet, nil)
 		mockTx.On("UpdateNodeSet", mock.Anything, mock.MatchedBy(func(ns *db.NodeSet) bool {
 			return ns.ID == newNodeSetID && ns.DesiredCount == 2
 		})).Return(newNodeSet, nil)
 
-		profilesDir := setupProfilesDir(t, osProfile, configProfile)
+		profilesDir := setupProfilesDir(t, configProfile)
 		cfg := config.Config{ProfilesDir: profilesDir}
 		npc := nodepool.NewController(cfg, slog.Default(), dbwrapper.New(mockDB, slog.Default()))
 
@@ -143,7 +142,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			Conditions:            db.NodePoolConditions{},
 		}
 		pool.SetNico(db.NicoNodePoolProvider{
-			OSProfile:     osProfile,
+			Release:       release,
 			ConfigProfile: configProfile,
 		})
 
@@ -154,7 +153,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 		mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 		mockTx.On("GetNodePoolForUpdate", mock.Anything, poolID).Return(pool, nil)
 
-		profilesDir := setupProfilesDir(t, osProfile, configProfile)
+		profilesDir := setupProfilesDir(t, configProfile)
 		cfg := config.Config{ProfilesDir: profilesDir}
 		npc := nodepool.NewController(cfg, slog.Default(), dbwrapper.New(mockDB, slog.Default()))
 
@@ -176,7 +175,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			},
 		}
 		pool.SetNico(db.NicoNodePoolProvider{
-			OSProfile:     osProfile,
+			Release:       release,
 			ConfigProfile: configProfile,
 		})
 
@@ -187,7 +186,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 		mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 		mockTx.On("GetNodePoolForUpdate", mock.Anything, poolID).Return(pool, nil)
 
-		profilesDir := setupProfilesDir(t, osProfile, configProfile)
+		profilesDir := setupProfilesDir(t, configProfile)
 		cfg := config.Config{ProfilesDir: profilesDir}
 		npc := nodepool.NewController(cfg, slog.Default(), dbwrapper.New(mockDB, slog.Default()))
 
@@ -213,7 +212,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			Conditions:           db.NodePoolConditions{},
 		}
 		pool.SetNico(db.NicoNodePoolProvider{
-			OSProfile:     osProfile,
+			Release:       release,
 			ConfigProfile: configProfile,
 			SubnetIDs:     []uuid.UUID{subnetID},
 			VpcPrefixIDs:  []uuid.UUID{},
@@ -236,6 +235,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 		mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 
 		mockTx.On("GetNodePoolForUpdate", mock.Anything, poolID).Return(pool, nil)
+		mockTx.On("GetCluster", mock.Anything, pool.ClusterID).Return(db.Cluster{ID: pool.ClusterID, ProviderType: db.ProviderTypeNico}, nil)
 		mockTx.On("GetNodeSet", mock.Anything, currentNodeSetID).Return(currentNodeSet, nil)
 		mockTx.On("ListNodeSets", mock.Anything, mock.Anything).Return([]db.NodeSet{currentNodeSet}, nil).Once()
 		// ListNodes is only called for non-current node sets; with a single (current) set it is not called
@@ -245,7 +245,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			return ns.ID == currentNodeSetID && ns.DesiredCount == 3
 		})).Return(updatedSet, nil)
 
-		profilesDir := setupProfilesDir(t, osProfile, configProfile)
+		profilesDir := setupProfilesDir(t, configProfile)
 		cfg := config.Config{ProfilesDir: profilesDir}
 		npc := nodepool.NewController(cfg, slog.Default(), dbwrapper.New(mockDB, slog.Default()))
 
@@ -272,7 +272,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			Conditions:       db.NodePoolConditions{},
 		}
 		pool.SetNico(db.NicoNodePoolProvider{
-			OSProfile:     osProfile,
+			Release:       release,
 			ConfigProfile: configProfile,
 			SubnetIDs:     []uuid.UUID{newSubnet},
 			VpcPrefixIDs:  []uuid.UUID{},
@@ -286,7 +286,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			SystemReservedMemory: "16Gi",
 		}
 		oldNodeSet.SetNico(db.NicoNodePoolProvider{
-			OSProfile:     osProfile,
+			Release:       release,
 			ConfigProfile: configProfile,
 			SubnetIDs:     []uuid.UUID{oldSubnet},
 			VpcPrefixIDs:  []uuid.UUID{},
@@ -308,6 +308,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 		mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 
 		mockTx.On("GetNodePoolForUpdate", mock.Anything, poolID).Return(pool, nil)
+		mockTx.On("GetCluster", mock.Anything, pool.ClusterID).Return(db.Cluster{ID: pool.ClusterID, ProviderType: db.ProviderTypeNico}, nil)
 		mockTx.On("GetNodeSet", mock.Anything, oldNodeSetID).Return(oldNodeSet, nil)
 		mockTx.On("CreateNodeSet", mock.Anything, mock.MatchedBy(func(ns *db.NodeSet) bool {
 			nico, err := ns.NicoProvider()
@@ -317,7 +318,6 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 		mockTx.On("UpdateNodePool", mock.Anything, mock.MatchedBy(func(np *db.NodePool) bool {
 			return np.CurrentNodeSetID != nil && *np.CurrentNodeSetID == newNodeSetID
 		})).Return(poolWithNewCurrent, nil)
-		mockTx.On("CreateWorkflowOutboxEntry", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(db.WorkflowOutbox{}, nil)
 		mockTx.On("ListNodeSets", mock.Anything, mock.Anything).Return([]db.NodeSet{oldNodeSet, newNodeSet}, nil).Once()
 		mockTx.On("ListNodes", mock.Anything, mock.Anything).Return([]db.Node{}, nil)
 		mockTx.On("GetNodeSet", mock.Anything, oldNodeSetID).Return(oldNodeSet, nil)
@@ -329,7 +329,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			return ns.ID == newNodeSetID && ns.DesiredCount == 2
 		})).Return(updatedNewSet, nil)
 
-		profilesDir := setupProfilesDir(t, osProfile, configProfile)
+		profilesDir := setupProfilesDir(t, configProfile)
 		cfg := config.Config{ProfilesDir: profilesDir}
 		npc := nodepool.NewController(cfg, slog.Default(), dbwrapper.New(mockDB, slog.Default()))
 
@@ -356,7 +356,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			Conditions:       db.NodePoolConditions{},
 		}
 		pool.SetNico(db.NicoNodePoolProvider{
-			OSProfile:     osProfile,
+			Release:       release,
 			ConfigProfile: configProfile,
 			SubnetIDs:     []uuid.UUID{subnetID},
 			VpcPrefixIDs:  []uuid.UUID{newVpcPrefix},
@@ -371,7 +371,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			KubernetesVersion:    "",
 		}
 		oldNodeSet.SetNico(db.NicoNodePoolProvider{
-			OSProfile:     osProfile,
+			Release:       release,
 			ConfigProfile: configProfile,
 			SubnetIDs:     []uuid.UUID{subnetID},
 			VpcPrefixIDs:  []uuid.UUID{oldVpcPrefix},
@@ -395,6 +395,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 		mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 
 		mockTx.On("GetNodePoolForUpdate", mock.Anything, poolID).Return(pool, nil)
+		mockTx.On("GetCluster", mock.Anything, pool.ClusterID).Return(db.Cluster{ID: pool.ClusterID, ProviderType: db.ProviderTypeNico}, nil)
 		mockTx.On("GetNodeSet", mock.Anything, oldNodeSetID).Return(oldNodeSet, nil)
 		mockTx.On("CreateNodeSet", mock.Anything, mock.MatchedBy(func(ns *db.NodeSet) bool {
 			nico, err := ns.NicoProvider()
@@ -404,7 +405,6 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 		mockTx.On("UpdateNodePool", mock.Anything, mock.MatchedBy(func(np *db.NodePool) bool {
 			return np.CurrentNodeSetID != nil && *np.CurrentNodeSetID == newNodeSetID
 		})).Return(poolWithNewCurrent, nil)
-		mockTx.On("CreateWorkflowOutboxEntry", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(db.WorkflowOutbox{}, nil)
 		mockTx.On("ListNodeSets", mock.Anything, mock.Anything).Return([]db.NodeSet{oldNodeSet, newNodeSet}, nil).Once()
 		mockTx.On("ListNodes", mock.Anything, mock.Anything).Return([]db.Node{}, nil)
 		mockTx.On("GetNodeSet", mock.Anything, oldNodeSetID).Return(oldNodeSet, nil)
@@ -416,7 +416,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			return ns.ID == newNodeSetID && ns.DesiredCount == 2
 		})).Return(updatedNewSet, nil)
 
-		profilesDir := setupProfilesDir(t, osProfile, configProfile)
+		profilesDir := setupProfilesDir(t, configProfile)
 		cfg := config.Config{ProfilesDir: profilesDir}
 		npc := nodepool.NewController(cfg, slog.Default(), dbwrapper.New(mockDB, slog.Default()))
 
@@ -442,7 +442,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			Conditions:           db.NodePoolConditions{},
 		}
 		pool.SetNico(db.NicoNodePoolProvider{
-			OSProfile:     osProfile,
+			Release:       release,
 			ConfigProfile: configProfile,
 			SubnetIDs:     []uuid.UUID{subnetID},
 			VpcPrefixIDs:  []uuid.UUID{},
@@ -472,6 +472,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 		mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 
 		mockTx.On("GetNodePoolForUpdate", mock.Anything, poolID).Return(pool, nil)
+		mockTx.On("GetCluster", mock.Anything, pool.ClusterID).Return(db.Cluster{ID: pool.ClusterID, ProviderType: db.ProviderTypeNico}, nil)
 		mockTx.On("GetNodeSet", mock.Anything, currentNodeSetID).Return(currentNodeSet, nil)
 		mockTx.On("ListNodeSets", mock.Anything, mock.Anything).Return([]db.NodeSet{currentNodeSet, oldNodeSet}, nil).Once()
 		mockTx.On("ListNodes", mock.Anything, mock.Anything).Return([]db.Node{}, nil)
@@ -483,7 +484,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			return ns.ID == currentNodeSetID && ns.DesiredCount == 2
 		})).Return(updatedCurrentSet, nil)
 
-		profilesDir := setupProfilesDir(t, osProfile, configProfile)
+		profilesDir := setupProfilesDir(t, configProfile)
 		cfg := config.Config{ProfilesDir: profilesDir}
 		npc := nodepool.NewController(cfg, slog.Default(), dbwrapper.New(mockDB, slog.Default()))
 
@@ -508,7 +509,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			Conditions:           db.NodePoolConditions{},
 		}
 		pool.SetNico(db.NicoNodePoolProvider{
-			OSProfile:     osProfile,
+			Release:       release,
 			ConfigProfile: configProfile,
 			SubnetIDs:     []uuid.UUID{subnetID},
 			VpcPrefixIDs:  []uuid.UUID{},
@@ -531,6 +532,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 		mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 
 		mockTx.On("GetNodePoolForUpdate", mock.Anything, poolID).Return(pool, nil)
+		mockTx.On("GetCluster", mock.Anything, pool.ClusterID).Return(db.Cluster{ID: pool.ClusterID, ProviderType: db.ProviderTypeNico}, nil)
 		mockTx.On("GetNodeSet", mock.Anything, currentNodeSetID).Return(currentNodeSet, nil)
 		mockTx.On("ListNodeSets", mock.Anything, mock.Anything).Return([]db.NodeSet{currentNodeSet}, nil).Once()
 		// ListNodes is only called for non-current node sets; with a single (current) set it is not called
@@ -540,7 +542,7 @@ func TestUnit_NodePoolControllerReconcile(t *testing.T) {
 			return ns.ID == currentNodeSetID && ns.DesiredCount == 5
 		})).Return(updatedSet, nil)
 
-		profilesDir := setupProfilesDir(t, osProfile, configProfile)
+		profilesDir := setupProfilesDir(t, configProfile)
 		cfg := config.Config{ProfilesDir: profilesDir}
 		npc := nodepool.NewController(cfg, slog.Default(), dbwrapper.New(mockDB, slog.Default()))
 
@@ -589,6 +591,7 @@ func TestUnit_NodePoolControllerReconcileCAPIInfraTemplateChange(t *testing.T) {
 	mockTx := &testutil.MockTx{}
 	mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 	mockTx.On("GetNodePoolForUpdate", mock.Anything, poolID).Return(pool, nil)
+	mockTx.On("GetCluster", mock.Anything, pool.ClusterID).Return(db.Cluster{ID: pool.ClusterID, ProviderType: db.ProviderTypeCAPI}, nil)
 	mockTx.On("GetNodeSet", mock.Anything, oldNodeSetID).Return(oldNodeSet, nil)
 	mockTx.On("CreateNodeSet", mock.Anything, mock.MatchedBy(func(ns *db.NodeSet) bool {
 		capi, err := ns.CAPIProvider()
@@ -598,7 +601,6 @@ func TestUnit_NodePoolControllerReconcileCAPIInfraTemplateChange(t *testing.T) {
 	mockTx.On("UpdateNodePool", mock.Anything, mock.MatchedBy(func(np *db.NodePool) bool {
 		return np.CurrentNodeSetID != nil && *np.CurrentNodeSetID == newNodeSetID
 	})).Return(poolWithNewCurrent, nil)
-	mockTx.On("CreateWorkflowOutboxEntry", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(db.WorkflowOutbox{}, nil)
 	mockTx.On("ListNodeSets", mock.Anything, mock.Anything).Return([]db.NodeSet{oldNodeSet, newNodeSet}, nil).Once()
 	mockTx.On("ListNodes", mock.Anything, mock.Anything).Return([]db.Node{}, nil)
 	mockTx.On("GetNodeSet", mock.Anything, oldNodeSetID).Return(oldNodeSet, nil)
@@ -610,7 +612,7 @@ func TestUnit_NodePoolControllerReconcileCAPIInfraTemplateChange(t *testing.T) {
 		return ns.ID == newNodeSetID && ns.DesiredCount == 2
 	})).Return(updatedNewSet, nil)
 
-	profilesDir := setupProfilesDir(t, "test-os-profile", "test-config-profile")
+	profilesDir := setupProfilesDir(t, "test-config-profile")
 	npc := nodepool.NewController(config.Config{ProfilesDir: profilesDir}, slog.Default(), dbwrapper.New(mockDB, slog.Default()))
 	mockDB.GetTx = func() db.Tx { return mockTx }
 
@@ -618,4 +620,179 @@ func TestUnit_NodePoolControllerReconcileCAPIInfraTemplateChange(t *testing.T) {
 	require.NoError(t, err)
 	mockDB.AssertExpectations(t)
 	mockTx.AssertExpectations(t)
+}
+
+func TestUnit_NodePoolControllerControlPlaneSurgeRequiresVIP(t *testing.T) {
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name            string
+		controlPlaneVIP string
+		wantDesired     int
+	}{
+		{name: "without VIP", wantDesired: 0},
+		{name: "with VIP", controlPlaneVIP: "172.31.0.10", wantDesired: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clusterID := uuid.New()
+			poolID := uuid.New()
+			currentNodeSetID := uuid.New()
+			oldNodeSetID := uuid.New()
+			pool := db.NodePool{
+				ID:                poolID,
+				ClusterID:         clusterID,
+				ControlPlane:      true,
+				DesiredCount:      1,
+				MaxSurge:          1,
+				CurrentNodeSetID:  &currentNodeSetID,
+				KubernetesVersion: "1.31.0",
+				Nico:              &db.NicoNodePoolProvider{},
+			}
+			currentNodeSet := db.NodeSet{
+				ID:                currentNodeSetID,
+				NodePoolID:        poolID,
+				KubernetesVersion: pool.KubernetesVersion,
+				Nico:              &db.NicoNodePoolProvider{},
+			}
+			oldNodeSet := db.NodeSet{
+				ID:           oldNodeSetID,
+				NodePoolID:   poolID,
+				DesiredCount: 0,
+				Nico:         &db.NicoNodePoolProvider{},
+			}
+			oldNode := db.Node{ID: uuid.New(), NodePoolID: poolID, NodeSetID: oldNodeSetID, ControlPlane: true}
+
+			mockDB := &testutil.MockDB{}
+			mockTx := &testutil.MockTx{}
+			mockDB.MockTx = mockTx
+			mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
+			mockTx.On("GetNodePoolForUpdate", mock.Anything, poolID).Return(pool, nil)
+			mockTx.On("GetNodeSet", mock.Anything, currentNodeSetID).Return(currentNodeSet, nil)
+			mockTx.On("ListNodeSets", mock.Anything, db.NodeSetFilters{NodePoolID: &poolID}).Return([]db.NodeSet{currentNodeSet, oldNodeSet}, nil)
+			mockTx.On("ListNodes", mock.Anything, db.NodeFilters{NodeSetID: &oldNodeSetID}).Return([]db.Node{oldNode}, nil)
+			mockTx.On("GetNodeSet", mock.Anything, oldNodeSetID).Return(oldNodeSet, nil)
+			mockTx.On("UpdateNodeSet", mock.Anything, mock.MatchedBy(func(nodeSet *db.NodeSet) bool {
+				return nodeSet.ID == oldNodeSetID && nodeSet.DesiredCount == 0
+			})).Return(oldNodeSet, nil)
+			mockTx.On("GetCluster", mock.Anything, clusterID).Return(db.Cluster{
+				ID:              clusterID,
+				ControlPlaneVIP: tc.controlPlaneVIP,
+			}, nil)
+			updatedCurrentNodeSet := currentNodeSet
+			updatedCurrentNodeSet.DesiredCount = 1
+			mockTx.On("UpdateNodeSet", mock.Anything, mock.MatchedBy(func(nodeSet *db.NodeSet) bool {
+				return nodeSet.ID == currentNodeSetID && nodeSet.DesiredCount == 1
+			})).Return(updatedCurrentNodeSet, nil).Maybe()
+
+			npc := nodepool.NewController(config.Config{}, slog.Default(), dbwrapper.New(mockDB, slog.Default()))
+			_, err := npc.Reconcile(ctx, dbreconcile.NodePoolKey(poolID))
+			require.NoError(t, err)
+			mockTx.AssertNumberOfCalls(t, "UpdateNodeSet", 1+tc.wantDesired)
+			mockDB.AssertExpectations(t)
+			mockTx.AssertExpectations(t)
+		})
+	}
+}
+
+func TestUnit_NodePoolControllerReplacementRequiresVIP(t *testing.T) {
+	for _, provider := range []string{"nico", "capi"} {
+		for _, tc := range []struct {
+			name         string
+			controlPlane bool
+			vip          string
+			bootstrap    bool
+			unchanged    bool
+			wantCreate   bool
+			clusterError error
+		}{
+			{name: "control plane without VIP", controlPlane: true},
+			{name: "control plane with whitespace VIP", controlPlane: true, vip: " \t\n"},
+			{name: "control plane with VIP", controlPlane: true, vip: "172.31.0.10", wantCreate: true},
+			{name: "first control plane without VIP", controlPlane: true, bootstrap: true, wantCreate: true},
+			{name: "unchanged control plane without VIP", controlPlane: true, unchanged: true},
+			{name: "worker without VIP", wantCreate: true},
+			{name: "cluster lookup fails", controlPlane: true, clusterError: db.ErrNotFound},
+		} {
+			t.Run(provider+"/"+tc.name, func(t *testing.T) {
+				pool := db.NodePool{
+					ID: uuid.New(), ClusterID: uuid.New(), ControlPlane: tc.controlPlane,
+					DesiredCount: 1, MaxSurge: 1, KubernetesVersion: "1.31.0",
+				}
+				current := db.NodeSet{
+					ID: uuid.New(), NodePoolID: pool.ID, DesiredCount: 2, KubernetesVersion: "1.30.0",
+				}
+				if tc.unchanged {
+					current.KubernetesVersion = pool.KubernetesVersion
+				}
+				if provider == "nico" {
+					pool.SetNico(db.NicoNodePoolProvider{Release: "test-os"})
+					current.SetNico(db.NicoNodePoolProvider{Release: "test-os"})
+				} else {
+					pool.SetCapi(db.CAPINodePoolProvider{})
+					current.SetCapi(db.CAPINodePoolProvider{})
+				}
+				if !tc.bootstrap {
+					pool.CurrentNodeSetID = &current.ID
+				}
+
+				mockTx := &testutil.MockTx{}
+				mockDB := &testutil.MockDB{MockTx: mockTx}
+				mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
+				mockTx.On("GetNodePoolForUpdate", mock.Anything, pool.ID).Return(pool, nil)
+				clusterProviderType := db.ProviderTypeNico
+				if provider == "capi" {
+					clusterProviderType = db.ProviderTypeCAPI
+				}
+				mockTx.On("GetCluster", mock.Anything, pool.ClusterID).Return(db.Cluster{
+					ID: pool.ClusterID, ProviderType: clusterProviderType, ControlPlaneVIP: tc.vip,
+				}, tc.clusterError).Once()
+				if !tc.bootstrap && tc.clusterError == nil {
+					mockTx.On("GetNodeSet", mock.Anything, current.ID).Return(current, nil)
+				}
+
+				active := current
+				if tc.wantCreate {
+					active.ID = uuid.New()
+					active.KubernetesVersion = pool.KubernetesVersion
+					active.DesiredCount = 0
+					mockTx.On("CreateNodeSet", mock.Anything, mock.MatchedBy(func(ns *db.NodeSet) bool {
+						return ns.NodePoolID == pool.ID && ns.KubernetesVersion == pool.KubernetesVersion &&
+							(ns.Nico != nil) == (provider == "nico") && (ns.Capi != nil) == (provider == "capi")
+					})).Return(active, nil).Once()
+					updatedPool := pool
+					updatedPool.CurrentNodeSetID = &active.ID
+					mockTx.On("GetNodePool", mock.Anything, pool.ID).Return(pool, nil)
+					mockTx.On("UpdateNodePool", mock.Anything, mock.MatchedBy(func(np *db.NodePool) bool {
+						return np.CurrentNodeSetID != nil && *np.CurrentNodeSetID == active.ID
+					})).Return(updatedPool, nil).Once()
+					mockTx.On("GetNodeSet", mock.Anything, active.ID).Return(active, nil)
+				}
+				if tc.clusterError == nil {
+					mockTx.On("ListNodeSets", mock.Anything, db.NodeSetFilters{NodePoolID: &pool.ID}).
+						Return([]db.NodeSet{active}, nil)
+					updated := active
+					updated.DesiredCount = pool.DesiredCount
+					mockTx.On("UpdateNodeSet", mock.Anything, mock.MatchedBy(func(ns *db.NodeSet) bool {
+						return ns.ID == active.ID && ns.DesiredCount == pool.DesiredCount &&
+							ns.KubernetesVersion == active.KubernetesVersion
+					})).Return(updated, nil).Once()
+				}
+
+				npc := nodepool.NewController(config.Config{}, slog.Default(), dbwrapper.New(mockDB, slog.Default()))
+				_, err := npc.Reconcile(context.Background(), dbreconcile.NodePoolKey(pool.ID))
+				if tc.clusterError != nil {
+					require.ErrorIs(t, err, tc.clusterError)
+					mockTx.AssertNotCalled(t, "UpdateNodeSet", mock.Anything, mock.Anything)
+				} else {
+					require.NoError(t, err)
+				}
+				if !tc.wantCreate {
+					mockTx.AssertNotCalled(t, "CreateNodeSet", mock.Anything, mock.Anything)
+					mockTx.AssertNotCalled(t, "UpdateNodePool", mock.Anything, mock.Anything)
+				}
+				mockDB.AssertExpectations(t)
+				mockTx.AssertExpectations(t)
+			})
+		}
+	}
 }

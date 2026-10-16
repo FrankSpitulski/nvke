@@ -6,7 +6,7 @@
 # A workflow that fails to parse, or that references a job output or secret that
 # does not exist, produces a run with no jobs and no useful error. Nothing here
 # checked for that. `cluster-api-provider-launchlayer` has run actionlint inside
-# its merge gate for a while; this is the same check inside NKE's merge gate.
+# its merge gate for a while; this is the same check inside NVKE's merge gate.
 #
 # Runs on ubuntu-latest. actionlint is a static binary that reads YAML — it needs
 # no Docker, no private dependency and no NVIDIA runner, so it should not consume
@@ -59,7 +59,7 @@ jobs:
   actionlint:
     name: actionlint
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     timeout-minutes: 10
     permissions:
       contents: read
@@ -82,7 +82,9 @@ jobs:
           tar="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
           tmp="$(mktemp -d)"
 
-          curl -fsSL -o "${tmp}/${tar}" "${base}/${tar}"
+          # Retry: a CDN 504 must not fail the job on the first response.
+          curl -fsSL --retry 8 --retry-all-errors --retry-max-time 240 \
+            -o "${tmp}/${tar}" "${base}/${tar}"
           # A committed digest, not the release's checksums.txt: that file comes
           # from the host that serves the artifact, so it proves transport, not
           # provenance. make/tool-versions.mk carries it beside the version.

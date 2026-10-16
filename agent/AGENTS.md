@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-The **NKE agent** lives at `agent/` in the [dsx-ai-factory/nke](https://github.com/dsx-ai-factory/nke) monorepo.
+The **NVKE agent** lives at `agent/` in the [dsx-ai-factory/nvke](https://github.com/dsx-ai-factory/nvke) monorepo.
 It is a Go-based gRPC server (systemd service) that runs on Kubernetes nodes and provides remote management for Kubeadm and software package/bundle installation.
 
 **Primary use cases:**
@@ -11,7 +11,7 @@ It is a Go-based gRPC server (systemd service) that runs on Kubernetes nodes and
 - Kubernetes API/etcd secrets encryption
 - mTLS via SPIFFE (SPIRE workload API)
 
-**Module path:** `github.com/dsx-ai-factory/nke/agent`
+**Module path:** `github.com/dsx-ai-factory/nvke/agent`
 
 ## Consumer configuration
 
@@ -33,7 +33,7 @@ Pushing the tag publishes:
 
 - OCI binaries to GHCR / NVCR (`.github/workflows/agent-artifact*.yml`)
 - `.deb`s to the apt-publisher S3 intake, as assets on the GitHub Release
-  for that tag, and to GHCR as `ghcr.io/dsx-ai-factory/nke/agent-deb`
+  for that tag, and to GHCR as `ghcr.io/dsx-ai-factory/nvke/agent-deb`
   (`.github/workflows/agent-deb-publish.yml`)
 
 `make` / `./build/agent.sh` derive `VERSION` from:
@@ -43,12 +43,12 @@ git describe --match 'agent/v*' --tags --always --dirty
 ```
 
 The `agent/` prefix is stripped for the binary ldflag and `.deb` version
-(`nke-agent_0.1.30_amd64.deb`). Override with `VERSION=v0.1.30` when needed.
+(`nvke-agent_0.1.30_amd64.deb`). Override with `VERSION=v0.1.30` when needed.
 
 Go module consumers pin the same tag shape:
 
 ```bash
-go get github.com/dsx-ai-factory/nke/agent@agent/v0.1.30
+go get github.com/dsx-ai-factory/nvke/agent@agent/v0.1.30
 ```
 
 ## Build Commands
@@ -140,7 +140,7 @@ The pre-commit hook automatically:
 
 ```text
 cmd/
-└── agent/          # Main nke-agent binary
+└── agent/          # Main nvke-agent binary
 
 internal/
 ├── agent/          # Core agent server implementation
@@ -205,12 +205,12 @@ docs/               # Design and security context docs
   included, fails with `go.work requires go >= <version>`. Editors and language
   servers hit this first, because they call `go list` directly rather than
   through `make`, which pins `GOTOOLCHAIN` to the `go.work` value for you.
-- **buf** (for proto generation; see `BUF_VERSION` in Makefile)
+- **buf** (for proto generation; see `BUF_VERSION` in `make/tool-versions.mk`)
 - **protoc** plugins via buf remote plugins (`protoc-gen-go`, `protoc-gen-go-grpc`)
 
 ## State Management
 
-The agent persists state to `/var/lib/nke/state.json`. Key state includes:
+The agent persists state to `/var/lib/nvke/state.json`. Key state includes:
 - Node role and phase (controlplane/worker, join/init/reset)
 - Kubeadm status and join strings
 - Bundle installation status
@@ -259,7 +259,7 @@ grpcurl -plaintext localhost:15005 list proto.NodeAgent
 grpcurl -plaintext localhost:15005 list
 ```
 
-Orchestrators (the NKE controller) probe for RPC availability via reflection before calling
+Orchestrators (the NVKE controller) probe for RPC availability via reflection before calling
 apt or InstallCNI workflows. Semver in `GetKubeadmStatus` remains useful for logging only.
 
 ## Security Notes

@@ -19,7 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
 )
 
 const (
@@ -58,9 +58,9 @@ func validatePodCIDRPostCreate(test *tenantTest) {
 
 		expectedPrefixes := expectSucceed(parseExpectedPodCIDRs(test.spec.Network.ExpectedPodCIDRs))
 
-		By("Asserting CWE reports the requested network contract")
+		By("Asserting the controller reports the requested network contract")
 		Eventually(func(ctx context.Context) error {
-			resp, err := test.nke.API().GetClusterWithResponse(ctx, test.cluster.ID)
+			resp, err := test.nvke.API().GetClusterWithResponse(ctx, test.cluster.ID)
 			if err != nil {
 				return fmt.Errorf("getting cluster %s: %w", test.cluster.ID, err)
 			}
@@ -71,17 +71,17 @@ func validatePodCIDRPostCreate(test *tenantTest) {
 			network := resp.JSON200.Network
 			actualPodCIDR, err := canonicalPodCIDRs(network.PodCIDR)
 			if err != nil {
-				return fmt.Errorf("parsing CWE podCIDR %q: %w", network.PodCIDR, err)
+				return fmt.Errorf("parsing controller podCIDR %q: %w", network.PodCIDR, err)
 			}
 			expectedPodCIDR, err := canonicalPodCIDRs(test.spec.Network.PodCIDR)
 			if err != nil {
 				return fmt.Errorf("parsing expected podCIDR %q: %w", test.spec.Network.PodCIDR, err)
 			}
 			if actualPodCIDR != expectedPodCIDR {
-				return fmt.Errorf("CWE podCIDR = %q, want %q", network.PodCIDR, test.spec.Network.PodCIDR)
+				return fmt.Errorf("controller podCIDR = %q, want %q", network.PodCIDR, test.spec.Network.PodCIDR)
 			}
 			if test.spec.Network.ServiceCIDR != "" && network.ServiceCIDR != test.spec.Network.ServiceCIDR {
-				return fmt.Errorf("CWE serviceCIDR = %q, want %q", network.ServiceCIDR, test.spec.Network.ServiceCIDR)
+				return fmt.Errorf("controller serviceCIDR = %q, want %q", network.ServiceCIDR, test.spec.Network.ServiceCIDR)
 			}
 			return nil
 		}).WithContext(ctx).WithTimeout(1 * time.Minute).WithPolling(1 * time.Second).Should(Succeed())

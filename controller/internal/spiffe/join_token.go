@@ -17,7 +17,7 @@ import (
 	typesv1 "github.com/spiffe/spire-api-sdk/proto/spire/api/types"
 	"google.golang.org/grpc"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
 )
 
 func CreateJoinToken(ctx context.Context, cfg config.Config, agentAlternateID string) (string, error) {
@@ -46,7 +46,7 @@ func CreateJoinToken(ctx context.Context, cfg config.Config, agentAlternateID st
 
 	svid, err := x509Source.GetX509SVID()
 	if err != nil {
-		return "", fmt.Errorf("failed to get CWE workload X509-SVID: %w", err)
+		return "", fmt.Errorf("failed to get controller workload X509-SVID: %w", err)
 	}
 
 	conn, err := grpc.NewClient(

@@ -10,10 +10,10 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/api"
 )
 
-// Tenants is the part of the CWE client a sweep needs. *nke.Client satisfies
+// Tenants is the part of the controller client a sweep needs. *nvke.Client satisfies
 // it.
 type Tenants interface {
 	ListClusters(ctx context.Context) ([]api.Cluster, error)
@@ -21,7 +21,7 @@ type Tenants interface {
 	WaitForClusterDeleted(ctx context.Context, id openapi_types.UUID) error
 }
 
-// SweepTenants deletes every tenant cluster the site's CWE knows about and
+// SweepTenants deletes every tenant cluster the site's controller knows about and
 // waits for each to go. It runs before the site is released: a tenant's
 // machines are Forge instances the site holds, and releasing the site first
 // leaves them allocated with nothing left to delete them.

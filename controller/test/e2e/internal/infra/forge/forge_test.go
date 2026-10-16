@@ -9,15 +9,16 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/environment"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra/teleport"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/provision"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra/teleport"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
 )
 
 const (
@@ -43,6 +44,8 @@ type fakeForge struct {
 	createDelay time.Duration
 	// createStatus replaces 201 on create when non-zero.
 	createStatus int
+	// onPoll runs when readiness polling begins, after creation returned an ID.
+	onPoll func()
 }
 
 func (f *fakeForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +76,9 @@ func (f *fakeForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == base+"/instance/"+testInstance:
 		status := f.statuses[min(f.polls, len(f.statuses)-1)]
 		f.polls++
+		if f.onPoll != nil {
+			f.onPoll()
+		}
 		body := `{"id":"` + testInstance + `","status":"` + status + `"`
 		if status == "Ready" {
 			body += `,"interfaces":[{"ipAddresses":["10.0.0.7/24"]}]`
@@ -80,24 +86,40 @@ func (f *fakeForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(body + "}"))
 	case r.Method == http.MethodDelete && r.URL.Path == base+"/instance/"+testInstance:
 		f.deleted++
+		// What az61 answers: plain text, which the SDK cannot decode as
+		// the MessageResponse it declares.
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("Deletion request was accepted"))
 	default:
 		f.t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 		w.WriteHeader(http.StatusNotFound)
 	}
 }
 
+// cleanCloudInit is what a node reports when nothing went wrong.
+const cleanCloudInit = `{"status":"done","extended_status":"done","errors":[]}`
+
 type fakeConn struct {
 	mu     sync.Mutex
 	ran    []string
 	runErr error
-	closed bool
+	// cloudInit is the JSON the status probe answers with. Empty is a node
+	// that finished clean.
+	cloudInit string
+	closed    bool
 }
 
 func (c *fakeConn) Run(_ context.Context, cmd string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ran = append(c.ran, cmd)
+	if strings.Contains(cmd, "--format=json") {
+		if c.cloudInit != "" {
+			return c.cloudInit, nil
+		}
+		return cleanCloudInit, nil
+	}
 	return "", c.runErr
 }
 func (c *fakeConn) Put(context.Context, string, []byte, uint32) error { return nil }
@@ -117,7 +139,7 @@ type fakeDialer struct {
 	targets  []teleport.Target
 }
 
-func (d *fakeDialer) Dial(_ context.Context, target teleport.Target) (Conn, error) {
+func (d *fakeDialer) Dial(_ context.Context, target teleport.Target) (provision.Conn, error) {
 	d.targets = append(d.targets, target)
 	if len(d.targets) <= d.refusals {
 		return nil, errors.New("connection refused")
@@ -125,17 +147,17 @@ func (d *fakeDialer) Dial(_ context.Context, target teleport.Target) (Conn, erro
 	return d.conn, nil
 }
 
-func testEnv() *environment.Forge {
-	return &environment.Forge{
-		Org: environment.ForgeOrg{ID: testOrg},
-		Sites: map[string]environment.ForgeSite{
+func testEnv() *Environment {
+	return &Environment{
+		Org: Org{ID: testOrg},
+		Sites: map[string]Site{
 			"default": {
 				Key:           "default",
 				ID:            "site-uuid",
 				VpcID:         "vpc-uuid",
 				SubnetID:      "subnet-uuid",
 				SSHKeyGroupID: "keygroup-uuid",
-				InstanceTypes: []environment.ForgeInstanceType{
+				InstanceTypes: []InstanceType{
 					{Name: "cpu.himem.t1", ID: "cpu-type-uuid", Provides: map[string]string{"machineType": "cpu", "arch": "amd64"}},
 				},
 			},
@@ -143,7 +165,7 @@ func testEnv() *environment.Forge {
 	}
 }
 
-func newTestProvider(t *testing.T, forge *fakeForge, dialer Dialer) *Provider {
+func newTestProvider(t *testing.T, forge *fakeForge, dialer provision.Dialer) *Provider {
 	t.Helper()
 	srv := httptest.NewServer(forge)
 	t.Cleanup(srv.Close)
@@ -151,17 +173,16 @@ func newTestProvider(t *testing.T, forge *fakeForge, dialer Dialer) *Provider {
 		Env:      testEnv(),
 		APIKey:   "nvapi-test",
 		Endpoint: srv.URL,
-		Images: func(version string) (string, string, error) {
-			return "https://example.invalid/imager.efi", "https://example.invalid/nke-" + version + ".qcow2", nil
+		Images: func(version, arch string) (string, string, error) {
+			return "https://example.invalid/imager.efi", "https://example.invalid/nvke-node-non-fde-ubuntu-24.04.1-" + arch + "-" + version + ".qcow2", nil
 		},
 		Dialer:   dialer,
 		JumpHost: testJumpHost,
-		Node: nke.NodeInputs{
+		Node: nvke.NodeInputs{
 			KubernetesVersion: "1.34.2",
 			CNIVersion:        "1.4.0",
-			SpireVersion:      "1.14.1+tpm1.9.0",
 		},
-		Tools:        completeTools(),
+		Tools:        provision.HostTools{NerdctlVersion: "2.3.5", KindVersion: "v0.32.0", ClusterctlVersion: "v1.12.3"},
 		HTTPClient:   srv.Client(),
 		ReadyTimeout: 2 * time.Second,
 		ReachTimeout: 2 * time.Second,
@@ -216,7 +237,7 @@ func TestProvisionNode(t *testing.T) {
 	if ifaces, _ := created["interfaces"].([]any); len(ifaces) != 1 || ifaces[0].(map[string]any)["subnetId"] != "subnet-uuid" {
 		t.Errorf("create interfaces = %v, want one on the site subnet", created["interfaces"])
 	}
-	if !strings.Contains(created["ipxeScript"].(string), "nke-1.2.0.qcow2") {
+	if !strings.Contains(created["ipxeScript"].(string), "amd64-1.2.0.qcow2") {
 		t.Error("iPXE script should boot the image for the requested node version")
 	}
 	userData := created["userData"].(string)
@@ -231,11 +252,15 @@ func TestProvisionNode(t *testing.T) {
 		t.Errorf("dialed %d times, want retries until the node answered", len(dialer.targets))
 	}
 	target := dialer.targets[len(dialer.targets)-1]
-	if target.JumpHost != testJumpHost || target.Address != "10.0.0.7" || target.User != nodeUser || target.Signer == nil {
+	if target.JumpHost != testJumpHost || target.Address != "10.0.0.7" || target.User != provision.DefaultNodeUser || target.Signer == nil {
 		t.Errorf("dial target = %+v", target)
 	}
-	if got := dialer.conn.ran; len(got) != 1 || got[0] != "cloud-init status --wait" {
-		t.Errorf("ran %q, want the node held until cloud-init finished", got)
+	wantRan := []string{
+		"cloud-init status --wait >/dev/null 2>&1 || true",
+		"cloud-init status --format=json 2>/dev/null || true",
+	}
+	if got := dialer.conn.ran; !slices.Equal(got, wantRan) {
+		t.Errorf("ran %q, want the node held until cloud-init finished and then read for errors", got)
 	}
 	if forge.deleted != 0 {
 		t.Fatal("a provisioned node must not be deleted")
@@ -258,8 +283,10 @@ func TestProvisionNodeReleasesOnFailure(t *testing.T) {
 		conn     *fakeConn
 		cancel   bool
 	}{
-		"instance errors":      {statuses: []string{"Provisioning", "Error"}, conn: &fakeConn{}},
-		"cloud-init degraded":  {statuses: []string{"Ready"}, conn: &fakeConn{runErr: errors.New("exit status 2")}},
+		"instance errors": {statuses: []string{"Provisioning", "Error"}, conn: &fakeConn{}},
+		"cloud-init failed": {statuses: []string{"Ready"}, conn: &fakeConn{
+			cloudInit: `{"status":"error","extended_status":"error","errors":["scripts-user failed"]}`,
+		}},
 		"never ready":          {statuses: []string{"Provisioning"}, conn: &fakeConn{}},
 		"run canceled waiting": {statuses: []string{"Provisioning"}, conn: &fakeConn{}, cancel: true},
 	} {
@@ -273,16 +300,41 @@ func TestProvisionNodeReleasesOnFailure(t *testing.T) {
 			ctx := context.Background()
 			if tc.cancel {
 				var cancel context.CancelFunc
-				ctx, cancel = context.WithTimeout(ctx, 20*time.Millisecond)
+				ctx, cancel = context.WithCancel(ctx)
 				defer cancel()
+				// Cancel after creation returns an instance ID so the test exercises
+				// readiness cleanup rather than racing setup or instance creation.
+				// See https://github.com/dsx-ai-factory/nvke/issues/1200.
+				forge.onPoll = cancel
 			}
 			if _, _, err := p.ProvisionNode(ctx, testRequest()); err == nil {
 				t.Fatal("expected an error")
+			}
+			if tc.cancel && !errors.Is(ctx.Err(), context.Canceled) {
+				t.Fatalf("run context error = %v, want cancellation during readiness polling", ctx.Err())
 			}
 			if forge.deleted != 1 {
 				t.Errorf("deleted %d times, want the instance released", forge.deleted)
 			}
 		})
+	}
+}
+
+// A Forge instance is created with phone-home disabled and cannot reach the
+// metadata service, so cloud-init finds no datasource, falls back to
+// DataSourceNone and finishes "degraded done" with a non-zero exit code. The
+// user data still ran, so the node is fit to bootstrap on and the preflight
+// must not reject it.
+func TestProvisionNodeAcceptsDegradedCloudInit(t *testing.T) {
+	forge := &fakeForge{t: t, statuses: []string{"Ready"}}
+	conn := &fakeConn{cloudInit: `{"status":"done","extended_status":"degraded done","errors":[],` +
+		`"recoverable_errors":{"WARNING":["Used fallback datasource"]}}`}
+
+	if _, _, err := newTestProvider(t, forge, &fakeDialer{conn: conn}).ProvisionNode(context.Background(), testRequest()); err != nil {
+		t.Fatalf("a node whose cloud-init only warned must be accepted: %v", err)
+	}
+	if forge.deleted != 0 {
+		t.Errorf("deleted %d times, want the instance kept", forge.deleted)
 	}
 }
 
@@ -316,7 +368,7 @@ func TestProvisionNodeRejectsUnmatchedCapabilities(t *testing.T) {
 // newSlowCreateProvider is newTestProvider with the two timeouts that matter
 // here set apart: everything runs under a cap shorter than the create delay,
 // and create runs under one longer than it.
-func newSlowCreateProvider(t *testing.T, forge *fakeForge, dialer Dialer, perRequest, create time.Duration) *Provider {
+func newSlowCreateProvider(t *testing.T, forge *fakeForge, dialer provision.Dialer, perRequest, create time.Duration) *Provider {
 	t.Helper()
 	srv := httptest.NewServer(forge)
 	t.Cleanup(srv.Close)
@@ -326,17 +378,16 @@ func newSlowCreateProvider(t *testing.T, forge *fakeForge, dialer Dialer, perReq
 		Env:      testEnv(),
 		APIKey:   "nvapi-test",
 		Endpoint: srv.URL,
-		Images: func(version string) (string, string, error) {
-			return "https://example.invalid/imager.efi", "https://example.invalid/nke-" + version + ".qcow2", nil
+		Images: func(version, arch string) (string, string, error) {
+			return "https://example.invalid/imager.efi", "https://example.invalid/nvke-node-non-fde-ubuntu-24.04.1-" + arch + "-" + version + ".qcow2", nil
 		},
 		Dialer:   dialer,
 		JumpHost: testJumpHost,
-		Node: nke.NodeInputs{
+		Node: nvke.NodeInputs{
 			KubernetesVersion: "1.34.2",
 			CNIVersion:        "1.4.0",
-			SpireVersion:      "1.14.1+tpm1.9.0",
 		},
-		Tools:         completeTools(),
+		Tools:         provision.HostTools{NerdctlVersion: "2.3.5", KindVersion: "v0.32.0", ClusterctlVersion: "v1.12.3"},
 		HTTPClient:    client,
 		ReadyTimeout:  5 * time.Second,
 		ReachTimeout:  5 * time.Second,
@@ -390,13 +441,173 @@ func TestCreateFailureSaysTheInstanceMayExist(t *testing.T) {
 	}
 }
 
+func TestRequireCapacity(t *testing.T) {
+	const (
+		cpuID = "cpu-type-uuid"
+		gpuID = "gpu-type-uuid"
+	)
+	env := testEnv()
+	env.Sites["default"] = Site{
+		Key:           "default",
+		ID:            "site-uuid",
+		VpcID:         "vpc-uuid",
+		SubnetID:      "subnet-uuid",
+		SSHKeyGroupID: "keygroup-uuid",
+		InstanceTypes: []InstanceType{
+			{Name: "cpu.himem.t1", ID: cpuID, Provides: map[string]string{"machineType": "cpu", "arch": "amd64"}},
+			{Name: "gpu.gb200", ID: gpuID, Provides: map[string]string{"machineType": "gpu", "arch": "arm64", "gpu": "gb200"}},
+		},
+	}
+	stats := map[string]string{
+		cpuID: `{"total":4,"used":0,"unused":4,"unusedUsable":4}`,
+		gpuID: `{"total":14,"used":0,"unused":14,"unusedUsable":0}`,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer nvapi-test" {
+			t.Errorf("Authorization = %q", got)
+		}
+		if r.URL.Query().Get("includeAllocationStats") != "true" {
+			t.Errorf("%s requested allocation stats as %q", r.URL.Path, r.URL.Query().Get("includeAllocationStats"))
+		}
+		id := strings.TrimPrefix(r.URL.Path, "/v2/org/"+testOrg+"/forge/instance/type/")
+		body, ok := stats[id]
+		if !ok || r.Method != http.MethodGet {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"` + id + `","allocationStats":` + body + `}`))
+	}))
+	t.Cleanup(srv.Close)
+	p, err := New(Options{
+		Env:      env,
+		APIKey:   "nvapi-test",
+		Endpoint: srv.URL,
+		JumpHost: testJumpHost,
+		Images: func(string, string) (string, string, error) {
+			return "https://example.invalid/imager.efi", "https://example.invalid/node.qcow2", nil
+		},
+		Dialer:     &fakeDialer{},
+		Tools:      provision.HostTools{NerdctlVersion: "2.3.5", KindVersion: "v0.32.0", ClusterctlVersion: "v1.12.3"},
+		HTTPClient: srv.Client(),
+	})
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+
+	err = p.RequireCapacity(context.Background(), map[string]string{"arch": "amd64", "gpu": "gb200"}, 2, 1)
+	if err == nil {
+		t.Fatal("a GPU shape with unusedUsable=0 was accepted")
+	}
+	for _, want := range []string{"gpu.gb200", gpuID, "need 1", "unusedUsable=0", "total=14", "used=0", "unused=14"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %q:\n%v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "cpu.himem.t1") {
+		t.Errorf("the CPU shape has room and was reported as a shortfall:\n%v", err)
+	}
+
+	stats[gpuID] = `{"total":14,"used":1,"unused":13,"unusedUsable":2}`
+	if err := p.RequireCapacity(context.Background(), map[string]string{"arch": "amd64", "gpu": "gb200"}, 2, 1); err != nil {
+		t.Fatalf("usable allocations for both shapes: %v", err)
+	}
+}
+
+func TestWaitTerminating(t *testing.T) {
+	var mu sync.Mutex
+	status := map[string]string{
+		"cp-uuid":     "Ready",
+		"worker-uuid": "Terminating",
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/v2/org/"+testOrg+"/forge/instance/")
+		mu.Lock()
+		s, ok := status[id]
+		mu.Unlock()
+		if r.Method != http.MethodGet || !ok {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		if s == "" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"` + id + `","status":"` + s + `"}`))
+	}))
+	t.Cleanup(srv.Close)
+	p, err := New(Options{
+		Env:      testEnv(),
+		APIKey:   "nvapi-test",
+		Endpoint: srv.URL,
+		JumpHost: testJumpHost,
+		Images: func(string, string) (string, string, error) {
+			return "https://example.invalid/imager.efi", "https://example.invalid/node.qcow2", nil
+		},
+		Dialer:       &fakeDialer{},
+		Tools:        provision.HostTools{NerdctlVersion: "2.3.5", KindVersion: "v0.32.0", ClusterctlVersion: "v1.12.3"},
+		HTTPClient:   srv.Client(),
+		PollInterval: 10 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	ids := []string{"cp-uuid", "worker-uuid", "cp-uuid"}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err = p.WaitTerminating(ctx, ids)
+	if err == nil {
+		t.Fatal("an instance still Ready was accepted as terminating")
+	}
+	if !strings.Contains(err.Error(), "cp-uuid (last Ready)") || strings.Contains(err.Error(), "worker-uuid") {
+		t.Errorf("the error should name only the Ready instance and its status:\n%v", err)
+	}
+
+	mu.Lock()
+	status["cp-uuid"] = ""
+	mu.Unlock()
+	if err := p.WaitTerminating(context.Background(), ids); err != nil {
+		t.Fatalf("one Terminating and one gone: %v", err)
+	}
+}
+
 func TestNewRequiresJumpHost(t *testing.T) {
 	_, err := New(Options{
-		Env: testEnv(), APIKey: "nvapi-test", Tools: completeTools(),
-		Images: func(string) (string, string, error) { return "", "", nil },
+		Env: testEnv(), APIKey: "nvapi-test", Tools: provision.HostTools{NerdctlVersion: "2.3.5", KindVersion: "v0.32.0", ClusterctlVersion: "v1.12.3"},
+		Images: func(string, string) (string, string, error) { return "", "", nil },
 		Dialer: &fakeDialer{},
 	})
 	if err == nil || !strings.Contains(err.Error(), "jump host") {
 		t.Errorf("err = %v, want a missing jump host reported", err)
+	}
+}
+
+func TestProvisionNodeKeepsTheMachineOnFailure(t *testing.T) {
+	// The case the whole option exists for: a node that answers sshd and
+	// refuses the key is indistinguishable from a dozen other causes, and
+	// only the node itself can say which. Releasing it ends that.
+	forge := &fakeForge{t: t, statuses: []string{"Ready"}}
+	dialer := &fakeDialer{refusals: 100, conn: &fakeConn{}}
+	provider := newTestProvider(t, forge, dialer)
+	provider.opts.KeepOnFailure = true
+	provider.opts.ReachTimeout = 10 * time.Millisecond
+
+	_, _, err := provider.ProvisionNode(context.Background(), testRequest())
+	if err == nil {
+		t.Fatal("an unreachable node should fail the run")
+	}
+	if forge.deleted != 0 {
+		t.Errorf("deleted %d times, want 0 -- the machine was supposed to be kept", forge.deleted)
+	}
+	// Useless if a reader cannot find it again, so the message carries both
+	// the name and where it answered.
+	for _, want := range []string{"KEPT", testInstance, "released by hand", "10.0.0.7"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should name %s, got %v", want, err)
+		}
 	}
 }

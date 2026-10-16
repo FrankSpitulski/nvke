@@ -14,7 +14,9 @@ provider. [hardware-lane.md](hardware-lane.md) covers what happens after a
 machine is chosen.
 
 Files live in `controller/test/e2e/environments/`, one per environment, named
-by the value of `-e2e.environment`. Today there is exactly one, `forge.yaml`.
+by the value of `-e2e.environment`. There are two: `forge.yaml`, and `dsx.yaml`
+for the DSX datahalls. One file per *provider* — a datahall or site is an
+entry inside one, not a file of its own.
 
 ## The shape
 
@@ -27,11 +29,11 @@ provider: forge
 infrastructure:          # opaque to the loader; the forge provider decodes it
   org:
     id: "${FORGE_ORG_ID}"
-  sites:
-    default:
+  sites:                 # named for the site, not the role: capabilities choose
+    az61:
       id:            "${FORGE_SITE_ID}"
       vpcID:         "${FORGE_VPC_ID}"
-      subnetID:      "${FORGE_SUBNET_ID}"
+      subnetID:      "${FORGE_SUBNET_ID}"      # this fabric attaches by subnet
       sshKeyGroupID: "${FORGE_SSH_KEY_GROUP_ID}"
       instanceTypes:
         - name: cpu.himem.t1
@@ -39,7 +41,19 @@ infrastructure:          # opaque to the loader; the forge provider decodes it
           provides: {machineType: cpu, arch: amd64}
         - name: gpu.l40sx8
           id: "${FORGE_INSTANCE_TYPE_GPU_ID}"
-          provides: {machineType: gpu, arch: amd64, gpu: l40}
+          provides: {machineType: gpu, arch: amd64, gpu: l40s}
+    ytl:
+      id:            "${FORGE_YTL_SITE_ID:-}"
+      vpcID:         "${FORGE_YTL_VPC_ID:-}"
+      vpcPrefixID:   "${FORGE_YTL_VPC_PREFIX_ID:-}"   # this one attaches by prefix
+      sshKeyGroupID: "${FORGE_YTL_SSH_KEY_GROUP_ID:-}"
+      instanceTypes:
+        - name: cpu.arm
+          id: "${FORGE_YTL_INSTANCE_TYPE_CPU_ARM64_ID:-}"
+          provides: {machineType: cpu, arch: arm64}
+        - name: gpu.gb200.h05.ibx4.dpux2
+          id: "${FORGE_YTL_INSTANCE_TYPE_GPU_GB200_ID:-}"
+          provides: {machineType: gpu, arch: arm64, gpu: gb200}
 ```
 
 That split is the point. A second provider describes its infrastructure in its
@@ -52,7 +66,7 @@ A run asks for capabilities, not for a site or an instance type — those are
 things only the provider knows exist:
 
 ```
--e2e.capabilities gpu=l40,arch=amd64
+-e2e.capabilities gpu=l40s,arch=amd64
 ```
 
 `MatchInstanceType` walks the declared types **in order** and returns the first
@@ -65,7 +79,7 @@ machine:
 |---|---|
 | `machineType` | `cpu` or `gpu` |
 | `arch` | `amd64`, `arm64` |
-| `gpu` | the model, e.g. `l40`, `gb200` |
+| `gpu` | the model, e.g. `l40s`, `gb200` |
 
 Two consequences worth internalising.
 
@@ -73,9 +87,9 @@ Two consequences worth internalising.
 several types satisfy a request, the first listed wins.
 
 **An empty request matches everything.** Asking for nothing is satisfied by
-every type, so the first declared type wins by default. The Forge lane passes
-no `-e2e.capabilities` today, which is why it always lands on `cpu.himem.t1`
-and why the GPU type has never actually been selected.
+every type, so the first declared type wins by default. The Forge lane always
+passes `-e2e.capabilities`, built from the `arch` and `gpu` of the stream it runs, so this is
+the shape a hand-run with neither falls back to.
 
 A request nothing satisfies **fails rather than falling back**. Asking for
 `{gpu: gb200}` at a site with no GB200 is an error, not a quiet substitution of
@@ -95,8 +109,16 @@ identifiers also removes a resolution API call from the hot path of every run.
 ## Where the identifiers come from
 
 Not from the file. Every `${NAME}` above is read from the process environment
-when the environment loads, and an unset one fails the run before anything is
-created. CI supplies them from repository variables, which is the same route
+when the environment loads.
+
+A plain `${NAME}` is required: unset or empty fails the run before anything is
+created, and every missing name is reported at once. `${NAME:-}` defaults to
+empty instead, which is why ytl's identifiers take that form. A site missing
+any of them does not validate, and `Resolve` skips it rather than failing, so a
+repository that has not onboarded ytl still runs against az61. Set them to
+qualify at ytl.
+
+CI supplies them from repository variables, which is the same route
 `FORGE_TELEPORT_PROXY` already takes. `FORGE_JUMP_HOST` and
 `FORGE_TELEPORT_JOIN_TOKEN` are repository secrets instead, so that the job
 log masks them.
@@ -156,17 +178,13 @@ input. Those arrive as `-e2e.versions`.
 
 ## Adding a site
 
-Two things will stop you, and both are worth knowing before you start.
+One thing will stop you, and it is worth knowing before you start.
 
-**Network attachment differs by site.** The declared site's fabric attaches an
-interface by subnet, which is what `subnetID` carries. Other fabrics attach by
-**VPC prefix** instead. The schema has no prefix alternative, so a
-prefix-attached site **cannot currently be declared.** Adding one means adding
-that arm to the schema and to `interfaces()` in the provider.
-
-This is on the critical path for GPU qualification: the sites with GB200
-capacity are the prefix-attached ones, so a stream asking for `{gpu: gb200}`
-has nothing to run on until that work is done.
+**Network attachment differs by site.** A fabric attaches an interface by
+subnet or by **VPC prefix**, never both, and which one is a property of the
+fabric rather than a choice. A site declares `subnetID` or `vpcPrefixID`
+accordingly, and declaring both is rejected on lookup. az61 attaches by
+subnet, ytl by prefix.
 
 **Enumerating instance types is awkward.** A Forge instance-type list caps at
 twenty rows and ignores every filter, so discovering the rest means reading
@@ -179,6 +197,45 @@ A second provider is a second implementation of `infra.Provider` plus an
 environment file in its own vocabulary. Nothing above that interface changes,
 and there is no schema to agree on — the loader only reads `provider` and hands
 the rest over.
+
+`dsx.yaml` is the worked example, and it is worth reading beside `forge.yaml`
+for how little the two have in common below `provider:`:
+
+```yaml
+provider: dsx
+
+infrastructure:
+  org:
+    id: "${DSX_ORG_ID:-ncx}"          # a name, where Forge's is numeric
+  sites:
+    redstone-dev1-dh2:                # the key IS the API host
+      id:          "${DSX_REDSTONE_DEV1_DH2_SITE_ID:-}"
+      tenantID:    "${DSX_REDSTONE_DEV1_DH2_TENANT_ID:-}"   # no Forge equivalent
+      vpcPrefixID: "${DSX_REDSTONE_DEV1_DH2_VPC_PREFIX_ID:-}"
+      instanceTypes:
+        - name: redstone-dev1-dh2-nvke-tenant
+          id: "${DSX_REDSTONE_DEV1_DH2_INSTANCE_TYPE_ID:-}"
+          provides: {machineType: cpu, arch: arm64}
+```
+
+Three differences are load-bearing rather than cosmetic.
+
+**The key is the API host.** A request goes to
+`carbide-rest-api-<key>.dev.dsx.nvidia.com`, so there is no site-lookup call
+the way Forge needs one. Two datahalls at one site hold completely disjoint
+UUIDs for the same kinds of object, and nothing in a response says which one an
+id came from — so a second datahall is a second key, never a reused one.
+
+**Credentials are per datahall.** The names are derived from the key:
+`DSX_<DATAHALL>_SSA_CLIENT_ID` and `_SECRET`, exchanged for a bearer token at
+the issuer in `SSA_ISSUER`. A client scoped to one datahall cannot be picked up
+by a run against another, and a second datahall needs no code.
+
+**`full` is refused.** The tenant half of a `full` run decodes the environment
+as a Forge declaration, so a DSX run at `-e2e.site-stage full` fails before a
+machine is taken. `provision` and `bootstrap` both run; the `qualify-e2e-dsx`
+label pins `provision`, which is what the datahall's bound capacity can place.
+The dsx stream is kept out of the `full` scope for the same reason.
 
 Capability matching is the provider's job rather than generic code, which is
 what makes this work: a provider that has no concept of an "instance type" is

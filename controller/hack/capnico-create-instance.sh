@@ -9,13 +9,13 @@
 # report ready and prints the nico-sim instance JSON.
 #
 # Notes:
-#   - The iPXE script comes from the CWE-side OS profile
-#     (profiles/osProfiles/<OS_PROFILE>/ipxeScript); nico-vms and CAPNICo only
-#     ever see the rendered text. `{{ .DiskSelectionStrategy }}` is the only
+#   - The iPXE script comes from the releases in the cluster: the MachineImage
+#     that NodePoolRelease <RELEASE> references; nico-vms and CAPNICo
+#     only ever see the rendered text. `{{ .DiskSelectionStrategy }}` is the only
 #     template variable today and is rendered with sed; any surviving `{{` is a
 #     hard failure rather than a VM that silently fails to boot.
 #   - The userData is a deliberately minimal bare boot: no teleport, SPIRE,
-#     nke-agent or kubeadm. Readiness is a port-22 probe (nico-vms injects its
+#     nvke-agent or kubeadm. Readiness is a port-22 probe (nico-vms injects its
 #     own nico-diag user), so cloud-init never gates Ready.
 #   - CAPNICo v0.0.28 CRDs strict-decode: the capital-`ID` spelling (siteID,
 #     vpcID, instanceTypeID, subnetID, sshKeyGroupIDs) is load-bearing. Lowercase
@@ -60,7 +60,11 @@ CLUSTER_NAME="${CLUSTER_NAME:-${DEFAULT_CLUSTER_NAME}}"
 INSTANCE_NAME="${INSTANCE_NAME:-${DEFAULT_INSTANCE_NAME}}"
 BOOTSTRAP_SECRET_NAME="${BOOTSTRAP_SECRET_NAME:-${INSTANCE_NAME}-bootstrap}"
 
-OS_PROFILE="${OS_PROFILE:-nke-260611-24.04-amd64-fde}"
+if [[ -n "${OS_PROFILE:-}" ]]; then
+  echo "OS_PROFILE is no longer read; this script takes RELEASE (the NodePoolRelease name)." >&2
+  exit 1
+fi
+RELEASE="${RELEASE:-nke-260611-24.04-amd64-fde}"
 DISK_SELECTION_STRATEGY="${DISK_SELECTION_STRATEGY:-smallest}"
 
 # Seed resources for the selected backend.
@@ -71,15 +75,15 @@ SUBNET_ID="${SUBNET_ID:-${DEFAULT_SUBNET_ID}}"
 SSH_KEY_GROUP_ID="${SSH_KEY_GROUP_ID:-${DEFAULT_SSH_KEY_GROUP_ID}}"
 # cpu2-mem4gb-disk50gb. The instance type's disk_gib overrides
 # NICO_VMS_VM_DISK_GIB, and 50 GiB is ample for a bare boot. Use
-# a1b2c3d4-0005-4000-8000-000000000004 (cpu6-mem32gb-disk60gb) for real NKE-node
+# a1b2c3d4-0005-4000-8000-000000000004 (cpu6-mem32gb-disk60gb) for real NVKE-node
 # work later.
 INSTANCE_TYPE_ID="${INSTANCE_TYPE_ID:-${DEFAULT_INSTANCE_TYPE_ID}}"
 
 NICO_SIM_URL="${NICO_SIM_URL:-http://localhost:18080}"
 NICO_SIM_TOKEN="${NICO_SIM_TOKEN:-nico-simctl-token}"
 
-# cluster.x-k8s.io/v1beta1 is still served on the pinned CAPI v1.12.3 and
-# matches CWE's own nico_machine_builders output, but the CRDs mark it
+# cluster.x-k8s.io/v1beta1 is still served on the pinned CAPI v1.13.6 and
+# matches the controller's own nico_machine_builders output, but the CRDs mark it
 # deprecated (applying it prints a deprecation warning) and v1beta2 is the
 # storage version. v1beta2 is the current-generation form: it references infra
 # via apiGroup, not apiVersion.
@@ -158,20 +162,27 @@ case "${CAPI_API_VERSION}" in
 esac
 
 # ---------------------------------------------------------------------------
-# Render the OS profile's iPXE script.
+# Render the release's iPXE script.
 # ---------------------------------------------------------------------------
 
-PROFILES_ROOT="${CWE_PROFILES_DIR:-${REPO_ROOT}/../../nke-site-deploy/cwe-profiles/profiles}"
-IPXE_SOURCE="${PROFILES_ROOT}/osProfiles/${OS_PROFILE}/ipxeScript"
-if [ ! -f "${IPXE_SOURCE}" ]; then
-  echo "OS profile '${OS_PROFILE}' has no ipxeScript at ${IPXE_SOURCE}" >&2
-  echo "Set CWE_PROFILES_DIR to the nke-site-deploy cwe-profiles profiles tree." >&2
+# The script is read from the releases in the cluster, the same place the controller
+# resolves it: the NodePoolRelease named RELEASE points at a MachineImage,
+# which carries the iPXE script. Nothing here reads a profiles directory.
+IMAGE_NAME="$(kubectl get nodepoolrelease "${RELEASE}" -o jsonpath='{.spec.machineImageRef.name}' 2>/dev/null || true)"
+if [ -z "${IMAGE_NAME}" ]; then
+  echo "NodePoolRelease '${RELEASE}' is not installed in the cluster kubectl points at." >&2
+  echo "Apply the releases first (nke-site-deploy/cwe-profiles/releases, or make releases-install)." >&2
+  exit 1
+fi
+IPXE_TEMPLATE="$(kubectl get machineimage "${IMAGE_NAME}" -o jsonpath='{.spec.nico.ipxeScript}' 2>/dev/null || true)"
+if [ -z "${IPXE_TEMPLATE}" ]; then
+  echo "MachineImage '${IMAGE_NAME}' (from NodePoolRelease '${RELEASE}') has no iPXE script." >&2
   exit 1
 fi
 
-IPXE_SCRIPT="$(sed "s|{{ \.DiskSelectionStrategy }}|${DISK_SELECTION_STRATEGY}|g" "${IPXE_SOURCE}")"
+IPXE_SCRIPT="$(printf '%s\n' "${IPXE_TEMPLATE}" | sed "s|{{ \.DiskSelectionStrategy }}|${DISK_SELECTION_STRATEGY}|g")"
 if printf '%s\n' "${IPXE_SCRIPT}" | grep -q '{{'; then
-  echo "Unrendered template variables remain in the ${OS_PROFILE} ipxeScript:" >&2
+  echo "Unrendered template variables remain in the ${RELEASE} ipxeScript:" >&2
   printf '%s\n' "${IPXE_SCRIPT}" | grep -n '{{' >&2
   exit 1
 fi

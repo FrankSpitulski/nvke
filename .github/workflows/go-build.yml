@@ -8,7 +8,7 @@
 # compile could merge and only fail later in a release or an image build.
 #
 # Runs on ubuntu-latest with `pull_request`, deliberately. Every module in
-# go.work — all eleven, including controller, nico-sim, os-image, and nkectl — resolves
+# go.work — all eleven, including controller, nico-sim, os-image, and nvkectl — resolves
 # public dependencies through the Go module cache, so this needs no NVIDIA
 # runner or credentials -- which means it also runs on fork pull requests
 # and on Dependabot's, where the repository currently has almost no coverage.
@@ -60,8 +60,10 @@ jobs:
   build:
     name: Build binaries
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke'
-    timeout-minutes: 15
+    if: github.repository_id == '1323115536'
+    # 25, not 15: over 7 days on main the job averaged 13.1m and 3 of 38 runs
+    # were cut at 15m, which reports as cancelled rather than failed.
+    timeout-minutes: 25
     permissions:
       contents: read
     steps:
@@ -98,10 +100,27 @@ jobs:
       - name: Check the Go version copies agree with go.work
         run: make go-version-check
 
+      # make/tool-versions.mk owns every tool pin. This is what notices a
+      # second declaration of one, which is the only way two can disagree.
+      # Reads files only, so it is safe for a fork pull request.
+      - name: Check every tool pin is declared once
+        run: make tool-version-check
+
       # The two images this repository publishes build from base images named
       # by digest. Reads files only, so it is safe for a fork pull request.
       - name: Check release-relevant base images are digest-pinned
         run: make base-image-check
+
+      # The grype scans themselves need a vulnerability database, a network and
+      # an NVIDIA runner, so they are not in the merge gate and do not run on a
+      # fork pull request. The policy their ignore list has to satisfy is pure
+      # file reading, so it is checked here, where it gates the pull request
+      # that adds the entry rather than the weekly scan long afterwards.
+      - name: Check .grype.yaml exceptions are scoped, owned and in date
+        run: make grype-ignore-check
+
+      - name: Check every deploy-list item has its directory
+        run: make deploy-lists-check
 
       - name: Build
         run: make version-check
@@ -119,3 +138,13 @@ jobs:
           CGO_ENABLED: "1"
           GO_TEST_FLAGS: -race
         run: make -C cluster-api-provider-provisioned test
+
+      # Likewise the release module's only unit-test lane. This is what makes
+      # TestRepositoryFilesAreValid a merge-gate check rather than a test
+      # someone has to remember to run: it loads release/registry.yaml,
+      # policy.yaml and qualification.yaml, so a selector naming a capability no
+      # stream declares fails here.
+      # No -race -- the planner is sequential and reads git tags through one
+      # subprocess at a time.
+      - name: Test release qualification tooling
+        run: make -C release test

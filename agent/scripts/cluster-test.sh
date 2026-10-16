@@ -4,13 +4,13 @@
 
 # End-to-end manual cluster test against agent VMs over grpcurl (plaintext by default).
 #
-# Orchestrates the recommended NKE controller-style flow:
+# Orchestrates the recommended NVKE controller-style flow:
 #   1. Wait for agents (optional preflight / package install)
 #   2. kubeadm init on the first control-plane node (noCniInstall=true)
 #   3. Join additional control-plane nodes, then workers
 #   4. InstallCNI once on the bootstrap control-plane
 #
-# Assumes VMs already run nke-agent with --disable-mtls (or equivalent) and that apt is
+# Assumes VMs already run nvke-agent with --disable-mtls (or equivalent) and that apt is
 # configured (e.g. via cloud-init). Use --install-cni-packages when chart/image debs are not
 # pre-installed.
 #

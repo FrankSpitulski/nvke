@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 //nolint:gochecknoinits // this is the typical way to register bun migrations
@@ -284,7 +284,7 @@ func migrateNodePools(ctx context.Context, tx bun.Tx) error {
 
 	// This is a course grained check, suitable only for the migration.
 	// If any node pools are deleting, we just fail the migration, giving the currently running
-	// CWE software a chance to complete the deletion, then the following migration attempt should succeed.
+	// controller software a chance to complete the deletion, then the following migration attempt should succeed.
 	for _, existingNodePool := range existingNodePools {
 		if existingNodePool.Conditions.Deleting.Status == db.ConditionStatusTrue {
 			panic(fmt.Sprintf("node pool %s is deleting", existingNodePool.ID))

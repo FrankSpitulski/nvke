@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	yaml "gopkg.in/yaml.v2"
 
-	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 )
 
 func TestK8sAPIEncryptionStatusConstants(t *testing.T) {
@@ -42,10 +42,10 @@ func TestK8sAPIEncryptionPhaseConstants(t *testing.T) {
 
 func TestAPIEncryptionLabels(t *testing.T) {
 	// Verify label constants are properly formatted
-	assert.Equal(t, "nke.io/k8s-api-encryption-configured=true", APIEncryptionConfiguredLabel)
-	assert.Equal(t, "nke.io/k8s-api-encryption-rewrite-complete=true", APIEncryptionRewriteCompleteLabel)
-	assert.Equal(t, "nke.io/k8s-api-encryption-enabled=true", APIEncryptionEnabledLabel)
-	assert.Equal(t, "nke.io/k8s-api-encryption-secondary-key-configured=true", APIEncryptionSecondaryKeyEnabledLabel)
+	assert.Equal(t, "nvke.nvidia.com/k8s-api-encryption-configured=true", APIEncryptionConfiguredLabel)
+	assert.Equal(t, "nvke.nvidia.com/k8s-api-encryption-rewrite-complete=true", APIEncryptionRewriteCompleteLabel)
+	assert.Equal(t, "nvke.nvidia.com/k8s-api-encryption-enabled=true", APIEncryptionEnabledLabel)
+	assert.Equal(t, "nvke.nvidia.com/k8s-api-encryption-secondary-key-configured=true", APIEncryptionSecondaryKeyEnabledLabel)
 }
 
 func TestObjectsToEncrypt(t *testing.T) {

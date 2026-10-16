@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 // TestUpdateNode_BumpsUpdatedAt guards against a regression where Node's
@@ -106,6 +106,31 @@ func TestUnit_NodeValidateSecurityProfile(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestUnit_NodeGetSpiffeID(t *testing.T) {
+	t.Parallel()
+	const nodeID = "45f59791-87df-4e85-9430-e565166ad020"
+
+	tests := map[string]struct {
+		node db.Node
+		want string
+	}{
+		"legacy SPIFFE identity": {
+			node: db.Node{ID: uuid.MustParse(nodeID)},
+			want: "spiffe://example.org/host/" + nodeID,
+		},
+		"canonical DSX exchange identity": {
+			node: db.Node{ID: uuid.MustParse(nodeID), NodeAgentTLSJWTEnabled: true},
+			want: "spiffe://example.org/tenant/tenant-a/service/dsx/bm/" + nodeID,
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, test.want, test.node.GetSpiffeID("example.org", "tenant-a", "dsx"))
 		})
 	}
 }

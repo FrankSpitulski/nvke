@@ -29,7 +29,7 @@ type Vars struct {
 
 	// K8sProvision is the runcmd block that puts kubeadm, the kubelet and a
 	// container runtime on the node, already indented as YAML list items.
-	// AptProvision() builds the NKE apt repository form; CommunityProvision()
+	// AptProvision() builds the NVKE apt repository form; CommunityProvision()
 	// builds the upstream form for hosts that cannot reach that repository.
 	K8sProvision string // __K8S_PROVISION__
 }
@@ -85,28 +85,28 @@ func Render(templatePath string, vars Vars) (string, error) {
 }
 
 // AptProvision returns the runcmd block that installs the Kubernetes stack from
-// the NKE apt repository. This is what the lane used before, kept because it is
+// the NVKE apt repository. This is what the lane used before, kept because it is
 // the right path on a host that can reach that repository.
 //
-// The plain Ubuntu cloud image has no NKE apt repo, so add one. The NKE node
+// The plain Ubuntu cloud image has no NVKE apt repo, so add one. The NVKE node
 // image already ships it signed-by /etc/apt/keyrings/nke.asc, and a second entry
 // with a different keyring makes apt fail with "Conflicting values set for
 // option Signed-By", so only add ours when it is absent.
 func AptProvision(repoURL, gpgURL, suite, component, deb, debVersion string) string {
 	return "  - bash -c 'if grep -Rqs \"" + suite + "\" /etc/apt/sources.list.d/ /etc/apt/sources.list; then" +
-		" echo \"NKE apt repo already present in image; using it\"; else" +
+		" echo \"NVKE apt repo already present in image; using it\"; else" +
 		" install -d -m 0755 /etc/apt/keyrings && curl -fsSL \"" + gpgURL + "\" |" +
 		" gpg --dearmor -o /etc/apt/keyrings/nke.gpg &&" +
 		" echo \"deb [signed-by=/etc/apt/keyrings/nke.gpg] " + repoURL + " " + suite + " " + component + "\"" +
 		" > /etc/apt/sources.list.d/nke.list; fi'\n" +
-		"  - apt-get update\n" +
-		"  - DEBIAN_FRONTEND=noninteractive apt-get install -y " + deb + "=" + debVersion + " nke-agent"
+		"  - apt-get update -o DPkg::Lock::Timeout=600\n" +
+		"  - DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 " + deb + "=" + debVersion + " nvke-agent"
 }
 
 // CommunityProvision returns the runcmd block that installs the same stack from
-// upstream releases, and nke-agent from a .deb the host serves.
+// upstream releases, and nvke-agent from a .deb the host serves.
 //
-// The NKE apt repository is behind a source-IP allow list that GitHub runners
+// The NVKE apt repository is behind a source-IP allow list that GitHub runners
 // are outside of. Everything that repository's kubeadm package ships is an
 // upstream release, and the agent resolves its tools with exec.LookPath, so
 // fetching them directly gives the agent the same thing. Both URLs are served by
@@ -114,6 +114,6 @@ func AptProvision(repoURL, gpgURL, suite, component, deb, debVersion string) str
 func CommunityProvision(provisionScriptURL, agentDebURL string) string {
 	return "  - curl -fsSL --retry 3 -o /tmp/install-k8s.sh " + provisionScriptURL + "\n" +
 		"  - bash /tmp/install-k8s.sh\n" +
-		"  - curl -fsSL --retry 3 -o /tmp/nke-agent.deb " + agentDebURL + "\n" +
-		"  - DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/nke-agent.deb"
+		"  - curl -fsSL --retry 3 -o /tmp/nvke-agent.deb " + agentDebURL + "\n" +
+		"  - DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 /tmp/nvke-agent.deb"
 }

@@ -334,29 +334,29 @@ func (r *resolvingStarter) lastSession() *fakeSession {
 	return r.sessions[len(r.sessions)-1]
 }
 
-func cweForwarder(t *testing.T) (*fake.Clientset, *resolvingStarter, *ServiceForwarder) {
+func controllerForwarder(t *testing.T) (*fake.Clientset, *resolvingStarter, *ServiceForwarder) {
 	t.Helper()
-	clientset := fake.NewClientset(cweService(), readyCWEPod("cwe-old"))
+	clientset := fake.NewClientset(controllerService(), readyControllerPod("cwe-old"))
 	starter := &resolvingStarter{inner: &podForwardStarter{
 		clientset: clientset,
-		namespace: "cloud-workflow-engine",
-		service:   "cloud-workflow-engine",
+		namespace: "nke-controller",
+		service:   "nke-controller",
 		port:      "8080",
 	}}
-	forwarder := newTestForwarder(starter, "http://cloud-workflow-engine.cloud-workflow-engine.svc:8080")
+	forwarder := newTestForwarder(starter, "http://nke-controller.nke-controller.svc:8080")
 	t.Cleanup(forwarder.Close)
 	return clientset, starter, forwarder
 }
 
-func readyCWEPod(name string) *corev1.Pod {
+func readyControllerPod(name string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "cloud-workflow-engine",
+			Namespace: "nke-controller",
 			Name:      name,
-			Labels:    map[string]string{nameLabel: "cloud-workflow-engine"},
+			Labels:    map[string]string{nameLabel: "nke-controller"},
 		},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{{
-			Name:  "cloud-workflow-engine",
+			Name:  "nke-controller",
 			Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: 8080}},
 		}}},
 		Status: corev1.PodStatus{
@@ -366,11 +366,11 @@ func readyCWEPod(name string) *corev1.Pod {
 	}
 }
 
-func cweService() *corev1.Service {
+func controllerService() *corev1.Service {
 	return &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "cloud-workflow-engine", Name: "cloud-workflow-engine"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "nke-controller", Name: "nke-controller"},
 		Spec: corev1.ServiceSpec{
-			Selector: map[string]string{nameLabel: "cloud-workflow-engine"},
+			Selector: map[string]string{nameLabel: "nke-controller"},
 			Ports: []corev1.ServicePort{
 				{Name: "http", Port: 8080, TargetPort: intstr.FromString("http")},
 			},
@@ -383,13 +383,13 @@ func cweService() *corev1.Service {
 // gone, the new one not yet Ready — must surface as an error rather than wedge
 // the forwarder.
 func TestServiceForwarderRedialResolvesTheReplacementPod(t *testing.T) {
-	clientset, starter, forwarder := cweForwarder(t)
+	clientset, starter, forwarder := controllerForwarder(t)
 
 	if pod := requestPod(t, forwarder); pod != "cwe-old" {
 		t.Fatalf("first request landed on pod %q, want cwe-old", pod)
 	}
 
-	pods := clientset.CoreV1().Pods("cloud-workflow-engine")
+	pods := clientset.CoreV1().Pods("nke-controller")
 	if err := pods.Delete(t.Context(), "cwe-old", metav1.DeleteOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +399,7 @@ func TestServiceForwarderRedialResolvesTheReplacementPod(t *testing.T) {
 		t.Fatal("expected an error while no pod backs the Service")
 	}
 
-	if _, err := pods.Create(t.Context(), readyCWEPod("cwe-new"), metav1.CreateOptions{}); err != nil {
+	if _, err := pods.Create(t.Context(), readyControllerPod("cwe-new"), metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if pod := requestPod(t, forwarder); pod != "cwe-new" {
@@ -429,7 +429,7 @@ func requestPod(t *testing.T, forwarder *ServiceForwarder) string {
 
 func TestSelectServicePort(t *testing.T) {
 	service := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "cloud-workflow-engine", Name: "cloud-workflow-engine"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "nke-controller", Name: "nke-controller"},
 		Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{
 			{Name: "http", Port: 8080, TargetPort: intstr.FromString("http")},
 			{Name: "metrics", Port: 9090, TargetPort: intstr.FromString("metrics")},
@@ -466,7 +466,7 @@ func TestSelectServicePort(t *testing.T) {
 
 func TestResolveTargetPort(t *testing.T) {
 	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "cloud-workflow-engine", Name: "cwe-0"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "nke-controller", Name: "cwe-0"},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{{
 			Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: 8080}},
 		}}},
@@ -527,7 +527,7 @@ func TestPickReadyPod(t *testing.T) {
 	}
 }
 
-// TestServiceBaseURL: the NKE Service publishes its metrics listener under a
+// TestServiceBaseURL: the NVKE Service publishes its metrics listener under a
 // name, and a name in the authority makes every URL built from it unparseable.
 func TestServiceBaseURL(t *testing.T) {
 	tests := []struct {
@@ -538,18 +538,18 @@ func TestServiceBaseURL(t *testing.T) {
 		{
 			name: "a numeric port is kept, so the Host header names it",
 			port: "8080",
-			want: "http://cloud-workflow-engine.cloud-workflow-engine.svc:8080",
+			want: "http://nke-controller.nke-controller.svc:8080",
 		},
 		{
 			name: "a named port is dropped, because a name is not a URL port",
 			port: "metrics",
-			want: "http://cloud-workflow-engine.cloud-workflow-engine.svc",
+			want: "http://nke-controller.nke-controller.svc",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := serviceBaseURL("cloud-workflow-engine", "cloud-workflow-engine", tt.port)
+			got := serviceBaseURL("nke-controller", "nke-controller", tt.port)
 			if got != tt.want {
 				t.Fatalf("serviceBaseURL = %q, want %q", got, tt.want)
 			}
@@ -557,5 +557,66 @@ func TestServiceBaseURL(t *testing.T) {
 				t.Fatalf("a request URL built from %q does not parse: %v", got, err)
 			}
 		})
+	}
+}
+
+// wedgedFirstStarter hands out a session that accepts and closes every
+// connection first, the way a port-forward whose SPDY connection has wedged
+// does, and healthy sessions after.
+type wedgedFirstStarter struct {
+	inner      *fakeStarter
+	mu         sync.Mutex
+	starts     int
+	wedgedDone chan struct{}
+}
+
+func (w *wedgedFirstStarter) Target() string { return w.inner.Target() }
+
+func (w *wedgedFirstStarter) Start(ctx context.Context) (*forwardSession, error) {
+	w.mu.Lock()
+	w.starts++
+	first := w.starts == 1
+	w.mu.Unlock()
+	if !first {
+		return w.inner.Start(ctx)
+	}
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+	done := make(chan struct{})
+	w.mu.Lock()
+	w.wedgedDone = done
+	w.mu.Unlock()
+	return &forwardSession{
+		addr: listener.Addr().String(),
+		done: done,
+		stop: sync.OnceFunc(func() { _ = listener.Close(); close(done) }),
+	}, nil
+}
+
+func TestServiceForwarderRecoversFromAWedgedSession(t *testing.T) {
+	starter := &wedgedFirstStarter{inner: &fakeStarter{}}
+	forwarder := newTestForwarder(starter, "http://nke-controller.nke-controller.svc:8080")
+	t.Cleanup(forwarder.Close)
+
+	mustGetOK(t, forwarder, "GET through a forward whose first session is wedged")
+
+	if starter.inner.startCount() != 1 {
+		t.Errorf("fresh sessions started = %d, want 1", starter.inner.startCount())
+	}
+	select {
+	case <-starter.wedgedDone:
+	default:
+		t.Error("the wedged session was not stopped")
 	}
 }

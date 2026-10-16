@@ -11,7 +11,12 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/activities"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/activities"
+)
+
+const (
+	//nolint:gosec // Temporal workflow type name, not a credential.
+	UpdateKubeadmConfigMapWorkflowType = "UpdateKubeadmConfigMap"
 )
 
 type UpdateKubeadmConfigMapInput struct {

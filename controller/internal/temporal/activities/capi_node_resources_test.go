@@ -6,8 +6,6 @@ package activities
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -19,18 +17,18 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	nicov1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
+	enginev1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 func TestFirstInfrastructureRefIPAddress_NicoMachine(t *testing.T) {
@@ -84,55 +82,12 @@ func TestFirstInfrastructureRefIPAddress_NicoMachine(t *testing.T) {
 	assert.Equal(t, "10.0.0.10", ipAddress)
 }
 
-func TestApplyNicoMachineInstanceLabels_MergesOntoTemplateSpec(t *testing.T) {
-	nodeID := uuid.MustParse("72000000-0000-0000-0000-000000000001")
-	clusterID := uuid.MustParse("72000000-0000-0000-0000-000000000002")
-	nodePoolID := uuid.MustParse("72000000-0000-0000-0000-000000000003")
-	siteID := uuid.MustParse("72000000-0000-0000-0000-000000000004")
-	vpcID := uuid.MustParse("72000000-0000-0000-0000-000000000005")
-
-	infraMachine := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": nicov1.GroupVersion.String(),
-		"kind":       "NicoMachine",
-		"spec": map[string]any{
-			"labels": map[string]any{
-				"example.com/from-template": "keep",
-			},
-		},
-	}}
-	a := &Activities{cfg: config.Config{NKESiteControllerName: "site-a"}}
-	err := a.applyNicoMachineInstanceLabels(&capiMachineCreateContext{
-		node: db.Node{
-			ID:   nodeID,
-			Nico: &db.NicoNodeProvider{ForgeMachineID: "machine-abc123"},
-		},
-		nodePool: db.NodePool{ID: nodePoolID},
-		cluster: db.Cluster{
-			ID: clusterID,
-			Nico: &db.NicoClusterProvider{
-				OrgID:  "org-1",
-				SiteID: siteID,
-				VpcID:  vpcID,
-			},
-		},
-	}, infraMachine)
-	require.NoError(t, err)
-
-	labels, found, err := unstructured.NestedStringMap(infraMachine.Object, "spec", "labels")
-	require.NoError(t, err)
-	require.True(t, found)
-	assert.Equal(t, "keep", labels["example.com/from-template"])
-	assert.Equal(t, nodeID.String(), labels[constants.LabelKeyNodeID])
-	assert.Equal(t, clusterID.String(), labels[constants.LabelKeyClusterID])
-	assert.Equal(t, nodePoolID.String(), labels[constants.LabelKeyNodePoolID])
-	assert.Empty(t, labels[constants.LabelKeyMachineID])
-	assert.Empty(t, labels[constants.LabelKeyNodeSiteID])
-	assert.Empty(t, labels[constants.LabelKeyNodeSiteName])
-	assert.Empty(t, labels[constants.LabelKeyNodeVPCID])
-	assert.Empty(t, labels[constants.LabelKeyNodeVPCName])
-}
-
-func TestActivities_CreateTemplateLessForgeCAPIMachineForNode_Idempotent(t *testing.T) {
+// TestActivities_CreateCAPIInfraMachineForNode_TemplatelessNico_Idempotent
+// exercises the real CreateCAPIInfraMachineForNode activity end-to-end for a
+// NICo-provider cluster, verifying Activities wires clients.GetMachineMaterialization
+// and the resulting client correctly: factory picks nico.Client, which drives
+// the whole create (NicoMachine, bootstrap secret, generic Machine).
+func TestActivities_CreateCAPIInfraMachineForNode_TemplatelessNico_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	nodeID := uuid.MustParse("70000000-0000-0000-0000-000000000001")
 	clusterID := uuid.MustParse("70000000-0000-0000-0000-000000000002")
@@ -156,7 +111,7 @@ func TestActivities_CreateTemplateLessForgeCAPIMachineForNode_Idempotent(t *test
 		KubernetesVersion: "1.32.1",
 	}
 	nodeSet.SetNico(db.NicoNodePoolProvider{
-		OSProfile:             "test-os",
+		Release:               "test-os",
 		DiskSelectionStrategy: db.DiskSelectionStrategySmallest,
 	})
 	nodePool := db.NodePool{
@@ -168,27 +123,36 @@ func TestActivities_CreateTemplateLessForgeCAPIMachineForNode_Idempotent(t *test
 		VpcPrefixIDs:   []uuid.UUID{vpcPrefixID},
 	})
 	cluster := db.Cluster{
-		ID:        clusterID,
-		Name:      "cluster-a",
-		CniPlugin: db.CNICalico,
+		ID:           clusterID,
+		Name:         "cluster-a",
+		CniPlugin:    db.CNICalico,
+		ProviderType: db.ProviderTypeNico,
 	}
 	cluster.SetNicoProvider(db.NicoClusterProvider{OrgID: "org-1", SiteID: siteID, VpcID: vpcID})
-	namespace := constants.NamespaceNKESystem
-	k8sClient := newCAPIMachineCreateClient(t)
+	namespace := constants.NamespaceNVKESystem
+	k8sClient := newCAPIMachineCreateClient(t, testNicoWorkerRelease("test-os", "#!ipxe\n{{ .DiskSelectionStrategy }}", "#cloud-config\nhostname: {{ .Hostname }}\n")...)
+
+	mockDB := &testutil.MockDB{}
+	mockDB.On("GetNode", mock.Anything, nodeID).Return(node, nil)
+	mockDB.On("GetNodeSet", mock.Anything, nodeSetID).Return(nodeSet, nil)
+	mockDB.On("GetNodePool", mock.Anything, nodePoolID).Return(nodePool, nil)
+	mockDB.On("GetCluster", mock.Anything, clusterID).Return(cluster, nil)
+
 	a := &Activities{
+		db:        mockDB,
 		cfg:       testTemplateLessForgeCAPICfg(t),
 		k8sClient: k8sClient,
 	}
-	createCtx := &capiMachineCreateContext{
-		node:      node,
-		nodeSet:   nodeSet,
-		nodePool:  nodePool,
-		cluster:   cluster,
-		namespace: namespace,
-	}
 
-	require.NoError(t, a.createTemplateLessForgeCAPIMachineForNode(ctx, createCtx))
-	require.NoError(t, a.createTemplateLessForgeCAPIMachineForNode(ctx, createCtx))
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestActivityEnvironment()
+	env.RegisterActivity(a.CreateCAPIInfraMachineForNode)
+
+	input := CreateCAPIInfraMachineForNodeInput{NodeID: nodeID}
+	_, err := env.ExecuteActivity(a.CreateCAPIInfraMachineForNode, input)
+	require.NoError(t, err)
+	_, err = env.ExecuteActivity(a.CreateCAPIInfraMachineForNode, input)
+	require.NoError(t, err)
 
 	machineList := &clusterv1.MachineList{}
 	require.NoError(t, k8sClient.List(ctx, machineList, client.InNamespace(namespace)))
@@ -228,8 +192,9 @@ func TestActivities_WaitForCAPIMachineReady_RetryBehavior(t *testing.T) {
 		},
 	}
 	cluster := db.Cluster{
-		ID:   clusterID,
-		Name: "cluster-a",
+		ID:           clusterID,
+		Name:         "cluster-a",
+		ProviderType: db.ProviderTypeNico,
 		ControlPlaneConfig: db.ControlPlaneConfig{
 			ControlPlaneConfigSpec: db.ControlPlaneConfigSpec{
 				KubernetesVersion: "1.32.1",
@@ -623,14 +588,6 @@ func TestActivities_UpdateCAPIMachineWaitNodeCondition(t *testing.T) {
 	}
 }
 
-func testInfrastructureRef() clusterv1.ContractVersionedObjectReference {
-	return clusterv1.ContractVersionedObjectReference{
-		APIGroup: "infrastructure.cluster.x-k8s.io",
-		Kind:     "NicoMachine",
-		Name:     "worker-0",
-	}
-}
-
 func testCAPIMachineWithNicoInfraRef(addresses clusterv1.MachineAddresses) *clusterv1.Machine {
 	return &clusterv1.Machine{
 		TypeMeta: metav1.TypeMeta{
@@ -639,7 +596,7 @@ func testCAPIMachineWithNicoInfraRef(addresses clusterv1.MachineAddresses) *clus
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "worker-0",
-			Namespace: constants.NamespaceNKESystem,
+			Namespace: constants.NamespaceNVKESystem,
 		},
 		Spec: clusterv1.MachineSpec{
 			InfrastructureRef: clusterv1.ContractVersionedObjectReference{
@@ -700,50 +657,63 @@ func testNicoMachineForRotation(params nicoMachineRotationParameters) *nicov1.Ni
 
 func testNicoMachineForCAPIMachineReady(params nicoMachineRotationParameters) *nicov1.NicoMachine {
 	nicoMachine := testNicoMachineForRotation(params)
-	nicoMachine.Namespace = constants.NamespaceNKESystem
+	nicoMachine.Namespace = constants.NamespaceNVKESystem
 	return nicoMachine
 }
 
-func newNicoMachineRotationClient(t *testing.T, nicoMachine *nicov1.NicoMachine) client.Client {
-	t.Helper()
-
-	scheme := runtime.NewScheme()
-	require.NoError(t, nicov1.AddToScheme(scheme))
-	return fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(nicoMachine).
-		Build()
-}
-
-func newCAPIMachineCreateClient(t *testing.T) client.Client {
+func newCAPIMachineCreateClient(t *testing.T, objects ...client.Object) client.Client {
 	t.Helper()
 
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, clusterv1.AddToScheme(scheme))
 	require.NoError(t, nicov1.AddToScheme(scheme))
+	require.NoError(t, enginev1.AddToScheme(scheme))
 	return fake.NewClientBuilder().
 		WithScheme(scheme).
+		WithObjects(objects...).
 		Build()
+}
+
+// testNicoWorkerRelease is the least a NICo worker node needs to provision: a
+// NodePoolRelease and the MachineImage it boots.
+func testNicoWorkerRelease(name, ipxe, userData string) []client.Object {
+	return []client.Object{
+		&enginev1.MachineImage{
+			ObjectMeta: metav1.ObjectMeta{Name: name + "-image"},
+			Spec: enginev1.MachineImageSpec{
+				OperatingSystem: enginev1.OperatingSystem{Family: "ubuntu", Version: "24.04"},
+				Architecture:    "amd64",
+				BuildDate:       "2026-01-01",
+				NICo:            enginev1.NICoBoot{IPXEScript: ipxe},
+			},
+		},
+		&enginev1.NodePoolRelease{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+				Annotations: map[string]string{
+					enginev1.MachineInitKubernetesVersionAnnotation:         "",
+					enginev1.MachineInitKubernetesVersionInjectedAnnotation: "true",
+				},
+			},
+			Spec: enginev1.NodePoolReleaseSpec{
+				MachineImageRef: enginev1.MachineImageReference{Name: enginev1.ResourceName(name + "-image")},
+				MachineInit:     enginev1.MachineInit{UserDataTemplate: userData},
+			},
+		},
+	}
 }
 
 func testTemplateLessForgeCAPICfg(t *testing.T) config.Config {
 	t.Helper()
 
-	profilesDir := t.TempDir()
-	osProfileDir := filepath.Join(profilesDir, "osProfiles", "test-os")
-	require.NoError(t, os.MkdirAll(osProfileDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(osProfileDir, "ipxeScript"), []byte("#!ipxe\n{{ .DiskSelectionStrategy }}"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(osProfileDir, "userData.tmpl"), []byte("#cloud-config\nhostname: {{ .Hostname }}\n"), 0o644))
-
 	return config.Config{
-		ProfilesDir:                        profilesDir,
 		DgxcTenantUser:                     "nvidia",
 		DgxcTenantPassword:                 "password",
 		NodeAgent:                          config.NodeAgentConfig{Port: "15005"},
 		SpireServerAddress:                 "spire-server",
 		SpireServerPort:                    "9091",
-		NKESiteControllerName:              "site-a",
+		NVKESiteControllerName:             "site-a",
 		FieldManagerName:                   "cloud-workflow-engine",
 		FieldManagerRebootMachineName:      "cloud-workflow-engine-reboot-machine",
 		FieldManagerMachineHealthIssueName: "cloud-workflow-engine-machine-health-issue",
@@ -816,7 +786,7 @@ func TestDeleteCAPIMachineForNode_WaitFalseReturnsWhileObjectsFinalize(t *testin
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       "worker-0",
-			Namespace:  constants.NamespaceNKESystem,
+			Namespace:  constants.NamespaceNVKESystem,
 			Finalizers: []string{"test.finalizer"},
 		},
 	}
@@ -827,7 +797,7 @@ func TestDeleteCAPIMachineForNode_WaitFalseReturnsWhileObjectsFinalize(t *testin
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       "worker-0-bootstrap-data",
-			Namespace:  constants.NamespaceNKESystem,
+			Namespace:  constants.NamespaceNVKESystem,
 			Finalizers: []string{"test.finalizer"},
 		},
 	}
@@ -855,14 +825,14 @@ func TestDeleteCAPIMachineForNode_WaitFalseReturnsWhileObjectsFinalize(t *testin
 
 	storedMachine := &clusterv1.Machine{}
 	require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{
-		Namespace: constants.NamespaceNKESystem,
+		Namespace: constants.NamespaceNVKESystem,
 		Name:      "worker-0",
 	}, storedMachine))
 	require.NotNil(t, storedMachine.DeletionTimestamp)
 
 	storedSecret := &corev1.Secret{}
 	require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{
-		Namespace: constants.NamespaceNKESystem,
+		Namespace: constants.NamespaceNVKESystem,
 		Name:      "worker-0-bootstrap-data",
 	}, storedSecret))
 	require.NotNil(t, storedSecret.DeletionTimestamp)
@@ -959,7 +929,7 @@ func TestApplyCAPIMachineRebootAnnotation(t *testing.T) {
 
 	storedMachine := &clusterv1.Machine{}
 	require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{
-		Namespace: constants.NamespaceNKESystem,
+		Namespace: constants.NamespaceNVKESystem,
 		Name:      "worker-0",
 	}, storedMachine))
 	require.Contains(t, storedMachine.Annotations, constants.MachineAnnotationKeyReboot)
@@ -1020,7 +990,7 @@ func TestDeleteCAPIMachineRebootAnnotation(t *testing.T) {
 
 	storedMachine := &clusterv1.Machine{}
 	require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{
-		Namespace: constants.NamespaceNKESystem,
+		Namespace: constants.NamespaceNVKESystem,
 		Name:      "worker-1",
 	}, storedMachine))
 	require.NotContains(t, storedMachine.Annotations, constants.MachineAnnotationKeyReboot)
@@ -1032,26 +1002,10 @@ func getTestNicoMachine(t *testing.T, k8sClient client.Client) *nicov1.NicoMachi
 
 	nicoMachine := &nicov1.NicoMachine{}
 	require.NoError(t, k8sClient.Get(context.Background(), client.ObjectKey{
-		Namespace: constants.NamespaceNKESystem,
+		Namespace: constants.NamespaceNVKESystem,
 		Name:      "worker-0",
 	}, nicoMachine))
 	return nicoMachine
-}
-
-func testCAPINicoMachine() *clusterv1.Machine {
-	return &clusterv1.Machine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "worker-0",
-			Namespace: "capi-cluster-a",
-		},
-		Spec: clusterv1.MachineSpec{
-			InfrastructureRef: clusterv1.ContractVersionedObjectReference{
-				APIGroup: nicov1.GroupVersion.Group,
-				Kind:     "NicoMachine",
-				Name:     "worker-0",
-			},
-		},
-	}
 }
 
 // A site stood up without SPIFFE has no SPIRE server and no trust domain, so
@@ -1059,20 +1013,13 @@ func testCAPINicoMachine() *clusterv1.Machine {
 // not retryable, so the node never gets a CAPI machine and the cluster sits in
 // Provisioning for good. The join token has to be skipped, not attempted.
 func TestCreateCAPISpireJoinTokenSkippedWhenSpiffeDisabled(t *testing.T) {
-	var nodeSet db.NodeSet
-	nodeSet.SetCapi(db.CAPINodePoolProvider{
-		SpireAttestationMethod: db.SpireAttestationMethodJoinToken,
-	})
-	createCtx := &capiMachineCreateContext{
-		nodeSet: nodeSet,
-		node:    db.Node{ID: uuid.New()},
-	}
+	node := db.Node{ID: uuid.New()}
 
 	a := &Activities{cfg: config.Config{
 		SpiffeEnabled: false,
 		NodeAgent:     config.NodeAgentConfig{SpireAttestationMethod: config.SpireAttestationMethodJoinToken},
 	}}
-	token, path, err := a.createCAPISpireJoinToken(context.Background(), createCtx)
+	token, path, err := a.createCAPISpireJoinToken(context.Background(), node)
 	require.NoError(t, err, "must not reach SPIRE when SPIFFE is off")
 	assert.Empty(t, token)
 	assert.Empty(t, path)

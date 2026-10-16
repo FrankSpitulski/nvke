@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 ##@ Help
 
 # Same awk as the sibling modules: sections come from ##@ lines and entries from
@@ -21,8 +24,11 @@ ifeq (,$(GOBIN))
 GOBIN = $(shell $(GO) env GOPATH)/bin
 endif
 
+# ADDLICENSE_VERSION comes from make/tool-versions.mk, which owns it.
+include ../../make/tool-versions.mk
 # golangci-lint pin and bootstrap, shared with every other module.
 include ../../make/golangci.mk
+include ../../make/coverage.mk
 ifeq ($(shell uname -s),Darwin)
 SETCAP := true
 else
@@ -67,12 +73,9 @@ run-vm: build-privileged
 # test command, so `make test` stays the one definition of what "the tests" are.
 GO_TEST_FLAGS ?=
 
-# atomic, not count: Go rejects `-covermode=count` when -race is on. atomic is
-# valid either way. Same setting as controller/Makefile.
-GO_COVER_MODE ?= atomic
-
 test: ## Run this module's tests. (run by the merge gate)
-	$(GO) test $(GO_TEST_FLAGS) ./... -coverprofile=coverage.txt -covermode=$(GO_COVER_MODE)
+	@$(COVERAGE_MKDIR)
+	$(GO) test $(GO_TEST_FLAGS) $(GO_COVER_FLAGS) ./...
 
 # All backends (mock + real VMs) in a single invocation.
 #Linux runs libvirt; macOS runs qemu + libvirt-via-lima.
@@ -162,7 +165,7 @@ lint: ## Run golangci-lint over this module. (run by the merge gate)
 	@$(GOLANGCI_LINT_RUN) run --timeout 10m --max-same-issues 0 --max-issues-per-linter 0 ./...
 
 license: ## Ensure license headers at code.
-	$(GO) run github.com/google/addlicense@v1.1.1 -f $(REPO_ROOT)/hack/license-header.tmpl -c "NVIDIA CORPORATION & AFFILIATES" \
+	$(GO) run github.com/google/addlicense@$(ADDLICENSE_VERSION) -f $(REPO_ROOT)/hack/license-header.tmpl -c "NVIDIA CORPORATION & AFFILIATES" \
 		-ignore 'ui/vendor/**' \
 		-ignore 'test/integration/testutil/testdata/**' \
 		-ignore '.dev/**' \

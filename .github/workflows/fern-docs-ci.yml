@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Merge-gate member for the documentation site: the MDX safety check, `fern
+# check` and `fern docs md check`, on every pull request through merge-gate.yml.
+# Runs without secrets and publishes nothing; previews, the production publish
+# and the API reference render are in api-docs.yml. The push trigger is
+# post-merge coverage on main.
+
+name: Fern Docs CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'fern/**'
+      - 'cli/docs/**'
+      - 'controller/docs/**'
+      - 'controller/api/openapi.yaml'
+      - 'tools/check-docs-mdx'
+      - '.github/workflows/fern-docs-ci.yml'
+  workflow_call:
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  # A literal name, not ${{ github.workflow }}: in a called workflow that is the
+  # caller's name. The sha keeps main runs apart. See merge-gate.yml.
+  group: Fern Docs CI-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  fern-check:
+    name: Fern Check
+    runs-on: ubuntu-latest
+    if: github.repository_id == '1323115536'
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check MDX safety
+        run: |
+          paths=()
+          for d in docs fern cli/docs controller/docs; do
+            [ -d "$d" ] && paths+=("$d")
+          done
+          python3 tools/check-docs-mdx \
+            --exclude 'docs/qualification/*' \
+            --exclude '*/AGENTS.md' \
+            "${paths[@]}"
+
+      - name: Check the site definition
+        working-directory: fern
+        run: npx -y fern-api@latest check
+
+      - name: Check MDX validity
+        working-directory: fern
+        run: npx -y fern-api@latest docs md check

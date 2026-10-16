@@ -11,7 +11,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/dsx-ai-factory/nke/controller
+        - github.com/dsx-ai-factory/nvke/controller
     gofumpt:
       extra-rules: true
 
@@ -188,7 +188,7 @@ linters:
     goimports:
       # Might need customization per project
       local-prefixes:
-        - github.com/dsx-ai-factory/nke/controller
+        - github.com/dsx-ai-factory/nvke/controller
     govet:
       enable-all: true
       disable:
@@ -240,6 +240,11 @@ linters:
       - legacy
       - std-error-handling
     rules:
+      # OSRB requires the original Kubernetes notice to come first in the files
+      # copied from Kubernetes, so the NVIDIA header cannot be their first comment.
+      - path: 'internal/kubeadmconfig/thirdparty/'
+        linters:
+          - goheader
       # The Go-workspace version unification moved controller-runtime to
       # v0.24, which deprecates the client.Apply patch type in favour of
       # client.Client.Apply(). The ~24 call sites across the module still

@@ -10,138 +10,109 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
 	"strings"
-	"time"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/infra"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/infra"
 )
 
-const (
-	defaultReadyTimeout = 10 * time.Minute
-	defaultPollInterval = 10 * time.Second
-)
-
-// Deployer installs the NKE stack onto a freshly bootstrapped cluster, over
+// Deployer installs the NVKE stack onto a freshly bootstrapped cluster, over
 // the same session bootstrap used. It is an interface because what "the
 // stack" is, and how it is installed, is decided outside this suite.
 type Deployer interface {
 	Deploy(ctx context.Context, s infra.Session, t DeployTarget) error
 }
 
-// DeployTarget is the cluster a Deployer installs onto, in node paths.
+// DeployTarget is the cluster a Deployer installs onto.
 type DeployTarget struct {
 	Node        infra.Node
 	SiteName    string
 	TrustDomain string
 
-	// Kubeconfig is the cluster's admin kubeconfig on the node.
-	Kubeconfig string
-
-	// Assets is where the candidate's asset paths were unpacked.
-	Assets string
+	// Cluster is what to install onto. The deploy runs its commands on the
+	// node, so it reaches the API server through the node's own kubeconfig.
+	Cluster Cluster
 }
 
-// Prober reports what CWE on a site controller says about itself, through
-// the given kubeconfig. It returns the /api/version body's version once
-// /healthz answers.
-type Prober func(ctx context.Context, kubeconfig string) (string, error)
-
-// Options are the parts of Bootstrap a test replaces.
-type Options struct {
-	// Probe defaults to asking CWE through a port-forward.
-	Probe Prober
-
-	// OutputDir is where the forwarded kubeconfig is written. It defaults to
-	// a new temporary directory.
-	OutputDir string
-
-	ReadyTimeout time.Duration
-	PollInterval time.Duration
-}
-
-// Result is a bootstrapped, deployed site controller.
-type Result struct {
+// Cluster is what Bootstrap left behind: Kubernetes, with nothing installed on
+// it yet, reachable from the runner and from the node it runs on.
+type Cluster struct {
 	// Kubeconfig is a runner path to an admin kubeconfig that reaches the
 	// cluster through the session's forward. It is valid until Teardown.
+	//
+	// Written into a new temporary directory, which is the caller's to remove:
+	// it holds an admin credential, and this function does not know how long
+	// the caller needs it.
 	Kubeconfig string
 
-	// Version is what CWE reported.
-	Version string
+	// NodeKubeconfig is the same cluster's admin kubeconfig, as a path on the
+	// node.
+	NodeKubeconfig string
 }
 
-// Bootstrap builds a site controller on n: it stages the candidate onto the
-// node, bootstraps Kubernetes with nkectl, deploys the NKE stack with the
-// candidate's Deployer, and checks CWE answers with the expected version.
+// Bootstrap builds Kubernetes on n: it stages the site onto the node, runs
+// `nvkectl bootstrap site`, and forwards the resulting admin kubeconfig back to
+// the runner.
+//
+// It stops there. Installing the NVKE stack is a Deployer's job and checking
+// the controller is ProbeController's, and a caller that wants neither simply does not call
+// them. That is what lets a run stop after Kubernetes without a do-nothing
+// deployer to express it.
 //
 // A failure leaves the node as it is, for the caller to collect from before
 // tearing the session down.
-func Bootstrap(ctx context.Context, n infra.Node, s infra.Session, c Candidate, opts Options) (Result, error) {
-	if err := c.validate(); err != nil {
-		return Result{}, err
+func Bootstrap(ctx context.Context, n infra.Node, s infra.Session, nvkectl string, spec Spec) (Cluster, error) {
+	if err := spec.validate(); err != nil {
+		return Cluster{}, err
+	}
+	if _, err := os.Stat(nvkectl); err != nil {
+		return Cluster{}, fmt.Errorf("site: nvkectl: %w", err)
 	}
 	if n.Name == "" || n.IP == "" {
-		return Result{}, errors.New("site: node has no name or IP")
+		return Cluster{}, errors.New("site: node has no name or IP")
 	}
-	opts = opts.withDefaults()
 
-	b := bootstrap{node: n, session: s, candidate: c}
+	b := bootstrap{node: n, session: s, localNvkectl: nvkectl, spec: spec}
 	for _, step := range []struct {
 		name string
 		run  func(context.Context) error
 	}{
-		{"stage nkectl", b.stageNkectl},
-		{"stage assets", b.stageAssets},
+		{"stage nvkectl", b.stageNvkectl},
 		{"import images", b.importImages},
 		{"generate site spec", b.generateSiteSpec},
 		{"bootstrap site", b.bootstrapSite},
-		{"deploy", b.deploy},
 	} {
 		if err := step.run(ctx); err != nil {
-			return Result{}, fmt.Errorf("site %s: %s: %w", c.SiteName, step.name, err)
+			return Cluster{}, fmt.Errorf("site %s: %s: %w", spec.Name, step.name, err)
 		}
 	}
 
-	kubeconfig, err := b.forwardKubeconfig(ctx, opts.OutputDir)
+	kubeconfig, err := b.forwardKubeconfig(ctx)
 	if err != nil {
-		return Result{}, fmt.Errorf("site %s: forward kubeconfig: %w", c.SiteName, err)
+		return Cluster{}, fmt.Errorf("site %s: forward kubeconfig: %w", spec.Name, err)
 	}
-	version, err := waitForCWE(ctx, opts, kubeconfig)
-	if err != nil {
-		return Result{}, fmt.Errorf("site %s: %w", c.SiteName, err)
-	}
-	if c.ControllerVersion != "" && version != c.ControllerVersion {
-		return Result{}, fmt.Errorf("site %s: CWE reports version %q, want %q", c.SiteName, version, c.ControllerVersion)
-	}
-	return Result{Kubeconfig: kubeconfig, Version: version}, nil
-}
-
-func (o Options) withDefaults() Options {
-	if o.Probe == nil {
-		o.Probe = probeCWE
-	}
-	if o.ReadyTimeout <= 0 {
-		o.ReadyTimeout = defaultReadyTimeout
-	}
-	if o.PollInterval <= 0 {
-		o.PollInterval = defaultPollInterval
-	}
-	return o
+	return Cluster{
+		Kubeconfig:     kubeconfig,
+		NodeKubeconfig: kubeconfigPath,
+	}, nil
 }
 
 // TrustDomain is the SPIRE trust domain a site is bootstrapped with.
 func TrustDomain(siteName string) string { return siteName + ".nke.local" }
 
 type bootstrap struct {
-	node      infra.Node
-	session   infra.Session
-	candidate Candidate
+	node    infra.Node
+	session infra.Session
+	// localNvkectl is the binary on the runner, staged to nvkectlPath on the
+	// node. The only path in this type that is not the node's.
+	localNvkectl string
+	spec         Spec
 }
 
+// Paths on the node, not on the runner. workDir is the run's scratch
+// directory; nvkectlPath is the only one outside it, because that is where the
+// binary is installed rather than where this run keeps its working files.
 const (
-	nkectlPath     = "/usr/local/bin/nkectl"
-	assetsArchive  = workDir + "/assets.tar.gz"
-	assetsDir      = workDir + "/assets"
+	nvkectlPath    = "/usr/local/bin/nvkectl"
 	imagesDir      = workDir + "/images"
 	hostsCSV       = workDir + "/hosts.csv"
 	siteSpecPath   = workDir + "/sitespec.yaml"
@@ -163,7 +134,7 @@ const (
 )
 
 // ErrNoDiagnostics is returned when the node has no diagnostics directory,
-// which is the ordinary case: nkectl writes one when it fails, so its absence
+// which is the ordinary case: nvkectl writes one when it fails, so its absence
 // usually means the deploy worked and the run failed somewhere after it. Run
 // 36045936723 did exactly that -- the stack came up and the suite tripped on
 // a version-string comparison -- and reporting "could not collect the node's
@@ -172,14 +143,14 @@ const (
 // which means diagnostics do exist and are being lost.
 var ErrNoDiagnostics = errors.New("the node has no diagnostics directory")
 
-// CollectDiagnostics copies the cluster diagnostics nkectl writes on failure
+// CollectDiagnostics copies the cluster diagnostics nvkectl writes on failure
 // off the node and into dest.
 //
 // It has to be called before the node is released, which on a failed run is
 // minutes later, and nothing else preserves them: run 36016817952 spent 48
 // minutes reaching a 30-minute "Provisioning" timeout and kept no evidence
 // from the cluster side at all. A tarball rather than a file at a time
-// because the directory's contents are nkectl's to decide.
+// because the directory's contents are nvkectl's to decide.
 //
 // secrets are the values the run placed on the node, removed from the archive
 // before it is written. The archive is uploaded as a CI artifact and a
@@ -209,33 +180,21 @@ func CollectDiagnostics(ctx context.Context, s infra.Session, dest string, secre
 	return os.WriteFile(dest, redacted, 0o600)
 }
 
-func (b bootstrap) stageNkectl(ctx context.Context) error {
-	data, err := os.ReadFile(b.candidate.Nkectl)
+func (b bootstrap) stageNvkectl(ctx context.Context) error {
+	data, err := os.ReadFile(b.localNvkectl)
 	if err != nil {
 		return err
 	}
-	if err := b.session.Put(ctx, nkectlPath, data, 0o755); err != nil {
+	if err := b.session.Put(ctx, nvkectlPath, data, 0o755); err != nil {
 		return err
 	}
-	return b.run(ctx, shellQuote(nkectlPath)+" version")
-}
-
-func (b bootstrap) stageAssets(ctx context.Context) error {
-	archive, err := archiveAssets(b.candidate.Assets, b.candidate.AssetPaths)
-	if err != nil {
-		return err
-	}
-	if err := b.session.Put(ctx, assetsArchive, archive, 0o600); err != nil {
-		return err
-	}
-	return b.run(ctx, asRoot(fmt.Sprintf("rm -rf %[1]s && mkdir -p %[1]s && tar -C %[1]s -xzf %[2]s && rm -f %[2]s",
-		shellQuote(assetsDir), shellQuote(assetsArchive))))
+	return b.run(ctx, shellQuote(nvkectlPath)+" version")
 }
 
 // importImages imports each archive into both containerd namespaces: k8s.io
 // for the cluster, default for the bootstrap kind cluster nerdctl runs.
 func (b bootstrap) importImages(ctx context.Context) error {
-	for _, image := range b.candidate.Images {
+	for _, image := range b.spec.ImageArchives {
 		data, err := os.ReadFile(image)
 		if err != nil {
 			return err
@@ -258,51 +217,54 @@ func (b bootstrap) generateSiteSpec(ctx context.Context) error {
 	if err := b.session.Put(ctx, hostsCSV, []byte(csv), 0o600); err != nil {
 		return err
 	}
-	args := []string{nkectlPath, "generate", "sitespec", b.candidate.SiteName, "--nodes", hostsCSV}
-	for _, set := range []string{
-		"cluster.k8sVersion=" + b.candidate.KubernetesVersion,
-		"cluster.cniName=" + b.candidate.CNI,
-		"spire.trustDomain=" + TrustDomain(b.candidate.SiteName),
-	} {
+	args := []string{nvkectlPath, "generate", "sitespec", b.spec.Name, "--nodes", hostsCSV}
+	sets := []string{
+		"cluster.k8sVersion=" + b.spec.KubernetesVersion,
+		"cluster.cniName=" + b.spec.CNI,
+		"spire.trustDomain=" + TrustDomain(b.spec.Name),
+	}
+	// Only when the caller named one. An empty value would be a pin on nothing
+	// rather than a request for the default.
+	if b.spec.CNIVersion != "" {
+		sets = append(sets, "cluster.cniVersion="+b.spec.CNIVersion)
+	}
+	for _, set := range sets {
 		args = append(args, "--set", set)
 	}
 	return b.run(ctx, asRoot(quoteAll(args)+" > "+shellQuote(siteSpecPath)))
 }
 
-// bootstrapSite runs nkectl as root in a login shell. Under a plain sudo the
+// bootstrapSite runs nvkectl as root in a login shell. Under a plain sudo the
 // bootstrap's nerdctl inherits the invoking user's environment and looks for
 // a rootless containerd.
 func (b bootstrap) bootstrapSite(ctx context.Context) error {
 	args := []string{
-		nkectlPath, "bootstrap", "site",
+		nvkectlPath, "bootstrap", "site",
 		"-f", siteSpecPath,
 		"--kubeconfig-out", kubeconfigPath,
 		"--diagnostics-dir", diagnosticsDir,
 	}
-	if b.candidate.DisableMTLS {
+	if b.spec.DisableMTLS {
 		args = append(args, "--disable-mtls")
 	}
 	cmd := "cd " + shellQuote(workDir) + " && " + b.env() + quoteAll(args)
 	return b.run(ctx, asRoot(cmd))
 }
 
+// env is the image references nvkectl reads from the environment. The mapping
+// from a reference to the variable that carries it lives here, so a caller
+// states what it is qualifying and not how nvkectl is told.
 func (b bootstrap) env() string {
 	var sb strings.Builder
-	for _, k := range sortedKeys(b.candidate.BootstrapEnv) {
-		v := strings.ReplaceAll(b.candidate.BootstrapEnv[k], assetsToken, assetsDir)
-		sb.WriteString(k + "=" + shellQuote(v) + " ")
+	for _, v := range []struct{ key, value string }{
+		{"NVKECTL_CONTROLLER_IMAGE", b.spec.ControllerImage},
+		{"NVKECTL_CAPI_PROVISIONED_IMAGE", b.spec.CAPIProvisionedImage},
+	} {
+		if v.value != "" {
+			sb.WriteString(v.key + "=" + shellQuote(v.value) + " ")
+		}
 	}
 	return sb.String()
-}
-
-func (b bootstrap) deploy(ctx context.Context) error {
-	return b.candidate.Deploy.Deploy(ctx, b.session, DeployTarget{
-		Node:        b.node,
-		SiteName:    b.candidate.SiteName,
-		TrustDomain: TrustDomain(b.candidate.SiteName),
-		Kubeconfig:  kubeconfigPath,
-		Assets:      assetsDir,
-	})
 }
 
 func (b bootstrap) run(ctx context.Context, cmd string) error {
@@ -317,15 +279,6 @@ func (b bootstrap) run(ctx context.Context, cmd string) error {
 // HOME apply rather than the SSH user's.
 func asRoot(cmd string) string {
 	return "sudo -n -i sh -c " + shellQuote("mkdir -p "+workDir+" && "+cmd)
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func quoteAll(args []string) string {

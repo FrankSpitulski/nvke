@@ -14,13 +14,16 @@ GOBIN = $(shell go env GOPATH)/bin
 endif
 
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
-CONTROLLER_TOOLS_VERSION ?= v0.20.1
+# CONTROLLER_TOOLS_VERSION comes from make/tool-versions.mk, which owns it
+# for this module and for management-engine/.
+include ../make/tool-versions.mk
 IMG ?= docker.io/library/cluster-api-provider-provisioned:latest
 PLATFORMS ?= linux/amd64,linux/arm64
 OCI_ARCHIVE ?= $(CURDIR)/out/cluster-api-provider-provisioned.oci.tar
 BUILDX_OUTPUT ?= type=oci,dest=$(OCI_ARCHIVE)
 
 include ../make/golangci.mk
+include ../make/coverage.mk
 
 BUILD_VERSION ?= $(shell \
 	v=$$(git describe --tags --dirty --match 'cluster-api-provider-provisioned/v[0-9]*' 2>/dev/null \
@@ -39,7 +42,8 @@ help: ## Show the available targets.
 	@echo
 
 test: ## Run unit tests.
-	go test $(GO_TEST_FLAGS) ./...
+	@$(COVERAGE_MKDIR)
+	go test $(GO_TEST_FLAGS) $(GO_COVER_FLAGS) ./...
 
 lint: ## Run golangci-lint.
 	@$(GOLANGCI_LINT_RUN) run --timeout 10m ./...

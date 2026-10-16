@@ -19,6 +19,7 @@ endif
 # lint sees the same public dependency graph as the other module builds.
 GOLANGCI_LINT_GOWORK :=
 include ../../make/golangci.mk
+include ../../make/coverage.mk
 
 # VACUUM_VERSION, pinned with the other repository-wide tool versions.
 include ../../make/tool-versions.mk
@@ -53,7 +54,7 @@ API_DOCS_OUT ?= ../.local/api-reference.html
 # Node; npx fetches the pinned CLI.
 docs: ## Render openapi.yaml into one HTML page with Redocly, minus the x-fern-ignore surface. (needs Node)
 	@mkdir -p $(dir $(API_DOCS_OUT))
-	npx -y @redocly/cli@$(REDOCLY_VERSION) bundle nke --config redocly.yaml -o $(API_DOCS_OUT).bundle.yaml
+	npx -y @redocly/cli@$(REDOCLY_VERSION) bundle nvke --config redocly.yaml -o $(API_DOCS_OUT).bundle.yaml
 	npx -y @redocly/cli@$(REDOCLY_VERSION) build-docs $(API_DOCS_OUT).bundle.yaml -o $(API_DOCS_OUT)
 	@rm -f $(API_DOCS_OUT).bundle.yaml
 	@echo "Rendered $(API_DOCS_OUT)"
@@ -62,4 +63,5 @@ lint-spec: ## Lint openapi.yaml against openapi-lint.yaml.
 	$(GO) run github.com/daveshanley/vacuum@$(VACUUM_VERSION) lint --ruleset openapi-lint.yaml --ignore-file openapi-lint-ignore.yaml --details --no-banner --no-style --no-clip --min-score 0 openapi.yaml
 
 test: ## Run this module's tests.
-	$(GO) test $(GO_TEST_FLAGS) ./...
+	@$(COVERAGE_MKDIR)
+	$(GO) test $(GO_TEST_FLAGS) $(GO_COVER_FLAGS) ./...

@@ -21,40 +21,42 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	nicov1 "github.com/dsx-ai-factory/cluster-api-provider-nico/api/v1alpha1"
+	enginev1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/agent"
-	"github.com/dsx-ai-factory/nke/controller/internal/auth"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/automode"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/capi"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/certrenewal"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/controlplane"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/controlplanenodescheduler"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/dbreconcile/dbwrapper"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/nodeagentreadiness"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/nodepool"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/nodepoolnodescheduler"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/nodeprovisioningmonitor"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/nodeset"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/teleporttoken"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/tenant"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/tenant/csr"
-	tenantnoderemediation "github.com/dsx-ai-factory/nke/controller/internal/controllers/tenant/noderemediation"
-	tenantnodestatus "github.com/dsx-ai-factory/nke/controller/internal/controllers/tenant/nodestatus"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/tenantaccess"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/tpmpubhashes"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/db/migrations"
-	"github.com/dsx-ai-factory/nke/controller/internal/dbmetrics"
-	"github.com/dsx-ai-factory/nke/controller/internal/kube"
-	"github.com/dsx-ai-factory/nke/controller/internal/metrics"
-	"github.com/dsx-ai-factory/nke/controller/internal/otelx"
-	"github.com/dsx-ai-factory/nke/controller/internal/runbook"
-	"github.com/dsx-ai-factory/nke/controller/internal/server"
-	"github.com/dsx-ai-factory/nke/controller/internal/spiffe"
-	"github.com/dsx-ai-factory/nke/controller/internal/teleport"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal"
-	"github.com/dsx-ai-factory/nke/controller/internal/version"
+	"github.com/dsx-ai-factory/nvke/controller/internal/agent"
+	"github.com/dsx-ai-factory/nvke/controller/internal/auth"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllerconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/automode"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/capi"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/certrenewal"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/controlplane"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/controlplanenodescheduler"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/dbreconcile/dbwrapper"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/nodeagentreadiness"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/nodepool"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/nodepoolnodescheduler"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/nodeprovisioningmonitor"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/nodeset"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/teleporttoken"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/tenant"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/tenant/csr"
+	tenantnoderemediation "github.com/dsx-ai-factory/nvke/controller/internal/controllers/tenant/noderemediation"
+	tenantnodestatus "github.com/dsx-ai-factory/nvke/controller/internal/controllers/tenant/nodestatus"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/tenantaccess"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/tpmpubhashes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db/migrations"
+	"github.com/dsx-ai-factory/nvke/controller/internal/dbmetrics"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/internal/metrics"
+	"github.com/dsx-ai-factory/nvke/controller/internal/otelx"
+	"github.com/dsx-ai-factory/nvke/controller/internal/runbook"
+	"github.com/dsx-ai-factory/nvke/controller/internal/server"
+	"github.com/dsx-ai-factory/nvke/controller/internal/spiffe"
+	"github.com/dsx-ai-factory/nvke/controller/internal/teleport"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal"
+	"github.com/dsx-ai-factory/nvke/controller/internal/version"
 )
 
 const (
@@ -72,7 +74,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	cfg, err := config.ParseConfigFromEnv()
+	cfg, controllerCfg, err := controllerconfig.LoadStartupConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
 		os.Exit(1)
@@ -83,9 +85,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error parsing configured log level: %v\n", err)
 		os.Exit(1)
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
+	logger := slog.New(otelx.LogHandler{Handler: slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level:       logLevel,
+		ReplaceAttr: otelx.NormalizeLogAttr,
+	})})
 
 	if cfg.RunbooksDir != "" {
 		if err := runbook.ValidateProfileReferences(cfg.ProfilesDir, cfg.EffectiveRunbooksDir()); err != nil {
@@ -118,8 +121,8 @@ func main() {
 		}
 	}()
 
-	// Before the SPIFFE wait and the migrations: a bad configuration should cost a
-	// restart, not a migrated schema.
+	logger.Info("Loaded nke-controller-config", "path", cfg.ControllerConfigPath, "oidcProviders", len(controllerCfg.OIDC.Providers))
+
 	authenticator, err := auth.Setup(ctx, auth.Options{
 		ConfigPath: cfg.AuthConfigPath,
 		Permissive: cfg.PermissiveMode,
@@ -175,10 +178,8 @@ func main() {
 	}
 
 	// Re-parent legacy node-pool-managed control planes onto the control-plane
-	// controller when this site has opted in. No-op when the flag is off; fails
-	// closed on a half-migrated fleet. Temporary — remove once the flag is on by
-	// default everywhere.
-	if err := db.MigrateControlPlaneToController(ctx, bunDB, cfg.UseControlPlaneControllerForControlPlane()); err != nil {
+	// controller. Fails closed on a half-migrated fleet.
+	if err := db.MigrateControlPlaneToController(ctx, bunDB, dbLogger); err != nil {
 		logger.Error("Failed to migrate control plane to controller", "error", err)
 		os.Exit(1)
 	}
@@ -200,7 +201,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	managementK8sClient, err := kube.NewRuntimeClient(spirev1alpha1.AddToScheme, nicov1.AddToScheme)
+	managementK8sClient, err := kube.NewRuntimeClient(spirev1alpha1.AddToScheme, nicov1.AddToScheme, enginev1.AddToScheme)
 	if err != nil {
 		logger.Error("Failed to create management-cluster Kubernetes client", "error", err)
 		os.Exit(1)
@@ -215,6 +216,7 @@ func main() {
 		},
 		spirev1alpha1.AddToScheme,
 		nicov1.AddToScheme,
+		enginev1.AddToScheme,
 	)
 	if err != nil {
 		logger.Error("Failed to create Kubernetes controller manager", "error", err)
@@ -316,6 +318,7 @@ func main() {
 		machineSpireEntryController := capi.NewMachineSpireEntryController(
 			cfg,
 			k8sControllerManager.GetClient(),
+			dbInstance,
 			logger.With("logger", "machine-spire-entry-controller"),
 			trustDomain,
 		)
@@ -330,7 +333,7 @@ func main() {
 	} else {
 		// Both controllers below watch NicoMachine, and either takes the manager
 		// down where CAPNICo is not installed. Read once: every deployment path
-		// installs the infrastructure providers before CWE.
+		// installs the infrastructure providers before the NVKE controller.
 		nicoCRDInstalled, err := capi.NicoMachineCRDInstalled(k8sControllerManager.GetRESTMapper())
 		if err != nil {
 			logger.Error("Failed to look up the NicoMachine CRD", "error", err)
@@ -395,7 +398,7 @@ func main() {
 	// Retry before giving up. Temporal restarting for a few seconds used to be
 	// enough to exit here, and once the process is in CrashLoopBackOff the
 	// restart delay grows to five minutes -- so a dependency that was away for
-	// seconds kept CWE down for minutes. Retry for a bounded window instead.
+	// seconds kept the controller down for minutes. Retry for a bounded window instead.
 	if err := registerTemporalNamespaceWithRetry(ctx, cfg, temporalLogger, logger); err != nil {
 		logger.Error("Failed to register Temporal namespace", "error", err)
 		os.Exit(1)
@@ -474,6 +477,8 @@ func main() {
 		dbInstance,
 		temporalClient,
 		k8sControllerManager.GetClient(),
+		managementK8sClient,
+		nodeAgentClient,
 	)
 	if err := controlPlaneController.SetupWithManager(k8sControllerManager); err != nil {
 		logger.Error("Failed to set up control plane controller", "error", err)
@@ -517,7 +522,16 @@ func main() {
 		logger.Info("Cert renewal controller disabled")
 	}
 
-	httpServer, err := server.NewServer(cfg, serverLogger, dbInstance, temporalClient, authenticator)
+	httpServer, err := server.NewServer(
+		cfg,
+		serverLogger,
+		dbInstance,
+		temporalClient,
+		authenticator,
+		managementK8sClient,
+		server.WithFleetOIDC(&controllerCfg.OIDC),
+		server.WithAllowLegacyCalicoClusterCreation(controllerCfg.AllowLegacyCalicoClusterCreation),
+	)
 	if err != nil {
 		logger.Error("Failed to construct HTTP server", "error", err)
 		os.Exit(1)

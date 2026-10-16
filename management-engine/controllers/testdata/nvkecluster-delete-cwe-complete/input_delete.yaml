@@ -1,0 +1,5 @@
+apiVersion: internal.nvke.nvidia.com/v1
+kind: NVKECluster
+metadata:
+  name: cluster-1
+  namespace: default

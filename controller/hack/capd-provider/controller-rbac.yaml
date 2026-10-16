@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nke-controller-capd
+rules:
+  - apiGroups:
+      - infrastructure.cluster.x-k8s.io
+    resources:
+      - dockerclusters
+      - dockerclustertemplates
+      - dockermachines
+      - dockermachinetemplates
+      - dockermachinepools
+      - dockermachinepooltemplates
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - watch
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    resourceNames:
+      - dockerclusters.infrastructure.cluster.x-k8s.io
+      - dockerclustertemplates.infrastructure.cluster.x-k8s.io
+      - dockermachines.infrastructure.cluster.x-k8s.io
+      - dockermachinetemplates.infrastructure.cluster.x-k8s.io
+      - dockermachinepools.infrastructure.cluster.x-k8s.io
+      - dockermachinepooltemplates.infrastructure.cluster.x-k8s.io
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nke-controller-capd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nke-controller-capd
+subjects:
+  - kind: ServiceAccount
+    name: nke-controller
+    namespace: nke-controller

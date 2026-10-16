@@ -1,11 +1,11 @@
-# Contributing to nke
+# Contributing to NVKE
 
-If you are interested in contributing to nke, your contributions will fall
+If you are interested in contributing to NVKE, your contributions will fall
 into three categories:
 1. You want to report a bug, feature request, or documentation issue
-    - File an [issue](https://github.com/dsx-ai-factory/nke/issues/new/choose)
+    - File an [issue](https://github.com/dsx-ai-factory/nvke/issues/new/choose)
     describing what you encountered or what you want to see changed.
-    - For usage questions, use [GitHub Discussions Q&A](https://github.com/dsx-ai-factory/nke/discussions/categories/q-a)
+    - For usage questions, use [GitHub Discussions Q&A](https://github.com/dsx-ai-factory/nvke/discussions/categories/q-a)
     instead of an issue.
     - Maintainers triage issues. Engineering reviews bugs, Product reviews
     feature requests, and maintainers review documentation requests. The
@@ -46,14 +46,14 @@ into three categories:
 ### Clone and build
 
 ```bash
-git clone https://github.com/dsx-ai-factory/nke.git
-cd nke
+git clone https://github.com/dsx-ai-factory/nvke.git
+cd nvke
 ```
 
 **Everything that builds publicly, in one command:**
 
 ```bash
-make build   # builds agent, controller, nkectl, and helper binaries
+make build   # builds agent, controller, nvkectl, and helper binaries
 ```
 
 The repository is a Go workspace, and `go.work` ties **every module** together.
@@ -133,13 +133,13 @@ For small bug fixes and documentation improvements, a PR without a prior issue i
 
 ### Your first issue
 
-1. Read the project's [README.md](https://github.com/dsx-ai-factory/nke/blob/main/README.md)
+1. Read the project's [README.md](https://github.com/dsx-ai-factory/nvke/blob/main/README.md)
     to learn how to set up the development environment.
-2. Find an issue to work on. The best way is to look for the [good first issue](https://github.com/dsx-ai-factory/nke/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
-    or [help wanted](https://github.com/dsx-ai-factory/nke/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) labels.
+2. Find an issue to work on. The best way is to look for the [good first issue](https://github.com/dsx-ai-factory/nvke/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+    or [help wanted](https://github.com/dsx-ai-factory/nvke/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) labels.
 3. Comment on the issue saying you are going to work on it.
 4. Code! Make sure to update unit tests and documentation.
-5. When done, [create your pull request](https://github.com/dsx-ai-factory/nke/compare)
+5. When done, [create your pull request](https://github.com/dsx-ai-factory/nvke/compare)
     referencing the issue with `Closes #<N>` in the description.
 6. Verify that CI passes all [status checks](https://help.github.com/articles/about-status-checks/), or fix if needed.
 7. Wait for maintainer review and address any feedback.
@@ -151,7 +151,7 @@ Remember, if you are unsure about anything, don't hesitate to comment on issues 
 
 Each PR must mark whether it is a breaking change. This is used to highlight changes that users should know about when upgrading.
 
-For nke, a "breaking" change is one that modifies the public API in a non-backward-compatible way.
+For NVKE, a "breaking" change is one that modifies the public API in a non-backward-compatible way.
 Backward-compatible changes (such as adding a new optional parameter) are not breaking.
 Mark a breaking change with `!` after the type in the PR title or a `BREAKING CHANGE:` footer (see [Commit message format](#commit-message-format)); there is no label for it.
 
@@ -159,8 +159,7 @@ Apply one change-category label:
 
 | Label | When to use |
 |-------|------------|
-| `feature` | New capability added |
-| `enhancement` | Improvement to existing functionality |
+| `feature` | New capability, or an improvement to existing functionality |
 | `bug` | Regression or defect fix |
 | `documentation` | Docs-only change |
 
@@ -191,7 +190,7 @@ Example: `feat/add-retry-logic`, `fix/null-pointer-in-parser`
 
 ### Commit message format
 
-nke uses [Conventional Commits](https://www.conventionalcommits.org/):
+NVKE uses [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
 <type>(<scope>): <short description>
@@ -226,28 +225,72 @@ your branch, because the squash discards them.
 
 ### Sign your commits (DCO)
 
-Commits carry a `Signed-off-by:` trailer. Add one with `-s`:
+We require that all contributors "sign-off" on their commits. This certifies that
+the contribution is your original work, or you have rights to submit it under the
+same license, or a compatible license.
+
+Any contribution which contains commits that are not Signed-Off will not be
+accepted.
+
+To sign off on a commit, use the `--signoff` (or `-s`) option when committing
+your changes:
 
 ```bash
 git commit -s -m "fix(controller): handle an empty bundle list"
 ```
 
-That appends a line matching the name and email in your Git configuration:
+This appends the following to your commit message, matching the name and email in
+your Git configuration:
 
 ```
 Signed-off-by: Jane Developer <jane@example.com>
 ```
 
-The sign-off is your statement that you have the right to submit the work under
-this repository's license. It is the [Developer Certificate of
-Origin](https://developercertificate.org/), the same mechanism the Linux kernel
-and Kubernetes use.
+This applies to every contributor, including NVIDIA organization members. There
+is no exemption for verified or signed commits.
 
-**Organization members are relaxed, not exempt.** The check skips a commit only
-when the author is an NVIDIA organization member **and** GitHub reports the
-commit as verified-signed. An unsigned commit from a member with no sign-off
-still fails, reporting "Commit by organization member is not verified". Signing
-your commits (`-S`) is what makes the exemption apply.
+#### Developer Certificate of Origin
+
+The sign-off is the [Developer Certificate of
+Origin](https://developercertificate.org/) (DCO), the same mechanism the Linux
+kernel and Kubernetes use. Its full text:
+
+```text
+Developer Certificate of Origin
+Version 1.1
+
+Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
+
+Everyone is permitted to copy and distribute verbatim copies of this
+license document, but changing it is not allowed.
+
+
+Developer's Certificate of Origin 1.1
+
+By making a contribution to this project, I certify that:
+
+(a) The contribution was created in whole or in part by me and I
+    have the right to submit it under the open source license
+    indicated in the file; or
+
+(b) The contribution is based upon previous work that, to the best
+    of my knowledge, is covered under an appropriate open source
+    license and I have the right under that license to submit that
+    work with modifications, whether created in whole or in part
+    by me, under the same open source license (unless I am
+    permitted to submit under a different license), as indicated
+    in the file; or
+
+(c) The contribution was provided directly to me by some other
+    person who certified (a), (b) or (c) and I have not modified
+    it.
+
+(d) I understand and agree that this project and the contribution
+    are public and that a record of the contribution (including all
+    personal information I submit with it, including my sign-off) is
+    maintained indefinitely and may be redistributed consistent with
+    this project or the open source license(s) involved.
+```
 
 If you forget the `-s`, the simplest fix is to add it to every commit on the
 branch:

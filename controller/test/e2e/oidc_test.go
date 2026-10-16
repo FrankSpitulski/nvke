@@ -13,8 +13,9 @@ import (
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/tenantauth"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/tenantauth"
 )
 
 var (
@@ -23,14 +24,14 @@ var (
 )
 
 const (
-	dsxIdentityExchangeEnv = "NKE_E2E_DSX_IDENTITY_EXCHANGE"
-	dsxExchangeCAConfigMap = "dsx-identity-exchange-ca"
-	dsxExchangeCWEUser     = "spiffe://nke.capd.cloud-workflow-engine.nvid.id/bm/cwe"
+	dsxIdentityExchangeEnv    = "NKE_E2E_DSX_IDENTITY_EXCHANGE"
+	dsxExchangeCAConfigMap    = "dsx-identity-exchange-ca"
+	dsxExchangeControllerUser = "spiffe://nke.capd.nke-controller.nvid.id/bm/cwe"
 )
 
 func validateOIDCPostCreate(test *tenantTest) {
-	It("maps NKE's identities and authorizes them through OIDC on the tenant apiserver", func(ctx context.Context) {
-		skipIfNKEOIDCDisabled(ctx, test.k8sClient)
+	It("maps NVKE's identities and authorizes them through OIDC on the tenant apiserver", func(ctx context.Context) {
+		skipIfNVKEOIDCDisabled(ctx, test.k8sClient)
 		if test.trustDomain == "" && os.Getenv(dsxIdentityExchangeEnv) != "true" {
 			Skip("SPIRE trust domain could not be derived from kubeconfig context")
 		}
@@ -42,8 +43,8 @@ func validateOIDCPostCreate(test *tenantTest) {
 			return tenantauth.AssertKubeconfigAndTrustBundle(ctx, test.k8sClient, test.cluster.Name)
 		}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
-		cweIdentity := tenantauth.Identity{Namespace: "cloud-workflow-engine", ServiceAccount: "cloud-workflow-engine"}
-		cweUser := "spiffe://" + test.trustDomain + "/nke-service/cloud-workflow-engine"
+		controllerIdentity := tenantauth.Identity{Namespace: controller.Namespace(), ServiceAccount: controller.ServiceAccount()}
+		controllerUser := "spiffe://" + test.trustDomain + "/nke-service/" + controller.ServiceAccount()
 		if os.Getenv(dsxIdentityExchangeEnv) == "true" {
 			By("Asserting the published kubeconfig selects the HTTPS token exchange")
 			exchangeEndpoint := expectSucceed(tenantauth.KubeconfigExecEnv(
@@ -53,12 +54,12 @@ func validateOIDCPostCreate(test *tenantTest) {
 			Expect(parsedEndpoint.Scheme).To(Equal("https"))
 			Expect(parsedEndpoint.Path).To(Equal("/v1/exchange"))
 
-			cweIdentity.CABundleConfigMap = dsxExchangeCAConfigMap
-			cweUser = dsxExchangeCWEUser
+			controllerIdentity.CABundleConfigMap = dsxExchangeCAConfigMap
+			controllerUser = dsxExchangeControllerUser
 		}
 
-		By("Verifying the cwe identity authenticates and has the required node permissions")
-		verifyIdentity(ctx, test, cweIdentity, cweUser)
+		By("Verifying the controller identity authenticates and has the required node permissions")
+		verifyIdentity(ctx, test, controllerIdentity, controllerUser)
 
 		if os.Getenv(dsxIdentityExchangeEnv) == "true" {
 			controllers := []struct {
@@ -66,6 +67,7 @@ func validateOIDCPostCreate(test *tenantTest) {
 			}{
 				{"capi-system", "capi-manager", "spiffe://nke.capd.capi-manager.nvid.id/bm/cwe"},
 				{"capi-kubeadm-control-plane-system", "capi-kubeadm-control-plane-manager", "spiffe://nke.capd.capi-kubeadm-control-plane-manager.nvid.id/bm/cwe"},
+				{"capi-kubeadm-bootstrap-system", "capi-kubeadm-bootstrap-manager", "spiffe://nke.capd.capi-kubeadm-bootstrap-manager.nvid.id/bm/cwe"},
 				{"capd-system", "capd-manager", "spiffe://nke.capd.capd-manager.nvid.id/bm/cwe"},
 			}
 			for _, controller := range controllers {
@@ -82,7 +84,7 @@ func validateOIDCPostCreate(test *tenantTest) {
 
 func validateOIDCPostDelete(test *tenantTest) {
 	It("deletes the kubeconfig and CA trust bundle secrets", func(ctx context.Context) {
-		skipIfNKEOIDCDisabled(ctx, test.k8sClient)
+		skipIfNVKEOIDCDisabled(ctx, test.k8sClient)
 
 		Eventually(func() error {
 			return tenantauth.AssertKubeconfigAndTrustBundleDeleted(ctx, test.k8sClient, test.cluster.Name)
@@ -90,17 +92,17 @@ func validateOIDCPostDelete(test *tenantTest) {
 	}, Label("spire-oidc"))
 }
 
-// skipIfNKEOIDCDisabled skips the current spec when the CWE deployment does not
-// have tenant OIDC JWT auth enabled (NKE_OIDC_AUTH_ENABLED != true).
-func skipIfNKEOIDCDisabled(ctx context.Context, k8s client.Client) {
+// skipIfNVKEOIDCDisabled skips the current spec when the controller does not have
+// tenant OIDC JWT auth enabled (oidc.managementOIDCAuth.enabled in nke-controller-config).
+func skipIfNVKEOIDCDisabled(ctx context.Context, k8s client.Client) {
 	GinkgoHelper()
-	if !expectSucceed(nke.OIDCEnabled(ctx, k8s)) {
-		Skip("OIDC is disabled in the CWE deployment (NKE_OIDC_AUTH_ENABLED != true)")
+	if !expectSucceed(nvke.OIDCEnabled(ctx, k8s)) {
+		Skip("OIDC is disabled in the controller (oidc.managementOIDCAuth.enabled is not true)")
 	}
 }
 
 // verifyIdentity runs a credential pod as id and asserts it maps to wantUser,
-// has the node permissions CWE needs, and can make a real list call against the
+// has the node permissions the controller needs, and can make a real list call against the
 // tenant API.
 func verifyIdentity(ctx context.Context, test *tenantTest, id tenantauth.Identity, wantUser string) {
 	GinkgoHelper()

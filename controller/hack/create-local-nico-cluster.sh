@@ -6,12 +6,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-CWE_HTTP_PORT="${CWE_HTTP_PORT:-8080}"
-API_URL="${API_URL:-http://localhost:${CWE_HTTP_PORT}/api}"
+# CWE_HTTP_PORT is a deprecated alias for NKE_CONTROLLER_HTTP_PORT; #1399 removes it.
+NKE_CONTROLLER_HTTP_PORT="${NKE_CONTROLLER_HTTP_PORT:-${CWE_HTTP_PORT:-8080}}"
+API_URL="${API_URL:-http://localhost:${NKE_CONTROLLER_HTTP_PORT}/api}"
 CLUSTERS_API_URL="${API_URL%/}/clusters"
 
 CLUSTER_NAME="${CLUSTER_NAME:-nico-local}"
 KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.34.2}"
+# CNI defaults to ovn-kubernetes. Set CNI_PLUGIN=calico to use Calico instead.
+CNI_PLUGIN="${CNI_PLUGIN:-ovn-kubernetes}"
 CONTROL_PLANE_DESIRED_COUNT="${CONTROL_PLANE_DESIRED_COUNT:-1}"
 WORKER_DESIRED_COUNT="${WORKER_DESIRED_COUNT:-0}"
 
@@ -22,9 +25,9 @@ NICO_SUBNET_ID="${NICO_SUBNET_ID:-00000000-0000-0000-0000-000000000003}"
 NICO_SSH_KEY_GROUP_ID="${NICO_SSH_KEY_GROUP_ID:-00000000-0000-0000-0000-000000000004}"
 NICO_INSTANCE_TYPE_ID="${NICO_INSTANCE_TYPE_ID:-00000000-0000-0000-0000-000000000005}"
 
-# /api/* is authenticated. hack/nke-token.sh prints nothing when NKE is not, so
+# /api/* is authenticated. hack/nvke-token.sh prints nothing when NVKE is not, so
 # this works either way.
-TOKEN="$("${SCRIPT_DIR}/nke-token.sh")"
+TOKEN="$("${SCRIPT_DIR}/nvke-token.sh")"
 AUTH_HEADER=()
 if [[ -n "${TOKEN}" ]]; then
   AUTH_HEADER=(-H "Authorization: Bearer ${TOKEN}")
@@ -34,7 +37,7 @@ BODY=$(cat <<EOF
 {
   "name": "${CLUSTER_NAME}",
   "controlPlaneKubernetesVersion": "${KUBERNETES_VERSION}",
-  "cniPlugin": "calico",
+  "cniPlugin": "${CNI_PLUGIN}",
   "etcdEncrypted": false,
   "infra": {
     "cluster": {

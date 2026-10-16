@@ -1,6 +1,6 @@
 # Reference node OS image
 
-Ubuntu image that ships `nke-agent` and `spire-agent` so a site
+Ubuntu image that ships `nvke-agent` and `spire-agent` so a site
 controller can reach the node over SPIFFE mTLS, built on Ubuntu's
 NVIDIA-tuned kernel flavor (`linux-nvidia`/`linux-nvidia-64k`), not the
 generic default. The contract is [SPEC.md](SPEC.md).
@@ -19,7 +19,7 @@ consumers whose other software pins that release — see `UBUNTU_RELEASE` under
 | `files/lvm/` | First-boot storage-growth assets for the non-FDE variant |
 | `docs/full-disk-encryption.md` | FDE variant: build, verify, failure modes |
 | `demo-fde.sh` | Runs the host-FDE acceptance scenarios against a built image |
-| `cmd/nke-os-image-check` | Connectivity checker (Go) |
+| `cmd/nvke-os-image-check` | Connectivity checker (Go) |
 
 ## Build the OS image
 
@@ -32,6 +32,7 @@ Common prerequisites for image builds:
 | `curl` | any | via your package manager |
 | `qemu-system-x86_64` or `qemu-system-aarch64`, `qemu-img`, `cloud-localds`, `swtpm`, OVMF/AAVMF | any | via your package manager |
 | `xorriso`, `p7zip-full` (`7z`) | any | via your package manager |
+| `dpkg-dev` (`dpkg-deb`, `dpkg-scanpackages`) | any | via your package manager |
 
 Package-builder prerequisites depend on the selected mode:
 
@@ -46,6 +47,14 @@ so all of the above are needed even for a first build — see
 `.github/workflows/os-image-artifact.yml`'s install step for the exact
 package list on Ubuntu. `xorriso`/`7z` are for `prepare-installer-iso.sh`'s
 ISO patching (see its header comment for why).
+
+The ISO cache directory and cached source ISO must not be symlinks. Use a real
+cache directory on a larger disk rather than linking `iso-cache` to it. ISO
+preparation holds the cached source, a private snapshot, and the rewritten ISO,
+requiring approximately three times the source ISO's size in total disk space;
+an existing patched ISO adds to that peak until it is replaced. Legacy
+`.patched.iso.tmp` leftovers are not reused; the existing Make `clean` target
+removes them with the ISO cache and its other build outputs.
 
 From the repository root, bake and smoke-test with native KVM:
 
@@ -65,15 +74,15 @@ make -C os-image/packer os-image-non-fde ARCH=amd64 UBUNTU_RELEASE=24.04.5
 ```
 
 The point release lands in the output filename, so the two flavors never
-collide on disk (`nke-node-non-fde-ubuntu-24.04.5-amd64.qcow2`). Pass the same
+collide on disk (`nvke-node-non-fde-ubuntu-24.04.5-amd64.qcow2`). Pass the same
 `UBUNTU_RELEASE` to `collect-qcow2-*`, which re-derives that expected name.
 A package builder newer than the target release cannot build the image: the
-`nke-agent` .deb declares a bare `Depends: libc6`, so an agent compiled against a
+`nvke-agent` .deb declares a bare `Depends: libc6`, so an agent compiled against a
 newer glibc installs cleanly and then fails to exec. The builder enforces this —
 `auto` selects the Nix VM when the host's Ubuntu is newer than the target, and
 an explicit `NKE_PACKAGE_BUILDER=host` is rejected before packaging. An older
 host is fine, since older glibc runs on newer Ubuntu. `boot-smoke` also runs
-`nke-agent -version` inside the guest as a backstop.
+`nvke-agent -version` inside the guest as a backstop.
 
 `SERIAL_CONSOLE` selects the UART the **installed** system sends kernel output
 to. Empty (the default) keeps the architecture default — `ttyS0` on amd64,
@@ -120,7 +129,7 @@ one is an error. For example, from `os-image/`:
 ```bash
 OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd \
 OVMF_VARS_TEMPLATE=/usr/share/OVMF/OVMF_VARS_4M.fd \
-make run-vm QCOW=packer/output-non-fde/nke-node-non-fde-ubuntu-26.04.1-amd64.qcow2
+make run-vm QCOW=packer/output-non-fde/nvke-node-non-fde-ubuntu-26.04.1-amd64.qcow2
 ```
 
 `REQUIRE_ACCELERATION=1` rejects software
@@ -140,7 +149,7 @@ host builds, Nix for VM builds; `make -C os-image/packer check-deps ARCH=arm64`
 runs that check on its own. The agent package uses nfpm, pinned in
 `make/tool-versions.mk`.
 
-`nke-agent` is built as a Debian package from this checkout's `agent/` source
+`nvke-agent` is built as a Debian package from this checkout's `agent/` source
 using `make -C agent deb-<arch>` and installed with dpkg during provisioning.
 Host package builds require Linux matching the target architecture with cgo
 enabled, as required by the agent package's libc linkage check. Nix mode supplies
@@ -199,8 +208,8 @@ materials or build packages:
 
 | Build | Exact selector | Output below `output_directory` |
 |---|---|---|
-| Non-FDE | `nke-node-non-fde.qemu.nke-non-fde` | `non-fde/nke-node.qcow2` |
-| FDE | `nke-node-fde.qemu.nke-fde` | `fde/nke-node.qcow2` |
+| Non-FDE | `nvke-node-non-fde.qemu.nvke-non-fde` | `non-fde/nvke-node.qcow2` |
+| FDE | `nvke-node-fde.qemu.nvke-fde` | `fde/nvke-node.qcow2` |
 
 For example, for a local invocation after installing the pinned plugin with
 `packer init`:
@@ -208,7 +217,7 @@ For example, for a local invocation after installing the pinned plugin with
 ```bash
 cd packer
 packer build \
-  -only=nke-node-non-fde.qemu.nke-non-fde \
+  -only=nvke-node-non-fde.qemu.nvke-non-fde \
   -var architecture=amd64 \
   -var material_manifest=/run/nke-image/inputs/material-manifest.json \
   -var output_directory=/run/nke-image/output \
@@ -220,7 +229,7 @@ packer build \
 ```
 
 The existing Make targets run `packer init` before validation or build, so the
-developer and NKE CI workflow retain their current plugin-installation path.
+developer and NVKE CI workflow retain their current plugin-installation path.
 Hermetic external runners instead provide the exact Packer executable and the
 QEMU plugin version pinned by `packer/versions.pkr.hcl`, expose the authenticated
 plugin tree through `PACKER_PLUGIN_PATH`, and run `packer validate` followed by
@@ -265,7 +274,7 @@ The manifest contract is:
 
 ```json
 {
-  "schemaVersion": "nke.dev/os-image-materials/v1",
+  "schemaVersion": "nvke.nvidia.com/os-image-materials/v1",
   "materials": [
     {
       "binding": "installer-iso",
@@ -277,7 +286,7 @@ The manifest contract is:
     },
     {
       "binding": "image-inputs",
-      "component": "nke-image-inputs",
+      "component": "nvke-image-inputs",
       "kind": "archive",
       "architecture": "amd64",
       "digest": "sha256:<digest>",
@@ -305,6 +314,68 @@ checks the staged ISO against that authenticated value before booting it. The
 project also checks the `image-inputs` archive against its manifest digest
 before extracting it into transient host-side state and uploading the expanded
 contents. The archive itself is not copied into the guest disk.
+
+External runners can prepare the same input archive and patched installer from
+individually built component outputs, without invoking `fetch-artifacts.sh`:
+
+```bash
+packer/scripts/compose-image-inputs.py \
+  --architecture amd64 \
+  --materials-dir /run/nke-image/materials \
+  --source-files-dir files \
+  --output /run/nke-image/image-inputs.tar \
+  --source-date-epoch "$SOURCE_DATE_EPOCH"
+
+packer/scripts/patch-installer-iso.sh \
+  /run/nke-image/materials/ubuntu-installer.iso \
+  /run/nke-image/installer.iso
+```
+
+The `agent` binding is one bare `.deb` file. `calico`, `kubeadm-distro`, `ovn`,
+and `spire-agent` are uncompressed GNU/USTAR archives of flat regular `.deb`
+files, with filenames unique across all bindings. Only the optional root `.`
+directory entry is accepted; omit `Packages`, subdirectories, links, and PAX/GNU
+extended metadata headers. The package builders are `packages/cni-calico`,
+`packages/kubeadm-distro`, `packages/cni-ovn`, and `packages/spire-agent`.
+Run their `debs` targets and archive only the resulting `.deb` files with
+`tar --format=ustar -cf component.tar -C "$OUT_DIR" <package filenames>`.
+The composer regenerates `Packages` itself. The SPIRE binding must contain
+exactly one `spire-agent_*.deb`; Calico inputs may contain at most one
+`nvke-cni-calico-manifests-*.deb`. Every package must declare the requested
+`--architecture` or `all`, checked with `dpkg-deb`.
+
+`--source-files-dir` supplies the checkout's image-owned provisioning files:
+`nvke-agent-spire.conf`, `wait-spiffe-socket.sh`, `conntrack-tune.service`,
+`configure-conntrack.sh`, and `10-nke-conntrack-timeouts.conf`. All five are
+required, copied unchanged, and staged with the same modes as the Make build.
+
+The runner must authenticate these files before calling the composer and keep
+the authenticated bytes immutable until composition returns. The composer
+copies each component archive through a no-follow descriptor into a bounded,
+private snapshot before validating and staging its regular package members.
+This snapshot prevents caller writes between framing validation and parsing.
+The composer rejects unsafe entries and duplicate filenames. Each input archive
+is limited to 16,384 entries. Component archives may supply at most 16,384
+packages, plus one standalone agent package, for 16,385 packages total. The
+limits are 1 GiB per package and 7 GiB aggregate package bytes, including the
+standalone agent. It normalizes archive
+directory permissions independently of the host
+umask, and preserves all staged versions in the local APT index. The ISO patcher
+accepts a prepared local ISO and performs no acquisition. The runner must verify
+the source ISO against its authenticated upstream digest, for example Ubuntu's
+signed `SHA256SUMS`, before either ISO tool parses it. The patched ISO digest
+does not authenticate the upstream ISO. Both adapters leave
+the source tree unchanged and write under caller-selected output directories.
+`guest_memory_mib` controls Packer guest memory, with the existing 8192 MiB
+default. Its 1024 MiB validation floor is a schema constraint only; it does not
+claim the Ubuntu installer will complete at that memory size. Keep the default
+unless an alternative has passed image-bake and boot validation.
+Make callers can pass `GUEST_MEMORY_MIB` to set the same Packer input.
+
+The composer delegates archive parsing to Python's standard library. Its regular
+member budgets, strict end markers, and rejection of extended metadata do not
+authenticate input archives or replace the runner's
+resource isolation and material verification.
 
 The SSH files are caller-owned attempt state. The direct caller generates the
 pair before invoking Packer and supplies both absolute paths. Packer uses the
@@ -337,8 +408,8 @@ cd packer
 make os-image-fde
 ```
 
-Output: `packer/output-fde/nke-node-fde-ubuntu-<version>-<arch>.qcow2` (e.g.
-`nke-node-fde-ubuntu-26.04.1-amd64.qcow2`). `LUKS_PASSPHRASE` (default
+Output: `packer/output-fde/nvke-node-fde-ubuntu-<version>-<arch>.qcow2` (e.g.
+`nvke-node-fde-ubuntu-26.04.1-amd64.qcow2`). `LUKS_PASSPHRASE` (default
 `changeit` — **set this to a real value for any build that will run on real
 hardware**; see [docs/full-disk-encryption.md](docs/full-disk-encryption.md))
 sets the build-time-only passphrase, which the shipped image never retains
@@ -363,8 +434,8 @@ cd packer
 make os-image-non-fde
 ```
 
-Output: `packer/output-non-fde/nke-node-non-fde-ubuntu-<version>-<arch>.qcow2`
-(e.g. `nke-node-non-fde-ubuntu-26.04.1-amd64.qcow2`). Boot it with
+Output: `packer/output-non-fde/nvke-node-non-fde-ubuntu-<version>-<arch>.qcow2`
+(e.g. `nvke-node-non-fde-ubuntu-26.04.1-amd64.qcow2`). Boot it with
 `boot-smoke.sh` (`QCOW` defaults to the single qcow2 under `output-non-fde/`;
 firmware is discovered automatically):
 
@@ -397,9 +468,9 @@ repo builds is UEFI-only; `TPM=1` attaches a TPM for the FDE image).
 Examples:
 
 ```bash
-make run-vm QCOW=packer/output-non-fde/nke-node-non-fde-ubuntu-26.04.1-amd64.qcow2
-make run-vm QCOW=packer/output-fde/nke-node-fde-ubuntu-26.04.1-amd64.qcow2 TPM=1
-make run-vm QCOW=packer/output-non-fde/nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
+make run-vm QCOW=packer/output-non-fde/nvke-node-non-fde-ubuntu-26.04.1-amd64.qcow2
+make run-vm QCOW=packer/output-fde/nvke-node-fde-ubuntu-26.04.1-amd64.qcow2 TPM=1
+make run-vm QCOW=packer/output-non-fde/nvke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
 ```
 
 ## Release
@@ -409,7 +480,7 @@ An `os-image/vX.Y.Z` tag (or `os-image/vX.Y.Z-rc.N`) runs
 and non-FDE images for both architectures and, only if that succeeds, pushes
 the qcow2s to GHCR as OCI artifacts under arch-suffixed tags — not one
 multi-platform manifest shared across arches, see the workflow's header
-comment for why — then cuts a GitHub Release attaching `nke-os-image-check`
+comment for why — then cuts a GitHub Release attaching `nvke-os-image-check`
 and a `checksums.txt` covering all four qcow2s and the checker binary.
 
 The workflow selects the source-owned Make collection target for each matrix
@@ -421,11 +492,11 @@ The pulled file keeps the name Packer gave it, so it carries the Ubuntu point
 release and the architecture and two arches can share a directory:
 
 ```bash
-oras pull ghcr.io/dsx-ai-factory/nke/os-image-fde:vX.Y.Z-amd64 --platform linux/amd64
-oras pull ghcr.io/dsx-ai-factory/nke/os-image-fde:vX.Y.Z-arm64 --platform linux/arm64
-oras pull ghcr.io/dsx-ai-factory/nke/os-image-non-fde:vX.Y.Z-amd64 --platform linux/amd64
-oras pull ghcr.io/dsx-ai-factory/nke/os-image-non-fde:vX.Y.Z-arm64 --platform linux/arm64
-# -> nke-node-{fde,non-fde}-ubuntu-26.04.1-{amd64,arm64}.qcow2
+oras pull ghcr.io/dsx-ai-factory/nvke/os-image-fde:vX.Y.Z-amd64 --platform linux/amd64
+oras pull ghcr.io/dsx-ai-factory/nvke/os-image-fde:vX.Y.Z-arm64 --platform linux/arm64
+oras pull ghcr.io/dsx-ai-factory/nvke/os-image-non-fde:vX.Y.Z-amd64 --platform linux/amd64
+oras pull ghcr.io/dsx-ai-factory/nvke/os-image-non-fde:vX.Y.Z-arm64 --platform linux/arm64
+# -> nvke-node-{fde,non-fde}-ubuntu-26.04.1-{amd64,arm64}.qcow2
 ```
 
 **FDE security note**: the published image's `LUKS_PASSPHRASE` is the
@@ -439,24 +510,21 @@ build-and-go FDE image without a per-node secret-provisioning story.
 Verify a node closed that window with `luks-tpm-verify` before trusting
 TPM-only unlock in production.
 
-The workflow's amd64 leg runs on `linux-amd64-gpu-l4-latest-1`, chosen
-specifically for real `/dev/kvm` — a container-based pool tried earlier had
-none, forcing every bake onto `tcg` software emulation (confirmed directly: a
-full FDE bake took 1h39m under `tcg` vs a few minutes locally under real
-KVM). The job's "Enable KVM access" step fails immediately if that
-assumption turns out wrong, rather than silently falling back to the
-~10x-slower emulated path. The arm64 leg runs natively on
-`arc-arm64-kvm`, also with `/dev/kvm`; the workflow fails immediately if
-that device is absent or unusable. The Makefile still retains its portable
-same-architecture KVM probe and TCG fallback for local builds.
+The workflow builds each architecture natively on the `arc-amd64-kvm` and
+`arc-arm64-kvm` runners, chosen for real `/dev/kvm`: under `tcg` software
+emulation a full FDE bake took 1h39m on amd64, and arm64 never finished. The
+job's "Enable KVM access" step fails immediately if `/dev/kvm` is absent or
+unusable, rather than silently falling back to the ~10x-slower emulated path.
+The Makefile still retains its portable same-architecture KVM probe and TCG
+fallback for local builds.
 
 If the FDE/non-FDE build or boot-smoke steps fail in CI, download the
-`fde-install-console-logs` artifact from the run — it's the guest's own
+`install-console-logs-<arch>[-ubuntu24.04]-<variant>` artifact from the run — it's the guest's own
 serial console output (boot + autoinstall), uploaded regardless of outcome
 since there's no VNC/monitor access on the runner to inspect a stuck build
 interactively.
 
-The baked `nke-agent` is built from the tagged commit's `agent/` source, so
+The baked `nvke-agent` is built from the tagged commit's `agent/` source, so
 the agent version is fixed by the ref the workflow runs on.
 
 ## First boot (cloud-init)
@@ -482,20 +550,55 @@ write_files:
       -----END CERTIFICATE-----
 ```
 
-`nke-spire-configure.service` reads the files after cloud-init writes them, renders
+`nvke-spire-configure.service` reads the files after cloud-init writes them, renders
 `/etc/spire-agent/agent.conf`, and only then does `spire-agent` start.
-`nke-agent` starts after the workload API socket exists.
+`nvke-agent` starts after the workload API socket exists.
 
 The site SPIRE server must also register a workload entry for root
-`nke-agent` (unix attestor, uid 0) and a `/nke-service/...` identity for
-whatever will dial the node (controller or `nke-os-image-check`).
+`nvke-agent` (unix attestor, uid 0) and a `/nke-service/...` identity for
+whatever will dial the node (controller or `nvke-os-image-check`).
+
+## Conntrack limits
+
+At every boot, `conntrack-tune.service` writes
+`/run/sysctl.d/10-nke-conntrack.conf`, sizing `nf_conntrack_max` from the
+node's RAM: 600000 on nodes with 9375 MiB of RAM or more, less on smaller VMs.
+It only ever raises the kernel's values, and `systemd-sysctl` applies the file
+early in boot. `/etc/sysctl.d/10-nke-conntrack-timeouts.conf` sets TIME_WAIT
+to 60s. On Calico clusters kube-proxy re-sets the limit from the node's CPU
+count when it starts, which is lower than 600000 on nodes with 18 or fewer
+logical CPUs; see [SPEC.md](SPEC.md#conntrack-limits).
+
+To check a node:
+
+```bash
+cat /run/sysctl.d/10-nke-conntrack.conf   # what boot generated, and from how much RAM
+sysctl net.netfilter.nf_conntrack_max net.netfilter.nf_conntrack_buckets net.netfilter.nf_conntrack_count
+journalctl -u conntrack-tune
+```
+
+To override, add a file to `/etc/sysctl.d`: a same-named
+`10-nke-conntrack.conf` replaces the generated one, and any later-sorting
+file, such as `60-conntrack.conf` or `99-local.conf`, overrides individual
+keys, higher or lower. `boot-smoke.sh` and
+`demo-fde.sh` run `packer/scripts/check-conntrack.sh` against each built
+image.
+
+## Optional APT acquisition capture
+
+Direct Packer callers can set `capture_apt_acquisitions=true` to download the
+actual APT package archives before final provisioning cleanup. See
+[the capture contract](docs/apt-acquisition-capture.md) for output paths, scope,
+limits and validation. Capture is disabled by default and does not by itself
+prove a complete acquisition closure or bind evidence to a build Run.
+The Make targets do not collect the capture; use direct Packer for this output.
 
 ## Checker
 
-From the repository root (`make build` writes `bin/nke-os-image-check`):
+From the repository root (`make build` writes `bin/nvke-os-image-check`):
 
 ```bash
-nke-os-image-check --endpoint 192.0.2.10:15005
+nvke-os-image-check --endpoint 192.0.2.10:15005
 ```
 
 The process needs a SPIFFE workload API with an SVID whose path starts with
@@ -507,10 +610,10 @@ Override with `--spiffe-socket`. This is the same shape as the controller
 dialer; it is not a SPIRE server. For a local SPIRE, see
 `controller/scripts/dev-env-spire.sh`.
 
-If the node runs `nke-agent --grpc-auth-mode=tls-jwt`, pass `--tls-jwt`:
+If the node runs `nvke-agent --grpc-auth-mode=tls-jwt`, pass `--tls-jwt`:
 
 ```bash
-nke-os-image-check --endpoint 192.0.2.10:15005 --tls-jwt
+nvke-os-image-check --endpoint 192.0.2.10:15005 --tls-jwt
 ```
 
 That agent writes an `NKEAuth` record after the TLS handshake and before the

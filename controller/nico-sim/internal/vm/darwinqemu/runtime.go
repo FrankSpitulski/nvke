@@ -21,8 +21,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm"
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm/toolpath"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/vm"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/vm/toolpath"
 )
 
 // New returns a vm.Runtime backed by QEMU on macOS with vmnet-client networking.

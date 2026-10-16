@@ -24,16 +24,16 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/authtoken"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/cwe"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/nke"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/authtoken"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/nvke"
 )
 
-// The negative cases, and the only thing in the suite that would notice if NKE
+// The negative cases, and the only thing in the suite that would notice if NVKE
 // stopped rejecting: every other spec presents the admitted credential.
-var _ = Describe("NKE API authentication", Label("authn"), func() {
+var _ = Describe("NVKE API authentication", Label("authn"), func() {
 	var (
 		restConfig *rest.Config
 		clientset  kubernetes.Interface
@@ -44,20 +44,20 @@ var _ = Describe("NKE API authentication", Label("authn"), func() {
 	BeforeEach(func(ctx SpecContext) {
 		restConfig, clientset = authnCluster()
 
-		// Two signals: a cluster can carry the ConfigMap while NKE does not
+		// Two signals: a cluster can carry the ConfigMap while NVKE does not
 		// mount it, and then every case below returns 200 legitimately.
 		var found bool
 		audience, found, mode = authnDeployment(ctx, clientset)
 		if !found {
 			authnAbsentf(
-				"authentication is OFF: ConfigMap %s/%s does not exist, so this NKE is configured to authenticate nobody and there is no audience to mint against",
-				cwe.Namespace(), authtoken.ConfigMapName,
+				"authentication is OFF: ConfigMap %s/%s does not exist, so this NVKE is configured to authenticate nobody and there is no audience to mint against",
+				controller.Namespace(), authtoken.ConfigMapName,
 			)
 		}
 		if mode == authnModeDisabled {
 			authnAbsentf(
 				"authentication is OFF: %s is not set on Deployment %s/%s, so the authentication middleware is not in the request chain even though ConfigMap %s carries an audience",
-				authnConfigPathEnv, cwe.Namespace(), cwe.DeploymentName, authtoken.ConfigMapName,
+				authnConfigPathEnv, controller.Namespace(), controller.Deployment(), authtoken.ConfigMapName,
 			)
 		}
 	})
@@ -68,8 +68,8 @@ var _ = Describe("NKE API authentication", Label("authn"), func() {
 		GinkgoHelper()
 		if mode == authnModePermissive {
 			Skip(fmt.Sprintf(
-				"authentication is PERMISSIVE: %s=true on Deployment %s/%s, so a rejected request is counted and then served, and 200 is the correct answer to this case",
-				authnPermissiveEnv, cwe.Namespace(), cwe.DeploymentName,
+				"authentication is PERMISSIVE: permissiveMode is true in %s/%s, so a rejected request is counted and then served, and 200 is the correct answer to this case",
+				controller.Namespace(), nvke.ControllerConfigMap,
 			))
 		}
 	}
@@ -88,7 +88,7 @@ var _ = Describe("NKE API authentication", Label("authn"), func() {
 
 	It("admits nke-clients/nke-client with the configured audience with 200", func(ctx SpecContext) {
 		// Not gated on enforcing: this proves a 401 elsewhere is about the
-		// credential and not about NKE being unreachable.
+		// credential and not about NVKE being unreachable.
 		source, err := authtoken.New(clientset, authtoken.Options{Audience: audience})
 		Expect(err).NotTo(HaveOccurred(), "build the admitted token source")
 
@@ -101,7 +101,7 @@ var _ = Describe("NKE API authentication", Label("authn"), func() {
 	It("rejects a token minted for the wrong audience with 401", func(ctx SpecContext) {
 		requireEnforcing()
 
-		// Only the audience is wrong, so a 200 would mean NKE accepts any token
+		// Only the audience is wrong, so a 200 would mean NVKE accepts any token
 		// this cluster ever issued, including every pod's automounted one.
 		source, err := authtoken.New(clientset, authtoken.Options{Audience: authnWrongAudience})
 		Expect(err).NotTo(HaveOccurred(), "build the wrong-audience token source")
@@ -110,7 +110,7 @@ var _ = Describe("NKE API authentication", Label("authn"), func() {
 		status, body, header := authnListClusters(ctx, authnClient(restConfig, source))
 
 		Expect(status).To(Equal(http.StatusUnauthorized),
-			"a token for audience %q must not be accepted by an NKE expecting %q; response body: %s",
+			"a token for audience %q must not be accepted by an NVKE expecting %q; response body: %s",
 			authnWrongAudience, audience, body)
 		Expect(header.Get("WWW-Authenticate")).To(HavePrefix("Bearer"))
 		expectGenericErrorBody(body)
@@ -138,7 +138,7 @@ var _ = Describe("NKE API authentication", Label("authn"), func() {
 		expectNoTokenEcho(body, token)
 	})
 
-	// The anonymous surface, asserted against an NKE authenticating everything
+	// The anonymous surface, asserted against an NVKE authenticating everything
 	// else, hence the shared BeforeEach skip.
 	DescribeTable("leaves the anonymous surface reachable with no token",
 		func(ctx SpecContext, path string) {
@@ -151,8 +151,8 @@ var _ = Describe("NKE API authentication", Label("authn"), func() {
 				"%s is on the anonymous surface in internal/auth/routes.go and must stay reachable without a credential; response body: %s",
 				path, body)
 		},
-		// Exempt deliberately: Tilt probes it and the UI reads temporalUIURL and
-		// temporalNamespace from it with no token. The only "/api/"-prefixed
+		// Exempt deliberately: Tilt probes it and the UI reads version metadata
+		// from it with no token. The only "/api/"-prefixed
 		// exemption, so the only one a narrowing of the exemption table would
 		// break. /healthz and /readyz are covered credential-free in health_test.go.
 		Entry("version", "/api/version"),
@@ -169,7 +169,7 @@ var _ = Describe("NKE API authentication", Label("authn"), func() {
 			tctx, cancel := context.WithTimeout(ctx, authnTimeout)
 			defer cancel()
 
-			// The forwarder, so the path reaches NKE exactly as written.
+			// The forwarder, so the path reaches NVKE exactly as written.
 			status, body, err := authnForwarder(restConfig).Get(tctx, path)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(status).To(Equal(http.StatusUnauthorized),
@@ -191,11 +191,9 @@ var _ = Describe("NKE API authentication", Label("authn"), func() {
 // parameter binder with a 400 — hence 401 exactly, not "not 200".
 const authnProbeUUID = "00000000-0000-0000-0000-000000000000"
 
-// The environment deciding whether the middleware is in the chain and enforces.
-const (
-	authnConfigPathEnv = "AUTH_CONFIG_PATH"
-	authnPermissiveEnv = "PERMISSIVE_MODE"
-)
+// authnConfigPathEnv puts the middleware in the chain; permissiveMode in
+// nke-controller-config decides whether it enforces.
+const authnConfigPathEnv = "AUTH_CONFIG_PATH"
 
 const (
 	authnModeDisabled   = "disabled"
@@ -210,39 +208,46 @@ const (
 	authnWrongAudience          = "https://nke.wrong.invalid"
 )
 
-// authnTimeout bounds one cluster read or NKE call. These specs create nothing,
+// authnTimeout bounds one cluster read or NVKE call. These specs create nothing,
 // so anything slower is a broken transport.
 const authnTimeout = 60 * time.Second
 
-// detectAuthnEnforcement reports whether the NKE Deployment's authentication
-// middleware is absent, permissive or enforcing. An env var sourced from a
-// ConfigMap ref reads empty for PERMISSIVE_MODE and so reports enforcing, the
-// safe direction; nothing shipped sources it that way.
+// detectAuthnEnforcement reports whether the NVKE Deployment's authentication
+// middleware is absent, permissive or enforcing.
 func detectAuthnEnforcement(ctx context.Context, clientset kubernetes.Interface) (string, error) {
-	deployment, err := clientset.AppsV1().Deployments(cwe.Namespace()).Get(ctx, cwe.DeploymentName, metav1.GetOptions{})
+	deployment, err := clientset.AppsV1().Deployments(controller.Namespace()).Get(ctx, controller.Deployment(), metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("getting Deployment %s/%s: %w", cwe.Namespace(), cwe.DeploymentName, err)
+		return "", fmt.Errorf("getting Deployment %s/%s: %w", controller.Namespace(), controller.Deployment(), err)
 	}
 
-	container := cweContainer(deployment)
+	container := controllerContainer(deployment)
 	if container == nil {
-		return "", fmt.Errorf("deployment %s/%s has no container named %s", cwe.Namespace(), cwe.DeploymentName, cwe.DeploymentName)
+		return "", fmt.Errorf("deployment %s/%s has no container named %s", controller.Namespace(), controller.Deployment(), controller.Deployment())
 	}
 
 	if _, found := containerEnvValue(container, authnConfigPathEnv); !found {
 		return authnModeDisabled, nil
 	}
-	if value, _ := containerEnvValue(container, authnPermissiveEnv); strings.EqualFold(strings.TrimSpace(value), "true") {
+
+	settings, err := clientset.CoreV1().ConfigMaps(controller.Namespace()).Get(ctx, nvke.ControllerConfigMap, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("getting ConfigMap %s/%s: %w", controller.Namespace(), nvke.ControllerConfigMap, err)
+	}
+	permissive, err := nvke.ControllerSetting(settings.Data, "permissiveMode")
+	if err != nil {
+		return "", err
+	}
+	if permissive == true {
 		return authnModePermissive, nil
 	}
 	return authnModeEnforcing, nil
 }
 
-// cweContainer picks the NKE container by name: a scan over all of them would
-// read a sidecar's PERMISSIVE_MODE as NKE's.
-func cweContainer(deployment *appsv1.Deployment) *corev1.Container {
+// controllerContainer picks the NVKE container by name: a scan over all of them would
+// read a sidecar's AUTH_CONFIG_PATH as NVKE's.
+func controllerContainer(deployment *appsv1.Deployment) *corev1.Container {
 	for i := range deployment.Spec.Template.Spec.Containers {
-		if deployment.Spec.Template.Spec.Containers[i].Name == cwe.DeploymentName {
+		if deployment.Spec.Template.Spec.Containers[i].Name == controller.Deployment() {
 			return &deployment.Spec.Template.Spec.Containers[i]
 		}
 	}
@@ -286,7 +291,7 @@ func authnDeployment(ctx context.Context, clientset kubernetes.Interface) (strin
 	Expect(err).NotTo(HaveOccurred(), "read the deployment's auth configuration")
 
 	mode, err := detectAuthnEnforcement(tctx, clientset)
-	Expect(err).NotTo(HaveOccurred(), "read the NKE deployment's enforcement mode")
+	Expect(err).NotTo(HaveOccurred(), "read the NVKE deployment's enforcement mode")
 
 	return audience, found, mode
 }
@@ -329,20 +334,20 @@ func parseAuthnRequired(raw string) (bool, error) {
 	return required, nil
 }
 
-// authnForwarder is the shared tunnel to NKE, used where a spec needs the path
+// authnForwarder is the shared tunnel to NVKE, used where a spec needs the path
 // to arrive exactly as written rather than as the generated client builds it.
 func authnForwarder(restConfig *rest.Config) *kube.ServiceForwarder {
 	GinkgoHelper()
-	forwarder, err := kube.SharedServiceForwarder(restConfig, cwe.Namespace(), cwe.Service(), cwe.Port())
+	forwarder, err := kube.SharedServiceForwarder(restConfig, controller.Namespace(), controller.Service(), controller.Port())
 	Expect(err).NotTo(HaveOccurred(), "build port-forward client")
 	return forwarder
 }
 
-// authnClient builds an NKE API client carrying exactly the credential given.
-func authnClient(restConfig *rest.Config, tokens nke.TokenSource) *nke.Client {
+// authnClient builds an NVKE API client carrying exactly the credential given.
+func authnClient(restConfig *rest.Config, tokens nvke.TokenSource) *nvke.Client {
 	GinkgoHelper()
-	client, err := nke.NewClientWithTokenSource(restConfig, nke.Options{}, tokens)
-	Expect(err).NotTo(HaveOccurred(), "build an NKE API client")
+	client, err := nvke.NewClientWithTokenSource(restConfig, nvke.Options{}, tokens)
+	Expect(err).NotTo(HaveOccurred(), "build an NVKE API client")
 	return client
 }
 
@@ -361,7 +366,7 @@ func authnMint(ctx context.Context, source *authtoken.Source) string {
 
 // authnListClusters probes GET /api/clusters. It fails only on a transport
 // error, so every status is data.
-func authnListClusters(ctx context.Context, client *nke.Client) (int, []byte, http.Header) {
+func authnListClusters(ctx context.Context, client *nvke.Client) (int, []byte, http.Header) {
 	GinkgoHelper()
 	tctx, cancel := context.WithTimeout(ctx, authnTimeout)
 	defer cancel()
@@ -401,63 +406,51 @@ func expectNoTokenEcho(body []byte, token string) {
 func TestDetectAuthnEnforcement(t *testing.T) {
 	deployment := func(env ...corev1.EnvVar) *appsv1.Deployment {
 		return &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{Namespace: cwe.Namespace(), Name: cwe.DeploymentName},
+			ObjectMeta: metav1.ObjectMeta{Namespace: controller.Namespace(), Name: controller.Deployment()},
 			Spec: appsv1.DeploymentSpec{
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "cloud-workflow-engine", Env: env}},
+						Containers: []corev1.Container{{Name: controller.Deployment(), Env: env}},
 					},
 				},
 			},
 		}
 	}
+	settings := func(permissive bool) *corev1.ConfigMap {
+		return &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: controller.Namespace(), Name: nvke.ControllerConfigMap},
+			Data:       map[string]string{"config.yaml": fmt.Sprintf("metricsListenAddress: 127.0.0.1:9090\npermissiveMode: %t\n", permissive)},
+		}
+	}
+	authConfigPath := corev1.EnvVar{Name: "AUTH_CONFIG_PATH", Value: "/etc/nke/auth/auth.yaml"}
 
 	tests := []struct {
-		name string
-		env  []corev1.EnvVar
-		want string
+		name       string
+		env        []corev1.EnvVar
+		permissive bool
+		want       string
 	}{
 		{
-			name: "no AUTH_CONFIG_PATH is authentication off",
-			env:  []corev1.EnvVar{{Name: "PERMISSIVE_MODE", Value: "false"}},
-			want: authnModeDisabled,
+			name:       "no AUTH_CONFIG_PATH is authentication off, whatever permissiveMode says",
+			permissive: true,
+			want:       authnModeDisabled,
 		},
 		{
-			name: "AUTH_CONFIG_PATH with PERMISSIVE_MODE=true is permissive",
-			env: []corev1.EnvVar{
-				{Name: "AUTH_CONFIG_PATH", Value: "/etc/nke/auth/auth.yaml"},
-				{Name: "PERMISSIVE_MODE", Value: "true"},
-			},
-			want: authnModePermissive,
+			name:       "AUTH_CONFIG_PATH with permissiveMode true is permissive",
+			env:        []corev1.EnvVar{authConfigPath},
+			permissive: true,
+			want:       authnModePermissive,
 		},
 		{
-			name: "AUTH_CONFIG_PATH with PERMISSIVE_MODE=false is enforcing",
-			env: []corev1.EnvVar{
-				{Name: "AUTH_CONFIG_PATH", Value: "/etc/nke/auth/auth.yaml"},
-				{Name: "PERMISSIVE_MODE", Value: "false"},
-			},
+			name: "AUTH_CONFIG_PATH with permissiveMode false is enforcing",
+			env:  []corev1.EnvVar{authConfigPath},
 			want: authnModeEnforcing,
-		},
-		{
-			// The chart may omit the flag. Absent is not permissive.
-			name: "AUTH_CONFIG_PATH with no PERMISSIVE_MODE is enforcing",
-			env:  []corev1.EnvVar{{Name: "AUTH_CONFIG_PATH", Value: "/etc/nke/auth/auth.yaml"}},
-			want: authnModeEnforcing,
-		},
-		{
-			// A YAML "True" survives into the env as a string.
-			name: "PERMISSIVE_MODE is read case-insensitively",
-			env: []corev1.EnvVar{
-				{Name: "AUTH_CONFIG_PATH", Value: "/etc/nke/auth/auth.yaml"},
-				{Name: "PERMISSIVE_MODE", Value: " True "},
-			},
-			want: authnModePermissive,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := detectAuthnEnforcement(context.Background(), fake.NewClientset(deployment(tt.env...)))
+			got, err := detectAuthnEnforcement(context.Background(), fake.NewClientset(deployment(tt.env...), settings(tt.permissive)))
 			if err != nil {
 				t.Fatalf("detectAuthnEnforcement: %v", err)
 			}
@@ -467,17 +460,23 @@ func TestDetectAuthnEnforcement(t *testing.T) {
 		})
 	}
 
-	t.Run("a missing deployment is an error, not a mode", func(t *testing.T) {
-		// Skipping here would turn a broken kubeconfig into a green run.
-		if _, err := detectAuthnEnforcement(context.Background(), fake.NewClientset()); err == nil {
-			t.Fatal("expected an error when the NKE deployment cannot be read")
+	t.Run("a missing nke-controller-config is an error, not a mode", func(t *testing.T) {
+		if _, err := detectAuthnEnforcement(context.Background(), fake.NewClientset(deployment(authConfigPath))); err == nil {
+			t.Fatal("expected an error when nke-controller-config cannot be read")
 		}
 	})
 
-	t.Run("a sidecar's environment is not NKE's", func(t *testing.T) {
-		// A sidecar's AUTH_CONFIG_PATH is not NKE's.
+	t.Run("a missing deployment is an error, not a mode", func(t *testing.T) {
+		// Skipping here would turn a broken kubeconfig into a green run.
+		if _, err := detectAuthnEnforcement(context.Background(), fake.NewClientset()); err == nil {
+			t.Fatal("expected an error when the NVKE deployment cannot be read")
+		}
+	})
+
+	t.Run("a sidecar's environment is not NVKE's", func(t *testing.T) {
+		// A sidecar's AUTH_CONFIG_PATH is not NVKE's.
 		sidecarOnly := &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{Namespace: cwe.Namespace(), Name: cwe.DeploymentName},
+			ObjectMeta: metav1.ObjectMeta{Namespace: controller.Namespace(), Name: controller.Deployment()},
 			Spec: appsv1.DeploymentSpec{
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{Containers: []corev1.Container{{
@@ -488,7 +487,7 @@ func TestDetectAuthnEnforcement(t *testing.T) {
 			},
 		}
 		if _, err := detectAuthnEnforcement(context.Background(), fake.NewClientset(sidecarOnly)); err == nil {
-			t.Fatal("expected an error when the Deployment carries no NKE container")
+			t.Fatal("expected an error when the Deployment carries no NVKE container")
 		}
 	})
 }

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -38,9 +39,41 @@ type NicoNodePoolProvider struct {
 	InfinibandPartitionID    *uuid.UUID            `json:"infiniband_partition_id,omitempty"`
 	NvLinkLogicalPartitionID *uuid.UUID            `json:"nvlink_logical_partition_id,omitempty"`
 	SSHKeyGroupIDs           []uuid.UUID           `json:"ssh_key_group_ids,omitempty"`
-	OSProfile                string                `json:"os_profile,omitempty"`
+	Release                  string                `json:"release,omitempty"`
 	ConfigProfile            string                `json:"config_profile,omitempty"`
 	DiskSelectionStrategy    DiskSelectionStrategy `json:"disk_selection_strategy,omitempty"`
+}
+
+// MarshalJSON writes the release under both the release and os_profile keys.
+// A CWE predating the rename rewrites the whole nico payload from its own
+// struct, so a pod still draining during an upgrade would erase a payload
+// carrying only the release key.
+//
+// Drop the mirror once no such pod can run, and backfill release from
+// os_profile before doing so: nothing has rewritten the rows that predate this
+// change, and they carry os_profile alone.
+func (n NicoNodePoolProvider) MarshalJSON() ([]byte, error) {
+	type alias NicoNodePoolProvider
+	return json.Marshal(struct {
+		alias
+		OSProfileLegacy string `json:"os_profile,omitempty"`
+	}{alias(n), n.Release})
+}
+
+// UnmarshalJSON reads the release from either key, preferring release.
+func (n *NicoNodePoolProvider) UnmarshalJSON(data []byte) error {
+	type alias NicoNodePoolProvider
+	aux := struct {
+		*alias
+		OSProfileLegacy string `json:"os_profile,omitempty"`
+	}{alias: (*alias)(n)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if n.Release == "" {
+		n.Release = aux.OSProfileLegacy
+	}
+	return nil
 }
 
 type CAPINodePoolProvider struct {
@@ -53,7 +86,7 @@ type CAPINodePoolProvider struct {
 // Equal reports whether two NicoNodePoolProvider values represent the same configuration.
 // SubnetIDs and VpcPrefixIDs are compared as sets (order-independent).
 func (n NicoNodePoolProvider) Equal(other NicoNodePoolProvider) bool {
-	return n.OSProfile == other.OSProfile &&
+	return n.Release == other.Release &&
 		n.ConfigProfile == other.ConfigProfile &&
 		n.DiskSelectionStrategy == other.DiskSelectionStrategy &&
 		uuidSlicesSetEqual(n.SubnetIDs, other.SubnetIDs) &&
@@ -99,7 +132,8 @@ type NodePool struct {
 	SystemReservedMemory string             `bun:"type:text,notnull,default:'16Gi'"`
 	KubeReservedMemory   string             `bun:"type:text,notnull,default:''"`
 	ControlPlane         bool               `bun:"type:boolean,notnull"`
-	NodeLabels           []string           `bun:"type:text[],notnull"`
+	NodeLabels           map[string]string  `bun:"type:jsonb,notnull,default:'{}'"`
+	NodeTaints           []NodeTaint        `bun:"type:jsonb,notnull,default:'[]'"`
 	Conditions           NodePoolConditions `bun:"type:jsonb"`
 	CreatedAt            time.Time          `bun:"type:timestamptz,notnull,default:current_timestamp"`
 	UpdatedAt            time.Time          `bun:"type:timestamptz,notnull,default:current_timestamp"`
@@ -155,6 +189,30 @@ type NodePool struct {
 
 	Nico *NicoNodePoolProvider `bun:"nico,type:jsonb"`
 	Capi *CAPINodePoolProvider `bun:"capi,type:jsonb"`
+}
+
+// NodeTaint is a Kubernetes taint stored as the desired set for every node in a pool.
+type NodeTaint struct {
+	Key    string `json:"key"`
+	Value  string `json:"value,omitempty"`
+	Effect string `json:"effect"`
+}
+
+// CloneStringMap returns a non-nil copy of in. A nil or empty map becomes an empty map.
+func CloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return map[string]string{}
+	}
+	return maps.Clone(in)
+}
+
+// normalizeNodePoolCollections stores an empty object for labels and an empty
+// array for taints so a nil Go value is not written as JSON null.
+func normalizeNodePoolCollections(nodePool *NodePool) {
+	nodePool.NodeLabels = CloneStringMap(nodePool.NodeLabels)
+	if nodePool.NodeTaints == nil {
+		nodePool.NodeTaints = []NodeTaint{}
+	}
 }
 
 // IsCurrentNodeSet returns true if the NodeSet is the current NodeSet for the NodePool.
@@ -215,7 +273,7 @@ func cloneNicoNodePoolProvider(provider NicoNodePoolProvider) *NicoNodePoolProvi
 		InfinibandPartitionID:    cloneUUIDPtr(provider.InfinibandPartitionID),
 		NvLinkLogicalPartitionID: cloneUUIDPtr(provider.NvLinkLogicalPartitionID),
 		SSHKeyGroupIDs:           append([]uuid.UUID(nil), provider.SSHKeyGroupIDs...),
-		OSProfile:                provider.OSProfile,
+		Release:                  provider.Release,
 		ConfigProfile:            provider.ConfigProfile,
 		DiskSelectionStrategy:    provider.DiskSelectionStrategy,
 	}
@@ -352,8 +410,9 @@ func (q *queriesImpl) GetNodePoolForUpdate(ctx context.Context, id uuid.UUID) (N
 }
 
 func (q *queriesImpl) CreateNodePool(ctx context.Context, nodePool *NodePool) (NodePool, error) {
+	normalizeNodePoolCollections(nodePool)
 	if nodePool.ControlPlane {
-		if err := q.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := q.db.RunInTx(ctx, nil, func(_ context.Context, tx bun.Tx) error { // the caller's ctx, see dbImpl.RunInTx
 			qi := queriesImpl{db: tx}
 			_, err := qi.db.NewInsert().Model(nodePool).Exec(ctx)
 			if isViolationOfConstraint(err, ConstraintNodePoolsClusterIDNameUnique) {
@@ -383,6 +442,7 @@ func (q *queriesImpl) CreateNodePool(ctx context.Context, nodePool *NodePool) (N
 }
 
 func (q *queriesImpl) UpdateNodePool(ctx context.Context, nodePool *NodePool) (NodePool, error) {
+	normalizeNodePoolCollections(nodePool)
 	nodePool.UpdatedAt = time.Now()
 	res, err := q.db.NewUpdate().Model(nodePool).WherePK().Exec(ctx)
 	if err != nil {
@@ -402,7 +462,7 @@ func (q *queriesImpl) UpdateNodePool(ctx context.Context, nodePool *NodePool) (N
 }
 
 func (q *queriesImpl) DeleteNodePool(ctx context.Context, id uuid.UUID) error {
-	return q.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	return q.db.RunInTx(ctx, nil, func(_ context.Context, tx bun.Tx) error { // the caller's ctx, see dbImpl.RunInTx
 		qi := queriesImpl{db: tx}
 		np, err := qi.GetNodePool(ctx, id)
 		if err != nil {

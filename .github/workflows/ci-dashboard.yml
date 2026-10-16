@@ -45,16 +45,17 @@ on:
 permissions: {}
 
 concurrency:
-  # One deployment at a time, and never cancel one in flight: a half-published
-  # site is worse than a stale one.
+  # One publish at a time, newest wins. deploy-pages swaps the site atomically,
+  # so a cancelled run cannot half-publish; with the old setting a run stuck in
+  # the environment gate held this group for eight days (2026-09-25 to 10-03).
   group: ci-dashboard-pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   publish:
     name: Generate and publish
     runs-on: ubuntu-latest
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}

@@ -1,286 +1,144 @@
 # Management Engine
 
-The management engine connects directly to a configurable Kubernetes API serving
-NKE and Cluster API (CAPI) resources. It provides a standalone controller-manager,
-internal resource types and generated CRDs. The controller registry is currently
-empty; lifecycle reconciliation and the public API service are not implemented.
+The management engine is designed to manage NVKE workload clusters through
+declarative APIs and reconciliation built on Cluster API (CAPI) conventions.
+Its architecture separates user and operator APIs from internal Kubernetes
+resources and lifecycle controllers. This module provides the internal resource
+types, generated CRDs, controller-manager runtime, and tenant API contract generation.
 
-| Package | Purpose |
+| Path | Purpose |
 | --- | --- |
-| `apis/v1` | Importable resource types and scheme registration |
-| `apis/crds` | Generated CRD manifests |
-| `cmd/manager` | Executable configuration and process lifecycle |
-| `pkg/manager` | Importable connection configuration and runtime construction |
-| `pkg/controllers/registry` | Production controller registration |
-
-## Run the controller manager
-
-Use an existing development management cluster. The empty runtime does not require
-NKE or CAPI CRDs; install them when adding controllers that watch those resources.
-Run from the repository root:
-
-```sh
-make -C management-engine run MANAGER_ARGS="--kubeconfig /path/to/dev-kubeconfig --context development-management --leader-election-namespace nke-system"
-```
-
-Replace the example paths, context and namespace with your environment's values.
-The election namespace must be supplied even when running in a cluster, and must
-already exist. It does not restrict which org
-namespaces controllers can watch. `make run` builds the executable at
-`management-engine/bin/management-engine` before starting it.
-
-The manager is a client of the **management Kubernetes API**. Its own HTTP
-listeners serve metrics and probes. Tenant workload clusters have separate
-Kubernetes APIs; the existing CWE REST service is also a distinct interface.
-
-### Connection configuration
-
-Credentials and the target endpoint are selected in this order:
-
-1. `--kubeconfig`, with optional `--context`.
-2. `KUBECONFIG`, with optional `--context`.
-3. An explicit `--context` selects the default kubeconfig, even inside a cluster.
-4. With no explicit selectors, client-go loads in-cluster ServiceAccount
-   credentials, or the default kubeconfig when running outside a cluster.
-
-Invalid selections fail without falling back to another cluster. Every nonempty
-path in a selected `KUBECONFIG` list must exist. The management API must use HTTPS
-with certificate verification enabled. Redirects must remain HTTPS on the selected
-API hostname and port.
-
-Kubeconfigs and their exec credential helpers must come from trusted sources.
-Kubeconfig files must remain unchanged during loading; the loader does not take an
-atomic snapshot across files. Embedded consumers supplying `rest.Config.Transport`
-or `WrapTransport` are responsible for preserving certificate verification and the
-selected API origin. These hooks execute trusted Go code inside the process; the
-manager cannot enforce those guarantees inside a custom transport.
-
-Kubeconfig TLS settings and client-go exec credentials are preserved; required
-exec helpers must be installed. Embedded consumers can pass a `*rest.Config` to `manager.New`.
-Discovery, resource access and leader election all use that target.
-The loader disables client-side throttling, matching controller-runtime's default
-and relying on server-side API Priority and Fairness. Embedded consumers can set
-`rest.Config.QPS` and `Burst` before calling `manager.New`.
-
-The runtime identity requires API discovery access, `get/create/update` on
-`coordination.k8s.io` Leases and `create/patch` on core Events in the election
-namespace. Add resource permissions with each controller's watches and writes.
-The empty registry requires no NKE/CAPI object permissions. Constructing the
-manager does not verify API availability or resource permissions.
-
-| Flag | Default | Purpose |
-| --- | --- | --- |
-| `--kubeconfig` | Selection above | Management API credentials and endpoint |
-| `--context` | Kubeconfig current context | Management cluster selection |
-| `--leader-elect` | `true` | Coordinate replicas |
-| `--leader-election-namespace` | Required with election | Namespace containing the Lease |
-| `--metrics-bind-address` | `127.0.0.1:9090` | HTTP `/metrics`; `0` disables |
-| `--health-probe-bind-address` | `:8081` | HTTP `/healthz` and `/readyz`; `0` disables |
-| `--log-level` | `INFO` | JSON log level |
-| `--version` | — | Print binary version and exit |
-
-### Health and leadership
-
-Readiness requires startup and synchronization of registered caches, including on
-standby replicas; it does not certify API connectivity or authorization. API
-requirements belong to each controller's watches and resource access, rather than
-a central startup precheck. Exec credential helpers must terminate promptly.
-Prometheus metrics use unauthenticated HTTP on loopback port 9090 by default,
-matching CWE. Set an explicit address only when access is restricted to trusted
-scrapers. Probes use unauthenticated HTTP on all interfaces so the kubelet can
-reach them.
-
-Run one deployment group per management cluster. All replicas must share the
-Lease `management-engine.nke.nvidia.com` in the same namespace. Election stays
-enabled for single-replica deployments to cover rolling-upgrade overlap. Timing
-uses upstream defaults: 15-second lease, 10-second renew deadline and 2-second
-retry period.
-
-Shutdown cancels work with a 30-second grace period and leaves the Lease to expire.
-Embedding processes must exit promptly when `Start` returns, including on
-leadership loss. For debugging with `--leader-elect=false`, stop deployed replicas
-first and stop the host process before restoring them.
+| `apis/v1` | Resource types and scheme registration |
+| `config/crd/bases` | Generated CRDs |
+| `cmd` | Connection configuration and manager startup |
+| `controllers` | Reconcilers |
+| [`public/tenant`](public/tenant/README.md) | Tenant contract inputs in `apis/`; generated clients, HTTP bindings, and references in `gen/` |
+| `hack/public-api`, `internal/public/tenant/apis/cluster/mapping` | Exposure compiler and generated spec mappings with their helpers |
 
 ## Development
 
-Follow the repository [development conventions](../docs/development.md) and
-[workspace guide](../docs/go-workspace.md). From the repository root:
+See [Development](DEVELOPMENT.md) for setup, Tilt, tests, and scaffolding.
+Repository-wide guidance lives in [development conventions](../docs/development.md)
+and the [workspace guide](../docs/go-workspace.md).
+Run commands below from `management-engine/`.
 
 ```sh
-make -C management-engine build test lint
-make -C management-engine generate       # after changing API types
-make -C management-engine generate-check # verify generated CRDs and deepcopy code
-make -C management-engine test-integration
-make preflight MODULES=management-engine
+make build test lint
+make generate manifests # after API or RBAC changes
+git diff --exit-code -- apis/v1 config/crd/bases config/rbac/role.yaml chart # check generated-file drift
+make test-controller # controller integration tests (envtest)
+make test-install # requires a prepared environment without Tilt
+make -C .. chart-crds # after changing MachineImage, ClusterRelease, or NodePoolRelease
+make -C .. chart-crds-check # verify the controller chart's generated CRDs
+make chart-check # generate, lint, and render the management-engine chart
 ```
 
-Integration tests start a disposable API server and verify NKE/CAPI event delivery,
-probes, metrics, leader handoff and shutdown. The target downloads missing test
-assets: envtest for Kubernetes 1.37.0 and CRDs from the module-pinned CAPI version.
-For offline runs, supply existing assets:
+For a drift check, start with a clean working tree before regeneration.
+`make test` includes `test-controller`; the separate command runs that suite alone.
+See [installation test setup](DEVELOPMENT.md#tests) before running `test-install`.
+
+## Deployment topology
+
+| Cluster | Contents |
+| --- | --- |
+| Services | Manager and credentials (`chart` / `config/default`) |
+| Datastore | CRDs, resources, identity/RBAC, and election Lease (`config/state`) |
+
+The chart mounts the `management-state-client` Secret at `/etc/management-api`.
+Supply a `kubeconfig` key and any credential files it references, and set the
+datastore election namespace in [runtime values](config/samples/runtime-values.yaml).
+Local development provisions these credentials; other deployments must supply
+and renew them.
+
+Install datastore resources, then deploy through Kustomize or Helm:
 
 ```sh
-KUBEBUILDER_ASSETS=/path/to/envtest-binaries \
-CAPI_CRD_DIR=/path/to/cluster-api/config/crd/bases \
-  make -C management-engine test-integration
+make install-state STATE_CONTEXT=datastore
+make deploy HOST_CONTEXT=services IMG=management-engine:dev
+# Or, with the services namespace and credential Secret already provisioned:
+make helm-deploy HOST_CONTEXT=services IMG=management-engine:dev HELM_EXTRA_ARGS='-f /path/to/values.yaml'
 ```
 
-### Add a controller
+Replace the context and image names for your deployment. `deploy` creates the
+`management-engine-system` namespace; the manager requires
+its credential Secret before starting. `IMG` defaults to `management-engine:dev`.
+`make undeploy` and `make helm-uninstall` preserve the runtime namespace, external
+Secrets, and datastore resources. Deleting the runtime namespace removes its
+remaining contents.
 
-The command calls `manager.New`, `registry.Register`, then `Start`. Runtime
-construction is independent of registration, so other binaries can choose which
-controllers to install.
+## Run the controller manager
 
-1. Add a controller under `pkg/controllers/<resource>`, accepting production
-   dependencies through its constructor.
-2. Register its `SetupWithManager` call in `pkg/controllers/registry`, returning
-   errors with the controller's name. Reuse the manager's scheme, clients, cache,
-   logging and event recording.
-3. Declare watches and indexes during setup, add required schemes, and provide
-   matching RBAC. Cached reads of undeclared types fail; use the API reader for
-   intentional uncached reads. The cache strips `managedFields` to reduce memory
-   use; controllers that need field ownership metadata must use the API reader.
-4. Keep NKECluster and NodePool resources in their org namespace. Preserve existing
-   CWE-managed CAPI resources in place; define downstream placement and ownership
-   when implementing lifecycle controllers.
-   Keep flag parsing, signals and process exits in the command, and test observers
-   and fakes in test code.
+Install the datastore CRDs and authorize the manager's identity before running:
 
-Use resource APIs directly. The migration replaces NKE's existing REST API embedded
-in CWE; new controllers must not depend on CWE REST endpoints. Replacing existing
-workflow or database behavior requires an explicit ownership handoff. A separate
-election Lease does not prevent two different controllers from writing the same
-objects.
+```sh
+make run MANAGER_ARGS="--kubeconfig /path/to/kubeconfig --context datastore --leader-election-namespace management-state-system"
+```
+
+`make run` builds and starts `bin/management-engine`; use its `--help` for flags
+and defaults.
+
+### Connection configuration
+
+Credential selection follows `--kubeconfig`, `KUBECONFIG`, in-cluster credentials,
+then `~/.kube/config`. `--context` selects a kubeconfig context; missing or empty
+kubeconfig entries can fall back to in-cluster credentials. Deployments explicitly
+select the datastore kubeconfig and disable host ServiceAccount-token mounting.
+
+Use HTTPS with certificate verification for the datastore. Discovery, resource
+access, and election use the same datastore.
+
+The [datastore RBAC](config/state) defines resource and leader-election permissions.
+Keep it aligned with controller watches and writes.
+Constructing the manager does not verify API availability or permissions.
+
+### Health and leadership
+
+Use resource status and conditions to assess reconciliation; process health and
+readiness alone do not establish workload readiness. See
+[installation tests](DEVELOPMENT.md#tests) for runtime validation.
+
+Run one deployment group per datastore. Replicas share the
+`management-engine.nke.nvidia.com` Lease in an explicitly selected, existing
+namespace. That namespace does not restrict controller watches. The chart enables
+election even for a single replica to cover rolling updates.
+
+Stop deployed replicas before debugging with
+`--leader-elect=false`, and stop the debug process before restoring them.
 
 ## API conventions
 
+All types use `internal.nvke.nvidia.com/v1`. Public tenant and operator contracts
+(`nke.nvidia.com` and `operator.nke.nvidia.com`) are separately versioned
+projections; do not expose internal structs directly.
+
+| Resource | Scope | Definition and example |
+| --- | --- | --- |
+| NVKECluster | Org namespace | [Cluster configuration](apis/v1/nvkecluster_types.go), [sample](config/samples/internal_v1_nvkecluster.yaml) |
+| MachineImage | Cluster | [Immutable image identity and NICo boot contract](apis/v1/machineimage_types.go) |
+| ClusterRelease | Cluster | [Control-plane image and initialization](apis/v1/clusterrelease_types.go) |
+| ClusterReleaseChannel | Cluster | [Release catalog](apis/v1/clusterreleasechannel_types.go), [sample](config/samples/internal_v1_clusterreleasechannel.yaml) |
+| NodePoolRelease | Cluster | [Worker image and initialization](apis/v1/nodepoolrelease_types.go) |
+
 | Concern | Contract |
 | --- | --- |
-| Group/version | `internal.nke.nvidia.com/v1`, currently served and stored. “Internal” identifies the storage contract; Go types remain importable. |
-| Tenant resources | Namespaced `NKECluster` / `nkeclusters` and `NodePool` / `nodepools`, with corresponding list kinds. |
-| Operator resources | Cluster-scoped `MachineImage` / `machineimages`, `ClusterRelease` / `clusterreleases` and `NodePoolRelease` / `nodepoolreleases`, with corresponding list kinds. |
-| Org mapping | One stable namespace per org per management cluster. Public routing must use the authenticated org's authoritative mapping, never a caller-supplied namespace or derived slug. |
-| Names and identity | Client-selected Kubernetes DNS subdomain names, at most 253 characters. Names are immutable; UIDs distinguish recreations. Provider names may need shorter derived forms. |
-| Metadata and concurrency | Standard Kubernetes metadata and opaque `resourceVersion`. Public projections must preserve concurrency checks and expose only permitted fields. |
-| Field ownership | Tenant intent belongs in spec; controllers own status. Public updates must preserve fields the caller cannot write. |
-| Conditions | `metav1.Condition`, merged by type with `observedGeneration`. `Ready` indicates readiness, `Reconciling` progress and `Stalled` required intervention. Missing or stale conditions do not establish readiness. |
-| References | Resolve tenant references within the org namespace and pin lifecycle ownership by UID. Configuration references identify operator-published offerings. |
-| NodePool binding | `spec.clusterName` is immutable. Reconciliation must record `{name, uid}` in `status.clusterRef` and set the matching NKECluster owner reference. Admission prevents changing/removing an existing binding; reconciliation must verify the UID before creating or adopting resources. |
-| Deletion | Kubernetes deletion timestamps and controller-owned finalizers govern lifecycle cleanup. |
+| Tenancy | One namespace per org per datastore. Public APIs derive org identity from authentication and enforce resource and field authorization. |
+| Identity | Immutable client-selected DNS-subdomain names (at most 253 characters); UIDs distinguish recreations. Provider names may have shorter limits. |
+| Concurrency | Preserve opaque `resourceVersion` and field ownership. Spec expresses desired state; controllers report progress through status. |
+| Conditions | Use `metav1.Condition` and `observedGeneration`. Missing or stale conditions do not establish readiness. Unknown counts are absent; observed zero counts are explicit. |
+| References | Resolve tenant references within the org namespace and pin lifecycle ownership by UID. Release references select operator-published configuration. |
+| Node pools | `spec.nodePools` embeds [worker configuration](apis/v1/nodepool_types.go) within NVKECluster; see the [cluster sample](config/samples/internal_v1_nvkecluster.yaml). |
+| Replicas | `spec.nodePools[].replicas` expresses desired worker count; zero requests zero workers. Rollout policy controls replacement. |
+| Deletion | Use deletion timestamps and controller-owned finalizers. |
 
-Namespace scoping provides a storage boundary. Public APIs must enforce identity,
-org and field authorization; controller status writes require RBAC. Schema
-validation cannot establish reference existence, current cluster UID or privileges.
+Schema validation cannot prove reference existence, current UIDs, or caller
+privileges. Namespace scoping also requires API authorization and controller RBAC.
 
-Internal Go types generate CRDs. Public user and operator contracts
-(`nke.nvidia.com` and `operator.nke.nvidia.com`) have independent versions and
-require explicit projection/enrichment; do not expose internal structs directly.
+## Install NVKE resource types
 
-## Install NKE resource types
-
-Before creating NKE resources, apply the generated CRDs to the management API:
+For CRDs only, without the datastore identity/RBAC bundle:
 
 ```sh
-kubectl --kubeconfig /path/to/dev-kubeconfig --context development-management \
-  apply -f management-engine/apis/crds/
+kubectl --kubeconfig /path/to/kubeconfig --context datastore apply -f config/crd/bases/
 ```
 
-The manifests serve and store only `v1`. Existing `v1alpha1` installations need a
-storage-version migration before removing the old version; these manifests alone
-do not migrate stored objects. Go consumers must update imports to `apis/v1`.
-
-## Resource examples
-
-### Tenant resources
-
-[NKECluster](apis/v1/nkecluster_types.go) defines cluster access, authentication,
-networking, release selection, control-plane class and accelerated runtime.
-
-```yaml
-apiVersion: internal.nke.nvidia.com/v1
-kind: NKECluster
-metadata:
-  name: prod-us-west
-  namespace: org-example
-spec:
-  apiServerAccess:
-    publicAccessEnabled: false
-  clusterNetwork:
-    pods:
-      cidrBlocks: [10.244.0.0/16]
-    services:
-      cidrBlocks: [10.96.0.0/12]
-    serviceDomain: cluster.local
-  release:
-    channel:
-      name: stable
-      version: "1.34"
-  controlPlaneClass: standard
-```
-
-[NodePool](apis/v1/nodepool_types.go) defines worker capacity and configuration.
-`replicas` is required; zero requests zero workers. Omitted rollout defaults to a
-rolling update with one surge node; `maxSurge` accepts an integer or percentage.
-
-```yaml
-apiVersion: internal.nke.nvidia.com/v1
-kind: NodePool
-metadata:
-  name: gpu-a
-  namespace: org-example
-spec:
-  clusterName: prod-us-west
-  replicas: 8
-  instanceType: gb200-nvl72
-  release:
-    name: gb200-ubuntu-24.04
-    version: "2026.09.1"
-```
-
-Status carries conditions, observed generation and resolved release. NodePool
-also carries its cluster UID binding and observed/ready/updated replica counts;
-unknown counts are absent and observed zero counts remain explicit.
-
-### Operator resources
-
-[MachineImage](apis/v1/machineimage_types.go) defines the immutable
-identity of a bootable machine image: operating system, architecture, variant,
-build date and the NICo iPXE boot contract.
-
-```yaml
-apiVersion: internal.nke.nvidia.com/v1
-kind: MachineImage
-metadata:
-  name: nke-nico-vms-24.04-amd64-fde
-spec:
-  operatingSystem:
-    family: ubuntu
-    version: "24.04"
-  architecture: amd64
-  variant: fde
-  buildDate: "2026-03-23"
-  nico:
-    ipxeScript: |
-      #!ipxe
-      chain ${boot-loader} disk_strategy={{ .DiskSelectionStrategy }}
-```
-
-[ClusterRelease](apis/v1/clusterrelease_types.go) defines a control-plane release, and
-[NodePoolRelease](apis/v1/nodepoolrelease_types.go) defines a worker release: the
-machine image its nodes boot and the initialization applied to them.
-
-```yaml
-apiVersion: internal.nke.nvidia.com/v1
-kind: NodePoolRelease
-metadata:
-  name: nke-nico-vms-24.04-amd64-fde
-spec:
-  machineImageRef:
-    name: nke-nico-vms-24.04-amd64-fde
-  machineInit:
-    userDataTemplate: |
-      #cloud-config
-      hostname: {{ .Hostname }}
-  lifecycle: # mutable fields
-    deprecated: false
-```
+See [sample usage](DEVELOPMENT.md#sample-resources) for creating tenant resources.

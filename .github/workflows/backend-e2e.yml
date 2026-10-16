@@ -21,6 +21,10 @@ name: Backend E2E
 
 on:
   workflow_call:
+    secrets:
+      OVN_KUBERNETES_RO_TOKEN:
+        description: Reads the dsx-ai-factory/ovn-kubernetes source while that repository is not public.
+        required: false
     inputs:
       backend:
         description: Backend name, used for the run id, artifact name and logs.
@@ -65,43 +69,22 @@ on:
         default: false
       install-cni-after-init:
         description: >-
-          Have CWE initialize the first control-plane before invoking the node
+          Have the controller initialize the first control-plane before invoking the node
           agent's stand-alone InstallCNI RPC. This avoids coupling CNI apply to
           the kube-vip startup race in focused CAPD lanes.
         required: false
         type: boolean
         default: false
-      nkectl-smoke:
+      nvkectl-smoke:
         description: >-
-          Run hack/ci/nkectl-smoke.sh once the suite passes: drive nkectl against
-          the CWE this lane deployed. CAPD only for now.
+          Run hack/ci/nvkectl-smoke.sh once the suite passes: drive nvkectl against
+          the controller this lane deployed. CAPD only for now.
         required: false
         type: boolean
         default: false
       needs-capnico-source:
         description: >-
-          Check out public dsx-ai-factory/cluster-api-provider-nico next to the monorepo.
-        required: false
-        type: boolean
-        default: false
-      provision-cp-with-controller:
-        description: >-
-          Deploy CWE with PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER=true,
-          so the control plane is provisioned by the cluster-level control-plane
-          controller (no control-plane node pool). The caller pairs this with a
-          cp-controller label filter. Off by default: the flag-off lanes keep the
-          node-pool control plane. Ignored when single-runner-control-plane-modes is set, which
-          drives the flag per leg inside the CI script.
-        required: false
-        type: boolean
-        default: false
-      single-runner-control-plane-modes:
-        description: >-
-          Run both control-plane modes back to back on one runner and one kind
-          cluster: the cp-controller leg first (flag on), then the node-pool leg
-          (flag off) after a light CWE redeploy. The legs' label filters are
-          derived from the backend, so label-filter and
-          provision-cp-with-controller are ignored on this path.
+          Stage the pinned cluster-api-provider-nico Go module source for the suite.
         required: false
         type: boolean
         default: false
@@ -137,7 +120,7 @@ jobs:
   e2e:
     name: ${{ inputs.backend }}-e2e (${{ inputs.arch }})
     runs-on: ${{ inputs.runner }}
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
@@ -154,32 +137,17 @@ jobs:
       NKE_E2E_LABEL_FILTER: ${{ inputs.label-filter }}
       NKE_E2E_PROVIDERS: ${{ inputs.providers }}
       NKE_E2E_REQUIRE_AUTHN: ${{ inputs.require-authn }}
-      NKE_E2E_NKECTL_SMOKE: ${{ inputs.nkectl-smoke }}
+      NKE_E2E_NVKECTL_SMOKE: ${{ inputs.nvkectl-smoke }}
       INSTALL_CNI_AFTER_INIT: ${{ inputs.install-cni-after-init }}
       # Empty unless the caller selects the umbrella-chart deploy. backend-e2e.sh
       # branches on NKE_E2E_STACK_CHART being non-empty; Tilt stays the default.
       NKE_E2E_USE_STACK: ${{ inputs.use-nke-stack }}
       NKE_E2E_STACK_CHART: ${{ inputs.stack-chart }}
       NKE_E2E_STACK_VERSION: ${{ inputs.stack-version }}
-      # Deploy CWE flag-on for the cp-controller lane; the CI script forwards this
-      # to the Tilt deploy and the e2e binary. `false` keeps the node-pool control
-      # plane. Note this is the mode, not an override of CWE's default: CWE's own
-      # default is now true (#1054), and both the Tiltfile and deploy-sbom.sh only
-      # set the container env when the value is non-empty. An empty value would
-      # therefore mean flag-on. The CI script resolves empty to false before any
-      # use, so passing `''` here is safe -- but pass the mode you want.
-      PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER: ${{ inputs.provision-cp-with-controller }}
       # These backends only observe a container restart, not a real boot: soft reboot can never
       # show a detectable change, so skip straight to hard.
       NODE_REBOOT_SOFT_REBOOT_ENABLED: false
-      # When set, the CI script runs both control-plane modes sequentially on this
-      # one runner/cluster and drives the per-leg label filter and flag itself.
-      NKE_E2E_SINGLE_RUNNER_CONTROL_PLANE_MODES: ${{ inputs.single-runner-control-plane-modes }}
       KIND_CLUSTER_NAME: cwe-${{ inputs.backend }}-${{ github.run_id }}-${{ github.run_attempt }}
-      # Empty unless the caller asked for CAPNICo. The script stages the tree
-      # into the runner container only when this is set, so every other backend
-      # skips that work. This is the HOST path; the container path is a constant
-      # in the script, and is what Tilt is told.
       CAPNICO_SOURCE_SRC: ${{ inputs.needs-capnico-source && format('{0}/.capnico/cluster-api-provider-nico', github.workspace) || '' }}
     steps:
       - name: Checkout
@@ -187,35 +155,6 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          persist-credentials: false
-
-      # Inside the workspace, because actions/checkout refuses a path outside it
-      # ("Repository path ... is not under ..."). The directory name still has to
-      # be cluster-api-provider-nico: the script tars it by basename and expands
-      # it under /workspace in the runner container, where everything after this
-      # point executes.
-      # Source installation consumes CAPNICo's chart layout, so check out the
-      # same provider version whose API is compiled into CWE instead of the
-      # moving tip of the private repository.
-      - name: Read pinned CAPNICo version
-        if: inputs.needs-capnico-source
-        id: capnico_version
-        run: |
-          set -euo pipefail
-          capnico_ref="$(awk '$1 == "github.com/dsx-ai-factory/cluster-api-provider-nico" { print $2; exit }' controller/go.mod)"
-          if [[ -z "${capnico_ref}" ]]; then
-            echo "::error::controller/go.mod does not pin cluster-api-provider-nico"
-            exit 1
-          fi
-          echo "ref=${capnico_ref}" >> "${GITHUB_OUTPUT}"
-
-      - name: Checkout the CAPNICo provider
-        if: inputs.needs-capnico-source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: dsx-ai-factory/cluster-api-provider-nico
-          ref: ${{ steps.capnico_version.outputs.ref }}
-          path: .capnico/cluster-api-provider-nico
           persist-credentials: false
 
       - name: Set up Go
@@ -226,6 +165,15 @@ jobs:
           cache-dependency-path: |
             go.work.sum
             **/go.sum
+
+      - name: Stage the pinned CAPNICo module
+        if: inputs.needs-capnico-source
+        run: |
+          set -euo pipefail
+          source_dir="$(go mod download -json github.com/dsx-ai-factory/cluster-api-provider-nico | jq -er '.Dir')"
+          mkdir -p "${CAPNICO_SOURCE_SRC}"
+          cp -R "${source_dir}/." "${CAPNICO_SOURCE_SRC}/"
+          chmod -R u+w "${CAPNICO_SOURCE_SRC}"
 
       # Version pins come from make/versions.mk, so `make show-versions` and CI
       # cannot disagree.
@@ -248,6 +196,26 @@ jobs:
         with:
           kind_version: ${{ steps.versions.outputs.kind_version }}
           kubectl_version: ${{ steps.versions.outputs.kubectl_version }}
+
+      - name: Install Debian packaging tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dpkg-dev
+
+      # Kind nodes share this runner's kernel, and OVN's ovs-vswitchd loads
+      # openvswitch from it. The module ships in linux-modules-extra, which
+      # the ARC arm64 image does not install. Stage the exact host kernel build:
+      # uname -r alone cannot distinguish Jammy backports from Noble builds.
+      # The suite's privileged Docker preflight loads it:
+      # sudo in the ARC runner does not grant CAP_SYS_MODULE, and DinD has its
+      # own /lib/modules filesystem (#1515).
+      - name: Install the Open vSwitch module files
+        run: |
+          uname -a
+          sudo apt-get install -y -qq kmod
+          modules="${RUNNER_TEMP}/nvke-host-kernel-modules"
+          sudo bash controller/hack/ci/prepare-host-kernel-modules.sh "${modules}"
+          echo "NKE_E2E_HOST_MODULES_DIR=${modules}/lib/modules" >> "${GITHUB_ENV}"
 
       - name: Show runner tools
         shell: bash
@@ -285,6 +253,8 @@ jobs:
           raise_minimum fs.inotify.max_user_watches 1048576
 
       - name: Run the ${{ inputs.backend }} E2E suite
+        env:
+          OVN_KUBERNETES_TOKEN: ${{ secrets.OVN_KUBERNETES_RO_TOKEN }}
         run: make test-e2e-backend-ci
 
       - name: Check whether diagnostics are safe to upload
@@ -347,7 +317,7 @@ jobs:
       - name: Upload redacted diagnostics
         if: always() && steps.diagnostics.outputs.safe == 'true'
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.backend }}-${{ inputs.arch }}-e2e-${{ github.run_id }}-${{ github.run_attempt }}
           path: controller/.local/backend-e2e/${{ env.NKE_E2E_RUN_ID }}/

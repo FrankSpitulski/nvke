@@ -3,7 +3,7 @@
   publish/repair/teardown, and tenant manager Secret reconciliation.
 
   Always rendered: nke-system exists unconditionally. Persisted-OIDC clusters
-  keep publishing from OIDCAuthEnabled after live nkeOIDCAuth.enabled is
+  keep publishing from OIDCAuthEnabled after live nvkeOIDCAuth.enabled is
   flipped off, so ConfigMap get on nke-rbac is not gated on that flag.
   Teardown must still delete owned Secrets.
 */}}
@@ -17,13 +17,13 @@ metadata:
 rules:
   # applyRBAC reads this ConfigMap for persisted-OIDC clusters even when the
   # live Helm flag is off (the ConfigMap is rendered whenever
-  # spiffe.trustDomain is set, not gated on nkeOIDCAuth.enabled).
+  # spiffe.trustDomain is set, not gated on nvkeOIDCAuth.enabled).
   - apiGroups: [""]
     resources: ["configmaps"]
     resourceNames:
       - nke-rbac
     verbs: ["get"]
-  # Publish, rotate, and clean up Secrets owned by CWE.
+  # Publish, rotate, and clean up Secrets owned by the controller.
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

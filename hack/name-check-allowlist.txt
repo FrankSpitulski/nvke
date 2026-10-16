@@ -1,0 +1,221 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Hits of the banned name that hack/name-check.py accepts. One entry per line:
+# `path:<glob>`, where `*` also matches `/`, or `token:<regex>` in Python
+# syntax, searched anywhere in the token, so anchor it. Say why above each
+# entry. An entry that matches nothing is dead and fails the check, so remove
+# an entry together with the thing it covered.
+
+# ---- Permanent ----
+
+# Migration names are recorded in the database once applied, so this file
+# keeps its name whatever the product is called. Pinned to the file rather
+# than the token, because the same string anywhere else is not a migration.
+path:controller/internal/db/migrations/20260318120000_migrate_nodepools_to_nke_260318_22_04_amd64*
+
+# The record magic the agent writes at the start of every authentication
+# record is a framing constant with its own version byte. A new magic is a
+# protocol version bump, which a spelling does not justify.
+token:^NKEAuth$
+
+# The 2025 migration seeded the explanation text that deprecated node pools
+# have carried in the database since. A migration that has run keeps its text.
+path:controller/internal/db/migrations/20250515120225_add_nodepool_deprecated.go
+
+# The package that implements the NKEAuth record keeps the magic's spelling.
+token:nkeauth
+
+# Fleet release names are rows users typed (node_pools.nico->>'release')
+# and CR names at the two sites: the dated nke-YYMMDD profiles, the
+# nke-<k8s>-<date> MachineImages, the mirrored index entries and the test
+# doubles shaped like them, the fleet profile the nico-vms fixture copies and
+# the site-controller profile nke-cp-sc-* (D15). New profiles get the nvke- prefix.
+token:nke-\d{6}|nke_\d{6}|nke-1\.\d+\.\d+-|^nke-nico-vms-24\.04-amd64-fde$|^nke-cp-sc-
+
+# The organisation before the move, its GHCR namespace, and the image path
+# before #827: history.
+token:^NVIDIA/nke|^ghcr\.io/nvidia/nke|(^|/)nke/controller([.:]|$)
+
+# Names in other systems: the Teleport SSH role, the GitLab projects, the
+# Vault path.
+token:^rg-nke-|^nke/(gitlab-ci-cd|packages|node-images|kubeadm-bundler|node-agent)|^secrets/groups/nkek8s
+
+# ---- Existing sites keep their identity (D24) ----
+
+# Trust domains, issuers, SPIFFE IDs, Forge site names and the Teleport token
+# prefix of the sites that exist today: *.nke.local, nke.site-controller.internal,
+# the CAPD e2e trust domain nke.capd.*.nvid.id, nke-site-*, the nke-site-deploy
+# repository, the example trust domains in the documents, and the image's
+# login user nke.
+token:nke\.local([/:.]|$)|nke\.site-controller\.internal|nke\.capd\.|nke-site-|^spiffe://nke|^nke-cwe-|^nke\.[a-z0-9-]+\.|^nke@$
+
+# The leader-election Lease names. A Lease name is invisible to customers, and
+# renaming it lets two leaders reconcile one site during the upgrade unless
+# someone scales the old controller to zero first. They keep their names
+# permanently rather than behind a manual step.
+token:^(controller|management-engine)\.nke\.nvidia\.com$
+
+# ---- Tier 2: Kubernetes identifiers the post-launch release renames for new sites (PR4) ----
+
+# The controller's Helm release, namespace, Deployment, Service, ServiceAccount,
+# container, ConfigMaps, Temporal namespace and queue, database and Teleport
+# managed-by value, and its NVCR repository until the new one exists.
+token:nke-controller
+
+# The legacy managed-by value and the umbrella chart.
+token:nke-cloud-workflow-engine|nke-stack
+
+# The management namespace and its chart values key, and the Go field behind
+# the nkeOIDCAuth values key.
+token:nke-system|nkeSystemNamespace|NkeOIDCAuth
+
+# Label, annotation, taint and condition keys, and the *.nke.nvidia.com trust
+# domains of existing sites. The management-engine CRD group is now
+# internal.nvke.nvidia.com and no longer needs this entry.
+token:(^|[./])nke\.nvidia\.com|\.labels\.nke$
+
+# The NKECluster, NKENodePool and nkeClusterRef names of the DGXC platform API
+# (compute.private.x-dgxc.nvidia.com), which this repository emits CRs for in
+# controller/scripts/cwe-to-platform-crs.sh but does not own; the NKECluster
+# shape the name-check self-test feeds its own detector (hack/test_name_check.py);
+# and the CSR approval reason recorded on the tenant clusters of existing sites.
+# The management-engine kind and its plural are now NVKECluster and nvkeclusters
+# and no longer need this entry.
+token:NKECluster|nkecluster|NKENodePool|nkenodepool|nkeClusterRef|NKEValidatedNodeIdentity
+
+# The nke-rbac ConfigMap, the nke: ClusterRole prefix the tenant apiserver
+# reserves, and the UpdateNKERBAC rpc with its messages.
+token:nke-rbac|^nke:|UpdateNKERBAC|nkerbac|update_nke_rbac
+
+# SPIFFE caller paths and the ClusterSPIFFEID, the client identities, and the
+# e2e and Tilt probe identities.
+token:nke-service|nke-e2e|nke-clients?($|[/:-])|nke-outsider|spiffe://[^ ]*/nke|/tenant/nke/|nke-infra|/nke/(controller|operators|admins|service)
+
+# API authentication: the config ConfigMaps and Secrets, the development
+# scaffolding and its Keycloak probe, the OIDC upstream CA, and the chart
+# values key behind the D19 guard.
+token:nke-auth-|nkeOIDCAuth|NKE_OIDC_AUTH|nke-oidc|nke-spire-client|nke-static|nke-keycloak
+
+# The pull secret is an NGC service account that keeps its name.
+token:^svc-nke-ngc
+
+# The agent sample is from the GitLab era and names an image this repository
+# does not publish.
+token:^nvcr\.io/nvidian/nke/
+
+# The old metric names, queried beside the new ones for one release (D9).
+token:^nke_controller_|^nke_auth_
+
+# The nke-<uid> names the management engine gives CWE clusters, and the
+# nke-<keyring>.pref apt preference files the agent writes.
+token:^nke-(CLUSTER-UID)?$
+
+# The controller's URI SAN, which the agent checks on external mTLS.
+token:^urn:nvidia:nke
+
+# The bare word as a value: the OIDC audience, the Teleport resource-group,
+# the TLS JWT subject tenant, the SSA field manager, the CEL prefix tests,
+# the Flox environment.
+token:^nke$
+
+# The site spec constant for the reserved OIDC prefix "nke:". The prefix
+# string is already covered by ^nke:; this is the Go identifier that names it.
+token:^oidcPrefixNKE$
+
+# ---- Tier 2: the node (PR5) and the OS image and packages (PR6) ----
+
+# One-release compatibility inputs: the old package guard, rollback artifact
+# names, binary/env/state aliases and the controller defaults gated in #1496.
+# Old fleet profiles still contain these names until reprovisioned.
+#
+# It also covers the unit and environment file the e2e lane restarts and
+# writes, which stay nke- permanently: nvke-agent.service aliases the old name
+# and reads both environment files, so the old spelling works on every image.
+token:(^|/)nke-agent([._:@-]|$)
+
+# Node filesystem paths and files the agent, the image and cloud-init write,
+# the support bundle, and the attestation unit. /usr/lib/nke moved to
+# /usr/lib/nvke with the OS image. /etc/nke stays; the nvke-agent package
+# migrates state out of /var/lib/nke.
+token:(^|/)(var/lib|etc|opt|usr/local|usr/share|run|tmp|var/log)/nke|^/nke/|\.nke-attested$|/nke\.(asc|gpg)$|nke(-local)?\.list$|preferences\.d/nke-|/\d\d-nke-|nke-conntrack|values-nke\.yaml|nke-container-(network|cni)|nke-audit|nke-attestation
+
+# Old encryption labels are read once and migrated; never write this domain.
+token:^nke\.io/($|k8s-api-encryption-(configured|rewrite-complete))
+
+# The controller API validates that this legacy label domain is reserved and cannot be set with labels and taints
+token:^nke\.io$
+
+# Names this image rename kept on purpose, plus the build-guest and nix names
+# that are still spelled the old way. The packages Provide nke-kubeadm-distro
+# and nke-cni-* so apt requests for those names still resolve. nke-calico-* is
+# the legacy pkg-builder layout. nke-spire-* is the SPIRE client, not the
+# nvke-spire-configure unit. nke-node-agent and nke-nodepool belong to the
+# other rename issues; the pattern stops there so a leftover nke-node-*.qcow2
+# is not exempt. The qcow2, qemu source, checker, apt capture hook and
+# material schema now say nvke.
+token:nke-kubeadm-distro|nke-cni-|nke-calico-|nke-spire|nke-node-agent|nke-nodepool|nke-packer-|nke-\d\d\.\d\d-|nke-rootfs|nke-builder|nke-builds|nke-package-builder|nke-ubuntu|nke-multiarch|nke\.ssh|nke-efi|nke-boot-smoke|nke-run-|nke_find_firmware|nke_arch_from|nke-image|nke-iso|\.cache/nke|\.nke-kubeadm-file|^/nke-$|^nke-k8s-installer$
+
+# S3 buckets, the CloudFront bundle path, the ISO prefix and the IAM role keep
+# their names (D16); `nke-packages` is the local package cache on nodes and in
+# the build guest, `nke-apt` the agent's example repository URLs and the
+# image's acquisitions tarball.
+#
+# The apt suites are no longer here: the lane installs from nvke-<codename>.
+token:nke_bundles|nke-isos|nke-apt|nke-packages|nke-prod-assets|nke-non-prod-assets|nke-github-apt-intake
+
+# ---- The CLI's old name, kept for one release (D10, D27) ----
+
+# Asset names, the S3 prefix, the NKECTL_* alias generation, the e2e artifacts,
+# the ~/.nke configuration directory read once (D11).
+token:(?i)nkectl|^\.nke$
+
+# ---- CI, build and development surfaces (Tier 3) ----
+
+# Environment variables: the controller's NKE_CONTROLLER_*, the e2e and
+# bring-up harness, the OS image build.
+token:(^|[./:@-])NKE_[A-Z0-9_]+([:./].*)?$|^LOCAL_NKE_
+
+# The product mailbox in the deb Maintainer fields.
+token:^nke-dev@
+
+# Development and test hostnames.
+token:nke\.tilt\.local|nke\.example\.|nke\.test([:/]|$)|nke\.wrong\.invalid|^https://nke$
+
+# Tilt variables and shell helpers in hack scripts.
+token:^_nke_|^nke_repo_root$
+
+# The Keycloak lab: its realm, users, clients and group, and the README
+# example and issuer URLs that quote them.
+path:controller/hack/keycloak/*
+token:^nke-operators$|realms/nke(/|$)
+
+# The updater accepts the legacy version line for old rollback binaries.
+# Both command entrypoints now print NVKE; only this parser and its tests retain NKE.
+path:agent/pkg/agentupgrade/updater.go
+path:agent/pkg/agentupgrade/updater_test.go
+# The package qualification builds a legacy agent fixture with its old version line.
+path:os-image/packages/nvke-agent/test/install.sh
+
+# The OIDC upstream CA's subject (CN "NKE OIDC Upstream CA", OU "NKE") is in
+# every certificate it issued; a new subject is a new CA (PR4, new sites).
+path:*/40-oidc-upstream-ca.yaml
+path:controller/deploy/k8s/oidc-upstream-ca.yaml
+
+# The NGC organisation these two workflows publish to is named NKE.
+path:.github/workflows/cli-artifact-nvcr.yml
+path:.github/workflows/agent-artifact-nvcr.yml
+
+# The nico-sim seed tenant, whose display name the simulator's tests look up.
+token:^Forge-Tenant-NKE$
+
+# The salt inside the default password hash of the kubeadm bring-up VMs; a new
+# salt needs the password.
+token:^nke-cluster-bringup$
+
+# The profiles directory is moving out of this repository (AGENTS.md: ask first).
+path:controller/profiles/*
+
+# Image URLs inside the two synthetic fixture profiles. Their MachineImage specs
+# are published fixtures, and published release content is immutable.
+token:^https://example\.test/nke/

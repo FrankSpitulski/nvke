@@ -6,13 +6,14 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
-	nkeutils "github.com/dsx-ai-factory/nke/agent/pkg/utils"
+	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
+	nvkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -230,7 +231,7 @@ func TestInstallCNIApplyRequiresControlPlane(t *testing.T) {
 	err := s.installCNI(t.Context(), &pb.InstallCNIRequest{
 		CniVariant: pb.CniVariant_CNI_VARIANT_OVN,
 		Version:    "1.0.0",
-	}, "nke-cni-ovn-charts-1.0.0=1.0.0")
+	}, "nvke-cni-ovn-charts-1.0.0=1.0.0")
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, errCNIApplyRequiresControlPlane), "got %v", err)
 }
@@ -239,7 +240,7 @@ func TestCheckHostOpenVSwitchReady(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		r := &MockRunner{
 			Runners: []runner{
-				runForCommand("ovs-vsctl", []string{"--version"}, func(string, []string, *nkeutils.CommandOptions) ([]byte, error) {
+				runForCommand("ovs-vsctl", []string{"--version"}, func(string, []string, *nvkeutils.CommandOptions) ([]byte, error) {
 					return []byte("ovs-vsctl (Open vSwitch) 3.3.0\n"), nil
 				}),
 			},
@@ -269,7 +270,7 @@ func TestInstallCNIOVNRequiresHostOpenVSwitch(t *testing.T) {
 		CniVariant:     pb.CniVariant_CNI_VARIANT_OVN,
 		PodNetworkCidr: "10.244.0.0/16",
 		ServiceCidr:    "10.96.0.0/12",
-	}, "nke-cni-ovn-charts-1.4.0")
+	}, "nvke-cni-ovn-charts-1.6.0")
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, errOvnRequiresHostOpenVSwitch), "got %v", err)
 }
@@ -280,33 +281,39 @@ func TestChartsDebPresenceFailsWhenAbsent(t *testing.T) {
 	assert.True(t, errors.Is(err, errCNIChartsDebNotInstalled), "got %v", err)
 }
 
-func TestNkeCniAptSpec(t *testing.T) {
-	spec, err := nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_OVN, pb.CniAptRole_CNI_APT_ROLE_CHARTS, "v2.1.0")
+func TestNvkeCniAptSpec(t *testing.T) {
+	spec, err := nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_OVN, pb.CniAptRole_CNI_APT_ROLE_CHARTS, "v2.1.0")
 	assert.NoError(t, err)
-	assert.Equal(t, "nke-cni-ovn-charts-2.1.0=2.1.0", spec)
+	assert.Equal(t, "nvke-cni-ovn-charts-2.1.0=2.1.0", spec)
 
-	spec, err = nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_OVN, pb.CniAptRole_CNI_APT_ROLE_IMAGES, "1")
+	spec, err = nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_OVN, pb.CniAptRole_CNI_APT_ROLE_IMAGES, "1")
 	assert.NoError(t, err)
-	assert.Equal(t, "nke-cni-ovn-images-1=1", spec)
+	assert.Equal(t, "nvke-cni-ovn-images-1=1", spec)
 
-	spec, err = nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_CALICO, pb.CniAptRole_CNI_APT_ROLE_CHARTS, "3.0")
+	spec, err = nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_CALICO, pb.CniAptRole_CNI_APT_ROLE_CHARTS, "3.0")
 	assert.NoError(t, err)
-	assert.Equal(t, "nke-cni-calico-manifests-3.0=3.0", spec)
+	assert.Equal(t, "nvke-cni-calico-manifests-3.0=3.0", spec)
 
-	spec, err = nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_UNSPECIFIED, pb.CniAptRole_CNI_APT_ROLE_IMAGES, "1")
+	spec, err = nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_UNSPECIFIED, pb.CniAptRole_CNI_APT_ROLE_IMAGES, "1")
 	assert.NoError(t, err)
-	assert.Equal(t, "nke-cni-ovn-images-1=1", spec)
+	assert.Equal(t, "nvke-cni-ovn-images-1=1", spec)
 
-	spec, err = nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_UNSPECIFIED, pb.CniAptRole_CNI_APT_ROLE_CHARTS, "")
+	spec, err = nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_UNSPECIFIED, pb.CniAptRole_CNI_APT_ROLE_CHARTS, "")
 	assert.NoError(t, err)
-	assert.Equal(t, "nke-cni-ovn-charts-1.4.0", spec)
+	assert.Equal(t, "nvke-cni-ovn-charts-1.6.0", spec)
 
-	spec, err = nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_CALICO, pb.CniAptRole_CNI_APT_ROLE_IMAGES, "")
+	spec, err = nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_CALICO, pb.CniAptRole_CNI_APT_ROLE_IMAGES, "")
 	assert.NoError(t, err)
-	assert.Equal(t, "nke-cni-calico-images-3.30.1", spec)
+	assert.Equal(t, "nvke-cni-calico-images-3.30.1", spec)
 
-	_, err = nkeCniAptSpec(pb.CniVariant_CNI_VARIANT_CALICO, pb.CniAptRole_CNI_APT_ROLE_UNSPECIFIED, "1")
+	_, err = nvkeCniAptSpec(pb.CniVariant_CNI_VARIANT_CALICO, pb.CniAptRole_CNI_APT_ROLE_UNSPECIFIED, "1")
 	assert.Error(t, err)
+}
+
+func TestAlternateCniDebName(t *testing.T) {
+	assert.Equal(t, "nke-cni-ovn-charts-1.4.0", alternateCniDebName("nvke-cni-ovn-charts-1.4.0"))
+	assert.Equal(t, "nvke-cni-calico-manifests-3.30.1", alternateCniDebName("nke-cni-calico-manifests-3.30.1"))
+	assert.Empty(t, alternateCniDebName("spire-agent"))
 }
 
 func TestCalicoInstallRootFromFiles(t *testing.T) {
@@ -326,26 +333,26 @@ func TestCalicoInstallRootFromFiles(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "/usr/share/nke-calico-charts", root)
 	})
-	t.Run("cni-packages layout under /usr/share/nke-cni/calico", func(t *testing.T) {
+	t.Run("cni-packages layout under /usr/share/nvke-cni/calico", func(t *testing.T) {
 		root, err := calicoInstallRootFromFiles([]string{
-			"/usr/share/nke-cni/calico/manifests/tigera-operator.yaml",
-			"/usr/share/nke-cni/calico/manifests/custom-resources.yaml",
-			"/usr/share/nke-cni/calico/apply-manifests.sh",
+			"/usr/share/nvke-cni/calico/manifests/tigera-operator.yaml",
+			"/usr/share/nvke-cni/calico/manifests/custom-resources.yaml",
+			"/usr/share/nvke-cni/calico/apply-manifests.sh",
 		})
 		assert.NoError(t, err)
-		assert.Equal(t, "/usr/share/nke-cni/calico", root)
+		assert.Equal(t, "/usr/share/nvke-cni/calico", root)
 	})
-	// The exact `dpkg-query -L` output of the nke-cni-calico-manifests-<stream>
+	// The exact `dpkg-query -L` output of the nvke-cni-calico-manifests-<stream>
 	// deb built by os-image/packages/cni-calico. That package exists so a node
 	// can install Calico with no registry, and it is only useful if this
 	// resolves: keep the two in step.
 	t.Run("os-image cni-calico package layout", func(t *testing.T) {
 		root, err := calicoInstallRootFromFiles([]string{
-			"/usr/share/nke-cni/calico/3.30.1/manifests/custom-resources.yaml",
-			"/usr/share/nke-cni/calico/3.30.1/manifests/tigera-operator.yaml",
+			"/usr/share/nvke-cni/calico/3.30.1/manifests/custom-resources.yaml",
+			"/usr/share/nvke-cni/calico/3.30.1/manifests/tigera-operator.yaml",
 		})
 		assert.NoError(t, err)
-		assert.Equal(t, "/usr/share/nke-cni/calico/3.30.1", root)
+		assert.Equal(t, "/usr/share/nvke-cni/calico/3.30.1", root)
 	})
 	t.Run("prefers chart root when both match", func(t *testing.T) {
 		root, err := calicoInstallRootFromFiles([]string{
@@ -475,16 +482,6 @@ func TestInstallCNIPluginSelection(t *testing.T) {
 			cniPluginName:  "calico",
 			expectedPlugin: "calico",
 		},
-		{
-			name:           "empty defaults to calico",
-			cniPluginName:  "",
-			expectedPlugin: "calico",
-		},
-		{
-			name:           "unknown defaults to calico",
-			cniPluginName:  "unknown",
-			expectedPlugin: "calico",
-		},
 	}
 
 	for _, tc := range tests {
@@ -499,10 +496,20 @@ func TestInstallCNIPluginSelection(t *testing.T) {
 			case "tigera", "calico":
 				expected = "calico"
 			default:
-				expected = "calico"
+				t.Fatalf("plugin name %q is not a known installCNIPlugin selection", tc.cniPluginName)
 			}
 			assert.Equal(t, tc.expectedPlugin, expected)
 		})
+	}
+}
+
+func TestInstallCNIPluginRejectsUnknownName(t *testing.T) {
+	server := &NodeAgentServer{}
+	for _, name := range []string{"", "flannel"} {
+		req := &pb.InstallCNIPluginRequest{PluginName: name}
+		err := server.installCNIPlugin(req)
+		require.EqualError(t, err, fmt.Sprintf("unsupported CNI plugin %q", name))
+		assert.Equal(t, name, req.GetPluginName())
 	}
 }
 
@@ -609,19 +616,19 @@ func TestOVNHelmArgsImageRegistry(t *testing.T) {
 	const podCIDR = "10.244.0.0/16"
 	const svcCIDR = "10.96.0.0/12"
 
-	const upstream = "ghcr.io/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu"
+	const upstream = "localhost/nvke"
 
 	t.Run("image registry replaces the upstream host, keeps the path", func(t *testing.T) {
-		args := buildOvnKubernetesHelmInstallArgs(chartDir, apiServer, podCIDR, svcCIDR, "my-mirror.example.com/nke/", upstream, nil)
+		args := buildOvnKubernetesHelmInstallArgs(chartDir, apiServer, podCIDR, svcCIDR, "my-mirror.example.com/nvke/", upstream, nil)
 		joined := strings.Join(args, " ")
-		assert.Contains(t, joined, "--set global.image.repository=my-mirror.example.com/nke/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu")
+		assert.Contains(t, joined, "--set global.imageRepositoryPrefix=my-mirror.example.com/nvke/nvke")
 		assert.Equal(t, "m.example.com/a/b", ovnImageRepository("m.example.com", "quay.io/a/b"))
 	})
 
-	t.Run("empty image registry produces no global.image.repository arg", func(t *testing.T) {
+	t.Run("empty image registry produces no global.imageRepositoryPrefix arg", func(t *testing.T) {
 		args := buildOvnKubernetesHelmInstallArgs(chartDir, apiServer, podCIDR, svcCIDR, "", "", nil)
 		joined := strings.Join(args, " ")
-		assert.NotContains(t, joined, "global.image.repository")
+		assert.NotContains(t, joined, "global.imageRepositoryPrefix")
 	})
 
 	t.Run("CniConfig global.registry overrides server-level registry", func(t *testing.T) {
@@ -630,17 +637,63 @@ func TestOVNHelmArgsImageRegistry(t *testing.T) {
 			map[string]string{"global.registry": "request-mirror.example.com"})
 		joined := strings.Join(args, " ")
 		assert.NotContains(t, joined, "global.registry=", "the wire key must not reach helm untranslated")
-		serverIdx := strings.Index(joined, "server-mirror.example.com/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu")
-		requestIdx := strings.Index(joined, "request-mirror.example.com/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu")
+		serverIdx := strings.Index(joined, "server-mirror.example.com/nvke")
+		requestIdx := strings.Index(joined, "request-mirror.example.com/nvke")
 		require.GreaterOrEqual(t, serverIdx, 0)
 		require.GreaterOrEqual(t, requestIdx, 0)
 		assert.Greater(t, requestIdx, serverIdx, "per-request registry must appear after server-level registry so it takes precedence")
 	})
 }
 
-// The upstream chart's defaults are values-single-node-zone.yaml (it ships no values.yaml today);
-// values-nke.yaml must come last so its pinned tag beats the "master" tag there, and a values.yaml
-// upstream might add later must not land between them and reset the subchart tags.
+func TestOVNKubernetesCNIConfig(t *testing.T) {
+	t.Run("netdev selects a dummy gateway bridge without mutating the request", func(t *testing.T) {
+		request := map[string]string{"global.image.pullPolicy": "Never"}
+
+		config := ovnKubernetesCNIConfig(request, "netdev")
+
+		assert.Equal(t, ovnDummyGatewayBridgeEnabled, config[ovnDummyGatewayBridgeHelmValue])
+		assert.Equal(t, ovnDummyGatewayOpts, config[ovnGatewayOptsHelmValue])
+		assert.Equal(t, "Never", config["global.image.pullPolicy"])
+		assert.NotContains(t, request, ovnDummyGatewayBridgeHelmValue)
+		assert.NotContains(t, request, ovnGatewayOptsHelmValue)
+	})
+
+	t.Run("explicit gateway settings win", func(t *testing.T) {
+		request := map[string]string{
+			ovnDummyGatewayBridgeHelmValue: "false",
+			ovnGatewayOptsHelmValue:        "--gateway-interface=custom0 --allow-no-uplink",
+		}
+
+		config := ovnKubernetesCNIConfig(request, "netdev")
+
+		assert.Equal(t, "false", config[ovnDummyGatewayBridgeHelmValue])
+		assert.Equal(t, "--gateway-interface=custom0 --allow-no-uplink", config[ovnGatewayOptsHelmValue])
+	})
+
+	t.Run("kernel container datapath selects a dummy gateway bridge", func(t *testing.T) {
+		request := map[string]string{"global.image.pullPolicy": "Never"}
+
+		config := ovnKubernetesCNIConfig(request, "system")
+
+		assert.Equal(t, ovnDummyGatewayBridgeEnabled, config[ovnDummyGatewayBridgeHelmValue])
+		assert.Equal(t, ovnDummyGatewayOpts, config[ovnGatewayOptsHelmValue])
+		assert.Equal(t, "Never", config["global.image.pullPolicy"])
+		assert.NotContains(t, request, ovnDummyGatewayBridgeHelmValue)
+	})
+
+	t.Run("empty datapath preserves the request", func(t *testing.T) {
+		request := map[string]string{"global.image.pullPolicy": "Never"}
+
+		config := ovnKubernetesCNIConfig(request, "")
+
+		assert.Equal(t, request, config)
+		assert.NotContains(t, config, ovnDummyGatewayBridgeHelmValue)
+		assert.NotContains(t, config, ovnGatewayOptsHelmValue)
+	})
+}
+
+// The chart's defaults are values.yaml; values-nke.yaml must come last so its image tag beats the
+// one pinned there, and an optional values-single-node-zone.yaml must not land after it.
 func TestHelmValuesFileArgs(t *testing.T) {
 	chartDir := t.TempDir()
 	for _, name := range []string{"Chart.yaml", "values.yaml", "values-single-node-zone.yaml", "values-single-node-zone-dpu.yaml", "values-nke.yaml"} {
@@ -658,12 +711,12 @@ func TestOvnStagedImageRepository(t *testing.T) {
 	write := func(body string) {
 		require.NoError(t, os.WriteFile(filepath.Join(chartDir, "values-nke.yaml"), []byte(body), 0o644))
 	}
-	write("tags:\n  ovs-node: false\nglobal:\n  image:\n    repository: ghcr.io/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu\n    tag: release-1.4\n")
+	write("tags:\n  ovs-node: false\nglobal:\n  imageRepositoryPrefix: localhost/nvke\n")
 	repo, err := ovnStagedImageRepository(chartDir)
 	require.NoError(t, err)
-	assert.Equal(t, "ghcr.io/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu", repo)
+	assert.Equal(t, "localhost/nvke", repo)
 
-	write("global:\n  image:\n    repository: nohost\n")
+	write("global:\n  imageRepositoryPrefix: nohost\n")
 	_, err = ovnStagedImageRepository(chartDir)
 	assert.Error(t, err)
 }
@@ -742,19 +795,19 @@ type recordingRunner struct {
 	args []string
 }
 
-func (r *recordingRunner) Run(name string, args []string, _ *nkeutils.CommandOptions) ([]byte, error) {
+func (r *recordingRunner) Run(name string, args []string, _ *nvkeutils.CommandOptions) ([]byte, error) {
 	r.name = name
 	r.args = args
 	return nil, nil
 }
 
-func (r *recordingRunner) RunSplitOutput(name string, args []string, _ *nkeutils.CommandOptions) (nkeutils.CommandOutput, error) {
+func (r *recordingRunner) RunSplitOutput(name string, args []string, _ *nvkeutils.CommandOptions) (nvkeutils.CommandOutput, error) {
 	r.name = name
 	r.args = args
-	return nkeutils.CommandOutput{}, nil
+	return nvkeutils.CommandOutput{}, nil
 }
 
-func (r *recordingRunner) RunDetached(name string, args []string, _ *nkeutils.CommandOptions) error {
+func (r *recordingRunner) RunDetached(name string, args []string, _ *nvkeutils.CommandOptions) error {
 	r.name = name
 	r.args = args
 	return nil
@@ -788,7 +841,7 @@ type calicoApplyRunner struct {
 	failAt int
 }
 
-func (r *calicoApplyRunner) Run(name string, args []string, opts *nkeutils.CommandOptions) ([]byte, error) {
+func (r *calicoApplyRunner) Run(name string, args []string, opts *nvkeutils.CommandOptions) ([]byte, error) {
 	r.calls = append(r.calls, append([]string{name}, args...))
 	if len(r.calls) == r.failAt {
 		return nil, errors.New("simulated kubectl failure")
@@ -839,4 +892,26 @@ func TestCalicoCRDApplyOrder(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOVNValuesRenameCompatibility(t *testing.T) {
+	chartDir := t.TempDir()
+	for name, repository := range map[string]string{
+		legacyOVNValuesFilename: "example.test/legacy/ovn",
+		ovnValuesFilename:       "example.test/nvke/ovn",
+	} {
+		body := "global:\n  imageRepositoryPrefix: " + repository + "\n"
+		require.NoError(t, os.WriteFile(filepath.Join(chartDir, name), []byte(body), 0o644))
+	}
+	repository, err := ovnStagedImageRepository(chartDir)
+	require.NoError(t, err)
+	assert.Equal(t, "example.test/nvke/ovn", repository)
+	assert.Equal(t, []string{
+		"-f", filepath.Join(chartDir, legacyOVNValuesFilename),
+		"-f", filepath.Join(chartDir, ovnValuesFilename),
+	}, helmValuesFileArgs(chartDir))
+	require.NoError(t, os.Remove(filepath.Join(chartDir, ovnValuesFilename)))
+	repository, err = ovnStagedImageRepository(chartDir)
+	require.NoError(t, err)
+	assert.Equal(t, "example.test/legacy/ovn", repository)
 }

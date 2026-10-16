@@ -16,14 +16,14 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
-	"github.com/dsx-ai-factory/nke/controller/internal/server"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/workflows"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/server"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/workflows"
 )
 
 func TestNodeService_ListNodes(t *testing.T) {
@@ -283,7 +283,7 @@ func TestNodeService_ListNodes(t *testing.T) {
 			mockDB := &mockDB{}
 			mockDB.On("ListNodes", mock.Anything, tt.filters).Return(tt.dbNodes, tt.dbError)
 
-			service := server.NewNodeService(&slog.Logger{}, mockDB, nil, false)
+			service := server.NewNodeService(&slog.Logger{}, mockDB)
 
 			resp, err := service.ListNodes(context.Background(), api.ListNodesRequestObject{
 				Params: api.ListNodesParams{
@@ -381,7 +381,7 @@ func TestNodeService_GetNode(t *testing.T) {
 			mockDB := &mockDB{}
 			mockDB.On("GetNode", mock.Anything, tt.nodeID).Return(tt.dbNode, tt.dbError)
 
-			service := server.NewNodeService(&slog.Logger{}, mockDB, nil, false)
+			service := server.NewNodeService(&slog.Logger{}, mockDB)
 
 			resp, err := service.GetNode(context.Background(), api.GetNodeRequestObject{
 				NodeID: tt.nodeID,
@@ -471,7 +471,8 @@ func TestNodeService_DeleteNode(t *testing.T) {
 					},
 				}, nil)
 				tx.On("GetClusterForUpdate", mock.Anything, clusterID).Return(db.Cluster{
-					ID: clusterID,
+					ID:              clusterID,
+					ControlPlaneVIP: "10.0.0.100",
 				}, nil)
 				controlPlane := true
 				tx.On("ListNodePools", mock.Anything, db.NodePoolFilters{
@@ -496,7 +497,7 @@ func TestNodeService_DeleteNode(t *testing.T) {
 			want400Contains: "last joined control-plane node",
 		},
 		{
-			name:   "success control-plane node when another joined CP remains",
+			name:   "success control-plane node records delete request when another joined CP remains",
 			nodeID: nodeID,
 			setupMockCalls: func(tx *mockTx) {
 				otherCP := uuid.MustParse("550e8400-e29b-41d4-a716-446655440021")
@@ -510,7 +511,8 @@ func TestNodeService_DeleteNode(t *testing.T) {
 					ControlPlane: true,
 				}, nil)
 				tx.On("GetClusterForUpdate", mock.Anything, clusterID).Return(db.Cluster{
-					ID: clusterID,
+					ID:              clusterID,
+					ControlPlaneVIP: "10.0.0.100",
 				}, nil)
 				controlPlane := true
 				tx.On("ListNodePools", mock.Anything, db.NodePoolFilters{
@@ -530,11 +532,30 @@ func TestNodeService_DeleteNode(t *testing.T) {
 						},
 					},
 				}, nil)
-				tx.On("UpdateNode", mock.Anything, mock.Anything).Return(db.Node{}, nil)
-				tx.On("CreateWorkflowOutboxEntry", mock.Anything, constants.TeardownNodeWorkflowType, mock.Anything, mock.MatchedBy(func(input workflows.TeardownNodeInput) bool {
-					return input.NodeID == nodeID
-				})).Return(db.WorkflowOutbox{}, nil)
+				tx.On("UpdateNode", mock.Anything, mock.MatchedBy(func(n *db.Node) bool {
+					return n.ID == nodeID && n.Conditions.DeleteRequested.Status == db.ConditionStatusTrue && n.DeleteRequest != nil
+				})).Return(db.Node{}, nil)
 			},
+			verifyConditions: func(t *testing.T, conditions db.NodeConditions) {
+				t.Helper()
+				assert.Equal(t, db.ConditionStatusTrue, conditions.DeleteRequested.Status)
+				assert.NotEqual(t, db.ConditionStatusTrue, conditions.Deleting.Status)
+			},
+		},
+		{
+			name:   "reject control-plane node replacement without VIP",
+			nodeID: nodeID,
+			setupMockCalls: func(tx *mockTx) {
+				tx.On("GetNode", mock.Anything, nodeID).Return(db.Node{
+					ID: nodeID, ClusterID: clusterID,
+				}, nil)
+				tx.On("GetClusterForUpdate", mock.Anything, clusterID).Return(db.Cluster{ID: clusterID}, nil)
+				tx.On("GetNodeForUpdate", mock.Anything, nodeID).Return(db.Node{
+					ID: nodeID, ClusterID: clusterID, ControlPlane: true,
+				}, nil)
+			},
+			want400:         true,
+			want400Contains: "controlPlaneVIP",
 		},
 		{
 			name:   "noop while cluster deleting",
@@ -680,7 +701,7 @@ func TestNodeService_DeleteNode(t *testing.T) {
 
 			mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 
-			service := server.NewNodeService(&slog.Logger{}, mockDB, nil, false)
+			service := server.NewNodeService(&slog.Logger{}, mockDB)
 
 			var body *api.DeleteNodeJSONRequestBody
 			if tt.machineHealthIssue != nil || tt.forceUnreachable {
@@ -731,41 +752,6 @@ func TestNodeService_DeleteNode(t *testing.T) {
 			mockDB.MockTx.AssertExpectations(t)
 		})
 	}
-}
-
-func TestNodeService_GetNodeHistory(t *testing.T) {
-	nodeID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
-
-	t.Run("returns empty workflows when temporal client is nil", func(t *testing.T) {
-		mockDB := &mockDB{}
-		mockDB.On("GetNode", mock.Anything, nodeID).Return(db.Node{ID: nodeID}, nil)
-
-		service := server.NewNodeService(&slog.Logger{}, mockDB, nil, false)
-		resp, err := service.GetNodeHistory(context.Background(), api.GetNodeHistoryRequestObject{
-			NodeID: nodeID,
-		})
-
-		require.NoError(t, err)
-		result, ok := resp.(api.GetNodeHistory200JSONResponse)
-		require.True(t, ok)
-		assert.NotNil(t, result.Workflows)
-		assert.Empty(t, result.Workflows)
-		mockDB.AssertExpectations(t)
-	})
-
-	t.Run("returns 404 when node does not exist", func(t *testing.T) {
-		mockDB := &mockDB{}
-		mockDB.On("GetNode", mock.Anything, nodeID).Return(db.Node{}, db.ErrNotFound)
-
-		service := server.NewNodeService(&slog.Logger{}, mockDB, nil, false)
-		resp, err := service.GetNodeHistory(context.Background(), api.GetNodeHistoryRequestObject{
-			NodeID: nodeID,
-		})
-
-		require.NoError(t, err)
-		assert.IsType(t, api.GetNodeHistory404Response{}, resp)
-		mockDB.AssertExpectations(t)
-	})
 }
 
 func mockDBNodeConditions(now time.Time) db.NodeConditions {
@@ -942,9 +928,9 @@ func TestNodeService_ListNodes_ControlPlaneRollout(t *testing.T) {
 	poolNodeID := uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000003")
 
 	desiredSpec := db.ControlPlaneConfigSpec{KubernetesVersion: "1.34.2"}
-	desiredSpec.SetNico(db.NicoControlPlaneProvider{OSProfile: "os-v2", ConfigProfile: "cfg-v2"})
+	desiredSpec.SetNico(db.NicoControlPlaneProvider{Release: "os-v2", ConfigProfile: "cfg-v2"})
 	driftedSpec := db.ControlPlaneConfigSpec{KubernetesVersion: "1.33.6"}
-	driftedSpec.SetNico(db.NicoControlPlaneProvider{OSProfile: "os-v1", ConfigProfile: "cfg-v1"})
+	driftedSpec.SetNico(db.NicoControlPlaneProvider{Release: "os-v1", ConfigProfile: "cfg-v1"})
 
 	now := time.Now()
 	dbNodes := []db.Node{
@@ -994,7 +980,7 @@ func TestNodeService_ListNodes_ControlPlaneRollout(t *testing.T) {
 		}, nil,
 	)
 
-	service := server.NewNodeService(&slog.Logger{}, mockDB, nil, false)
+	service := server.NewNodeService(&slog.Logger{}, mockDB)
 
 	resp, err := service.ListNodes(context.Background(), api.ListNodesRequestObject{})
 	require.NoError(t, err)
@@ -1017,7 +1003,7 @@ func TestNodeService_ListNodes_ControlPlaneRollout(t *testing.T) {
 	// the drift without enumerating fields itself.
 	assert.ElementsMatch(t, []api.ControlPlaneRolloutChange{
 		{Field: "kubernetesVersion", From: "1.33.6", To: "1.34.2"},
-		{Field: "osProfile", From: "os-v1", To: "os-v2"},
+		{Field: "release", From: "os-v1", To: "os-v2"},
 		{Field: "configProfile", From: "cfg-v1", To: "cfg-v2"},
 	}, drifted.ControlPlaneRollout.Changes)
 
@@ -1042,9 +1028,9 @@ func TestNodeService_GetNode_ControlPlaneRollout(t *testing.T) {
 	driftedCfgID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
 
 	desiredSpec := db.ControlPlaneConfigSpec{KubernetesVersion: "1.34.2"}
-	desiredSpec.SetNico(db.NicoControlPlaneProvider{OSProfile: "os-v2", ConfigProfile: "cfg-v2"})
+	desiredSpec.SetNico(db.NicoControlPlaneProvider{Release: "os-v2", ConfigProfile: "cfg-v2"})
 	driftedSpec := db.ControlPlaneConfigSpec{KubernetesVersion: "1.34.2"}
-	driftedSpec.SetNico(db.NicoControlPlaneProvider{OSProfile: "os-v2", ConfigProfile: "cfg-v1"})
+	driftedSpec.SetNico(db.NicoControlPlaneProvider{Release: "os-v2", ConfigProfile: "cfg-v1"})
 
 	now := time.Now()
 	dbNode := db.Node{
@@ -1068,7 +1054,7 @@ func TestNodeService_GetNode_ControlPlaneRollout(t *testing.T) {
 		[]db.ControlPlaneConfiguration{{ID: driftedCfgID, Config: driftedSpec}}, nil,
 	)
 
-	service := server.NewNodeService(&slog.Logger{}, mockDB, nil, false)
+	service := server.NewNodeService(&slog.Logger{}, mockDB)
 
 	resp, err := service.GetNode(context.Background(), api.GetNodeRequestObject{NodeID: nodeID})
 	require.NoError(t, err)
@@ -1089,7 +1075,7 @@ func TestNodeService_GetNode_ControlPlaneRollout(t *testing.T) {
 }
 
 // TestNodeService_DeleteControlPlaneNodeThroughController covers the API half of
-// the controller-owned delete: with the flag on, a control-plane delete is
+// the controller-owned delete: a control-plane delete is
 // accepted as intent (202, no teardown queued) or refused at the quorum floor
 // (400), while a worker delete keeps starting its teardown inline.
 func TestNodeService_DeleteControlPlaneNodeThroughController(t *testing.T) {
@@ -1148,7 +1134,7 @@ func TestNodeService_DeleteControlPlaneNodeThroughController(t *testing.T) {
 			tx := &mockTx{}
 			tx.On("GetNode", mock.Anything, tt.target.ID).Return(tt.target, nil)
 			tx.On("GetNodeForUpdate", mock.Anything, tt.target.ID).Return(tt.target, nil)
-			tx.On("GetClusterForUpdate", mock.Anything, clusterID).Return(db.Cluster{ID: clusterID}, nil)
+			tx.On("GetClusterForUpdate", mock.Anything, clusterID).Return(db.Cluster{ID: clusterID, ControlPlaneVIP: "10.0.0.100"}, nil)
 			tx.On("ListNodePools", mock.Anything, mock.Anything).Return([]db.NodePool{}, nil).Maybe()
 			tx.On("ListNodes", mock.Anything, mock.Anything).Return(tt.clusterNodes, nil).Maybe()
 
@@ -1164,7 +1150,7 @@ func TestNodeService_DeleteControlPlaneNodeThroughController(t *testing.T) {
 			mockDB := &mockDB{MockTx: tx}
 			mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 
-			service := server.NewNodeService(&slog.Logger{}, mockDB, nil, true)
+			service := server.NewNodeService(&slog.Logger{}, mockDB)
 
 			resp, err := service.DeleteNode(context.Background(), api.DeleteNodeRequestObject{
 				NodeID: tt.target.ID,

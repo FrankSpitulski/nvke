@@ -11,7 +11,11 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/activities"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/activities"
+)
+
+const (
+	UpgradeControlPlaneAddonsWorkflowType = "UpgradeControlPlaneAddons"
 )
 
 type UpgradeControlPlaneAddonsInput struct {
@@ -30,8 +34,9 @@ type UpgradeControlPlaneAddonsResult struct {
 
 // UpgradeControlPlaneAddons runs kubeadm upgrade apply through the node agent on
 // a healthy control-plane node to upgrade cluster add-ons (kube-proxy, CoreDNS)
-// to the target Kubernetes version, then re-applies NKE DNS overlays via
-// InstallKubeLocalDNS. The kubelet is upgraded separately through node
+// to the target Kubernetes version, then re-applies NVKE DNS overlays via
+// InstallKubeLocalDNS and the Pod Security Admission labels via
+// LabelSystemNamespacesForPSA. The kubelet is upgraded separately through node
 // replacement, and kubeadm upgrade apply is safe to retry.
 func UpgradeControlPlaneAddons(ctx workflow.Context, input UpgradeControlPlaneAddonsInput) (UpgradeControlPlaneAddonsResult, error) {
 	logger := workflow.GetLogger(ctx)
@@ -69,7 +74,7 @@ func UpgradeControlPlaneAddons(ctx workflow.Context, input UpgradeControlPlaneAd
 		"nodeID", result.NodeID,
 		"nodeName", result.NodeName)
 
-	// kubeadm upgrade apply can rewrite CoreDNS / kube-dns; re-apply NKE DNS
+	// kubeadm upgrade apply can rewrite CoreDNS / kube-dns; re-apply NVKE DNS
 	// overlays (node-local-dns, prefer-local annotations, dns-role labels).
 	dnsActivityOptions := workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Minute,
@@ -89,6 +94,13 @@ func UpgradeControlPlaneAddons(ctx workflow.Context, input UpgradeControlPlaneAd
 		},
 	).Get(ctx, nil); err != nil {
 		return UpgradeControlPlaneAddonsResult{}, fmt.Errorf("failed to reconcile kube-local DNS after addon upgrade: %w", err)
+	}
+
+	// Upgrades started before this step existed must replay without it.
+	if workflow.GetVersion(ctx, psaLabelSystemNamespacesChangeID, workflow.DefaultVersion, 1) >= 1 {
+		if err := labelSystemNamespacesForPSA(ctx, input.ClusterID, ""); err != nil {
+			return UpgradeControlPlaneAddonsResult{}, err
+		}
 	}
 
 	return UpgradeControlPlaneAddonsResult{

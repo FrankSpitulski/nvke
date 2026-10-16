@@ -12,9 +12,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/capi"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/internal/capi"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
 )
 
 func (a *Activities) isDockerMachineBackedNode(ctx context.Context, cluster db.Cluster, node db.Node) (bool, error) {
@@ -28,6 +28,12 @@ func (a *Activities) isDockerMachineBackedNode(ctx context.Context, cluster db.C
 		return true, nil
 	}
 
+	// Intentionally not routed through a provider-capability client: Docker
+	// Machine bootstrap is a CAPI/CAPD-only concept with no equivalent on any
+	// other provider, so adding a provider never requires touching this
+	// guard — it already answers false for anything that isn't CAPI. Revisit
+	// only if a future provider gains its own Docker-Machine-equivalent local
+	// dev path.
 	if cluster.ProviderType != db.ProviderTypeCAPI {
 		return false, nil
 	}

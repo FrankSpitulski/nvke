@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/auth"
+	"github.com/dsx-ai-factory/nvke/controller/internal/auth"
 )
 
 // modeDisabled is deliberately not an auth.Mode: disabled is the absence of an
@@ -145,7 +145,7 @@ func TestMiddlewareEnforcing(t *testing.T) {
 		token      func(*testing.T, fixture) string
 		wantStatus int
 		wantReason auth.FailureReason
-		// wantIssuer is "unknown" only where CWE matched no configured issuer.
+		// wantIssuer is "unknown" only where the controller matched no configured issuer.
 		wantIssuer string
 	}{
 		{
@@ -363,6 +363,7 @@ func TestMiddlewareAnonymousSurface(t *testing.T) {
 
 	paths := []string{
 		"/openapi.yaml",
+		"/openapi-public.yaml",
 		"/api/version",
 
 		// The mux 301s the unslashed form downstream of this middleware. Both
@@ -420,6 +421,7 @@ func TestMiddlewareCatchAllDoesNotLeak(t *testing.T) {
 		// Near misses on the exempt literals, which prefix matching would admit.
 		"/api/versions",
 		"/openapi.yaml.bak",
+		"/openapi-public.yaml.bak",
 		"/healthzz",
 		"/api/docsclusters",
 

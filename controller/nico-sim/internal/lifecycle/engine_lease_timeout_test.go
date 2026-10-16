@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/state"
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/state"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/vm"
 )
 
 // leaseNet serves a fixed lease (none when empty) and ignores reservations.

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	pathpkg "path"
 	"time"
@@ -18,17 +17,39 @@ import (
 	"github.com/swaggest/swgui/v5emb"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.temporal.io/sdk/client"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/internal/auth"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/version"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/internal/auth"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllerconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/otelx"
+	"github.com/dsx-ai-factory/nvke/controller/internal/version"
 )
 
 const (
 	ReadHeaderTimeout = 5 * time.Second
 )
+
+// Option configures NewServer and NewServerImpl.
+type Option func(*options)
+
+type options struct {
+	fleetOIDC                        *controllerconfig.OIDCConfig
+	allowLegacyCalicoClusterCreation bool
+}
+
+// WithFleetOIDC sets the nke-controller-config OIDC section new clusters are pinned from.
+func WithFleetOIDC(oidc *controllerconfig.OIDCConfig) Option {
+	return func(o *options) { o.fleetOIDC = oidc }
+}
+
+// WithAllowLegacyCalicoClusterCreation permits new tenant clusters to select Calico.
+// Existing Calico clusters stay manageable either way. The default is false.
+func WithAllowLegacyCalicoClusterCreation(allow bool) Option {
+	return func(o *options) { o.allowLegacyCalicoClusterCreation = allow }
+}
 
 // NewServer builds the API's HTTP server. A nil authn leaves the authentication
 // middleware out of the chain rather than installing one that admits everyone.
@@ -38,6 +59,8 @@ func NewServer(
 	database db.DB,
 	temporalClient client.Client,
 	authn *auth.Authenticator,
+	k8sReader ctrlclient.Reader,
+	opts ...Option,
 ) (*http.Server, error) {
 	m := http.NewServeMux()
 
@@ -45,7 +68,13 @@ func NewServer(
 	if err != nil {
 		return nil, fmt.Errorf("failed to load OpenAPI spec: %w", err)
 	}
-	serverImpl := NewServerImpl(cfg, logger, database, temporalClient)
+	// Swagger UI loads this copy. Request validation keeps using openapiSpec,
+	// which still contains the x-fern-ignore surface.
+	publicSpec, err := publicOpenAPI([]byte(api.OpenapiYAML))
+	if err != nil {
+		return nil, fmt.Errorf("building Swagger UI OpenAPI document: %w", err)
+	}
+	serverImpl := NewServerImpl(cfg, logger, database, temporalClient, k8sReader, opts...)
 	strictHandler := api.NewStrictHandlerWithOptions(serverImpl, nil, api.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.Error("OpenAPI StrictServer request error", "error", err)
@@ -87,23 +116,25 @@ func NewServer(
 		}
 	})
 
+	m.HandleFunc("GET /openapi-public.yaml", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/yaml")
+		if _, err := w.Write(publicSpec); err != nil {
+			logger.Error("Failed to write /openapi-public.yaml response", "error", err)
+		}
+	})
+
 	m.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		resp := map[string]any{
 			"version":           version.Version,
-			"temporalUIURL":     temporalUIURL(cfg),
 			"temporalNamespace": cfg.TemporalNamespace,
-			// Exposes the control-plane-controller provisioning feature flag so the
-			// UI can switch between cluster-level control plane config mode and the
-			// legacy control-plane node-pool mode. The server validates regardless.
-			"provisionControlPlaneWithControlPlaneController": cfg.UseControlPlaneControllerForControlPlane(),
 		}
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			logger.Error("Failed to write /api/version response", "error", err)
 		}
 	})
 
-	m.Handle("/api/docs/", v5emb.New("CWE API", "/openapi.yaml", "/api/docs/"))
+	m.Handle("/api/docs/", v5emb.New("Controller API", "/openapi-public.yaml", "/api/docs/"))
 
 	// Serve a simple page at /docs with a message that the swagger UI is now at /api/docs
 	m.HandleFunc("/docs", func(w http.ResponseWriter, r *http.Request) {
@@ -132,17 +163,15 @@ func NewServer(
 	if authn != nil {
 		handler = authn.Wrap(handler)
 	}
-	handler = loggingMiddleware(handler, logger)
-	if cfg.Tracing.Enabled {
-		handler = otelhttp.NewHandler(handler, "cloud-workflow-engine",
-			otelhttp.WithFilter(func(r *http.Request) bool {
-				// Skip operational probes (/healthz, /readyz, /metrics). /metrics is
-				// served on a separate listen address today, but is excluded here too
-				// so it stays consistent with isOperationalPath.
-				return !isOperationalPath(pathpkg.Clean(r.URL.Path))
-			}),
-		)
-	}
+	handler = otelx.ExposeTraceID(loggingMiddleware(handler, logger))
+	handler = otelhttp.NewHandler(handler, "cloud-workflow-engine",
+		otelhttp.WithFilter(func(r *http.Request) bool {
+			// Skip operational probes (/healthz, /readyz, /metrics). /metrics is
+			// served on a separate listen address today, but is excluded here too
+			// so it stays consistent with isOperationalPath.
+			return !isOperationalPath(pathpkg.Clean(r.URL.Path))
+		}),
+	)
 
 	srv := &http.Server{
 		Addr:              cfg.ServerListenAddress,
@@ -187,31 +216,47 @@ func handleError(w http.ResponseWriter, logger *slog.Logger, message string, sta
 	}
 }
 
-func NewServerImpl(cfg config.Config, logger *slog.Logger, database db.DB, temporalClient client.Client) *serverImpl {
+func NewServerImpl(
+	cfg config.Config,
+	logger *slog.Logger,
+	database db.DB,
+	temporalClient client.Client,
+	k8sReader ctrlclient.Reader,
+	opts ...Option,
+) *serverImpl {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	nodePoolService := NewNodePoolService(
 		logger,
 		database,
 		cfg.Teleport,
 		cfg.SupportedInfraProviders,
-		cfg.UseControlPlaneControllerForControlPlane(),
 	)
+	nodePoolService.allowlistedLabelKeys = cfg.NodeMetadataAllowlistedLabelKeys
+
+	clusterService := NewClusterService(
+		logger,
+		database,
+		nodePoolService,
+		cfg.Teleport,
+		cfg.NvkeOIDCAuth.Enabled,
+		cfg.SupportedInfraProviders,
+		o.allowLegacyCalicoClusterCreation,
+		cfg.NodeAgent.UpdateMethod,
+	)
+	clusterService.allowlistedLabelKeys = cfg.NodeMetadataAllowlistedLabelKeys
+	clusterService.fleetOIDC = o.fleetOIDC
 
 	return &serverImpl{
-		clusterService: *NewClusterService(
-			logger,
-			database,
-			nodePoolService,
-			cfg.Teleport,
-			cfg.NkeOIDCAuth.Enabled,
-			cfg.SupportedInfraProviders,
-			cfg.UseControlPlaneControllerForControlPlane(),
-		),
+		clusterService:       *clusterService,
 		nodePoolService:      *nodePoolService,
 		nodeSetService:       *NewNodeSetService(logger, database, temporalClient),
-		nodeService:          *NewNodeService(logger, database, temporalClient, cfg.UseControlPlaneControllerForControlPlane()),
-		osProfileService:     *NewOSProfileService(cfg, logger),
+		nodeService:          *NewNodeService(logger, database),
+		releaseService:       *NewReleaseService(logger, k8sReader),
 		configProfileService: *NewConfigProfileService(cfg, logger),
-		cniPluginsService:    *NewCNIPluginsService(),
 	}
 }
 
@@ -220,26 +265,6 @@ type serverImpl struct {
 	nodePoolService
 	nodeSetService
 	nodeService
-	osProfileService
+	releaseService
 	configProfileService
-	cniPluginsService
-}
-
-// temporalUIURL returns the Temporal Web UI base URL to surface in the version
-// response. An explicit TEMPORAL_UI_URL always wins (e.g. Tilt sets this to
-// the local port-forward). Otherwise it is derived from the Teleport proxy
-// address and site controller name, which are always set in non-local
-// deployments.
-func temporalUIURL(cfg config.Config) string {
-	if cfg.TemporalUIURL != "" {
-		return cfg.TemporalUIURL
-	}
-	if cfg.Teleport.ProxyAddress == "" || cfg.NKESiteControllerName == "" {
-		return ""
-	}
-	host := cfg.Teleport.ProxyAddress
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	return fmt.Sprintf("https://temporal-web-%s.%s", cfg.NKESiteControllerName, host)
 }

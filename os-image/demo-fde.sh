@@ -8,17 +8,21 @@
 #
 # Scope: os-image/ Linux host disk encryption only. Kubernetes Secrets/etcd
 # encryption-at-rest is a separate controller/agent concern and is not
-# covered by this script.
+# covered by this script. The first boot also runs
+# packer/scripts/check-conntrack.sh, since the FDE image gets the same
+# conntrack tuning as the non-FDE one.
 #
 # Usage: ./demo-fde.sh [--help]
 #
 # Env overrides:
 #   QCOW          path to the FDE qcow2 (default: the single *.qcow2 under
-#                 packer/output-fde/, e.g. nke-node-fde-ubuntu-26.04.1-amd64.qcow2)
+#                 packer/output-fde/, e.g. nvke-node-fde-ubuntu-26.04.1-amd64.qcow2)
 #   ARCH          amd64 or arm64; must match the qcow2 (default: amd64)
 #   SSH_KEY       ssh key used for the build (default: packer/.ssh/id_ed25519)
 #   SSH_PORT      host port to forward to guest :22 (default: 2222)
 #   BOOT_TIMEOUT  seconds to wait for SSH per boot (default: 360 kvm / 1800 tcg)
+#   LOCKED_GRACE  seconds the wrong-TPM boot must sit at the LUKS prompt to
+#                 count as locked (default: 60 kvm / 300 tcg)
 #   CPU_MODEL     QEMU -cpu model (default: host kvm / max tcg)
 #
 # No interactive/blind console typing is needed: autoinstall-lvm.pkrtpl bakes
@@ -32,7 +36,8 @@
 set -euo pipefail
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-  sed -n '2,30p' "${BASH_SOURCE[0]}"
+  # The header comment, however long it grows.
+  awk 'NR > 1 && !/^#/ { exit } NR > 1' "${BASH_SOURCE[0]}"
   exit 0
 fi
 
@@ -40,7 +45,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QCOW="${QCOW:-}"
 if [[ -z "${QCOW}" ]]; then
   # The output filename encodes the Ubuntu version/arch (see vm_name in
-  # nke-node-fde.pkr.hcl), so glob for it instead of hardcoding it here.
+  # nvke-node-fde.pkr.hcl), so glob for it instead of hardcoding it here.
   shopt -s nullglob
   fde_qcows=("${ROOT}/packer/output-fde"/*.qcow2)
   shopt -u nullglob
@@ -58,7 +63,7 @@ SSH_PORT="${SSH_PORT:-2222}"
 ARCH="${ARCH:-amd64}"
 
 # machine_type/cpu_model matter here for the same reason they do in
-# nke-node-fde.pkr.hcl: this image boots via UEFI, and on amd64 QEMU's default
+# nvke-node-fde.pkr.hcl: this image boots via UEFI, and on amd64 QEMU's default
 # "pc" (i440fx) machine type is a known-fragile pairing with OVMF that
 # produced intermittent guest-kernel instability while developing this
 # variant. q35 + an explicit cpu_model avoids it. aarch64 has no default
@@ -99,6 +104,7 @@ if [[ "$(uname -m)" == "${ARCH_UNAME}" && -c /dev/kvm && -w /dev/kvm ]]; then
   # comfortably past 180s in practice, so the default here is generous
   # rather than tuned to the fast-path boots.
   BOOT_TIMEOUT="${BOOT_TIMEOUT:-360}"
+  LOCKED_GRACE="${LOCKED_GRACE:-60}"
 else
   echo "demo: no usable same-arch /dev/kvm, booting under software emulation (slower)" >&2
   ACCEL_ARGS=(-accel tcg)
@@ -110,6 +116,7 @@ else
     CPU_MODEL="${CPU_MODEL:-max}"
   fi
   BOOT_TIMEOUT="${BOOT_TIMEOUT:-1800}"
+  LOCKED_GRACE="${LOCKED_GRACE:-300}"
 fi
 
 for tool in "${QEMU_BIN}" qemu-img swtpm cloud-localds ssh; do
@@ -128,7 +135,7 @@ OVMF_CODE="${OVMF_CODE:-${DEFAULT_OVMF_CODE}}"
 OVMF_VARS_TEMPLATE="${OVMF_VARS_TEMPLATE:-${DEFAULT_OVMF_VARS}}"
 
 WORKDIR="$(mktemp -d)"
-DISK="${WORKDIR}/nke-node-fde-demo.qcow2"
+DISK="${WORKDIR}/nvke-node-fde-demo.qcow2"
 trap 'rm -rf "${WORKDIR}"' EXIT
 
 qemu-img create -f qcow2 -F qcow2 -b "${QCOW}" "${DISK}" >/dev/null
@@ -175,8 +182,8 @@ start_vm() {
 ssh_authorized_keys:
   - $(cat "${SSH_KEY}.pub")
 EOF
-  echo "instance-id: nke-fde-demo-$$-${RANDOM}
-local-hostname: nke-fde-demo" >"${runwork}/meta-data"
+  echo "instance-id: nvke-fde-demo-$$-${RANDOM}
+local-hostname: nvke-fde-demo" >"${runwork}/meta-data"
   cloud-localds "${runwork}/seed.iso" "${runwork}/user-data" "${runwork}/meta-data"
 
   rm -f "${tpmdir}/swtpm-sock" "${tpmdir}/.lock"
@@ -219,9 +226,67 @@ wait_ssh() {
   [[ "${up}" -eq 0 ]] && echo "up" || echo "timeout"
 }
 
+# For a boot that should NOT unlock: watches the serial console instead of
+# waiting out BOOT_TIMEOUT for SSH that never comes. cryptroot prints its
+# passphrase prompt even while clevis is still unlocking in the background,
+# so the prompt alone proves nothing; LOCKED_GRACE seconds must pass after it
+# without the guest reaching systemd in the real root, answering SSH, or
+# panicking or dropping to the initramfs shell. Prints "locked", "unlocked", "died" (qemu
+# exited), "panic" (kernel panic on the console), "initramfs" (dropped to the
+# initramfs emergency shell), or "timeout" (prompt never seen and no SSH).
+# Only "locked" is a pass; the rest prove nothing.
+wait_locked() {
+  local log="${VM_RUNWORK}/qemu.log"
+  local deadline=$((SECONDS + BOOT_TIMEOUT)) prompt_at=""
+  while (( SECONDS <= deadline )); do
+    # systemd's banner in the real root. It colors the OS name, so an escape
+    # sequence sits between "Welcome to " and "Ubuntu". A bare "Welcome to"
+    # also matches GRUB's, before the disk is even opened.
+    if grep -aq 'Welcome to .*Ubuntu' "${log}" || ssh_guest true 2>/dev/null; then
+      echo "unlocked"
+      return
+    fi
+    if ! kill -0 "${VM_QPID}" 2>/dev/null; then
+      echo "died"
+      return
+    fi
+    if grep -aq 'Kernel panic' "${log}"; then
+      echo "panic"
+      return
+    fi
+    # initramfs-tools prints "ALERT! ... Dropping to a shell!" when it gives
+    # up, which would otherwise sit quietly past LOCKED_GRACE like a prompt.
+    if grep -aq 'ALERT!' "${log}"; then
+      echo "initramfs"
+      return
+    fi
+    if [[ -z "${prompt_at}" ]] && grep -aq 'Please unlock disk' "${log}"; then
+      prompt_at="${SECONDS}"
+      grep -a -m1 'Please unlock disk' "${log}" >&2
+    fi
+    if [[ -n "${prompt_at}" ]] && (( SECONDS - prompt_at >= LOCKED_GRACE )); then
+      echo "locked"
+      return
+    fi
+    sleep 5
+  done
+  echo "timeout"
+}
+
 # Tears down the VM started by the most recent start_vm.
 stop_vm() {
   kill "${VM_QPID}" 2>/dev/null || true
+  # Reap it, so the next boot's hostfwd can bind SSH_PORT. A qemu stuck on
+  # shutdown gets 30s before SIGKILL, rather than hanging until the job timeout.
+  local i
+  for (( i = 0; i < 30; i++ )); do
+    kill -0 "${VM_QPID}" 2>/dev/null || break
+    sleep 1
+  done
+  if kill -0 "${VM_QPID}" 2>/dev/null; then
+    kill -9 "${VM_QPID}" 2>/dev/null || true
+  fi
+  wait "${VM_QPID}" 2>/dev/null || true
   # Fallback by disk path in case $VM_QPID somehow isn't qemu's own pid (e.g.
   # a future refactor backgrounds it indirectly again).
   pkill -f "${QEMU_BIN}.*${DISK}" 2>/dev/null || true
@@ -231,16 +296,6 @@ stop_vm() {
     kill "${swtpm_pid}" 2>/dev/null || true
   fi
   rm -rf "${VM_RUNWORK}"
-}
-
-# Convenience wrapper for scenarios that don't need to run extra ssh_guest
-# commands between boot and teardown.
-boot_and_wait() {
-  start_vm "$1"
-  local state
-  state="$(wait_ssh)"
-  stop_vm
-  echo "${state}"
 }
 
 echo "=== Scenario: host volumes are LUKS2, sealed to the node TPM ==="
@@ -280,26 +335,42 @@ else
   else
     report "host-volumes-luks2-tpm-sealed" "FAIL" "/root/.luks-tpm-firstboot-done missing — first-boot binding never completed"
   fi
+
+  # provision.sh gives the FDE image the same conntrack tuning, so check it on
+  # this boot, with the same script boot-smoke.sh runs on the non-FDE image.
+  if CONNTRACK="$(ssh_guest bash -s <"${ROOT}/packer/scripts/check-conntrack.sh" 2>&1)"; then
+    report "conntrack-limits-sized-to-node" "PASS" "${CONNTRACK##*check-conntrack: }"
+  else
+    report "conntrack-limits-sized-to-node" "FAIL" "${CONNTRACK##*check-conntrack: }"
+  fi
 fi
 stop_vm
 
 echo "=== Scenario: an encrypted volume cannot be read off the node ==="
 TPM_B="${WORKDIR}/tpm-b"
 mkdir -p "${TPM_B}"
-STATE="$(boot_and_wait "${TPM_B}")"
-if [[ "${STATE}" == "timeout" ]]; then
-  report "moved-to-different-tpm-fails" "PASS" "boot against a different TPM did not unlock within ${BOOT_TIMEOUT}s, as expected"
-else
-  report "moved-to-different-tpm-fails" "FAIL" "boot against a different TPM unexpectedly reached SSH — the LUKS key is not actually TPM-bound"
-fi
+start_vm "${TPM_B}"
+STATE="$(wait_locked)"
+stop_vm
+case "${STATE}" in
+  locked) report "moved-to-different-tpm-fails" "PASS" "boot against a different TPM stayed at the LUKS passphrase prompt for ${LOCKED_GRACE}s, as expected" ;;
+  unlocked) report "moved-to-different-tpm-fails" "FAIL" "boot against a different TPM unexpectedly unlocked the root — the LUKS key is not actually TPM-bound" ;;
+  *) report "moved-to-different-tpm-fails" "FAIL" "inconclusive: boot against a different TPM ended in state '${STATE}' without reaching the LUKS prompt and staying locked" ;;
+esac
 
 echo "=== Scenario: encryption survives node replacement (fresh boot, same TPM, still unlocks) ==="
-STATE="$(boot_and_wait "${TPM_A}")"
-if [[ "${STATE}" == "up" ]]; then
-  report "replacement-node-fresh-seal" "PASS" "a later boot against the original TPM still auto-unlocks (stand-in for a replacement node sealing its own key)"
-else
-  report "replacement-node-fresh-seal" "FAIL" "a later boot against the original TPM failed to auto-unlock within ${BOOT_TIMEOUT}s"
-fi
+# Also the control for the scenario above, whose early pass assumes a real
+# unlock lands within LOCKED_GRACE of the prompt. Watching this boot the same
+# way checks that assumption instead of trusting it.
+start_vm "${TPM_A}"
+STATE="$(wait_locked)"
+[[ "${STATE}" == "unlocked" ]] && STATE="$(wait_ssh)"
+stop_vm
+case "${STATE}" in
+  up) report "replacement-node-fresh-seal" "PASS" "a later boot against the original TPM still auto-unlocks (stand-in for a replacement node sealing its own key)" ;;
+  locked) report "replacement-node-fresh-seal" "FAIL" "a boot against the original TPM sat at the passphrase prompt for ${LOCKED_GRACE}s; either the binding is broken or LOCKED_GRACE is too short to tell a wrong TPM from a slow unlock, so moved-to-different-tpm-fails proves nothing" ;;
+  *) report "replacement-node-fresh-seal" "FAIL" "a later boot against the original TPM failed to auto-unlock (state: ${STATE}, BOOT_TIMEOUT ${BOOT_TIMEOUT}s)" ;;
+esac
 
 echo
 echo "=== Summary ==="

@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/test/bufconn"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nvkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 )
 
 func TestNormalizeEndpoint(t *testing.T) {
@@ -69,14 +69,14 @@ func TestHasNodeAgent(t *testing.T) {
 }
 
 type stubAgent struct {
-	nkeproto.UnimplementedNodeAgentServer
+	nvkeproto.UnimplementedNodeAgentServer
 }
 
 func (s *stubAgent) GetKubeadmStatus(
 	_ context.Context,
-	_ *nkeproto.KubeadmStatusRequest,
-) (*nkeproto.KubeadmStatusResponse, error) {
-	return &nkeproto.KubeadmStatusResponse{
+	_ *nvkeproto.KubeadmStatusRequest,
+) (*nvkeproto.KubeadmStatusResponse, error) {
+	return &nvkeproto.KubeadmStatusResponse{
 		KubeadmStatus: "pending",
 		AgentVersion:  "test",
 	}, nil
@@ -87,7 +87,7 @@ func TestListServicesAndStatus(t *testing.T) {
 
 	lis := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer()
-	nkeproto.RegisterNodeAgentServer(server, &stubAgent{})
+	nvkeproto.RegisterNodeAgentServer(server, &stubAgent{})
 	reflection.Register(server)
 	go func() {
 		_ = server.Serve(lis)
@@ -117,7 +117,7 @@ func TestListServicesAndStatus(t *testing.T) {
 		t.Fatalf("HasNodeAgent(%v) = false", services)
 	}
 
-	statusResp, err := nkeproto.NewNodeAgentClient(conn).GetKubeadmStatus(ctx, &nkeproto.KubeadmStatusRequest{})
+	statusResp, err := nvkeproto.NewNodeAgentClient(conn).GetKubeadmStatus(ctx, &nvkeproto.KubeadmStatusRequest{})
 	if err != nil {
 		t.Fatalf("GetKubeadmStatus: %v", err)
 	}
@@ -126,5 +126,18 @@ func TestListServicesAndStatus(t *testing.T) {
 	}
 	if statusResp.GetAgentVersion() != "test" {
 		t.Fatalf("agent version = %q, want test", statusResp.GetAgentVersion())
+	}
+}
+
+func TestAuthorizedClientPath(t *testing.T) {
+	for _, path := range []string{"/tenant/nvke/service/cwe", "/nvke-service/cwe", "/tenant/nke/service/cwe", "/nke-service/cwe"} {
+		if !authorizedClientPath(path) {
+			t.Errorf("authorizedClientPath(%q) = false", path)
+		}
+	}
+	for _, path := range []string{"/tenant/nvke/service-evil/cwe", "/nvke-service-evil/cwe", "/tenant/other/service/cwe"} {
+		if authorizedClientPath(path) {
+			t.Errorf("authorizedClientPath(%q) = true", path)
+		}
 	}
 }

@@ -1,3 +1,8 @@
+{{- /*
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+*/ -}}
+
 {{/*
 Expand the name of the chart.
 */}}
@@ -96,6 +101,90 @@ auth.yaml
 {{- end }}
 
 {{/*
+The nke-controller-config ConfigMap, its file key, and where it is mounted.
+CONTROLLER_CONFIG_PATH is the mount and the file joined, so none are values.
+*/}}
+{{- define "controller.controllerConfig.name" -}}
+nke-controller-config
+{{- end }}
+
+{{- define "controller.controllerConfig.file" -}}
+config.yaml
+{{- end }}
+
+{{- define "controller.controllerConfig.mountPath" -}}
+/etc/nke/controller-config
+{{- end }}
+
+{{/*
+Refuse an env entry for a variable nke-controller-config carries: the controller
+reads that setting only from the file, so the entry would do nothing.
+files/controller-config-env.yaml lists those variables, each with the
+config.yaml key that replaces it.
+CONTROLLER_CONFIG_PATH is refused too: a second entry could point the controller
+at another file, or at none.
+*/}}
+{{- define "controller.controllerConfig.validateEnv" -}}
+{{- $carried := .Files.Get "files/controller-config-env.yaml" | fromYaml }}
+{{- if or (not $carried) (hasKey $carried "Error") }}
+{{- fail "files/controller-config-env.yaml is missing or does not parse" }}
+{{- end }}
+{{- range .Values.env }}
+{{- $name := toString .name }}
+{{- if eq $name "CONTROLLER_CONFIG_PATH" }}
+{{- fail "env sets CONTROLLER_CONFIG_PATH, which the chart sets to the mounted nke-controller-config file" }}
+{{- end }}
+{{- if hasKey $carried $name }}
+{{- fail (printf "env sets %s, which nke-controller-config carries as %s; set it through its chart value instead" $name (get $carried $name)) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+runbooksDir in nke-controller-config: profiles.runbooksPath when set, else the
+runbooks/ directory the profiles image provides, else empty, which leaves the
+controller its own default of profilesDir/runbooks.
+*/}}
+{{- define "controller.runbooksDir" -}}
+{{- if .Values.profiles.runbooksPath -}}
+{{- .Values.profiles.runbooksPath -}}
+{{- else if .Values.profiles.image.enabled -}}
+{{- printf "%s/runbooks" .Values.profiles.path -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+(list value goDefault): the value, or goDefault when it is null or empty, as the
+controller treats an empty variable. sprig's default would also replace false and 0.
+*/}}
+{{- define "controller.controllerConfig.orGoDefault" -}}
+{{- $value := index . 0 -}}
+{{- if or (kindIs "invalid" $value) (eq (toString $value) "") -}}
+{{- index . 1 -}}
+{{- else -}}
+{{- $value -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Refuse a values file that still sets a key this chart renamed. Helm ignores an
+unknown key without a word, so the old key would leave the chart on its defaults:
+for nkeOIDCAuth, tenant-cluster OIDC quietly reverting to disabled.
+
+Keyed off key presence, not truth: an explicitly supplied empty map is false in
+a Helm condition, and would otherwise slip past. The old keys are absent from
+values.yaml so that presence only ever comes from the caller. Emits nothing.
+*/}}
+{{- define "controller.renamedValues.validate" -}}
+{{- if hasKey .Values "nkeSystemNamespace" -}}
+{{- fail "nkeSystemNamespace was renamed to nvkeSystemNamespace and is no longer read. Move its settings (create, annotations) under nvkeSystemNamespace." -}}
+{{- end -}}
+{{- if hasKey .Values "nkeOIDCAuth" -}}
+{{- fail "nkeOIDCAuth was renamed to nvkeOIDCAuth and is no longer read. Move its settings (enabled, tenantRbacName, issuerURL, discoveryURL, caBundleSecret) under nvkeOIDCAuth." -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Refuse the ways apiAuth's values can disagree with each other or with the chart,
 each of which otherwise renders clean and does the wrong thing silently.
 
@@ -120,19 +209,19 @@ at fault.
 {{- end -}}
 {{- if $create -}}
 {{- if or (hasKey $auth.config "apiVersion") (hasKey $auth.config "kind") -}}
-{{- fail "apiAuth.config must not carry apiVersion or kind. The chart supplies both, so a copy here renders them twice, and auth.Load refuses duplicate keys -- CWE would crash-loop rather than start. Keep audiences and issuers only. If you are pasting the file from the README, drop its first two lines." -}}
+{{- fail "apiAuth.config must not carry apiVersion or kind. The chart supplies both, so a copy here renders them twice, and auth.Load refuses duplicate keys -- the controller would crash-loop rather than start. Keep audiences and issuers only. If you are pasting the file from the README, drop its first two lines." -}}
 {{- end -}}
 {{- if not $auth.config.audiences -}}
 {{- fail "apiAuth.config.audiences is required and must not be empty. The audience is per-install and has no default; a token minted for one install must fail at another." -}}
 {{- end -}}
 {{- if not $auth.config.issuers -}}
-{{- fail "apiAuth.config.issuers is required and must contain at least one issuer. NKE refuses to start with none, so this would be a crash loop rather than a permissive deployment." -}}
+{{- fail "apiAuth.config.issuers is required and must contain at least one issuer. NVKE refuses to start with none, so this would be a crash loop rather than a permissive deployment." -}}
 {{- end -}}
 {{- $dir := printf "%s/" (include "controller.apiAuth.mountPath" .) -}}
 {{- $configFile := include "controller.apiAuth.configFile" . -}}
 {{- $extra := default dict $auth.configMap.extraFiles -}}
 {{- if hasKey $extra $configFile -}}
-{{- fail (printf "apiAuth.configMap.extraFiles must not contain %q: that key is the configuration file itself, and a second copy of it silently replaces the one rendered from apiAuth.config -- NKE would load whatever is here instead. Put the configuration under apiAuth.config, and use extraFiles only for files it refers to by path." $configFile) -}}
+{{- fail (printf "apiAuth.configMap.extraFiles must not contain %q: that key is the configuration file itself, and a second copy of it silently replaces the one rendered from apiAuth.config -- NVKE would load whatever is here instead. Put the configuration under apiAuth.config, and use extraFiles only for files it refers to by path." $configFile) -}}
 {{- end -}}
 {{- range $auth.config.issuers -}}
 {{- $ca := (default dict .jwks).caBundlePath -}}

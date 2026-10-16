@@ -19,12 +19,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/server"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/server"
 )
 
 // testNicoNodePoolProvider is the nested Forge payload the read fixtures below
@@ -34,7 +34,7 @@ func testNicoNodePoolProvider() *api.NicoNodePoolProvider {
 		SubnetIDs:      []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440002")},
 		InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440003"),
 		SSHKeyGroupIDs: &[]uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-		OSProfile:      "ubuntu",
+		Release:        "ubuntu",
 		ConfigProfile:  "default",
 	}
 }
@@ -63,13 +63,14 @@ func TestNodePoolService_ListNodePools(t *testing.T) {
 					NodeNamePrefix:       "test-pool",
 					SystemReservedMemory: "16Gi",
 					ControlPlane:         false,
-					NodeLabels:           []string{"label1", "label2"},
+					NodeLabels:           map[string]string{"label1": "value1", "label2": "value2"},
+					NodeTaints:           []db.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: "NoSchedule"}},
 					Conditions:           mockDBNodePoolConditions(now),
 					Nico: &db.NicoNodePoolProvider{
 						SubnetIDs:      []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440002")},
 						InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440003"),
 						SSHKeyGroupIDs: []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-						OSProfile:      "ubuntu",
+						Release:        "ubuntu",
 						ConfigProfile:  "default",
 					},
 				},
@@ -83,7 +84,8 @@ func TestNodePoolService_ListNodePools(t *testing.T) {
 					Nico:                 testNicoNodePoolProvider(),
 					SystemReservedMemory: func() *string { s := "16Gi"; return &s }(),
 					ControlPlane:         false,
-					NodeLabels:           []string{"label1", "label2"},
+					NodeLabels:           map[string]string{"label1": "value1", "label2": "value2"},
+					NodeTaints:           []api.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: api.NodeTaintEffectNoSchedule}},
 					Conditions:           mockAPINodePoolConditions(now),
 					TeleportEnabled:      testutil.PtrTo(false),
 				},
@@ -100,13 +102,14 @@ func TestNodePoolService_ListNodePools(t *testing.T) {
 					NodeNamePrefix:       "test-pool",
 					SystemReservedMemory: "16Gi",
 					ControlPlane:         false,
-					NodeLabels:           []string{"label1", "label2"},
+					NodeLabels:           map[string]string{"label1": "value1", "label2": "value2"},
+					NodeTaints:           []db.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: "NoSchedule"}},
 					Conditions:           mockDBNodePoolConditions(now),
 					Nico: &db.NicoNodePoolProvider{
 						SubnetIDs:      []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440002")},
 						InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440003"),
 						SSHKeyGroupIDs: []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-						OSProfile:      "ubuntu",
+						Release:        "ubuntu",
 						ConfigProfile:  "default",
 					},
 				},
@@ -120,7 +123,8 @@ func TestNodePoolService_ListNodePools(t *testing.T) {
 					Nico:                 testNicoNodePoolProvider(),
 					SystemReservedMemory: func() *string { s := "16Gi"; return &s }(),
 					ControlPlane:         false,
-					NodeLabels:           []string{"label1", "label2"},
+					NodeLabels:           map[string]string{"label1": "value1", "label2": "value2"},
+					NodeTaints:           []api.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: api.NodeTaintEffectNoSchedule}},
 					Conditions:           mockAPINodePoolConditions(now),
 					TeleportEnabled:      testutil.PtrTo(false),
 				},
@@ -139,13 +143,14 @@ func TestNodePoolService_ListNodePools(t *testing.T) {
 					NodeNamePrefix:       "test-pool",
 					SystemReservedMemory: "16Gi",
 					ControlPlane:         false,
-					NodeLabels:           []string{"label1", "label2"},
+					NodeLabels:           map[string]string{"label1": "value1", "label2": "value2"},
+					NodeTaints:           []db.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: "NoSchedule"}},
 					Conditions:           mockDBNodePoolConditions(now),
 					Nico: &db.NicoNodePoolProvider{
 						SubnetIDs:      []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440002")},
 						InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440003"),
 						SSHKeyGroupIDs: []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-						OSProfile:      "ubuntu",
+						Release:        "ubuntu",
 						ConfigProfile:  "default",
 					},
 				},
@@ -159,7 +164,8 @@ func TestNodePoolService_ListNodePools(t *testing.T) {
 					Nico:                 testNicoNodePoolProvider(),
 					SystemReservedMemory: func() *string { s := "16Gi"; return &s }(),
 					ControlPlane:         false,
-					NodeLabels:           []string{"label1", "label2"},
+					NodeLabels:           map[string]string{"label1": "value1", "label2": "value2"},
+					NodeTaints:           []api.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: api.NodeTaintEffectNoSchedule}},
 					Conditions:           mockAPINodePoolConditions(now),
 					CurrentNodeSetID:     nil,
 					TeleportEnabled:      testutil.PtrTo(false),
@@ -179,13 +185,14 @@ func TestNodePoolService_ListNodePools(t *testing.T) {
 					NodeNamePrefix:       "test-pool",
 					SystemReservedMemory: "16Gi",
 					ControlPlane:         false,
-					NodeLabels:           []string{"label1", "label2"},
+					NodeLabels:           map[string]string{"label1": "value1", "label2": "value2"},
+					NodeTaints:           []db.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: "NoSchedule"}},
 					Conditions:           mockDBNodePoolConditions(now),
 					Nico: &db.NicoNodePoolProvider{
 						SubnetIDs:      []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440002")},
 						InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440003"),
 						SSHKeyGroupIDs: []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-						OSProfile:      "ubuntu",
+						Release:        "ubuntu",
 						ConfigProfile:  "default",
 					},
 				},
@@ -199,7 +206,8 @@ func TestNodePoolService_ListNodePools(t *testing.T) {
 					Nico:                 testNicoNodePoolProvider(),
 					SystemReservedMemory: func() *string { s := "16Gi"; return &s }(),
 					ControlPlane:         false,
-					NodeLabels:           []string{"label1", "label2"},
+					NodeLabels:           map[string]string{"label1": "value1", "label2": "value2"},
+					NodeTaints:           []api.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: api.NodeTaintEffectNoSchedule}},
 					Conditions:           mockAPINodePoolConditions(now),
 					CurrentNodeSetID:     nil,
 					TeleportEnabled:      testutil.PtrTo(false),
@@ -219,7 +227,7 @@ func TestNodePoolService_ListNodePools(t *testing.T) {
 			mockDB := &mockDB{}
 			mockDB.On("ListNodePools", mock.Anything, tt.filters).Return(tt.dbNodePools, tt.dbError)
 
-			service := server.NewNodePoolService(&slog.Logger{}, mockDB, config.TeleportConfig{}, nil, false)
+			service := server.NewNodePoolService(&slog.Logger{}, mockDB, config.TeleportConfig{}, nil)
 
 			resp, err := service.ListNodePools(context.Background(), api.ListNodePoolsRequestObject{
 				Params: api.ListNodePoolsParams{
@@ -270,10 +278,11 @@ func TestNodePoolService_CreateNodePool(t *testing.T) {
 						InstanceTypeID:           uuid.MustParse("550e8400-e29b-41d4-a716-446655440003"),
 						NvLinkLogicalPartitionID: &nvLinkLogicalPartitionID,
 						SSHKeyGroupIDs:           &[]uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-						OSProfile:                "ubuntu",
+						Release:                  "ubuntu",
 						ConfigProfile:            "default",
 					},
-					NodeLabels:       &[]string{"label1", "label2"},
+					NodeLabels:       map[string]string{"label1": "value1", "label2": "value2"},
+					NodeTaints:       []api.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: api.NodeTaintEffectNoSchedule}},
 					DesiredNodeCount: 3,
 				}
 			}(),
@@ -293,6 +302,8 @@ func TestNodePoolService_CreateNodePool(t *testing.T) {
 					return err == nil &&
 						n.Name == "test-pool" &&
 						n.NodeNamePrefix == "test-pool-prefix" &&
+						assert.ObjectsAreEqual(map[string]string{"label1": "value1", "label2": "value2"}, n.NodeLabels) &&
+						assert.ObjectsAreEqual([]db.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: "NoSchedule"}}, n.NodeTaints) &&
 						nico.NvLinkLogicalPartitionID != nil &&
 						*nico.NvLinkLogicalPartitionID == uuid.MustParse("550e8400-e29b-41d4-a716-446655440006")
 				})).Return(db.NodePool{
@@ -343,7 +354,8 @@ func TestNodePoolService_CreateNodePool(t *testing.T) {
 				Name:             "test-pool",
 				NodeNamePrefix:   "test-pool-prefix",
 				Nico:             testNicoNodePoolProvider(),
-				NodeLabels:       &[]string{"label1", "label2"},
+				NodeLabels:       map[string]string{"label1": "value1", "label2": "value2"},
+				NodeTaints:       []api.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: api.NodeTaintEffectNoSchedule}},
 				DesiredNodeCount: 3,
 			},
 			setupMockCalls: func(tx *mockTx) {
@@ -358,7 +370,10 @@ func TestNodePoolService_CreateNodePool(t *testing.T) {
 				}, nil)
 
 				tx.On("CreateNodePool", mock.Anything, mock.MatchedBy(func(n *db.NodePool) bool {
-					return n.Name == "test-pool" && n.NodeNamePrefix == "test-pool-prefix"
+					return n.Name == "test-pool" &&
+						n.NodeNamePrefix == "test-pool-prefix" &&
+						assert.ObjectsAreEqual(map[string]string{"label1": "value1", "label2": "value2"}, n.NodeLabels) &&
+						assert.ObjectsAreEqual([]db.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: "NoSchedule"}}, n.NodeTaints)
 				})).Return(db.NodePool{}, db.ErrNodePoolNameNotUniqueInCluster)
 			},
 			wantResponseError: true,
@@ -399,10 +414,11 @@ func TestNodePoolService_CreateNodePool(t *testing.T) {
 					VpcPrefixIDs:   []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440005")},
 					InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440003"),
 					SSHKeyGroupIDs: &[]uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-					OSProfile:      "ubuntu",
+					Release:        "ubuntu",
 					ConfigProfile:  "default",
 				},
-				NodeLabels:       &[]string{"label1", "label2"},
+				NodeLabels:       map[string]string{"label1": "value1", "label2": "value2"},
+				NodeTaints:       []api.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: api.NodeTaintEffectNoSchedule}},
 				DesiredNodeCount: 3,
 			},
 			setupMockCalls: func(tx *mockTx) {
@@ -418,7 +434,12 @@ func TestNodePoolService_CreateNodePool(t *testing.T) {
 
 				tx.On("CreateNodePool", mock.Anything, mock.MatchedBy(func(n *db.NodePool) bool {
 					nico, err := n.NicoProvider()
-					return err == nil && n.Name == "test-pool-vpc" && n.NodeNamePrefix == "test-pool-vpc-prefix" && len(nico.VpcPrefixIDs) > 0
+					return err == nil &&
+						n.Name == "test-pool-vpc" &&
+						n.NodeNamePrefix == "test-pool-vpc-prefix" &&
+						len(nico.VpcPrefixIDs) > 0 &&
+						assert.ObjectsAreEqual(map[string]string{"label1": "value1", "label2": "value2"}, n.NodeLabels) &&
+						assert.ObjectsAreEqual([]db.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: "NoSchedule"}}, n.NodeTaints)
 				})).Return(db.NodePool{
 					ID:             nodePoolID,
 					Name:           "test-pool-vpc",
@@ -461,7 +482,7 @@ func TestNodePoolService_CreateNodePool(t *testing.T) {
 
 			mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 
-			service := server.NewNodePoolService(&slog.Logger{}, mockDB, config.TeleportConfig{}, nil, false)
+			service := server.NewNodePoolService(&slog.Logger{}, mockDB, config.TeleportConfig{}, nil)
 
 			resp, err := service.CreateNodePool(context.Background(), api.CreateNodePoolRequestObject{
 				Body: &tt.request,
@@ -520,13 +541,14 @@ func TestNodePoolService_GetNodePool(t *testing.T) {
 				NodeNamePrefix:       "test-pool",
 				SystemReservedMemory: "16Gi",
 				ControlPlane:         false,
-				NodeLabels:           []string{"label1", "label2"},
+				NodeLabels:           map[string]string{"label1": "value1", "label2": "value2"},
+				NodeTaints:           []db.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: "NoSchedule"}},
 				Conditions:           mockDBNodePoolConditions(now),
 				Nico: &db.NicoNodePoolProvider{
 					SubnetIDs:      []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440002")},
 					InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440003"),
 					SSHKeyGroupIDs: []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-					OSProfile:      "ubuntu",
+					Release:        "ubuntu",
 					ConfigProfile:  "default",
 				},
 			},
@@ -538,7 +560,8 @@ func TestNodePoolService_GetNodePool(t *testing.T) {
 				Nico:                 testNicoNodePoolProvider(),
 				SystemReservedMemory: func() *string { s := "16Gi"; return &s }(),
 				ControlPlane:         false,
-				NodeLabels:           []string{"label1", "label2"},
+				NodeLabels:           map[string]string{"label1": "value1", "label2": "value2"},
+				NodeTaints:           []api.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: api.NodeTaintEffectNoSchedule}},
 				Conditions:           mockAPINodePoolConditions(now),
 				TeleportEnabled:      testutil.PtrTo(false),
 			},
@@ -562,7 +585,7 @@ func TestNodePoolService_GetNodePool(t *testing.T) {
 			mockDB := &mockDB{}
 			mockDB.On("GetNodePool", mock.Anything, tt.nodePoolID).Return(tt.dbNodePool, tt.dbError)
 
-			service := server.NewNodePoolService(&slog.Logger{}, mockDB, config.TeleportConfig{}, nil, false)
+			service := server.NewNodePoolService(&slog.Logger{}, mockDB, config.TeleportConfig{}, nil)
 
 			resp, err := service.GetNodePool(context.Background(), api.GetNodePoolRequestObject{
 				NodePoolID: tt.nodePoolID,
@@ -1131,7 +1154,7 @@ func TestNodePoolService_UpdateNodePool(t *testing.T) {
 			).Maybe().Return([]db.NodePool{{ID: nodePoolID}}, nil)
 			mockDB.On("RunInTx", mock.Anything, mock.Anything).Maybe().Return(nil)
 
-			service := server.NewNodePoolService(&slog.Logger{}, mockDB, config.TeleportConfig{}, nil, false)
+			service := server.NewNodePoolService(&slog.Logger{}, mockDB, config.TeleportConfig{}, nil)
 
 			resp, err := service.UpdateNodePool(context.Background(), api.UpdateNodePoolRequestObject{
 				NodePoolID: tt.nodePoolID,
@@ -1200,7 +1223,7 @@ func TestNodePoolService_UpdateNodePool_RejectsPodCIDRCapacityExceeded(t *testin
 	}}, nil)
 	mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 
-	service := server.NewNodePoolService(&slog.Logger{}, mockDB, config.TeleportConfig{}, nil, false)
+	service := server.NewNodePoolService(&slog.Logger{}, mockDB, config.TeleportConfig{}, nil)
 	resp, err := service.UpdateNodePool(context.Background(), api.UpdateNodePoolRequestObject{
 		NodePoolID: nodePoolID,
 		Body: &api.UpdateNodePoolRequest{
@@ -1384,7 +1407,7 @@ func TestNodePoolService_DeleteNodePool(t *testing.T) {
 
 			mockDB.On("RunInTx", mock.Anything, mock.Anything).Return(nil)
 
-			service := server.NewNodePoolService(&slog.Logger{}, mockDB, config.TeleportConfig{}, nil, false)
+			service := server.NewNodePoolService(&slog.Logger{}, mockDB, config.TeleportConfig{}, nil)
 
 			resp, err := service.DeleteNodePool(context.Background(), api.DeleteNodePoolRequestObject{
 				NodePoolID: tt.nodePoolID,

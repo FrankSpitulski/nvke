@@ -26,12 +26,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/internal/auth"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/server"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/internal/auth"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/server"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 // errNoKeys is what the stub key source returns. No key is ever asked for; the
@@ -78,7 +78,7 @@ func newEnforcingTestServer(t *testing.T) http.Handler {
 	require.NoError(t, err)
 
 	mockDB := &testutil.MockDB{}
-	srv, err := server.NewServer(cfg, logger, mockDB, nil, authn)
+	srv, err := server.NewServer(cfg, logger, mockDB, nil, authn, nil)
 	require.NoError(t, err)
 
 	return srv.Handler
@@ -130,7 +130,7 @@ func newPermissiveTestServer(t *testing.T) (http.Handler, *decisions) {
 	mockDB := &testutil.MockDB{}
 	mockDB.On("ListClusters", mock.Anything, mock.Anything).Return([]db.Cluster{}, nil)
 
-	srv, err := server.NewServer(cfg, logger, mockDB, nil, authn)
+	srv, err := server.NewServer(cfg, logger, mockDB, nil, authn, nil)
 	require.NoError(t, err)
 
 	return srv.Handler, recorded
@@ -158,7 +158,7 @@ func TestPermissiveServerServesUnauthenticatedRequests(t *testing.T) {
 func TestEnforcingServerAnonymousRoutes(t *testing.T) {
 	handler := newEnforcingTestServer(t)
 
-	for _, path := range []string{"/openapi.yaml", "/api/version", "/api/docs/", "/docs"} {
+	for _, path := range []string{"/openapi.yaml", "/openapi-public.yaml", "/api/version", "/api/docs/", "/docs"} {
 		t.Run(path, func(t *testing.T) {
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, http.NoBody))
@@ -176,6 +176,29 @@ func TestEnforcingServerAnonymousRoutes(t *testing.T) {
 		assert.Less(t, rr.Code, http.StatusBadRequest)
 		assert.Equal(t, "/api/docs/", rr.Header().Get("Location"))
 	})
+}
+
+// Swagger UI must load the filtered document. The full specification stays at
+// /openapi.yaml for client generators and still answers without a token.
+func TestSwaggerUILoadsThePublicSpecification(t *testing.T) {
+	handler := newEnforcingTestServer(t)
+
+	page := httptest.NewRecorder()
+	handler.ServeHTTP(page, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/docs/", http.NoBody))
+	require.Equal(t, http.StatusOK, page.Code)
+	assert.Contains(t, page.Body.String(), "/openapi-public.yaml")
+
+	public := httptest.NewRecorder()
+	handler.ServeHTTP(public, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/openapi-public.yaml", http.NoBody))
+	require.Equal(t, http.StatusOK, public.Code)
+	assert.Equal(t, "application/yaml", public.Header().Get("Content-Type"))
+	assert.NotContains(t, strings.ToLower(public.Body.String()), "teleport")
+	assert.Contains(t, public.Body.String(), "url: /api")
+
+	full := httptest.NewRecorder()
+	handler.ServeHTTP(full, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/openapi.yaml", http.NoBody))
+	require.Equal(t, http.StatusOK, full.Code)
+	assert.Contains(t, full.Body.String(), "teleportEnabled")
 }
 
 // api.GetSwagger is the authority on what the API is: its Paths enumerate every
@@ -241,7 +264,7 @@ func TestDisabledServerLogsTheManagedByRejection(t *testing.T) {
 	}
 	mockDB := &testutil.MockDB{}
 	// nil authenticator: authentication is absent from the chain entirely.
-	srv, err := server.NewServer(cfg, logger, mockDB, nil, nil)
+	srv, err := server.NewServer(cfg, logger, mockDB, nil, nil, nil)
 	require.NoError(t, err)
 
 	rr := httptest.NewRecorder()

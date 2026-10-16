@@ -4,6 +4,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	_ "embed"
@@ -28,8 +29,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
 )
 
 func validateEtcdEncryption(test *tenantTest) {
@@ -46,7 +48,7 @@ func validateBrownfieldEtcdEncryption(test *tenantTest) {
 			Should(Succeed(), "all desired nodes should be ready before enabling etcd encryption")
 
 		By("Enabling etcd encryption")
-		resp := expectSucceed(test.nke.UpdateEtcdEncryption(ctx, test.cluster.ID, true))
+		resp := expectSucceed(test.nvke.UpdateEtcdEncryption(ctx, test.cluster.ID, true))
 		Expect(resp.StatusCode()).To(Equal(200), string(resp.Body))
 		Expect(resp.JSON200).NotTo(BeNil())
 		cluster := resp.JSON200
@@ -55,7 +57,7 @@ func validateBrownfieldEtcdEncryption(test *tenantTest) {
 		Expect(cluster.Conditions.UpdateInProgress.Type).To(Equal(api.UpdateInProgressTypeEtcdEncryption))
 
 		By("Waiting for etcd encryption enablement to complete")
-		test.cluster = expectSucceed(test.nke.WaitForEtcdEncryptionEnabled(ctx, test.cluster.ID))
+		test.cluster = expectSucceed(test.nvke.WaitForEtcdEncryptionEnabled(ctx, test.cluster.ID))
 		Expect(test.cluster.EtcdEncrypted).To(BeTrue())
 	}, Label("lifecycle", "encryption"), NodeTimeout(15*time.Minute))
 
@@ -63,12 +65,12 @@ func validateBrownfieldEtcdEncryption(test *tenantTest) {
 
 	It("rejects disabling etcd encryption", func(ctx context.Context) {
 		By("Attempting to disable etcd encryption")
-		resp := expectSucceed(test.nke.UpdateEtcdEncryption(ctx, test.cluster.ID, false))
+		resp := expectSucceed(test.nvke.UpdateEtcdEncryption(ctx, test.cluster.ID, false))
 		Expect(resp.StatusCode()).To(Equal(400), string(resp.Body))
 		Expect(resp.JSON400).NotTo(BeNil())
 		Expect(resp.JSON400.Message).To(Equal("disabling etcd encryption is not supported"))
 
-		cluster := expectSucceed(test.nke.GetCluster(ctx, test.cluster.ID))
+		cluster := expectSucceed(test.nvke.GetCluster(ctx, test.cluster.ID))
 		Expect(cluster.EtcdEncrypted).To(BeTrue())
 	}, Label("lifecycle", "encryption"), NodeTimeout(5*time.Minute))
 }
@@ -104,7 +106,7 @@ func validateEtcdEncryptionKeyRotation(test *tenantTest) {
 		Expect(afterKey.activeSince).To(BeNumerically(">", beforeKey.activeSince), "active key timestamp should advance")
 		Expect(afterKey.pending).To(BeFalse(), "pending key should be removed after rotation")
 
-		cluster := expectSucceed(test.nke.GetCluster(ctx, test.cluster.ID))
+		cluster := expectSucceed(test.nvke.GetCluster(ctx, test.cluster.ID))
 		Expect(cluster.EtcdEncrypted).To(BeTrue())
 		Expect(cluster.Conditions.UpdateInProgress).To(BeNil())
 		Expect(cluster.Conditions.UpdateFailed).To(BeNil())
@@ -121,9 +123,9 @@ func validateEtcdEncryptionKeyRotation(test *tenantTest) {
 }
 
 func validateEtcdEncryptionPostDelete(test *tenantTest) {
-	It("removes the CWE etcd encryption key secret during cleanup", func(ctx context.Context) {
+	It("removes the controller etcd encryption key secret during cleanup", func(ctx context.Context) {
 		key := client.ObjectKey{
-			Namespace: envOrDefault("CWE_NAMESPACE", "cloud-workflow-engine"),
+			Namespace: controller.Namespace(),
 			Name:      "etcd-encryption-key-" + test.cluster.ID.String(),
 		}
 		secret := &corev1.Secret{}
@@ -160,7 +162,7 @@ func readEtcdEncryptionKeyState(
 ) (etcdEncryptionKeyState, error) {
 	var secret corev1.Secret
 	if err := c.Get(ctx, client.ObjectKey{
-		Namespace: envOrDefault("CWE_NAMESPACE", "cloud-workflow-engine"),
+		Namespace: controller.Namespace(),
 		Name:      etcdEncryptionKeySecretPrefix + clusterID,
 	}, &secret); err != nil {
 		return etcdEncryptionKeyState{}, fmt.Errorf("getting etcd encryption key secret: %w", err)
@@ -220,18 +222,6 @@ func readKubeAPIServerRestartCounts(ctx context.Context, c client.Client, kubeco
 	return strings.TrimSpace(message), nil
 }
 
-const kubeAPIServerRestartCountScript = `set -eu
-counts="$(kubectl --kubeconfig /kubeconfig/value get pods -n kube-system \
-  -l component=kube-apiserver \
-  -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.status.containerStatuses[?(@.name=="kube-apiserver")].restartCount}{"\n"}{end}' \
-  | sort)"
-if [ -z "$counts" ]; then
-  echo "no kube-apiserver restart counts found" > /dev/termination-log
-  exit 1
-fi
-printf '%s' "$counts" > /dev/termination-log
-`
-
 func runEtcdEncryptionKeyRotation(ctx context.Context, c client.Client, clusterID string) (string, error) {
 	temporalNamespace := envOrDefault("TEMPORAL_K8S_NAMESPACE", "temporal")
 	adminToolsDeployment := envOrDefault("TEMPORAL_ADMIN_TOOLS_DEPLOYMENT", "temporal-admintools")
@@ -276,8 +266,8 @@ func runEtcdEncryptionKeyRotation(ctx context.Context, c client.Client, clusterI
 		{Name: "E2E_CLUSTER_ID", Value: clusterID},
 		{Name: "E2E_WORKFLOW_ID", Value: workflowID},
 		{Name: "E2E_TEMPORAL_ADDRESS", Value: envOrDefault("E2E_TEMPORAL_ADDRESS", "temporal-frontend."+temporalNamespace+".svc.cluster.local:7233")},
-		{Name: "E2E_TEMPORAL_NAMESPACE", Value: envOrDefault("E2E_TEMPORAL_NAMESPACE", "cloud-workflow-engine")},
-		{Name: "E2E_TEMPORAL_TASK_QUEUE", Value: envOrDefault("E2E_TEMPORAL_TASK_QUEUE", "cloud-workflow-engine-tasks")},
+		{Name: "E2E_TEMPORAL_NAMESPACE", Value: envOrDefault("E2E_TEMPORAL_NAMESPACE", "nke-controller")},
+		{Name: "E2E_TEMPORAL_TASK_QUEUE", Value: envOrDefault("E2E_TEMPORAL_TASK_QUEUE", "nke-controller-tasks")},
 	}...)
 
 	if _, _, err := kube.RunPod(ctx, c, pod, adminToolsContainer, 15*time.Minute); err != nil {
@@ -285,23 +275,6 @@ func runEtcdEncryptionKeyRotation(ctx context.Context, c client.Client, clusterI
 	}
 	return workflowID, nil
 }
-
-const etcdEncryptionKeyRotationScript = `set -eu
-if ! temporal workflow execute \
-  --address "$E2E_TEMPORAL_ADDRESS" \
-  --namespace "$E2E_TEMPORAL_NAMESPACE" \
-  --task-queue "$E2E_TEMPORAL_TASK_QUEUE" \
-  --type RotateEtcdEncryptionKey \
-  --workflow-id "$E2E_WORKFLOW_ID" \
-  --input "{\"clusterID\":\"$E2E_CLUSTER_ID\"}" \
-  --execution-timeout 15m \
-  --run-timeout 15m \
-  >/tmp/temporal-output 2>&1; then
-  cat /tmp/temporal-output > /dev/termination-log
-  exit 1
-fi
-printf 'workflow %s completed' "$E2E_WORKFLOW_ID" > /dev/termination-log
-`
 
 func validateKubeadmEncryptionConfig(ctx context.Context, tenantClient client.Client) error {
 	var configMap corev1.ConfigMap
@@ -446,327 +419,19 @@ func runEtcdEncryptionVerifier(ctx context.Context, c client.Client, kubeconfigS
 	return nil
 }
 
-const etcdEncryptionVerifyScript = `set -eu
-kubeconfig_path="${E2E_KUBECONFIG_PATH:-/kubeconfig/value}"
-termination_log="${E2E_TERMINATION_LOG:-/dev/termination-log}"
-secret_name="e2e-etcd-encryption-$(date +%s)"
-plaintext_marker="nke-e2e-plaintext-$secret_name"
-secret_key="/registry/secrets/default/$secret_name"
-raw_value_path="${TMPDIR:-/tmp}/raw-etcd-secret-$secret_name"
-api_servers_path="${TMPDIR:-/tmp}/kube-apiserver-endpoints-$secret_name"
-metrics_raw_path="${TMPDIR:-/tmp}/kube-apiserver-metrics-$secret_name"
-metrics_before_path="${TMPDIR:-/tmp}/kube-apiserver-metrics-before-$secret_name"
-metrics_after_path="${TMPDIR:-/tmp}/kube-apiserver-metrics-after-$secret_name"
-diagnostic_secrets_path="${TMPDIR:-/tmp}/diagnostic-secrets-$secret_name"
-etcd_pod="unknown"
-cleanup() {
-	if [ -f "$diagnostic_secrets_path" ]; then
-		while IFS= read -r diagnostic_secret; do
-			[ -n "$diagnostic_secret" ] || continue
-			kubectl --kubeconfig "$kubeconfig_path" delete secret "$diagnostic_secret" \
-				-n default --ignore-not-found >/dev/null 2>&1 || true
-		done < "$diagnostic_secrets_path"
-	fi
-	rm -f "$raw_value_path" "$api_servers_path" "$metrics_raw_path" \
-		"$metrics_before_path" "$metrics_after_path" "$diagnostic_secrets_path"
-	kubectl --kubeconfig "$kubeconfig_path" delete secret "$secret_name" -n default --ignore-not-found >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
+// The test scripts are embedded for the same reason as the fixtures below.
+//
+//go:embed testdata/kube_apiserver_restart_counts.sh
+var kubeAPIServerRestartCountScript string
 
-secret_write_counts() {
-	api_server="$1"
-	output_path="$2"
-	if ! kubectl --kubeconfig "$kubeconfig_path" --server="$api_server" \
-		--request-timeout=10s get --raw /metrics > "$metrics_raw_path" 2>/dev/null; then
-		rm -f "$metrics_raw_path"
-		return 1
-	fi
+//go:embed testdata/etcd_encryption_key_rotation.sh
+var etcdEncryptionKeyRotationScript string
 
-	# Kubernetes records the transformer used for each write. Reduce the
-	# provider-specific prefix to a provider name so key names never reach logs.
-	if ! awk '
-		/^apiserver_storage_transformation_operations_total\{/ &&
-		/transformation_type="to_storage"/ &&
-		/status="OK"/ {
-			if ($0 ~ /resource="/ && $0 !~ /resource="secrets"/) {
-				next
-			}
-			marker = "transformer_prefix=\""
-			start = index($0, marker)
-			if (start == 0) {
-				next
-			}
-			rest = substr($0, start + length(marker))
-			finish = index(rest, "\"")
-			if (finish == 0) {
-				next
-			}
-			prefix = substr(rest, 1, finish - 1)
-			if (prefix == "") {
-				identity += $2
-			} else if (index(prefix, "k8s:enc:secretbox:v1:") == 1) {
-				secretbox += $2
-			} else if (index(prefix, "k8s:enc:") == 1) {
-				other += $2
-			}
-		}
-		END {
-			printf "identity %.17g\n", identity
-			printf "secretbox %.17g\n", secretbox
-			printf "other %.17g\n", other
-		}
-	' "$metrics_raw_path" > "$output_path"; then
-		rm -f "$metrics_raw_path" "$output_path"
-		return 1
-	fi
-	rm -f "$metrics_raw_path"
-}
+//go:embed testdata/etcd_encryption_verify.sh
+var etcdEncryptionVerifyScript string
 
-provider_delta() {
-	awk '
-		NR == FNR {
-			before[$1] = $2
-			next
-		}
-		$2 > before[$1] {
-			if (providers != "") {
-				providers = providers "+"
-			}
-			providers = providers $1
-		}
-		END {
-			if (providers == "") {
-				providers = "no-observed-transform(config-may-be-absent)"
-			}
-			printf "%s", providers
-		}
-	' "$metrics_before_path" "$metrics_after_path"
-}
-
-effective_write_providers() {
-	api_servers=""
-	if ! api_servers="$(kubectl --kubeconfig "$kubeconfig_path" get pods -n kube-system \
-		-l component=kube-apiserver \
-		-o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.status.podIP}{"\n"}{end}' 2>/dev/null)"; then
-		printf 'unknown'
-		return
-	fi
-	if [ -z "$api_servers" ]; then
-		printf 'unknown'
-		return
-	fi
-
-	printf '%s\n' "$api_servers" | sort > "$api_servers_path"
-	providers=""
-	probe_index=0
-	while IFS='|' read -r api_pod api_ip; do
-		[ -n "$api_pod" ] || continue
-		probe_index=$((probe_index + 1))
-		provider="unknown"
-		if [ -z "$api_ip" ]; then
-			provider="missing-pod-ip"
-		else
-			case "$api_ip" in
-				*:*) api_server="https://[$api_ip]:6443" ;;
-				*) api_server="https://$api_ip:6443" ;;
-			esac
-			diagnostic_secret="${secret_name}-api-${probe_index}"
-			if ! secret_write_counts "$api_server" "$metrics_before_path"; then
-				provider="metrics-before-error"
-			elif ! kubectl --kubeconfig "$kubeconfig_path" --server="$api_server" \
-				--request-timeout=10s create secret generic "$diagnostic_secret" \
-				-n default --from-literal=probe="provider-diagnostic" >/dev/null 2>&1; then
-				provider="write-error"
-			else
-				printf '%s\n' "$diagnostic_secret" >> "$diagnostic_secrets_path"
-				if ! secret_write_counts "$api_server" "$metrics_after_path"; then
-					provider="metrics-after-error"
-				else
-					provider="$(provider_delta)"
-				fi
-			fi
-		fi
-		if [ -n "$providers" ]; then
-			providers="$providers; "
-		fi
-		providers="${providers}${api_pod}=${provider}"
-	done < "$api_servers_path"
-	printf '%s' "${providers:-unknown}"
-}
-
-fail_verification() {
-	reason="$1"
-	providers="$(effective_write_providers)"
-	printf '%s (etcd pod: %s; effective write providers: %s)\n' \
-		"$reason" "$etcd_pod" "$providers" > "$termination_log"
-	exit 1
-}
-
-if ! kubectl --kubeconfig "$kubeconfig_path" create secret generic "$secret_name" \
-	-n default --from-literal=probe="$plaintext_marker" >/dev/null; then
-	fail_verification "failed to create the verifier Secret"
-fi
-
-# items[*], not items[0]: indexing an empty list is an error, so a cluster with
-# no etcd pod took the branch below and reported a failed list. Both causes
-# reached one message and the "no etcd pod" branch was unreachable.
-if ! etcd_pods="$(kubectl --kubeconfig "$kubeconfig_path" get pods -n kube-system \
-	-l component=etcd -o jsonpath='{.items[*].metadata.name}')"; then
-	etcd_pod="unknown"
-	fail_verification "failed to list etcd pods"
-fi
-etcd_pod="${etcd_pods%% *}"
-if [ -z "$etcd_pod" ]; then
-	etcd_pod="unknown"
-	fail_verification "no etcd pod found"
-fi
-
-etcdctl_for_secret() {
-	kubectl --kubeconfig "$kubeconfig_path" exec -n kube-system "$etcd_pod" -c etcd -- \
-		etcdctl \
-			--endpoints=https://127.0.0.1:2379 \
-			--cacert=/etc/kubernetes/pki/etcd/ca.crt \
-			--cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt \
-			--key=/etc/kubernetes/pki/etcd/healthcheck-client.key \
-			get "$secret_key" "$@"
-}
-
-# Keep the binary protobuf value only in a temporary file so the etcdctl exit
-# status can be checked independently from the content checks. The EXIT trap
-# removes the file, and neither the value nor etcdctl stderr is ever logged.
-if ! etcdctl_for_secret --print-value-only > "$raw_value_path" 2>/dev/null; then
-	fail_verification "failed to read the raw etcd Secret value"
-fi
-if [ ! -s "$raw_value_path" ]; then
-	fail_verification "raw etcd Secret key is missing or its value is empty"
-fi
-if grep -a -F -q "$plaintext_marker" "$raw_value_path"; then
-	fail_verification "raw etcd Secret contains the plaintext marker"
-fi
-if ! grep -a -q 'k8s:enc:secretbox:v1:' "$raw_value_path"; then
-	fail_verification "raw etcd Secret does not contain the secretbox encryption prefix"
-fi
-
-echo "raw etcd Secret encryption verified" > "$termination_log"
-`
-
-const fakeEtcdVerifierKubectl = `#!/bin/sh
-set -eu
-args="$*"
-secret_name="unknown"
-api_server=""
-for arg in "$@"; do
-	case "$arg" in
-		/registry/secrets/default/*)
-			secret_name="${arg##*/}"
-			;;
-		--server=*)
-			api_server="${arg#--server=}"
-			;;
-	esac
-done
-
-case "$args" in
-	*" delete secret "*)
-		exit 0
-		;;
-	*" create secret generic "*)
-		if [ -n "$api_server" ]; then
-			case "$api_server" in
-				*10.0.0.10*) server_index=0 ;;
-				*10.0.0.11*) server_index=1 ;;
-				*) exit 98 ;;
-			esac
-			: > "${FAKE_STATE_DIR}/server-${server_index}"
-		fi
-		exit "${FAKE_CREATE_STATUS:-0}"
-		;;
-	*" get --raw /metrics"*)
-		case "$api_server" in
-			*10.0.0.10*)
-				server_index=0
-				provider="${FAKE_PROVIDER_0:-secretbox}"
-				;;
-			*10.0.0.11*)
-				server_index=1
-				provider="${FAKE_PROVIDER_1:-identity}"
-				;;
-			*)
-				exit 97
-				;;
-		esac
-		if [ ! -f "${FAKE_STATE_DIR}/server-${server_index}" ]; then
-			exit 0
-		fi
-		case "$provider" in
-			identity)
-				printf '%s\n' \
-					'apiserver_storage_transformation_operations_total{resource="secrets",status="OK",transformation_type="to_storage",transformer_prefix=""} 1'
-				;;
-			secretbox)
-				printf '%s' "$FAKE_SECRETBOX_METRICS"
-				;;
-			secretbox-legacy)
-				printf '%s' "$FAKE_SECRETBOX_LEGACY_METRICS"
-				;;
-			other)
-				printf '%s\n' \
-					'apiserver_storage_transformation_operations_total{resource="secrets",status="OK",transformation_type="to_storage",transformer_prefix="k8s:enc:aescbc:v1:"} 1' \
-					'apiserver_storage_transformation_operations_total{resource="secrets",status="OK",transformation_type="to_storage",transformer_prefix="nke-key-1:"} 1'
-				;;
-		esac
-		;;
-	*" get pods -n kube-system -l component=etcd "*)
-		if [ "${FAKE_ETCD_LIST_STATUS:-0}" -ne 0 ]; then
-			exit "$FAKE_ETCD_LIST_STATUS"
-		fi
-		# No colon, so an empty FAKE_ETCD_POD models a cluster with no etcd pod
-		# rather than falling back to the default.
-		etcd_pod_out="${FAKE_ETCD_POD-etcd-0}"
-		# Real kubectl treats an out-of-range index as an error, so items[0]
-		# against an empty list exits non-zero instead of printing nothing.
-		# Without this the empty case is indistinguishable from a healthy one.
-		if [ -z "$etcd_pod_out" ]; then
-			case "$args" in
-				*'items[0]'*)
-					printf '%s\n' 'error: array index out of bounds' >&2
-					exit 1
-					;;
-			esac
-		fi
-		printf '%s' "$etcd_pod_out"
-		;;
-	*" get pods -n kube-system -l component=kube-apiserver "*)
-		printf '%s\n' 'kube-apiserver-1|10.0.0.11' 'kube-apiserver-0|10.0.0.10'
-		;;
-	*" --count-only"*)
-		printf '%s\n' 'Error: --count-only is only for --write-out=fields' >&2
-		exit 128
-		;;
-	*" --print-value-only"*)
-		if [ "${FAKE_ETCD_READ_STATUS:-0}" -ne 0 ]; then
-			exit "$FAKE_ETCD_READ_STATUS"
-		fi
-		case "${FAKE_ETCD_VALUE:-encrypted}" in
-			empty)
-				;;
-			encrypted)
-				printf 'binary-prefix-k8s:enc:secretbox:v1:encrypted-payload'
-				;;
-			plaintext)
-				printf 'RAW_SECRET_SENTINEL-nke-e2e-plaintext-%s' "$secret_name"
-				;;
-			unrecognized)
-				printf 'RAW_SECRET_SENTINEL-unrecognized-encoding'
-				;;
-		esac
-		;;
-	*)
-		printf 'unexpected fake kubectl invocation: %s\n' "$args" >&2
-		exit 99
-		;;
-esac
-`
+//go:embed testdata/fake_etcd_verifier_kubectl.sh
+var fakeEtcdVerifierKubectl string
 
 // The CAPD entrypoint copies only the compiled test binary into its inner
 // runner, so captured fixtures must not depend on the process working directory.
@@ -916,19 +581,27 @@ func TestEtcdEncryptionVerifyScript(t *testing.T) {
 		},
 	}
 
+	// One fake kubectl for all subtests, written before any of them forks. Each
+	// subtest used to write its own and exec it at once while its siblings were
+	// forking; a fork can hold another subtest's write descriptor open until it
+	// execs, and the kernel then refuses to run that file (ETXTBSY). The
+	// script's first kubectl call failed exactly that way in CI, twice.
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "kubectl"), []byte(fakeEtcdVerifierKubectl), 0o700); err != nil {
+		t.Fatalf("writing fake kubectl: %v", err)
+	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
 			tempDir := t.TempDir()
-			kubectlPath := filepath.Join(tempDir, "kubectl")
-			if err := os.WriteFile(kubectlPath, []byte(fakeEtcdVerifierKubectl), 0o700); err != nil {
-				t.Fatalf("writing fake kubectl: %v", err)
-			}
 			terminationLogPath := filepath.Join(tempDir, "termination.log")
+			var stderr bytes.Buffer
 			command := exec.CommandContext(t.Context(), "sh", "-c", etcdEncryptionVerifyScript)
+			command.Stderr = &stderr
 			command.Env = append(os.Environ(),
-				"PATH="+tempDir+":"+os.Getenv("PATH"),
+				"PATH="+binDir+":"+os.Getenv("PATH"),
 				"E2E_KUBECONFIG_PATH="+filepath.Join(tempDir, "kubeconfig"),
 				"E2E_TERMINATION_LOG="+terminationLogPath,
 				"TMPDIR="+tempDir,
@@ -943,7 +616,7 @@ func TestEtcdEncryptionVerifyScript(t *testing.T) {
 
 			err := command.Run()
 			if test.wantSuccess && err != nil {
-				t.Fatalf("etcdEncryptionVerifyScript failed: %v", err)
+				t.Fatalf("etcdEncryptionVerifyScript failed: %v; stderr: %q", err, stderr.String())
 			}
 			if !test.wantSuccess && err == nil {
 				t.Fatal("etcdEncryptionVerifyScript succeeded, want failure")
@@ -956,7 +629,7 @@ func TestEtcdEncryptionVerifyScript(t *testing.T) {
 			logText := string(terminationLog)
 			for _, want := range test.wantLogContains {
 				if !strings.Contains(logText, want) {
-					t.Errorf("termination log %q does not contain %q", logText, want)
+					t.Errorf("termination log %q does not contain %q; stderr: %q", logText, want, stderr.String())
 				}
 			}
 			if !test.wantSuccess {
@@ -971,7 +644,7 @@ func TestEtcdEncryptionVerifyScript(t *testing.T) {
 			for _, secretMaterial := range []string{
 				"RAW_SECRET_SENTINEL",
 				"nke-e2e-plaintext-e2e-etcd-encryption-",
-				"nke-key-1",
+				"nvke-key-1",
 			} {
 				if strings.Contains(logText, secretMaterial) {
 					t.Errorf("termination log exposes Secret material %q: %q", secretMaterial, logText)

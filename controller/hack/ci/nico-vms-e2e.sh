@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# nico-vms E2E lane: CWE on kind, CAPNICo from source, nico-vms on the host,
-# tenant nodes as KVM guests booted from the NKE FDE image.
+# nico-vms E2E lane: the controller on kind, CAPNICo from source, nico-vms on the host,
+# tenant nodes as KVM guests booted from the NVKE FDE image.
 #
 # Runs on the host, not in ci/backend-e2e.sh's container: nico-vms needs
 # libvirt, the host bridge and CAP_NET_ADMIN. Tilt runs in the background for
@@ -18,7 +18,7 @@
 #   NKE_E2E_TILT_STALL       fail when no resource changes state for this long (default: 12m)
 #   NKE_E2E_STATE_DIR        diagnostics directory      (default: controller/.local/nico-vms-e2e/<run>)
 #   NKE_E2E_RUN_ID           names the state directory  (default: GITHUB_RUN_ID or local-<pid>)
-#   NKE_E2E_NKECTL_SMOKE     run hack/ci/nkectl-smoke.sh after the suite (default: true)
+#   NKE_E2E_NVKECTL_SMOKE     run hack/ci/nvkectl-smoke.sh after the suite (default: true)
 #   KIND_CLUSTER_NAME        management cluster name    (default: cwe-nico-vms)
 #   NKE_E2E_KEEP             non-empty keeps kind, Tilt and the VMs running on exit
 
@@ -29,10 +29,10 @@ CONTROLLER_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 WORKSPACE_ROOT="$(cd "${CONTROLLER_ROOT}/.." && pwd)"
 # shellcheck source=controller/hack/backend-e2e-lib.sh
 source "${CONTROLLER_ROOT}/hack/backend-e2e-lib.sh"
-# No runner container here, so the smoke runs nkectl on this host. It reads
-# NKECTL_SMOKE_RUNNER being unset as the signal; see its header.
-# shellcheck source=controller/hack/ci/nkectl-smoke.sh
-source "${SCRIPT_DIR}/nkectl-smoke.sh"
+# No runner container here, so the smoke runs nvkectl on this host. It reads
+# NVKECTL_SMOKE_RUNNER being unset as the signal; see its header.
+# shellcheck source=controller/hack/ci/nvkectl-smoke.sh
+source "${SCRIPT_DIR}/nvkectl-smoke.sh"
 cd "${CONTROLLER_ROOT}"
 
 RUN_ID="${NKE_E2E_RUN_ID:-${GITHUB_RUN_ID:-local-$$}}"
@@ -53,16 +53,16 @@ NICO_SIM_DIR="${CONTROLLER_ROOT}/nico-sim"
 E2E_BIN="${STATE_DIR}/cwe-e2e.test"
 E2E_CONFIG="${STATE_DIR}/e2e-config.json"
 E2E_KUBECONFIG="${STATE_DIR}/kubeconfig"
-# What the nkectl smoke needs. BACKEND gates its write round trip to CAPD, so
+# What the nvkectl smoke needs. BACKEND gates its write round trip to CAPD, so
 # this lane runs the read paths, negatives and provider checks only.
-# NKECTL_SMOKE_RUNNER stays unset, which is how the smoke knows to run the CLI
+# NVKECTL_SMOKE_RUNNER stays unset, which is how the smoke knows to run the CLI
 # on this host.
-NKECTL_SMOKE="${NKE_E2E_NKECTL_SMOKE:-true}"
-NKECTL_BIN="${STATE_DIR}/nkectl"
-NKECTL_SMOKE_KUBECONFIG="${E2E_KUBECONFIG}"
+NVKECTL_SMOKE="${NKE_E2E_NVKECTL_SMOKE:-true}"
+NVKECTL_BIN="${STATE_DIR}/nvkectl"
+NVKECTL_SMOKE_KUBECONFIG="${E2E_KUBECONFIG}"
 TMP_DIR="${STATE_DIR}"
 BACKEND=nico-vms
-# CWE runs with NKE_OIDC_AUTH_ENABLED here, so the smoke's no-token control is
+# The controller runs with OIDC enabled here, so the smoke's no-token control is
 # valid: a call without a token must fail.
 export NKE_E2E_REQUIRE_AUTHN=true
 TILT_PGID=""
@@ -202,12 +202,16 @@ guest_diagnostics() {
         set +e
         echo "=== cloud-init ==="; cloud-init status --long 2>&1
         echo "=== cloud-init-output.log (last 200) ==="; tail -n 200 /var/log/cloud-init-output.log 2>&1
-        echo "=== units ==="; systemctl --no-pager --no-legend list-units "nke-agent*" "spire-agent*" kubelet containerd 2>&1
-        echo "=== /etc/default/nke-agent ==="; cat /etc/default/nke-agent 2>&1
-        echo "=== nke-agent binary ==="; ls -l /usr/local/bin/nke-agent 2>&1; /usr/local/bin/nke-agent -version 2>&1
+        echo "=== units ==="; systemctl --no-pager --no-legend list-units "nvke-agent*" "spire-agent*" kubelet containerd 2>&1
+        echo "=== /etc/default/nvke-agent ==="; cat /etc/default/nvke-agent 2>&1
+        echo "=== nvke-agent binary ==="; ls -l /usr/local/bin/nvke-agent 2>&1; /usr/local/bin/nvke-agent -version 2>&1
         echo "=== listening ==="; ss -ltnp 2>&1
         echo "=== network ==="; ip -brief address 2>&1; ip route show 2>&1; cat /etc/resolv.conf 2>&1
-        echo "=== journal: nke-agent spire-agent kubelet containerd (last 400) ==="; journalctl --no-pager -n 400 -u nke-agent -u spire-agent -u kubelet -u containerd 2>&1
+        echo "=== journal: nvke-agent spire-agent kubelet containerd (last 400) ==="; journalctl --no-pager -n 400 -u nvke-agent -u spire-agent -u kubelet -u containerd 2>&1
+        echo "=== ovnkube containers (last 80 lines each) ==="
+        for c in $(crictl --runtime-endpoint unix:///run/containerd/containerd.sock ps -a --name ovn -q 2>/dev/null); do
+          echo "--- $c ---"; crictl --runtime-endpoint unix:///run/containerd/containerd.sock logs --tail 80 "$c" 2>&1
+        done
         echo "=== kubeadm ==="; ls -la /etc/kubernetes 2>&1; cat /etc/kubernetes/kubelet.conf >/dev/null 2>&1 && echo kubelet.conf present
         echo "=== disk ==="; df -h / 2>&1; lsblk -o NAME,TYPE,FSTYPE,SIZE,MOUNTPOINTS 2>&1
         echo "=== dmesg (last 60) ==="; dmesg 2>&1 | tail -n 60
@@ -232,12 +236,13 @@ collect_diagnostics() {
   set +e
   mkdir -p "${STATE_DIR}"
   stop_state_monitor
+  cp "${CONTROLLER_ROOT}/test/e2e/tenant-diagnostics.json" "${STATE_DIR}/" 2>/dev/null
 
   if kubectl cluster-info >/dev/null 2>&1; then
     capture management-nodes.txt kubectl get nodes -o wide
     capture management-pods.txt kubectl get pods -A -o wide
     capture management-events.txt kubectl get events -A --sort-by=.lastTimestamp
-    capture cwe.log kubectl -n cloud-workflow-engine logs deployment/cloud-workflow-engine --all-containers --tail=-1
+    capture cwe.log kubectl -n nke-controller logs deployment/nke-controller --all-containers --tail=-1
     capture capnico-controller.log kubectl -n capnico-system logs deployment/controller-manager --all-containers --tail=-1
     capture capi-controller.log kubectl -n capi-system logs deployment/capi-controller-manager --all-containers --tail=-1
     capture capi-kubeadm-bootstrap-controller.log kubectl -n capi-kubeadm-bootstrap-system logs deployment/capi-kubeadm-bootstrap-controller-manager --all-containers --tail=-1
@@ -250,7 +255,7 @@ collect_diagnostics() {
     capture tilt-engine.json tilt_cmd dump engine
     tilt_cmd snapshot create "${STATE_DIR}/tilt-snapshot.json" >/dev/null 2>&1 || true
     # Through the port-forward Tilt still holds open.
-    if token="$(hack/nke-token.sh 2>/dev/null)"; then
+    if token="$(hack/nvke-token.sh 2>/dev/null)"; then
       curl -fsS --max-time 10 ${token:+-H "Authorization: Bearer ${token}"} \
         http://localhost:8080/api/clusters >"${STATE_DIR}/cwe-clusters.json" 2>&1 || true
     fi
@@ -328,6 +333,7 @@ CAPNICO_SOURCE_DIR="${CAPNICO_SOURCE_DIR:-}"
 [[ -d "${CAPNICO_SOURCE_DIR}/config/default" ]] || fail "${CAPNICO_SOURCE_DIR} is not a cluster-api-provider-nico checkout (config/default is missing)"
 export CAPNICO_SOURCE_DIR
 
+# Kept as cwebr0 until a follow-up rename: changing it leaves the old bridge behind on existing nico-vms hosts.
 BRIDGE_NAME="${NICO_VMS_BRIDGE_NAME:-cwebr0}"
 ip link show "${BRIDGE_NAME}" >/dev/null 2>&1 ||
   fail "bridge ${BRIDGE_NAME} does not exist; run test/kubeadm/scripts/setup-ci-host.sh with NKE_CI_HOST_FDE=true first"
@@ -357,7 +363,15 @@ export CNPG_CLOUD_PASSWORD="${CNPG_CLOUD_PASSWORD:-example-password}"
 export CNPG_TEMPORAL_PASSWORD="${CNPG_TEMPORAL_PASSWORD:-example-password}"
 export TENANT_ACCESS_ENABLED=true
 export NKE_OIDC_AUTH_ENABLED=true
-export CWE_PROFILES_DIR="${CWE_PROFILES_DIR:-${CONTROLLER_ROOT}/test/fixtures/profiles}"
+# Config profiles and runbooks only. OS images come from the releases below.
+# CWE_PROFILES_DIR is the deprecated name for NKE_CONTROLLER_PROFILES_DIR; #1399 removes it.
+export NKE_CONTROLLER_PROFILES_DIR="${NKE_CONTROLLER_PROFILES_DIR:-${CWE_PROFILES_DIR:-${CONTROLLER_ROOT}/test/fixtures/profiles}}"
+RELEASES_SRC="${NKE_CONTROLLER_RELEASES_DIR:-${CONTROLLER_ROOT}/test/fixtures/releases}"
+[[ -d "${RELEASES_SRC}" ]] || fail "releases not found at ${RELEASES_SRC}"
+export NKE_CONTROLLER_RELEASES_DIR="${STATE_DIR}/releases"
+rm -rf "${NKE_CONTROLLER_RELEASES_DIR}"
+mkdir -p "${NKE_CONTROLLER_RELEASES_DIR}"
+cp -R "${RELEASES_SRC}/." "${NKE_CONTROLLER_RELEASES_DIR}/"
 # Inherited by Tilt's serve_cmd. -1 skips the console SSH listener; :2222 taken is fatal.
 export NICO_VMS_CONSOLE_SSH_PORT="${NICO_VMS_CONSOLE_SSH_PORT:--1}"
 export NICO_VMS_LIBVIRT_URI="${LIBVIRT_URI}"
@@ -373,24 +387,24 @@ case "$(uname -m)" in
 esac
 
 # ── The agent the tenant nodes run ──────────────────────────────────────────
-# The OS profile's userData apt-installs nke-agent from the bundle server, then
-# replaces it with http://carbide-pxe.forge:18080/files/node-agent/nke-agent
+# The release's userData apt-installs nvke-agent from the bundle server, then
+# replaces it with http://carbide-pxe.forge:18080/files/node-agent/nvke-agent
 # when that URL answers -- and silently keeps the packaged one otherwise. Build
 # it from this checkout and stage it at the path the template names. The file
 # root is set explicitly: the default sits beside the database in .dev/, which
 # this script wipes.
 export NICO_SIM_FILES_DIR="${NICO_SIM_DIR}/var/files"
 # nico-sim boots guests of the host's architecture, so the specs use the
-# matching profile. Keep this name in step with nicoVMSOSProfile in
+# matching release. Keep this name in step with nicoVMSRelease in
 # test/e2e/tenant_test.go.
-OS_PROFILE="nke-nico-vms-24.04-${host_arch}-fde"
-AGENT_URL_PATH="$(grep -oE 'files/[a-z-]+/nke-agent' "${CWE_PROFILES_DIR}/osProfiles/${OS_PROFILE}/userData.tmpl" | head -1)"
-[[ -n "${AGENT_URL_PATH}" ]] || fail "${OS_PROFILE} no longer downloads nke-agent from /files/"
-log "building nke-agent from ${WORKSPACE_ROOT}/agent"
+NODEPOOL_RELEASE="nvke-nico-vms-24.04-${host_arch}-fde"
+AGENT_URL_PATH="$(grep -oE 'files/[a-z-]+/nvke-agent' "${NKE_CONTROLLER_RELEASES_DIR}/${NODEPOOL_RELEASE}-nodepoolrelease.yaml" | head -1)"
+[[ -n "${AGENT_URL_PATH}" ]] || fail "${NODEPOOL_RELEASE} no longer downloads nvke-agent from /files/"
+log "building nvke-agent from ${WORKSPACE_ROOT}/agent"
 make -C "${WORKSPACE_ROOT}/agent" "build-${host_arch}" >"${STATE_DIR}/agent-build.log" 2>&1 ||
-  { tail -n 50 "${STATE_DIR}/agent-build.log" >&2; fail "building nke-agent failed"; }
-install -D -m 0755 "${WORKSPACE_ROOT}/agent/bin/linux_${host_arch}/nke-agent" "${NICO_SIM_FILES_DIR}/${AGENT_URL_PATH#files/}"
-log "staged nke-agent for the tenant nodes: $(git -C "${WORKSPACE_ROOT}" describe --match 'agent/v*' --tags --always 2>/dev/null || echo unknown)"
+  { tail -n 50 "${STATE_DIR}/agent-build.log" >&2; fail "building nvke-agent failed"; }
+install -D -m 0755 "${WORKSPACE_ROOT}/agent/bin/linux_${host_arch}/nvke-agent" "${NICO_SIM_FILES_DIR}/${AGENT_URL_PATH#files/}"
+log "staged nvke-agent for the tenant nodes: $(git -C "${WORKSPACE_ROOT}" describe --match 'agent/v*' --tags --always 2>/dev/null || echo unknown)"
 
 # ── The node image the tenant VMs boot ──────────────────────────────────────
 # Set NKE_E2E_OS_IMAGE_TAG to pin one image. Unset, the newest published one
@@ -401,24 +415,36 @@ log "staged nke-agent for the tenant nodes: $(git -C "${WORKSPACE_ROOT}" describ
 # copies a local path straight into its image cache. See localImagePath and
 # copyLocal in nico-sim/internal/ipxe/imagecache.go, whose own comment gives
 # the reason -- an image built in the same job is already on disk.
-# The newest tag GHCR holds for this architecture. Registry tag order is not
-# chronological and sha-<hex> carries no ordering, so this reads updated_at
-# from the packages API. The -<arch> suffix comes off, because image_ref adds
-# it back.
+# The newest tag GHCR holds for this architecture, built from a commit on the
+# branch under test. Registry tag order is not chronological and sha-<hex>
+# carries no ordering, so this reads updated_at from the packages API. PR
+# builds publish here too, so a tag counts only if its commit is an ancestor
+# of HEAD (the checkout has fetch-depth 0). Flavor tags (-ubuntu24.04-) are
+# skipped. The -<arch> suffix comes off, because image_ref adds it back.
 newest_os_image_tag() {
-  local arch="$1" repo path org pkg
+  local arch="$1" repo path org pkg tag sha
   # Keep this in step with image_repo below: both lanes booted an LVM image
   # before this, and -fde is a different boot path that has to unlock first.
-  repo="${NKE_E2E_OS_IMAGE_REPO:-ghcr.io/dsx-ai-factory/nke/os-image-non-fde}"
+  repo="${NKE_E2E_OS_IMAGE_REPO:-ghcr.io/dsx-ai-factory/nvke/os-image-non-fde}"
   path="${repo#ghcr.io/}"
   org="${path%%/*}"
   pkg="${path#*/}"
-  gh api --paginate \
+  while read -r tag; do
+    sha="${tag#sha-}"
+    sha="${sha%%-*}"
+    if ! git -C "${WORKSPACE_ROOT}" merge-base --is-ancestor "${sha}" HEAD 2>/dev/null; then
+      log "skipping os-image ${tag}: commit ${sha:0:9} is not on this branch" >&2
+      continue
+    fi
+    printf '%s\n' "${tag%-"${arch}"}"
+    return 0
+  done < <(gh api --paginate \
       "/orgs/${org}/packages/container/${pkg//\//%2F}/versions?per_page=100" \
-      --jq '.[] | {u: .updated_at, t: (.metadata.container.tags // [])[]}' 2>/dev/null |
+      --jq '(if type == "array" then . else [] end)[] | {u: .updated_at, t: (.metadata.container.tags // [])[]}' 2>/dev/null |
     jq -rs --arg a "-${arch}" \
-      'map(select(.t | endswith($a))) | sort_by(.u) | last | .t // empty' |
-    sed "s/-${arch}\$//"
+      'map(select(.t | startswith("sha-") and endswith($a) and (contains("-ubuntu") | not)))
+       | sort_by(.u) | reverse | .[].t')
+  return 1
 }
 
 os_image_tag_pinned=no
@@ -430,14 +456,14 @@ if [[ -z "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
   # depend on it. Stopping here costs a minute; falling back spends the whole
   # run to arrive somewhere we have decided not to go.
   [[ -n "${NKE_E2E_OS_IMAGE_TAG}" ]] ||
-    fail "no os-image published for ${host_arch}. Build one with os-image-artifact.yml, or set NKE_E2E_OS_IMAGE_TAG."
+    fail "no os-image built from this branch is published for ${host_arch}. Build one with os-image-artifact.yml, or set NKE_E2E_OS_IMAGE_TAG."
   log "newest published os-image for ${host_arch}: ${NKE_E2E_OS_IMAGE_TAG}"
 fi
 
 if [[ -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
   command -v oras >/dev/null 2>&1 ||
     fail "NKE_E2E_OS_IMAGE_TAG is set but oras is not on PATH"
-  image_repo="${NKE_E2E_OS_IMAGE_REPO:-ghcr.io/dsx-ai-factory/nke/os-image-non-fde}"
+  image_repo="${NKE_E2E_OS_IMAGE_REPO:-ghcr.io/dsx-ai-factory/nvke/os-image-non-fde}"
   image_ref="${image_repo}:${NKE_E2E_OS_IMAGE_TAG}-${host_arch}"
   image_dir="${STATE_DIR}/os-image"
   rm -rf "${image_dir}"
@@ -472,67 +498,80 @@ if [[ -n "${NKE_E2E_OS_IMAGE_TAG:-}" ]]; then
     fail "${image_ref} carried ${#pulled[@]} qcow2 files, expected exactly 1"
   qcow="${pulled[0]}"
 
-  # Repoint every profile that names a real image. Counted, because a profile
-  # that stopped carrying an image-url would otherwise leave the CloudFront pin
-  # in place and the lane would quietly test the wrong thing.
+  # Repoint every MachineImage that names a real image. Counted, because an
+  # image that stopped carrying an image-url would otherwise leave the CloudFront
+  # pin in place and the lane would quietly test the wrong thing. The script is a
+  # YAML block scalar, so the line keeps its indentation.
   repointed=0
-  for script in "${CWE_PROFILES_DIR}"/osProfiles/*/ipxeScript; do
-    grep -q '^set image-url ' "${script}" || continue
+  for manifest in "${NKE_CONTROLLER_RELEASES_DIR}"/*-machineimage.yaml; do
+    grep -Eq '^ +set image-url ' "${manifest}" || continue
     # Not sed -i: it takes an argument on BSD and none on GNU, and this script
     # is run by hand on both.
-    awk -v img="${qcow}" '/^set image-url / { print "set image-url " img; next } { print }' \
-      "${script}" >"${script}.new" && mv "${script}.new" "${script}"
+    awk -v img="${qcow}" '
+      /^ +set image-url / { match($0, /^ +/); print substr($0, 1, RLENGTH) "set image-url " img; next }
+      { print }' "${manifest}" >"${manifest}.new" && mv "${manifest}.new" "${manifest}"
     repointed=$(( repointed + 1 ))
   done
   (( repointed > 0 )) ||
-    fail "no osProfile ipxeScript carries a 'set image-url' line to repoint"
-  # Every profile file, not just the ipxeScript. The bundle server sat in
+    fail "no MachineImage iPXE script carries a 'set image-url' line to repoint"
+  # Every releases manifest, not just the ipxeScript. The bundle server sat in
   # userData.tmpl and this check used to walk straight past it, so the lane
   # reported "no CloudFront left" while still shipping a CloudFront URL to
   # every node it created.
-  if grep -rl cloudfront.net "${CWE_PROFILES_DIR}" 2>/dev/null; then
-    fail "the profile file(s) listed above still name CloudFront after repointing"
+  if grep -rl cloudfront.net "${NKE_CONTROLLER_RELEASES_DIR}" 2>/dev/null; then
+    fail "the manifest(s) listed above still name CloudFront after repointing"
   fi
-  log "tenant nodes boot ${qcow} (${repointed} profile(s) repointed, no CloudFront left)"
+  log "tenant nodes boot ${qcow} (${repointed} image(s) repointed, no CloudFront left)"
 fi
 
 # A previous run's database, instances and logs would confuse this one.
 rm -rf "${NICO_SIM_DIR}/.dev"
 
 # ── Images Tilt must not build ──────────────────────────────────────────────
-# Tilt's own CWE build watches bin/ and rewrites bin/cloud-workflow-engine, so
+# Tilt's own controller build watches bin/ and rewrites bin/cloud-workflow-engine, so
 # it re-queues itself forever. Prebuild both images, as ci/backend-e2e.sh does.
 git_sha="$(git -C "${WORKSPACE_ROOT}" rev-parse HEAD)"
 git_short_sha="$(git -C "${WORKSPACE_ROOT}" rev-parse --short=12 HEAD)"
-CWE_IMAGE="cwe-e2e:${git_short_sha}"
-CWE_BUILD_VERSION="e2e-${git_short_sha}"
-CWE_PROFILES_TILT_IMAGE="docker.local/cwe-profiles:tilt"
+NKE_CONTROLLER_IMAGE="cwe-e2e:${git_short_sha}"
+NKE_CONTROLLER_BUILD_VERSION="e2e-${git_short_sha}"
+NKE_CONTROLLER_PROFILES_TILT_IMAGE="docker.local/cwe-profiles:tilt"
 
-log "building the profiles fixture image ${CWE_PROFILES_TILT_IMAGE}"
-docker build --platform "linux/${host_arch}" \
-  --file test/fixtures/Dockerfile --tag "${CWE_PROFILES_TILT_IMAGE}" test/fixtures \
+# Both host builds pull their bases through the mirror; see dockerhub_build_args.
+log "building the profiles fixture image ${NKE_CONTROLLER_PROFILES_TILT_IMAGE}"
+mapfile -t profiles_build_args < <(dockerhub_build_args test/fixtures/Dockerfile)
+docker build --platform "linux/${host_arch}" "${profiles_build_args[@]}" \
+  --file test/fixtures/Dockerfile --tag "${NKE_CONTROLLER_PROFILES_TILT_IMAGE}" test/fixtures \
   >"${STATE_DIR}/profiles-image-build.log" 2>&1 ||
   { tail -n 40 "${STATE_DIR}/profiles-image-build.log" >&2; fail "building the profiles image failed"; }
 
-log "building the controller image ${CWE_IMAGE}"
-DOCKER_BUILDKIT=1 docker build --platform "linux/${host_arch}" \
+log "building the controller image ${NKE_CONTROLLER_IMAGE}"
+mapfile -t cwe_build_args < <(dockerhub_build_args "${CONTROLLER_ROOT}/Dockerfile")
+DOCKER_BUILDKIT=1 docker build --platform "linux/${host_arch}" "${cwe_build_args[@]}" \
   --file "${CONTROLLER_ROOT}/Dockerfile" \
-  --build-arg "BUILD_VERSION=${CWE_BUILD_VERSION}" \
+  --build-arg "BUILD_VERSION=${NKE_CONTROLLER_BUILD_VERSION}" \
   --build-arg "GIT_VERSION=${git_sha}" \
-  --tag "${CWE_IMAGE}" "${WORKSPACE_ROOT}" \
+  --tag "${NKE_CONTROLLER_IMAGE}" "${WORKSPACE_ROOT}" \
   >"${STATE_DIR}/cwe-image-build.log" 2>&1 ||
   { tail -n 60 "${STATE_DIR}/cwe-image-build.log" >&2; fail "building the controller image failed"; }
-export CWE_PROFILES_PRELOADED=true
+export NKE_CONTROLLER_PROFILES_PRELOADED=true
 
 # ── Management cluster: kind + CAPI core ────────────────────────────────────
 log "creating the kind management cluster ${KIND_CLUSTER_NAME} with CAPI core"
 KIND_CLUSTER_OWNED=true
-make -C "${CONTROLLER_ROOT}" capi-core-up KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}"
+# With a Docker Hub mirror set, the node image, the node's own containerd and
+# the pull-through cache image all go through it, as in the backend lanes. The
+# node first, so nothing capi-core-up starts pulls from Docker Hub directly.
+kind_config_for_mirror hack/controller-capi-kind.yaml "${STATE_DIR}/kind-config.yaml"
+make -C "${CONTROLLER_ROOT}" kind-up KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" \
+  KIND_CLUSTER_CONFIG="${STATE_DIR}/kind-config.yaml"
+configure_kind_dockerhub_mirror "${KIND_CLUSTER_NAME}"
+make -C "${CONTROLLER_ROOT}" capi-core-up KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" \
+  REGISTRY_MIRROR_IMAGE="$(dockerhub_image registry:2)"
 kind get kubeconfig --name "${KIND_CLUSTER_NAME}" >"${E2E_KUBECONFIG}"
-log "loading ${CWE_IMAGE} and ${CWE_PROFILES_TILT_IMAGE} into the kind cluster"
-kind load docker-image --name "${KIND_CLUSTER_NAME}" "${CWE_IMAGE}" "${CWE_PROFILES_TILT_IMAGE}"
+log "loading ${NKE_CONTROLLER_IMAGE} and ${NKE_CONTROLLER_PROFILES_TILT_IMAGE} into the kind cluster"
+kind load docker-image --name "${KIND_CLUSTER_NAME}" "${NKE_CONTROLLER_IMAGE}" "${NKE_CONTROLLER_PROFILES_TILT_IMAGE}"
 
-# ── Tilt: CWE, SPIRE, nico-vms, CAPNICo ─────────────────────────────────────
+# ── Tilt: controller, SPIRE, nico-vms, CAPNICo ─────────────────────────────────────
 # No site_controller_vip: the kind node's container address is not routable
 # from the VM bridge (SPIRE dials time out). Without the override the Tiltfile
 # binds the SPIRE and OIDC NodePorts on the kind gateway with port-forwards,
@@ -546,7 +585,7 @@ else
 fi
 jq -n \
   --arg capnico "${CAPNICO_SOURCE_DIR}" \
-  --arg cwe_image "${CWE_IMAGE}" \
+  --arg cwe_image "${NKE_CONTROLLER_IMAGE}" \
   '{
     providers: ["capi_core", "nico"],
     cwe_image: $cwe_image,
@@ -618,22 +657,34 @@ wait_for_tilt() {
 }
 wait_for_tilt
 
-kubectl -n cloud-workflow-engine rollout status deployment/cloud-workflow-engine --timeout=5m
-for env_name in TENANT_ACCESS_ENABLED NKE_OIDC_AUTH_ENABLED; do
-  env_value="$(kubectl -n cloud-workflow-engine get deployment/cloud-workflow-engine \
-    -o "jsonpath={.spec.template.spec.containers[0].env[?(@.name==\"${env_name}\")].value}")"
-  [[ "${env_value}" == "true" ]] || fail "${env_name} must be true in the CWE deployment, got ${env_value:-<empty>}"
+kubectl -n nke-controller rollout status deployment/nke-controller --timeout=5m
+# Tilt passes both as chart values, which the chart renders into nke-controller-config.
+for setting in tenantAccess.enabled nvkeOIDCAuth.enabled; do
+  value="$(helm -n nke-controller get values nke-controller --all -o json | jq -r ".${setting}")"
+  [[ "${value}" == "true" ]] || fail "${setting} must be true in the nke-controller release, got ${value:-<empty>}"
 done
 kubectl -n capnico-system rollout status deployment/controller-manager --timeout=5m
 curl -fsS --max-time 5 http://localhost:18080/healthz >/dev/null || fail "nico-vms does not answer on localhost:18080"
 curl -fsS --max-time 5 "http://localhost:18080/${AGENT_URL_PATH}" >/dev/null ||
-  fail "nico-vms does not serve the branch-built nke-agent at /${AGENT_URL_PATH}"
-log "management plane is up: CWE, CAPNICo and nico-vms all answer"
+  fail "nico-vms does not serve the branch-built nvke-agent at /${AGENT_URL_PATH}"
+log "management plane is up: the controller, CAPNICo and nico-vms all answer"
 
 # ── The suite ───────────────────────────────────────────────────────────────
 # Through go.work: dependencies resolve from public modules and the Go cache.
 log "compiling the E2E suite"
-(cd test/e2e && CGO_ENABLED=0 go test -c -o "${E2E_BIN}" .)
+# `|` makes go fall back to a direct fetch on any proxy error; the default
+# `,` only does so on 404/410. See the same block in backend-e2e.sh.
+export GOPROXY="${GOPROXY:-https://proxy.golang.org|direct}"
+e2e_built=false
+for attempt in 1 2 3; do
+  if (cd test/e2e && CGO_ENABLED=0 go test -c -o "${E2E_BIN}" .); then
+    e2e_built=true
+    break
+  fi
+  log "E2E compile attempt ${attempt} failed"
+  sleep $((attempt * 20))
+done
+[[ "${e2e_built}" == true ]] || fail "compiling the E2E suite failed three times"
 
 jq -n \
   --arg kubeconfig "${E2E_KUBECONFIG}" \
@@ -652,8 +703,8 @@ test_timeout="$((ginkgo_minutes + 15))m"
 log "running E2E specs matching ${LABEL_FILTER} (ginkgo timeout ${GINKGO_TIMEOUT})"
 start_state_monitor
 set +e
-env CWE_PROFILES_DIR="${CONTROLLER_ROOT}/test/fixtures/fleet-profiles" \
-  CWE_EXPECTED_VERSION="${CWE_BUILD_VERSION}" \
+env NKE_CONTROLLER_RELEASES_DIR="${CONTROLLER_ROOT}/test/fixtures/fleet-releases" \
+  NKE_CONTROLLER_EXPECTED_VERSION="${NKE_CONTROLLER_BUILD_VERSION}" \
   "${E2E_BIN}" \
   -test.v \
   -test.timeout="${test_timeout}" \
@@ -682,9 +733,9 @@ fi
 log "nico-vms E2E passed: ${LABEL_FILTER}"
 
 # After the suite, like the CAPD and NICo lanes: drive the real binary against
-# the CWE this lane deployed. Called bare so errexit and the EXIT trap turn a
+# the controller this lane deployed. Called bare so errexit and the EXIT trap turn a
 # non-zero into a failed job with diagnostics intact.
-if [[ "${NKECTL_SMOKE}" == "true" ]]; then
-  nkectl_smoke_build "$(go env GOARCH)"
-  nkectl_smoke
+if [[ "${NVKECTL_SMOKE}" == "true" ]]; then
+  nvkectl_smoke_build "$(go env GOARCH)"
+  nvkectl_smoke
 fi

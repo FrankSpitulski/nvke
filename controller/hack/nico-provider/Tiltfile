@@ -52,7 +52,7 @@ def _register_node_image(ctx, labels):
         agent_dir = os.path.abspath(os.path.join(ctx.main_dir, agent_dir))
     local_agent_available = os.path.exists(os.path.join(agent_dir, "Makefile"))
     if configured_agent_dir and not local_agent_available:
-        fail("node_agent_source_dir does not contain an NKE agent checkout: %s" % agent_dir)
+        fail("node_agent_source_dir does not contain an NVKE agent checkout: %s" % agent_dir)
     dsx_imds_enabled = "dsx-imds-attestation" in ctx.provider_names
     dsx_imds_agent_plugin = os.path.join(
         ctx.main_dir,
@@ -241,17 +241,14 @@ def register(ctx):
     cwe_resource_deps = sim_result.cwe_resource_deps + [CAPNICO_CREDENTIALS_RESOURCE]
     cwe_env_overrides = {}
     cwe_env_overrides.update(sim_result.cwe_env_overrides)
-    if not use_nico_sim:
-        cwe_env_overrides.update({
-            "SPIFFE_ENABLED": "true",
-        })
 
-    cwe_http_port = os.getenv("CWE_HTTP_PORT", "8080")
+    # CWE_HTTP_PORT is a deprecated alias for NKE_CONTROLLER_HTTP_PORT; #1399 removes it.
+    cwe_http_port = os.getenv("NKE_CONTROLLER_HTTP_PORT", "") or os.getenv("CWE_HTTP_PORT", "") or "8080"
     cmd_button(
         "5-create-sample-local-nico-cluster",
         argv=["bash", "-c", """
           set -euo pipefail
-          CWE_HTTP_PORT="%s" \
+          NKE_CONTROLLER_HTTP_PORT="%s" \
           CLUSTER_NAME="${CLUSTER_NAME:-nico-local}" \
           KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.34.2}" \
           CONTROL_PLANE_DESIRED_COUNT="${CONTROL_PLANE_DESIRED_COUNT:-1}" \
@@ -262,10 +259,10 @@ def register(ctx):
         icon_name="add_box",
         text="Create sample local NICo cluster",
         inputs=[
-            text_input("CLUSTER_NAME", default="nico-local"),
-            text_input("KUBERNETES_VERSION", default="1.34.2"),
-            text_input("CONTROL_PLANE_DESIRED_COUNT", default="1"),
-            text_input("WORKER_DESIRED_COUNT", default="0"),
+            text_input("CLUSTER_NAME", label="Cluster name", default="nico-local"),
+            text_input("KUBERNETES_VERSION", label="Kubernetes version", default="1.34.2"),
+            text_input("CONTROL_PLANE_DESIRED_COUNT", label="Control-plane nodes", default="1"),
+            text_input("WORKER_DESIRED_COUNT", label="Worker nodes", default="0"),
         ],
     )
 

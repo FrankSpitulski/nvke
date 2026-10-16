@@ -44,10 +44,11 @@ type Node struct {
 	// accepted but not yet started. It is set only on the control-plane-controller
 	// delete path, where the API records intent and the control-plane controller
 	// starts the teardown one node at a time; nil everywhere else.
-	DeleteRequest json.RawMessage   `bun:"delete_request,type:jsonb,nullzero"`
-	CreatedAt     time.Time         `bun:"type:timestamptz,notnull,default:current_timestamp"`
-	UpdatedAt     time.Time         `bun:"type:timestamptz,notnull,default:current_timestamp"`
-	Nico          *NicoNodeProvider `bun:"nico,type:jsonb"`
+	DeleteRequest      json.RawMessage     `bun:"delete_request,type:jsonb,nullzero"`
+	CreatedAt          time.Time           `bun:"type:timestamptz,notnull,default:current_timestamp"`
+	UpdatedAt          time.Time           `bun:"type:timestamptz,notnull,default:current_timestamp"`
+	Nico               *NicoNodeProvider   `bun:"nico,type:jsonb"`
+	NodeAgentLifecycle *NodeAgentLifecycle `bun:"node_agent_lifecycle,type:jsonb"`
 }
 
 type NicoNodeProvider struct {
@@ -84,8 +85,11 @@ func (n Node) IsManagedByControlPlaneController() bool {
 	return n.ControlPlane && n.NodePoolID == uuid.Nil
 }
 
-// Example: spiffe://nke-site-forge-az24-dev7.nke.nvidia.com/host/<node-id>
-func (n *Node) GetSpiffeID(trustDomain string) string {
+// GetSpiffeID returns the local workload identity registered for the node agent.
+func (n *Node) GetSpiffeID(trustDomain, subjectTenant, subjectService string) string {
+	if n.NodeAgentTLSJWTEnabled {
+		return fmt.Sprintf("spiffe://%s/tenant/%s/service/%s/bm/%s", trustDomain, subjectTenant, subjectService, n.ID.String())
+	}
 	return fmt.Sprintf("spiffe://%s/host/%s", trustDomain, n.ID.String())
 }
 
@@ -188,7 +192,7 @@ type NodeInfo struct {
 	AgentVersion   string    `bun:"agent_version"`
 	SpiffeEnabled  bool      `bun:"spiffe_enabled"`
 	ForgeMachineID string    `bun:"forge_machine_id"`
-	OSProfile      string    `bun:"os_profile"`
+	Release        string    `bun:"release"`
 	ConfigProfile  string    `bun:"config_profile"`
 }
 
@@ -410,7 +414,7 @@ func (q *queriesImpl) ListNodeInfo(ctx context.Context) ([]NodeInfo, error) {
 			n.agent_version,
 			n.spiffe_enabled,
 			COALESCE(n.nico->>'forge_machine_id', '') as forge_machine_id,
-			COALESCE(ns.nico->>'os_profile', '') as os_profile,
+			COALESCE(ns.nico->>'release', ns.nico->>'os_profile', '') as release,
 			COALESCE(ns.nico->>'config_profile', '') as config_profile
 		FROM nodes n
 		JOIN node_sets ns ON ns.id = n.node_set_id
@@ -488,7 +492,7 @@ func (q *queriesImpl) DeleteNode(ctx context.Context, id uuid.UUID) error {
 }
 
 func (q *queriesImpl) UpdateNodeTeleportRegistered(ctx context.Context, nodeID uuid.UUID, condition Condition) error {
-	return q.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	return q.db.RunInTx(ctx, nil, func(_ context.Context, tx bun.Tx) error { // the caller's ctx, see dbImpl.RunInTx
 		qi := queriesImpl{db: tx}
 		node, err := qi.GetNodeForUpdate(ctx, nodeID)
 		if err != nil {
@@ -576,7 +580,7 @@ func (q *queriesImpl) ListNodesEligibleForRecycling(ctx context.Context, nodePoo
 		Where("ns.node_pool_id = ?", nodePoolID).
 		Where("ns.id != np.current_node_set_id").
 		Order("node.created_at ASC").
-		Limit(limit)
+		Limit(int64(limit))
 	query = whereNodeConditionStatus(query, "markedForRecycling", false)
 
 	err := query.Scan(ctx)

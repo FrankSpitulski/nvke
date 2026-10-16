@@ -12,11 +12,16 @@ import (
 	"math/rand"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/otelx"
 )
 
 // OutboxProcessor is responsible for polling the workflow outbox table and triggering workflows.
@@ -105,32 +110,48 @@ func (p *OutboxProcessor) processBatch(ctx context.Context) error {
 
 		// Process each entry
 		for _, entry := range entries {
-			if err := p.processEntry(ctx, entry); err != nil {
-				p.logger.Error("Failed to process workflow outbox entry",
-					"error", err,
-					"id", entry.ID.String(),
-					"workflowType", entry.WorkflowType)
-				// Continue processing other entries even if one fails
-				continue
-			}
-
-			// Mark the entry as processed within the transaction
-			if err := tx.MarkWorkflowOutboxEntryProcessed(ctx, entry.ID); err != nil {
-				p.logger.Error("Failed to mark workflow outbox entry as processed",
-					"error", err,
-					"id", entry.ID.String())
-				// Continue processing other entries even if marking one as processed fails
-				continue
-			}
+			// A failure on one entry is logged and does not stop the rest of the batch.
+			p.dispatchEntry(ctx, tx, entry)
 		}
 
 		return nil
 	})
 }
 
-// processEntry processes a single outbox entry by starting the appropriate workflow.
-func (p *OutboxProcessor) processEntry(ctx context.Context, entry db.WorkflowOutbox) error {
-	p.logger.Debug("Processing workflow outbox entry",
+// dispatchEntry starts the entry's workflow and then marks the entry processed in
+// the transaction. Both steps, and their logs and SQL, run under one outbox.dispatch
+// span that continues the trace of the request that wrote the entry. An entry whose
+// workflow fails to start is left unprocessed so the next poll retries it.
+func (p *OutboxProcessor) dispatchEntry(ctx context.Context, tx db.Tx, entry db.WorkflowOutbox) {
+	// Each entry belongs to a different request, so restore its trace context here.
+	ctx = otelx.Restore(ctx, entry.TraceContext)
+	ctx, span := otel.Tracer("cwe.outbox").Start(ctx, "outbox.dispatch", trace.WithAttributes(attribute.String("workflow_id", entry.WorkflowID)))
+	defer span.End()
+
+	if err := p.startWorkflow(ctx, entry); err != nil {
+		recordSpanError(span, err)
+		p.logger.ErrorContext(ctx, "Failed to process workflow outbox entry",
+			"error", err,
+			"id", entry.ID.String(),
+			"workflowType", entry.WorkflowType)
+		return
+	}
+
+	if err := tx.MarkWorkflowOutboxEntryProcessed(ctx, entry.ID); err != nil {
+		recordSpanError(span, err)
+		p.logger.ErrorContext(ctx, "Failed to mark workflow outbox entry as processed",
+			"error", err,
+			"id", entry.ID.String())
+	}
+}
+
+func recordSpanError(span trace.Span, err error) {
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
+}
+
+func (p *OutboxProcessor) startWorkflow(ctx context.Context, entry db.WorkflowOutbox) error {
+	p.logger.DebugContext(ctx, "Processing workflow outbox entry",
 		"id", entry.ID.String(),
 		"workflowType", entry.WorkflowType,
 		"workflowID", entry.WorkflowID)
@@ -153,7 +174,7 @@ func (p *OutboxProcessor) processEntry(ctx context.Context, entry db.WorkflowOut
 		// entry is marked processed and doesn't loop forever.
 		var alreadyStarted *serviceerror.WorkflowExecutionAlreadyStarted
 		if errors.As(err, &alreadyStarted) {
-			p.logger.Warn("Workflow already started for outbox entry, marking processed",
+			p.logger.WarnContext(ctx, "Workflow already started for outbox entry, marking processed",
 				"workflowID", entry.WorkflowID,
 				"workflowType", entry.WorkflowType)
 			return nil
@@ -161,7 +182,7 @@ func (p *OutboxProcessor) processEntry(ctx context.Context, entry db.WorkflowOut
 		return fmt.Errorf("failed to start workflow: %w", err)
 	}
 
-	p.logger.Info("Started workflow from outbox entry",
+	p.logger.InfoContext(ctx, "Started workflow from outbox entry",
 		"workflowID", we.GetID(),
 		"runID", we.GetRunID(),
 		"workflowType", entry.WorkflowType)

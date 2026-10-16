@@ -13,13 +13,19 @@ self-hosted-runner:
     - linux-arm64-cpu16
     - linux-amd64-gpu-l4-latest-1
     # Scale sets on the RelEng EKS cluster (dgxc-eks-use1-rel-prd1).
-    # Both amd64 sizes share one node pool; the two KVM sizes share the
-    # bare-metal pool, which is the only one with /dev/kvm.
+    # Both amd64 CPU sizes share one node pool. Only the *-kvm classes run on
+    # bare metal with /dev/kvm.
     - arc-amd64-cpu8
     - arc-amd64-cpu16
+    - arc-amd64-kvm
     - arc-arm64-cpu16
     - arc-arm64-kvm
     - arc-arm64-kvm-8c16g
+    # Its own single-node pool, not a size on a shared one: the
+    # tpm_vtpm_proxy module that gives it /dev/vtpmx cannot be loaded on a
+    # node the CAPD lanes run on, since a TPM there makes swtpm emit an EK
+    # certificate SPIRE refuses. nvkectl-bootstrap-e2e is the only consumer.
+    - arc-arm64-vtpm
 
 paths:
   .github/workflows/agent-deb-publish.yml:

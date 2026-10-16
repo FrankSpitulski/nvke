@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dsx-ai-factory/nke/cli/internal/bootstrap/sitespec"
-	api "github.com/dsx-ai-factory/nke/controller/api"
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
+	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/sitespec"
+	api "github.com/dsx-ai-factory/nvke/controller/api"
 )
 
 func capiInfraCluster(t *testing.T, req api.CreateClusterJSONRequestBody) map[string]interface{} {
@@ -22,7 +24,7 @@ func capiInfraCluster(t *testing.T, req api.CreateClusterJSONRequestBody) map[st
 
 func testSiteSpec() *sitespec.SiteSpec {
 	return &sitespec.SiteSpec{
-		ClusterName: "nke-site",
+		ClusterName: "nvke-site",
 		Cluster: sitespec.Cluster{
 			Nodes: []sitespec.Node{
 				{Name: "node1", IP: "172.26.0.10", TPMEKThumbprint: strings.Repeat("1", 64)},
@@ -30,8 +32,8 @@ func testSiteSpec() *sitespec.SiteSpec {
 				{Name: "node3", IP: "172.26.0.12", TPMEKThumbprint: strings.Repeat("3", 64)},
 			},
 			K8sVersion:    "1.32.0",
-			CniName:       "calico",
-			CniVersion:    "3.31.4",
+			CniName:       "ovn-kubernetes",
+			CniVersion:    "1.4.0",
 			PodCidr:       "192.168.0.0/16",
 			ServiceCidr:   "10.96.0.0/12",
 			KubeletConfig: sitespec.KubeletConfig{SystemReservedMemory: "512Mi"},
@@ -39,8 +41,8 @@ func testSiteSpec() *sitespec.SiteSpec {
 	}
 }
 
-// TestClusterRequest_IsACAPICluster pins the two things that make CWE treat
-// this as a CAPI cluster rather than a Forge one. CWE rejects the request
+// TestClusterRequest_IsACAPICluster pins the two things that make the controller treat
+// this as a CAPI cluster rather than a Forge one. The controller rejects the request
 // outright if either is wrong, but it rejects it at the far end of a
 // bootstrap that has already built a Kind cluster and deployed five releases.
 func TestClusterRequest_IsACAPICluster(t *testing.T) {
@@ -50,13 +52,13 @@ func TestClusterRequest_IsACAPICluster(t *testing.T) {
 	}
 
 	if req.Nico != nil {
-		t.Errorf("nico = %#v, want nil: CWE rejects it for CAPI clusters", req.Nico)
+		t.Errorf("nico = %#v, want nil: the controller rejects it for CAPI clusters", req.Nico)
 	}
 	if req.Infra == nil {
-		t.Fatal("infra is nil; supplying it is how CWE selects CAPI mode")
+		t.Fatal("infra is nil; supplying it is how the controller selects CAPI mode")
 	}
 	if len(req.Infra.Cluster) == 0 {
-		t.Fatal("infra.cluster is empty; CWE requires it for a CAPI cluster")
+		t.Fatal("infra.cluster is empty; the controller requires it for a CAPI cluster")
 	}
 }
 
@@ -129,7 +131,7 @@ func TestClusterRequest_ControlPlaneSizedToTheSiteSpec(t *testing.T) {
 	}
 }
 
-// TestClusterRequest_SendsNoControlPlaneNodePool: CWE rejects a control-plane
+// TestClusterRequest_SendsNoControlPlaneNodePool: the controller rejects a control-plane
 // node pool once control-plane controller provisioning is enabled, and a site
 // cluster has no workers, so the request should carry no pools at all.
 func TestClusterRequest_SendsNoControlPlaneNodePool(t *testing.T) {
@@ -144,7 +146,7 @@ func TestClusterRequest_SendsNoControlPlaneNodePool(t *testing.T) {
 }
 
 // TestClusterRequest_PassesTheNetworkThrough covers both states: CIDRs named in
-// the site spec reach CWE, and a site spec that names none leaves CWE's own
+// the site spec reach the controller, and a site spec that names none leaves the controller's own
 // defaults in place rather than sending empty strings.
 func TestClusterRequest_PassesTheNetworkThrough(t *testing.T) {
 	req, err := ClusterRequest(testSiteSpec())
@@ -162,7 +164,7 @@ func TestClusterRequest_PassesTheNetworkThrough(t *testing.T) {
 		t.Fatalf("ClusterRequest returned error: %v", err)
 	}
 	if req.Network != nil {
-		t.Errorf("network = %#v, want nil so CWE applies its own defaults", req.Network)
+		t.Errorf("network = %#v, want nil so the controller applies its own defaults", req.Network)
 	}
 }
 
@@ -185,7 +187,7 @@ func TestClusterRequest_RejectsDuplicateHosts(t *testing.T) {
 
 // TestClusterRequest_SerialisesToTheAPIShape: the manifests are built as
 // map[string]interface{} because that is what the generated API takes, so
-// nothing type-checks them. Round-tripping through JSON is what the CWE client
+// nothing type-checks them. Round-tripping through JSON is what the controller client
 // actually does, and it is the only check that the nesting is right.
 func TestClusterRequest_SerialisesToTheAPIShape(t *testing.T) {
 	req, err := ClusterRequest(testSiteSpec())
@@ -284,5 +286,143 @@ func TestClusterRequest_EtcdEncryption(t *testing.T) {
 		if req.EtcdEncrypted != tc.want {
 			t.Errorf("%s: etcdEncrypted = %v, want %v", tc.name, req.EtcdEncrypted, tc.want)
 		}
+	}
+}
+
+func TestClusterRequest_ForwardsVIPMatchingNodeIP(t *testing.T) {
+	for _, index := range []int{0, 1} {
+		inv := testSiteSpec()
+		vip := inv.Cluster.Nodes[index].IP
+		t.Run(inv.Cluster.Nodes[index].Name, func(t *testing.T) {
+			inv.Cluster.ControlPlaneVIP = vip
+			req, err := ClusterRequest(inv)
+			if err != nil {
+				t.Fatalf("ClusterRequest: %v", err)
+			}
+			if req.ControlPlaneVIP != vip {
+				t.Errorf("ControlPlaneVIP = %q, want %q", req.ControlPlaneVIP, vip)
+			}
+			body, err := json.Marshal(req)
+			if err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+			if !strings.Contains(string(body), `"controlPlaneVIP":"`+vip+`"`) {
+				t.Errorf("request JSON does not carry VIP %q", vip)
+			}
+		})
+	}
+}
+
+func nicoSiteSpec() *sitespec.SiteSpec {
+	inv := testSiteSpec()
+	inv.Infra.Provider = sitespec.ProviderNico
+	inv.Cluster.Nodes = nil
+	inv.Infra.Nico = &sitespec.NicoInfra{
+		OrgID: "example-org",
+		Remote: &sitespec.NicoRemote{
+			Endpoint: "https://nico.example",
+			SiteID:   openapi_types.UUID{15: 1},
+			VpcID:    openapi_types.UUID{15: 2},
+		},
+		ControlPlane: sitespec.NicoControlPlane{
+			Count: 3,
+			NicoControlPlaneProviderCreate: api.NicoControlPlaneProviderCreate{
+				InstanceTypePreference: []openapi_types.UUID{{15: 3}, {15: 6}},
+				VpcPrefixIDs:           []openapi_types.UUID{{15: 4}},
+				SSHKeyGroupIDs:         []openapi_types.UUID{{15: 5}},
+				Release:                "example-os-profile",
+				ConfigProfile:          "example-config-profile",
+			},
+		},
+	}
+	return inv
+}
+
+// TestClusterRequest_NicoIsAForgeCluster pins what makes CWE treat the request
+// as a NICo cluster: a nico payload, no infra payload, and the control-plane
+// count taken from the spec's controlPlane.count.
+func TestClusterRequest_NicoIsAForgeCluster(t *testing.T) {
+	req, err := ClusterRequest(nicoSiteSpec())
+	if err != nil {
+		t.Fatalf("ClusterRequest: %v", err)
+	}
+
+	if req.Infra != nil {
+		t.Errorf("infra = %#v, want nil: CWE rejects both payloads together", req.Infra)
+	}
+	if req.Nico == nil || req.Nico.OrgID != "example-org" ||
+		req.Nico.SiteID.String() != "00000000-0000-0000-0000-000000000001" ||
+		req.Nico.VpcID.String() != "00000000-0000-0000-0000-000000000002" {
+		t.Errorf("nico = %#v, want the org, site and VPC from the spec", req.Nico)
+	}
+
+	cp := req.ControlPlaneConfig
+	if cp == nil {
+		t.Fatal("controlPlaneConfig is nil")
+	}
+	if cp.DesiredCount != 3 {
+		t.Errorf("desiredCount = %d, want 3", cp.DesiredCount)
+	}
+	if cp.Infra != nil {
+		t.Errorf("controlPlaneConfig.infra = %#v, want nil", cp.Infra)
+	}
+	if cp.Nico == nil {
+		t.Fatal("controlPlaneConfig.nico is nil")
+	}
+	if got := len(cp.Nico.InstanceTypePreference); got != 2 {
+		t.Fatalf("instanceTypePreference has %d entries, want 2", got)
+	}
+	if cp.Nico.InstanceTypePreference[0].String() != "00000000-0000-0000-0000-000000000003" {
+		t.Errorf("instanceTypePreference[0] = %s, want the first listed type to stay first",
+			cp.Nico.InstanceTypePreference[0])
+	}
+	if cp.Nico.Release != "example-os-profile" || cp.Nico.ConfigProfile != "example-config-profile" {
+		t.Errorf("profiles = %q/%q, want the spec's", cp.Nico.Release, cp.Nico.ConfigProfile)
+	}
+	if cp.SystemReservedMemory != "512Mi" {
+		t.Errorf("systemReservedMemory = %q, want the shared kubelet setting", cp.SystemReservedMemory)
+	}
+}
+
+// TestClusterRequest_SharedSettingsMatchAcrossInfrastructure guards the promise
+// that only where machines come from differs between the two modes.
+func TestClusterRequest_SharedSettingsMatchAcrossInfrastructure(t *testing.T) {
+	provisioned, err := ClusterRequest(testSiteSpec())
+	if err != nil {
+		t.Fatalf("provisioned: %v", err)
+	}
+	nico, err := ClusterRequest(nicoSiteSpec())
+	if err != nil {
+		t.Fatalf("nico: %v", err)
+	}
+
+	if provisioned.Name != nico.Name ||
+		provisioned.ControlPlaneKubernetesVersion != nico.ControlPlaneKubernetesVersion ||
+		provisioned.CniPlugin != nico.CniPlugin ||
+		provisioned.EtcdEncrypted != nico.EtcdEncrypted ||
+		*provisioned.CniVersion != *nico.CniVersion ||
+		provisioned.Network.PodCIDR != nico.Network.PodCIDR ||
+		provisioned.ControlPlaneConfig.DesiredCount != nico.ControlPlaneConfig.DesiredCount {
+		t.Errorf("shared settings differ:\nprovisioned: %#v\nnico: %#v", provisioned, nico)
+	}
+}
+
+func TestClusterRequest_NicoRejectsInvalidSpecs(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*sitespec.SiteSpec)
+		wantErr string
+	}{
+		{"missing nico block", func(inv *sitespec.SiteSpec) { inv.Infra.Nico = nil }, "infra.nico"},
+		{"missing remote", func(inv *sitespec.SiteSpec) { inv.Infra.Nico.Remote = nil }, "needs a remote"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inv := nicoSiteSpec()
+			tt.mutate(inv)
+			if _, err := ClusterRequest(inv); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("ClusterRequest error = %v, want one naming %s", err, tt.wantErr)
+			}
+		})
 	}
 }

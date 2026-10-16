@@ -3,12 +3,12 @@
 
 // Package clusterstate reads a cluster's conditions.
 //
-// One reading, shared: `nkectl get clusters` prints it in a column and
-// `nkectl bootstrap site` waits on it, and the two must not be able to disagree
+// One reading, shared: `nvkectl get clusters` prints it in a column and
+// `nvkectl bootstrap site` waits on it, and the two must not be able to disagree
 // about what a cluster is doing.
 package clusterstate
 
-import api "github.com/dsx-ai-factory/nke/controller/api"
+import api "github.com/dsx-ai-factory/nvke/controller/api"
 
 // Status returns a human-readable state derived from a cluster's conditions.
 // Conditions are checked in priority order: terminal and destructive states
@@ -30,6 +30,8 @@ func Status(cl *api.Cluster) string {
 		return "Provisioning"
 	case IsTrue(&c.Provisioned):
 		return "Provisioned"
+	case IsProvisioningFailed(cl):
+		return "ProvisioningFailed"
 	default:
 		return "Unknown"
 	}
@@ -37,6 +39,13 @@ func Status(cl *api.Cluster) string {
 
 // IsProvisioned reports whether the cluster finished provisioning.
 func IsProvisioned(cl *api.Cluster) bool { return IsTrue(&cl.Conditions.Provisioned) }
+
+// IsProvisioningFailed reports whether the provisioning workflow died: the controller
+// flips Provisioning to False without ever setting Provisioned.
+func IsProvisioningFailed(cl *api.Cluster) bool {
+	c := cl.Conditions
+	return c.Provisioning.Status == api.ConditionStatusFalse && c.Provisioned.Status == api.ConditionStatusFalse
+}
 
 // IsTrue reports whether an optional condition is present and true.
 func IsTrue(condition *api.Condition) bool {

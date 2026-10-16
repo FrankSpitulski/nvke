@@ -227,7 +227,7 @@ type gpgKey struct {
 // "can't connect to the gpg-agent: IPC connect call failed".
 func newGPGKey(t *testing.T, uid string) *gpgKey {
 	t.Helper()
-	home, err := os.MkdirTemp("", "nkegpg")
+	home, err := os.MkdirTemp("", "nvkegpg")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	require.NoError(t, os.Chmod(home, 0o700))
@@ -416,7 +416,7 @@ func (b *bundleRun) wantLock() string {
 		records = append(records, fmt.Sprintf("image %s %s", img.ref, img.digest))
 	}
 	sort.Strings(records)
-	header := fmt.Sprintf("# nke-kubeadm-distro lock for %s (amd64). Regenerate with `make lock`; review the diff before committing.\n"+
+	header := fmt.Sprintf("# nvke-kubeadm-distro lock for %s (amd64). Regenerate with `make lock`; review the diff before committing.\n"+
 		"kubernetes %s\n", fixtureVersion, fixtureVersion)
 	return header + strings.Join(records, "\n") + "\n"
 }

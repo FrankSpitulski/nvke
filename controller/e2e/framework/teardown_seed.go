@@ -15,8 +15,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 // TeardownHookConfigProfile is the fixture profile carrying a beforeRemoveNode
@@ -114,14 +114,14 @@ func seedTeardownScenarioTx(ctx context.Context, tx db.Tx, scenario TeardownScen
 		ControlPlane:         true,
 		DesiredCount:         2,
 		SystemReservedMemory: "16Gi",
-		NodeLabels:           []string{},
+		NodeLabels:           map[string]string{},
 		Conditions: db.NodePoolConditions{
 			Provisioned: db.NewCondition(true, "seeded"),
 		},
 	}
 	nodePool.SetNico(db.NicoNodePoolProvider{
 		InstanceTypeID:        instanceTypeID,
-		OSProfile:             "test",
+		Release:               "test",
 		ConfigProfile:         TeardownHookConfigProfile,
 		SubnetIDs:             []uuid.UUID{},
 		VpcPrefixIDs:          []uuid.UUID{},
@@ -140,7 +140,7 @@ func seedTeardownScenarioTx(ctx context.Context, tx db.Tx, scenario TeardownScen
 		SystemReservedMemory: "16Gi",
 	}
 	nodeSet.SetNico(db.NicoNodePoolProvider{
-		OSProfile:             "test",
+		Release:               "test",
 		ConfigProfile:         TeardownHookConfigProfile,
 		SubnetIDs:             []uuid.UUID{},
 		VpcPrefixIDs:          []uuid.UUID{},

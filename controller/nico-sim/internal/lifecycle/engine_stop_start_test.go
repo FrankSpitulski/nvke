@@ -12,10 +12,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/seed"
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/state"
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/vm"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/seed"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/state"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/vm"
 )
 
 func TestReconcileStopStart(t *testing.T) {

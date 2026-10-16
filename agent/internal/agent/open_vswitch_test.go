@@ -18,8 +18,8 @@ import (
 	"google.golang.org/grpc/status"
 	"sigs.k8s.io/yaml"
 
-	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
-	nkeutils "github.com/dsx-ai-factory/nke/agent/pkg/utils"
+	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
+	nvkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
 )
 
 type openVSwitchCommandResult struct {
@@ -33,7 +33,7 @@ type openVSwitchTestRunner struct {
 	calls     []string
 }
 
-func (r *openVSwitchTestRunner) Run(name string, args []string, _ *nkeutils.CommandOptions) ([]byte, error) {
+func (r *openVSwitchTestRunner) Run(name string, args []string, _ *nvkeutils.CommandOptions) ([]byte, error) {
 	r.t.Helper()
 	key := strings.Join(append([]string{name}, args...), " ")
 	r.calls = append(r.calls, key)
@@ -45,12 +45,12 @@ func (r *openVSwitchTestRunner) Run(name string, args []string, _ *nkeutils.Comm
 	return responses[0].output, responses[0].err
 }
 
-func (r *openVSwitchTestRunner) RunSplitOutput(name string, args []string, opts *nkeutils.CommandOptions) (nkeutils.CommandOutput, error) {
+func (r *openVSwitchTestRunner) RunSplitOutput(name string, args []string, opts *nvkeutils.CommandOptions) (nvkeutils.CommandOutput, error) {
 	output, err := r.Run(name, args, opts)
-	return nkeutils.CommandOutput{Stdout: output}, err
+	return nvkeutils.CommandOutput{Stdout: output}, err
 }
 
-func (*openVSwitchTestRunner) RunDetached(string, []string, *nkeutils.CommandOptions) error {
+func (*openVSwitchTestRunner) RunDetached(string, []string, *nvkeutils.CommandOptions) error {
 	return errors.New("unexpected detached command")
 }
 
@@ -144,6 +144,153 @@ func TestOpenVSwitchReconciliationTransformsNetplanAndVerifiesBridge(t *testing.
 	assert.Contains(t, bridge, "openvswitch")
 	assert.Equal(t, []any{"eth0"}, bridge["interfaces"])
 	assert.Equal(t, map[string]any{"addresses": []any{"10.0.0.53"}}, bridge["nameservers"])
+}
+
+func TestOpenVSwitchNetplanMatchNamePatterns(t *testing.T) {
+	link := openVSwitchLink{Name: "enp1s0", Address: "00:11:22:33:44:55"}
+	tests := map[string]struct {
+		name string
+		want bool
+	}{
+		"exact name":       {name: "enp1s0", want: true},
+		"wildcard name":    {name: "e*", want: true},
+		"nonmatching name": {name: "eth*", want: false},
+		"invalid pattern":  {name: "[", want: false},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			stanza := map[string]any{"match": map[string]any{"name": test.name}}
+			assert.Equal(t, test.want, openVSwitchStanzaMatchesLink(stanza, link))
+		})
+	}
+}
+
+func TestOpenVSwitchNetdevDatapathKeepsManagementUplink(t *testing.T) {
+	t.Setenv(openVSwitchDatapathTypeEnv, openVSwitchNetdevDatapath)
+	runner := newOpenVSwitchTestRunner(t, map[string][]openVSwitchCommandResult{
+		"dpkg-query --show --showformat=${db:Status-Abbrev} openvswitch-switch": {{output: []byte("ii ")}},
+		"systemctl enable --now openvswitch-switch":                             {{}},
+		"ip -j route show default": {{
+			output: []byte(`[{"dst":"default","gateway":"10.0.0.1","dev":"eth0"}]`),
+		}},
+		"ovs-vsctl set Open_vSwitch . external_ids:ovn-bridge-datapath-type=netdev":   {{}},
+		"ovs-vsctl --if-exists get Open_vSwitch . other_config:userspace-tso-enable":  {{}},
+		"ovs-vsctl set Open_vSwitch . other_config:userspace-tso-enable=true":         {{}},
+		"systemctl restart ovs-vswitchd":                                              {{}},
+		"ovs-vsctl --may-exist add-br br-ex -- set bridge br-ex datapath_type=netdev": {{}},
+	})
+	server := &NodeAgentServer{Runner: runner}
+
+	result, plan, err := server.reconcileOpenVSwitchLocked(context.Background())
+	require.NoError(t, err)
+	assert.Nil(t, plan)
+	assert.Equal(t, pb.OpenVSwitchReconciliationResult_OUTCOME_CONFIGURED, result.GetOutcome())
+	assert.Empty(t, result.GetBridgeName())
+	assert.Equal(t, "eth0", result.GetUplinkInterface())
+	assert.Equal(t, pb.OpenVSwitchReconciliationResult_NETWORK_BACKEND_NETPLAN, result.GetNetworkBackend())
+	assert.NotContains(t, runner.calls, "netplan apply")
+	assert.NotContains(t, runner.calls, "ovs-vsctl --may-exist add-br breth0")
+	assert.Contains(t, runner.calls, "ovs-vsctl set Open_vSwitch . other_config:userspace-tso-enable=true")
+	assert.Contains(t, runner.calls, "systemctl restart ovs-vswitchd")
+	assert.Contains(t, runner.calls, "ovs-vsctl --may-exist add-br br-ex -- set bridge br-ex datapath_type=netdev")
+}
+
+func TestOpenVSwitchSystemDatapathKeepsManagementUplink(t *testing.T) {
+	t.Setenv(openVSwitchDatapathTypeEnv, openVSwitchSystemDatapath)
+	runner := newOpenVSwitchTestRunner(t, map[string][]openVSwitchCommandResult{
+		"dpkg-query --show --showformat=${db:Status-Abbrev} openvswitch-switch": {{output: []byte("ii ")}},
+		"systemctl enable --now openvswitch-switch":                             {{}},
+		"ip -j route show default": {{
+			output: []byte(`[{"dst":"default","gateway":"10.0.0.1","dev":"eth0"}]`),
+		}},
+		"ovs-vsctl set Open_vSwitch . external_ids:ovn-bridge-datapath-type=system":   {{}},
+		"ovs-vsctl --may-exist add-br br-ex -- set bridge br-ex datapath_type=system": {{}},
+	})
+	server := &NodeAgentServer{Runner: runner}
+
+	result, plan, err := server.reconcileOpenVSwitchLocked(context.Background())
+	require.NoError(t, err)
+	assert.Nil(t, plan)
+	assert.Equal(t, pb.OpenVSwitchReconciliationResult_OUTCOME_CONFIGURED, result.GetOutcome())
+	assert.Empty(t, result.GetBridgeName())
+	assert.Equal(t, "eth0", result.GetUplinkInterface())
+	assert.Equal(t, pb.OpenVSwitchReconciliationResult_NETWORK_BACKEND_NETPLAN, result.GetNetworkBackend())
+	assert.NotContains(t, runner.calls, "netplan apply")
+	assert.NotContains(t, runner.calls, "ovs-vsctl --may-exist add-br breth0")
+	assert.NotContains(t, runner.calls, "ovs-vsctl set Open_vSwitch . other_config:userspace-tso-enable=true")
+	assert.NotContains(t, runner.calls, "systemctl restart ovs-vswitchd")
+	assert.Contains(t, runner.calls, "ovs-vsctl --may-exist add-br br-ex -- set bridge br-ex datapath_type=system")
+}
+
+func TestOpenVSwitchUserspaceTSO(t *testing.T) {
+	const getTSO = "ovs-vsctl --if-exists get Open_vSwitch . other_config:userspace-tso-enable"
+	const setTSO = "ovs-vsctl set Open_vSwitch . other_config:userspace-tso-enable=true"
+	const restart = "systemctl restart ovs-vswitchd"
+	tests := map[string]struct {
+		responses   map[string][]openVSwitchCommandResult
+		wantCalls   []string
+		errorString string
+	}{
+		"already enabled leaves ovs-vswitchd running": {
+			responses: map[string][]openVSwitchCommandResult{getTSO: {{output: []byte("\"true\"\n")}}},
+			wantCalls: []string{getTSO},
+		},
+		"unset enables and restarts ovs-vswitchd": {
+			responses: map[string][]openVSwitchCommandResult{getTSO: {{}}, setTSO: {{}}, restart: {{}}},
+			wantCalls: []string{getTSO, setTSO, restart},
+		},
+		"disabled enables and restarts ovs-vswitchd": {
+			responses: map[string][]openVSwitchCommandResult{
+				getTSO: {{output: []byte("\"false\"\n")}}, setTSO: {{}}, restart: {{}},
+			},
+			wantCalls: []string{getTSO, setTSO, restart},
+		},
+		"restart failure restores an unset value": {
+			responses: map[string][]openVSwitchCommandResult{
+				getTSO: {{}}, setTSO: {{}}, restart: {{err: errors.New("unit failed")}},
+				"ovs-vsctl remove Open_vSwitch . other_config userspace-tso-enable": {{}},
+			},
+			wantCalls: []string{
+				getTSO, setTSO, restart,
+				"ovs-vsctl remove Open_vSwitch . other_config userspace-tso-enable",
+			},
+			errorString: "restart ovs-vswitchd to apply userspace-tso-enable",
+		},
+		"restart failure restores the previous value": {
+			responses: map[string][]openVSwitchCommandResult{
+				getTSO: {{output: []byte("\"false\"\n")}}, setTSO: {{}}, restart: {{err: errors.New("unit failed")}},
+				"ovs-vsctl set Open_vSwitch . other_config:userspace-tso-enable=false": {{}},
+			},
+			wantCalls: []string{
+				getTSO, setTSO, restart,
+				"ovs-vsctl set Open_vSwitch . other_config:userspace-tso-enable=false",
+			},
+			errorString: "restart ovs-vswitchd to apply userspace-tso-enable",
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			runner := newOpenVSwitchTestRunner(t, test.responses)
+			server := &NodeAgentServer{Runner: runner}
+
+			err := server.ensureOpenVSwitchUserspaceTSO()
+
+			if test.errorString != "" {
+				require.ErrorContains(t, err, test.errorString)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, test.wantCalls, runner.calls)
+		})
+	}
+}
+
+func TestPrepareOpenVSwitchRejectsUnsupportedDatapath(t *testing.T) {
+	t.Setenv(openVSwitchDatapathTypeEnv, "dpdk")
+	server := &NodeAgentServer{}
+
+	_, _, err := server.reconcileOpenVSwitchDatapathOverride(context.Background())
+	require.EqualError(t, err, `unsupported Open vSwitch datapath type "dpdk"`)
 }
 
 func TestOpenVSwitchReconciliationResumesWrittenNetplanAfterInterruptedApply(t *testing.T) {
@@ -330,6 +477,45 @@ func TestStartOpenVSwitchReconciliationRecoversPersistedRunningOperation(t *test
 				Type:  operationTypeOpenVSwitchReconciliation,
 				Phase: NodeAgentOperationPhaseRunning,
 				Step:  "waiting_for_network",
+			},
+		}},
+	}
+
+	_, err := server.StartOpenVSwitchReconciliation(
+		context.Background(),
+		&pb.StartOpenVSwitchReconciliationRequest{OperationId: "op-1"},
+	)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		statusResponse, statusErr := server.GetOpenVSwitchReconciliationStatus(
+			context.Background(),
+			&pb.GetOpenVSwitchReconciliationStatusRequest{OperationId: "op-1"},
+		)
+		return statusErr == nil &&
+			statusResponse.GetOperation().GetOperation().GetPhase() == pb.NodeAgentOperationPhase_NODE_AGENT_OPERATION_PHASE_SUCCEEDED
+	}, time.Second, time.Millisecond)
+}
+
+// A FAILED reconciliation must run again on the next Start: the controller
+// retries with the same operation ID, and the failure that stuck here in CI was
+// one systemctl call made while systemd re-executed itself.
+func TestStartOpenVSwitchReconciliationRestartsPersistedFailedOperation(t *testing.T) {
+	runner := newOpenVSwitchTestRunner(t, map[string][]openVSwitchCommandResult{
+		"dpkg-query --show --showformat=${db:Status-Abbrev} openvswitch-switch": {{output: []byte("ii ")}},
+		"systemctl enable --now openvswitch-switch":                             {{}},
+		"ip -j route show default":                                              {{output: []byte(`[{"dst":"default","dev":"breth0"}]`)}},
+		"ovs-vsctl list-br":                                                     {{output: []byte("breth0\n")}},
+	})
+	server := &NodeAgentServer{
+		Runner:    runner,
+		Persister: &recordingPersister{},
+		NodeStatus: &NodeStatus{NodeAgentOperations: map[string]NodeAgentOperation{
+			"op-1": {
+				ID:    "op-1",
+				Type:  operationTypeOpenVSwitchReconciliation,
+				Phase: NodeAgentOperationPhaseFailed,
+				Step:  "reconciling",
 			},
 		}},
 	}

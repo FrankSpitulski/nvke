@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -35,6 +36,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/remotecommand"
+
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/controller"
 )
 
 func TestExpiringJWTSourceCachesAndRefreshesBeforeExpiry(t *testing.T) {
@@ -465,7 +468,7 @@ func TestTenantRESTConfigExchangesSPIREJWTCredentials(t *testing.T) {
 	if mintURL == nil {
 		t.Fatal("source JWT was not minted")
 	}
-	wantSourceID := "spiffe://test.nke.local/tenant/nke/service/cloud-workflow-engine/bm/cwe"
+	wantSourceID := "spiffe://test.nke.local/tenant/nke/service/" + controller.ServiceAccount() + "/bm/cwe"
 	if !slices.Contains(mintURL.Query()["command"], wantSourceID) {
 		t.Fatalf("source JWT mint command = %#v, want %q", mintURL.Query()["command"], wantSourceID)
 	}
@@ -509,6 +512,8 @@ func TestGetAdminClientReadsPublishedKubeconfigAndRegistersVerifierSchemes(t *te
 		corev1.SchemeGroupVersion.WithKind("Pod"),
 		networkingv1.SchemeGroupVersion.WithKind("NetworkPolicy"),
 		policyv1.SchemeGroupVersion.WithKind("PodDisruptionBudget"),
+		rbacv1.SchemeGroupVersion.WithKind("Role"),
+		rbacv1.SchemeGroupVersion.WithKind("RoleBinding"),
 	} {
 		if !tenantClient.Scheme().Recognizes(gvk) {
 			t.Errorf("GetAdminClient() scheme does not recognize %s", gvk)
@@ -525,10 +530,10 @@ func TestGetAdminClientReportsMissingKubeconfig(t *testing.T) {
 	}
 }
 
-// On an OIDC cluster the published kubeconfig authenticates as the CWE
+// On an OIDC cluster the published kubeconfig authenticates as the controller
 // identity, which is deliberately not cluster-admin. GetAdminClient must mint
 // the capi-manager identity instead, or every caller gets a 403 on test setup.
-func TestAdminAndCWEPathsMintDistinctIdentities(t *testing.T) {
+func TestAdminAndControllerPathsMintDistinctIdentities(t *testing.T) {
 	objects := []runtime.Object{
 		spireServerConfigMapObject(`{"server":{"trust_domain":"test.nke.local"}}`),
 		spireServerPod("spire-server-1", true, spireServerSelector()),
@@ -579,14 +584,14 @@ func TestAdminAndCWEPathsMintDistinctIdentities(t *testing.T) {
 		t.Fatalf("admin path did not mint %q", want)
 	}
 
-	// The GetClient path must keep minting the CWE identity. Pointing it at the
+	// The GetClient path must keep minting the controller identity. Pointing it at the
 	// admin identity would silently give every tenant read cluster-admin.
-	cweConfig, err := factory.tenantRESTConfig(context.Background(), "tenant-a")
+	controllerConfig, err := factory.tenantRESTConfig(context.Background(), "tenant-a")
 	if err != nil {
 		t.Fatalf("tenantRESTConfig() error = %v", err)
 	}
-	command := mintedFor(t, cweConfig)
-	if want := "spiffe://test.nke.local" + cweSPIFFEPath; !slices.Contains(command, want) {
+	command := mintedFor(t, controllerConfig)
+	if want := "spiffe://test.nke.local" + controllerSPIFFEPath(); !slices.Contains(command, want) {
 		t.Fatalf("GetClient path did not mint %q, got %#v", want, command)
 	}
 	if slices.Contains(command, "spiffe://test.nke.local"+adminSPIFFEPath) {
@@ -694,7 +699,7 @@ func TestMintJWTSelectsReadyPodAndBuildsExpectedCommand(t *testing.T) {
 
 	wantCommand := []string{
 		"bin/spire-server", "jwt", "mint",
-		"-spiffeID", "spiffe://test.nke.local/nke-service/cloud-workflow-engine",
+		"-spiffeID", "spiffe://test.nke.local" + controllerSPIFFEPath(),
 		"-audience", "tenant-a",
 	}
 	if got := gotURL.Query()["command"]; !reflect.DeepEqual(got, wantCommand) {
@@ -715,14 +720,14 @@ func TestTrustDomainFromSPIREServerConfig(t *testing.T) {
 		wantErr string
 	}{
 		"trust domain": {
-			config: `{"server":{"trust_domain":"test.nke.local","admin_ids":["spiffe://ignored.nke.local/nke-service/cloud-workflow-engine"]}}`,
+			config: `{"server":{"trust_domain":"test.nke.local","admin_ids":["spiffe://ignored.nke.local/nke-service/nke-controller"]}}`,
 			want:   "test.nke.local",
 		},
-		"CWE admin ID fallback": {
-			config: `{"server":{"admin_ids":["spiffe://fallback.nke.local/nke-service/cloud-workflow-engine"]}}`,
+		"controller admin ID fallback": {
+			config: `{"server":{"admin_ids":["spiffe://fallback.nke.local` + controllerSPIFFEPath() + `"]}}`,
 			want:   "fallback.nke.local",
 		},
-		"missing":   {config: `{"server":{}}`, wantErr: "neither trust_domain nor a CWE admin_id"},
+		"missing":   {config: `{"server":{}}`, wantErr: "neither trust_domain nor a controller admin_id"},
 		"malformed": {config: `{`, wantErr: "parsing server.conf JSON"},
 	}
 
@@ -754,7 +759,7 @@ func TestReadySPIREServerPodFailsWhenNoPodIsReady(t *testing.T) {
 
 func TestMintJWTIncludesExecutorStderr(t *testing.T) {
 	factory := newTestTenantClientFactory(t,
-		spireServerConfigMapObject(`{"server":{"admin_ids":["spiffe://test.nke.local/nke-service/cloud-workflow-engine"]}}`),
+		spireServerConfigMapObject(`{"server":{"admin_ids":["spiffe://test.nke.local`+controllerSPIFFEPath()+`"]}}`),
 		spireServerPod("spire-server-0", true, spireServerSelector()),
 	)
 	factory.newExecutor = func(string, *url.URL) (remotecommand.Executor, error) {
@@ -764,6 +769,42 @@ func TestMintJWTIncludesExecutorStderr(t *testing.T) {
 	_, err := factory.mintJWT(context.Background(), "test.nke.local", "tenant-a")
 	if err == nil || !strings.Contains(err.Error(), "remote command failed: permission denied") {
 		t.Fatalf("mintJWT() error = %v, want executor error and stderr", err)
+	}
+}
+
+func TestShowSPIREAgentAsksTheServerForThatAgent(t *testing.T) {
+	factory := newTestTenantClientFactory(t, spireServerPod("spire-server-1", true, spireServerSelector()))
+	var command []string
+	factory.newExecutor = func(_ string, requestURL *url.URL) (remotecommand.Executor, error) {
+		command = requestURL.Query()["command"]
+		return &fakeExecutor{stdout: "Found 1 attested agent:\n"}, nil
+	}
+
+	const id = "spiffe://test.nke.local/spire/agent/tpm/abc123"
+	out, err := factory.ShowSPIREAgent(context.Background(), id)
+	if err != nil {
+		t.Fatalf("ShowSPIREAgent() error = %v", err)
+	}
+	if want := []string{"bin/spire-server", "agent", "show", "-spiffeID", id}; !slices.Equal(command, want) {
+		t.Errorf("command = %q, want %q", command, want)
+	}
+	if !strings.Contains(out, "attested agent") {
+		t.Errorf("ShowSPIREAgent() = %q, want the server's output", out)
+	}
+}
+
+func TestShowSPIREAgentReportsAnAgentTheServerDoesNotHave(t *testing.T) {
+	// The server exits non-zero for an ID no agent attested as, and that has to
+	// reach the caller as an error carrying the server's reason, not as empty
+	// output a caller could read as success.
+	factory := newTestTenantClientFactory(t, spireServerPod("spire-server-1", true, spireServerSelector()))
+	factory.newExecutor = func(string, *url.URL) (remotecommand.Executor, error) {
+		return &fakeExecutor{stderr: "Error: rpc error: code = NotFound desc = no such agent", err: errors.New("command terminated with exit code 1")}, nil
+	}
+
+	_, err := factory.ShowSPIREAgent(context.Background(), "spiffe://test.nke.local/spire/agent/tpm/missing")
+	if err == nil || !strings.Contains(err.Error(), "no such agent") {
+		t.Fatalf("ShowSPIREAgent() error = %v, want one carrying the server's NotFound", err)
 	}
 }
 

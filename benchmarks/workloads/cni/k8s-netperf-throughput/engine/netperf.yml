@@ -1,0 +1,145 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# k8s-netperf test matrix for the OVN-Kubernetes throughput scenario.
+#
+# This file is engine-native: hand it to upstream k8s-netperf unchanged. It
+# carries the TEST MATRIX for three network paths, selected by command-line
+# flag: host-to-host (--hostNet), pod-to-pod same-node (--local) and pod-to-pod
+# cross-node (no flag). Pod-to-service runs the same matrix from
+# netperf-service.yml, where every test sets `service: true`. See
+# `upstream.argv` in scenario.yaml.
+#
+# T-shirt sizes are TCP_STREAM parallelism levels, at a fixed 8K message size:
+#
+#   S = 4 streams   M = 8 streams   L = 16 streams   XL = 32 streams
+#
+# UDP_STREAM runs at 1 / 4 / 16 / 32 streams, and TCP_RR runs with `burst: 2`
+# (netperf `-b 2`), so more than one transaction is in flight per stream. These
+# follow the published run's recorded test matrix, except at XL, where that run
+# used p64 for host-to-host stream and UDP and p16 for overlay request-response.
+#
+# `pN` is the number of concurrent netperf flows inside a single client pod. It
+# does not add pods: each run uses single-replica Deployments.
+#
+# MESSAGE SIZES
+#
+# 8192 B (8K) is the TCP_STREAM anchor at every size and on every path, which
+# is what makes the summary table an apples-to-apples comparison. It is the
+# largest power of two that fits in a single pod jumbo frame without
+# fragmentation at a pod MTU of 8940.
+#
+# UDP uses 8192 B at S/M and 8800 B at L/XL — just under the pod MTU — so that
+# reported loss reflects congestion rather than fragmentation. UDP has no flow
+# control, so loss is the signal that matters on an overdriven path.
+#
+# TCP_RR uses 256 B at S/M and 1024 B at L/XL. Small messages keep it
+# latency-bound rather than bandwidth-bound, so the result reads as round-trip
+# time rather than throughput. The step up at L/XL matches the published run.
+#
+# 60 s x 3 samples per test. Samples are averaged; the published result reports
+# the mean.
+---
+tests:
+  # --- S (4 streams) ---
+  - TCPStream_8k_p4:
+    parallelism: 4
+    profile: "TCP_STREAM"
+    duration: 60
+    samples: 3
+    messagesize: 8192
+
+  - UDPStream_8k_p1:
+    parallelism: 1
+    profile: "UDP_STREAM"
+    duration: 60
+    samples: 3
+    messagesize: 8192
+
+  - TCPRR_256_p4:
+    parallelism: 4
+    profile: "TCP_RR"
+    duration: 60
+    samples: 3
+    messagesize: 256
+    burst: 2
+
+  # --- M (8 streams) ---
+  - TCPStream_8k_p8:
+    parallelism: 8
+    profile: "TCP_STREAM"
+    duration: 60
+    samples: 3
+    messagesize: 8192
+
+  - UDPStream_8k_p4:
+    parallelism: 4
+    profile: "UDP_STREAM"
+    duration: 60
+    samples: 3
+    messagesize: 8192
+
+  - TCPRR_256_p8:
+    parallelism: 8
+    profile: "TCP_RR"
+    duration: 60
+    samples: 3
+    messagesize: 256
+    burst: 2
+
+  # --- L (16 streams) ---
+  - TCPStream_8k_p16:
+    parallelism: 16
+    profile: "TCP_STREAM"
+    duration: 60
+    samples: 3
+    messagesize: 8192
+
+  # 8800 B: just under the 8940 pod MTU, so loss is congestion, not fragmentation.
+  - UDPStream_8800_p16:
+    parallelism: 16
+    profile: "UDP_STREAM"
+    duration: 60
+    samples: 3
+    messagesize: 8800
+
+  - TCPRR_1k_p16:
+    parallelism: 16
+    profile: "TCP_RR"
+    duration: 60
+    samples: 3
+    messagesize: 1024
+    burst: 2
+
+  # --- XL (32 streams) ---
+  #
+  # NOTE ON PATH COVERAGE AT XL. Stock k8s-netperf exposes 16 ClusterIP data
+  # ports on the netperf Service, 42424 to 42439, and super-netperf gives stream
+  # i data port 42424 + i. At 32 streams, streams 17 to 32 target ports the
+  # Service does not expose. On the pod-to-service path only, that depresses
+  # throughput and inflates UDP loss — a harness artefact, not a CNI result.
+  #
+  # netperf-service.yml therefore stops at L. The published result also omits
+  # XL pod-to-pod cross-node: that cell was measured with a patched build
+  # raising the data-port count, and nothing checked in reproduces it.
+  - TCPStream_8k_p32:
+    parallelism: 32
+    profile: "TCP_STREAM"
+    duration: 60
+    samples: 3
+    messagesize: 8192
+
+  - UDPStream_8800_p32:
+    parallelism: 32
+    profile: "UDP_STREAM"
+    duration: 60
+    samples: 3
+    messagesize: 8800
+
+  - TCPRR_1k_p32:
+    parallelism: 32
+    profile: "TCP_RR"
+    duration: 60
+    samples: 3
+    messagesize: 1024
+    burst: 2

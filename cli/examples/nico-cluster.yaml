@@ -3,20 +3,22 @@
 
 # Example CreateClusterRequest for a real NICo site, provisioned by CAPNICo.
 #
-# Usage: nkectl create cluster -f examples/nico-cluster.yaml
+# Usage: nvkectl create cluster -f examples/nico-cluster.yaml
 #
 # Prerequisites:
-#   - CAPNICo installed on the site controller: nkectl get providers reports
+#   - CAPNICo installed on the site controller: nvkectl get providers reports
 #     nico as CONFIGURED
 #   - A NICo site, VPC, VPC prefix, instance type, SSH key group, and an
 #     allocation against the instance type. An instance type with no allocation
 #     looks healthy and provisions nothing.
 #
 # Every UUID below is site-specific. Replace all of them. The profile names are
-# placeholders too: fleet profile content is maintained outside this repository
-# and supplied at deploy time. List what your site serves with the API's
-# /api/osProfiles and /api/configProfiles endpoints; nkectl has no command for
-# them yet.
+# placeholders too. `release` names one the site holds; publish it from
+# machineimage.yaml, clusterrelease.yaml and nodepoolrelease.yaml beside this
+# file. List what a site accepts with the API's /api/releases, which serves
+# every release that is not deprecated.
+# Config profile content is maintained outside this repository and supplied at
+# deploy time; /api/configProfiles lists what your site serves.
 #
 # The cluster's top-level `nico` or `infra` sets its provider, and the control
 # plane and every node pool must carry that same payload; any other is rejected.
@@ -24,8 +26,12 @@
 
 name: my-cluster
 controlPlaneKubernetesVersion: 1.34.2
-cniPlugin: calico
+cniPlugin: ovn-kubernetes
 etcdEncrypted: false
+
+# Required because this example creates three control-plane nodes. Replace it
+# with an unused, routable address from the site's control-plane network.
+controlPlaneVIP: 10.0.0.100
 
 nico:
   orgID: dipfedrcvjiw
@@ -47,7 +53,7 @@ controlPlaneConfig:
       - 00000000-0000-0000-0000-000000000000
     sshKeyGroupIDs:
       - 00000000-0000-0000-0000-000000000000
-    osProfile: nke-260625-24.04-x86-fde
+    release: nke-260625-24.04-x86-fde
     configProfile: default-cp
 
 nodePools:
@@ -62,5 +68,5 @@ nodePools:
         - 00000000-0000-0000-0000-000000000000
       sshKeyGroupIDs:
         - 00000000-0000-0000-0000-000000000000
-      osProfile: nke-260625-24.04-x86-fde
+      release: nke-260625-24.04-x86-fde
       configProfile: default-worker

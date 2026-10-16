@@ -24,7 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/dsx-ai-factory/nke/controller/test/e2e/internal/kube"
+	"github.com/dsx-ai-factory/nvke/controller/test/e2e/internal/kube"
 )
 
 const (
@@ -359,25 +359,28 @@ func runMockOVNPolicyProbe(t *testing.T, script string, targetExit, controlExit 
 		t.Fatalf("creating mock command directory: %v", err)
 	}
 	if curlPresent {
-		mockCurl := fmt.Sprintf(`#!/bin/sh
+		// A shell function avoids executing a freshly written mock file, which
+		// intermittently fails with ETXTBSY on Linux. See https://github.com/dsx-ai-factory/nvke/issues/1265.
+		script = fmt.Sprintf(`curl() {
 for arg; do
   url="${arg}"
 done
 case "${url}" in
-  http://target) exit %d ;;
-  http://control) exit %d ;;
-  *) exit 99 ;;
+  http://target) return %d ;;
+  http://control) return %d ;;
+  *) return 99 ;;
 esac
-`, targetExit, controlExit)
-		if err := os.WriteFile(filepath.Join(binDirectory, "curl"), []byte(mockCurl), 0o755); err != nil {
-			t.Fatalf("writing mock curl: %v", err)
-		}
+}
+`, targetExit, controlExit) + script
 	}
 	terminationLog := filepath.Join(directory, "termination.log")
 	script = strings.ReplaceAll(script, "/dev/termination-log", terminationLog)
 	command := exec.CommandContext(t.Context(), "/bin/sh", "-c", script, "probe", "http://target", "http://control")
 	command.Env = []string{"PATH=" + binDirectory}
-	err := command.Run()
+	output, err := command.CombinedOutput()
+	if len(output) > 0 {
+		t.Logf("probe stdout/stderr: %s", output)
+	}
 	terminationMessage, readErr := os.ReadFile(terminationLog)
 	if readErr != nil {
 		t.Fatalf("reading termination message: %v", readErr)

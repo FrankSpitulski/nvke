@@ -12,15 +12,15 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout"
-	rolloutkubevip "github.com/dsx-ai-factory/nke/controller/internal/rollout/guards/kubevip"
-	rolloutoidc "github.com/dsx-ai-factory/nke/controller/internal/rollout/operations/oidc"
-	rolloutpreflights "github.com/dsx-ai-factory/nke/controller/internal/rollout/preflights"
-	rollouttemporal "github.com/dsx-ai-factory/nke/controller/internal/rollout/temporal"
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/activities"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout"
+	rolloutkubevip "github.com/dsx-ai-factory/nvke/controller/internal/rollout/guards/kubevip"
+	rolloutoidc "github.com/dsx-ai-factory/nvke/controller/internal/rollout/operations/oidc"
+	rolloutpreflights "github.com/dsx-ai-factory/nvke/controller/internal/rollout/preflights"
+	rollouttemporal "github.com/dsx-ai-factory/nvke/controller/internal/rollout/temporal"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/activities"
 )
 
-// EnableOIDCInput is the brownfield OIDC migration input. ClusterID is the CWE
+// EnableOIDCInput is the brownfield OIDC migration input. ClusterID is the controller
 // cluster UUID.
 type EnableOIDCInput struct {
 	ClusterID uuid.UUID `json:"clusterID"`

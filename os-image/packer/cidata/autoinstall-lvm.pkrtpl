@@ -1,4 +1,6 @@
 #cloud-config
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 autoinstall:
   version: 1
 
@@ -40,7 +42,7 @@ autoinstall:
         size: largest
 
   identity:
-    hostname: nke-node
+    hostname: nvke-node
     username: ubuntu
     # Locked — login is by SSH key only (ssh.allow-pw: false below).
     password: "!"
@@ -53,6 +55,14 @@ autoinstall:
 
   ntp:
     enabled: true
+
+%{ if capture_apt_acquisitions ~}
+  # Capture real archives before APT cache cleanup. Repository metadata is
+  # checked after autoinstall, when python3-apt is available in the target.
+  apt:
+    conf: |
+      ${indent(6, apt_capture_configuration)}
+%{ endif ~}
 
   packages:
     - lvm2

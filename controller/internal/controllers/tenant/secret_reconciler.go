@@ -18,9 +18,9 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/controllers/tenantaccess"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllers/tenantaccess"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 type clusterReader interface {
@@ -29,7 +29,7 @@ type clusterReader interface {
 
 // SecretReconciler translates management-cluster kubeconfig Secret events into
 // tenant-manager lifecycle changes. The informer LIST on startup also supplies
-// create events for Secrets that existed before CWE restarted.
+// create events for Secrets that existed before the controller restarted.
 type SecretReconciler struct {
 	database            clusterReader
 	reader              client.Reader
@@ -103,8 +103,8 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, request ctrl.Request) 
 
 func clusterIDForKubeconfigSecret(secret *corev1.Secret, managedByLabelValue string) (uuid.UUID, bool) {
 	if secret.Namespace != tenantaccess.SecretsNamespace ||
-		secret.Labels[constants.LabelKeyNkeManagedBy] != managedByLabelValue ||
-		!tenantaccess.IsCWEKubeconfigSecretName(secret.Name) {
+		secret.Labels[constants.LabelKeyNvkeManagedBy] != managedByLabelValue ||
+		!tenantaccess.IsControllerKubeconfigSecretName(secret.Name) {
 		return uuid.Nil, false
 	}
 	clusterID, err := uuid.Parse(secret.Labels[constants.LabelKeyClusterID])

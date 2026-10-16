@@ -6,8 +6,8 @@ package http
 import (
 	nethttp "net/http"
 
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/apierr"
-	"github.com/dsx-ai-factory/nke/controller/nico-sim/internal/state"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/apierr"
+	"github.com/dsx-ai-factory/nvke/controller/nico-sim/internal/state"
 )
 
 // Sim-only endpoints live under /sim. They have no NICo counterpart and exist

@@ -12,13 +12,13 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/temporal/activities"
+	"github.com/dsx-ai-factory/nvke/controller/internal/temporal/activities"
 
 	corev1 "k8s.io/api/core/v1"
 )
 
 const (
-	ApplyK8sNodeConditionWorkflowName = "ApplyK8sNodeCondition"
+	ApplyK8sNodeConditionWorkflowType = "ApplyK8sNodeCondition"
 )
 
 type ApplyK8sNodeConditionInput struct {
@@ -27,7 +27,7 @@ type ApplyK8sNodeConditionInput struct {
 }
 
 // ApplyK8sNodeCondition applies a corev1.NodeCondition to a kubernetes node.
-// Not to be confused with CWE db.NodeCondition.
+// Not to be confused with controller db.NodeCondition.
 func ApplyK8sNodeCondition(ctx workflow.Context, input ApplyK8sNodeConditionInput) error {
 	logger := workflow.GetLogger(ctx)
 

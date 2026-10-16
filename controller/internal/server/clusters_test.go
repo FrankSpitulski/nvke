@@ -20,13 +20,13 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/internal/capi"
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/constants"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/server"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/internal/capi"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/constants"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/server"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
 
 // testOrgID is a real orgID from the tenant list for use in tests
@@ -41,15 +41,7 @@ type clusterService interface {
 }
 
 func newTestClusterService(logger *slog.Logger, mockDB *mockDB) clusterService {
-	return newTestClusterServiceWithControlPlaneController(logger, mockDB, false)
-}
-
-// newTestClusterServiceWithControlPlaneController builds a clusterService with the
-// PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER feature flag set to
-// useControlPlaneController.
-func newTestClusterServiceWithControlPlaneController(logger *slog.Logger, mockDB *mockDB, useControlPlaneController bool) clusterService {
-	nodePoolService := server.NewNodePoolService(logger, mockDB, config.TeleportConfig{}, nil, useControlPlaneController)
-	return server.NewClusterService(logger, mockDB, nodePoolService, config.TeleportConfig{}, false, nil, useControlPlaneController)
+	return server.NewClusterService(logger, mockDB, server.NewNodePoolService(logger, mockDB, config.TeleportConfig{}, nil), config.TeleportConfig{}, false, nil, true, "")
 }
 
 func discardLogger() *slog.Logger {
@@ -207,6 +199,30 @@ func TestClusterService_ListClusters(t *testing.T) {
 	}
 }
 
+func nicoCreateControlPlaneConfig(desiredCount int, vpcPrefixes bool) *api.CreateClusterControlPlaneConfig {
+	nico := &api.NicoControlPlaneProviderCreate{
+		InstanceTypePreference: []uuid.UUID{uuid.New()},
+		Release:                "ubuntu",
+		ConfigProfile:          "default",
+	}
+	if vpcPrefixes {
+		nico.VpcPrefixIDs = []uuid.UUID{uuid.New()}
+	} else {
+		nico.SubnetIDs = []uuid.UUID{uuid.New()}
+	}
+	return &api.CreateClusterControlPlaneConfig{DesiredCount: desiredCount, Nico: nico}
+}
+
+func expectControlPlaneConfigCreate(tx *mockTx, clusterID uuid.UUID) {
+	cfgID := uuid.New()
+	tx.On("CreateControlPlaneConfiguration", mock.Anything, mock.MatchedBy(func(row *db.ControlPlaneConfiguration) bool {
+		return row.ClusterID == clusterID && row.Config.Nico != nil
+	})).Return(db.ControlPlaneConfiguration{ID: cfgID, ClusterID: clusterID}, nil)
+	tx.On("UpdateCluster", mock.Anything, mock.MatchedBy(func(c *db.Cluster) bool {
+		return c.ID == clusterID && c.ControlPlaneConfig.ConfigurationID == cfgID
+	})).Return(db.Cluster{ID: clusterID}, nil)
+}
+
 func TestClusterService_CreateCluster(t *testing.T) {
 	siteID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440001")
 	clusterID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
@@ -230,24 +246,12 @@ func TestClusterService_CreateCluster(t *testing.T) {
 				CniPlugin:                     "ovn-kubernetes",
 				ControlPlaneKubernetesVersion: "1.29.0",
 				ControlPlaneVIP:               "172.31.1.10",
+				ControlPlaneConfig:            nicoCreateControlPlaneConfig(1, false),
 				Network: &api.ClusterNetworkCreateConfig{
 					PodCIDR:     "10.233.65.7/18",
 					ServiceCIDR: "10.233.1.5/18",
 				},
 				NodePools: &[]api.NodePoolCreateConfig{
-					{
-						Name:           "cp",
-						NodeNamePrefix: "cp-prefix",
-						Nico: &api.NicoNodePoolProvider{
-							SubnetIDs:      []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440003")},
-							InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440004"),
-							SSHKeyGroupIDs: &[]uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-							OSProfile:      "ubuntu",
-							ConfigProfile:  "default",
-						},
-						ControlPlane:     true,
-						DesiredNodeCount: 1,
-					},
 					{
 						Name:           "w",
 						NodeNamePrefix: "w-prefix",
@@ -255,9 +259,11 @@ func TestClusterService_CreateCluster(t *testing.T) {
 							SubnetIDs:      []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440003")},
 							InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440004"),
 							SSHKeyGroupIDs: &[]uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-							OSProfile:      "ubuntu",
+							Release:        "ubuntu",
 							ConfigProfile:  "default",
 						},
+						NodeLabels:       map[string]string{"label1": "value1", "label2": "value2"},
+						NodeTaints:       []api.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: api.NodeTaintEffectNoSchedule}},
 						DesiredNodeCount: 1,
 					},
 				},
@@ -288,18 +294,13 @@ func TestClusterService_CreateCluster(t *testing.T) {
 					return ok && m["clusterID"] == clusterID
 				})).Return(db.WorkflowOutbox{}, nil)
 
-				cpNodePoolID := uuid.New()
-				tx.On("CreateNodePool", mock.Anything, mock.MatchedBy(func(np *db.NodePool) bool {
-					return np.ClusterID == clusterID && np.ControlPlane && np.NodeNamePrefix == "cp-prefix"
-				})).Return(db.NodePool{
-					ID:             cpNodePoolID,
-					ControlPlane:   true,
-					NodeNamePrefix: "cp-prefix",
-				}, nil)
-
 				workerNodePoolID := uuid.New()
 				tx.On("CreateNodePool", mock.Anything, mock.MatchedBy(func(np *db.NodePool) bool {
-					return np.ClusterID == clusterID && !np.ControlPlane && np.NodeNamePrefix == "w-prefix"
+					return np.ClusterID == clusterID &&
+						!np.ControlPlane &&
+						np.NodeNamePrefix == "w-prefix" &&
+						assert.ObjectsAreEqual(map[string]string{"label1": "value1", "label2": "value2"}, np.NodeLabels) &&
+						assert.ObjectsAreEqual([]db.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: "NoSchedule"}}, np.NodeTaints)
 				})).Return(db.NodePool{
 					ID:             workerNodePoolID,
 					ControlPlane:   false,
@@ -309,7 +310,7 @@ func TestClusterService_CreateCluster(t *testing.T) {
 				tx.On("CreateWorkflowOutboxEntry", mock.Anything, "ProvisionNodePool", mock.Anything, mock.Anything).
 					Return(db.WorkflowOutbox{}, nil)
 
-				tx.On("SyncClusterControlPlaneConfigFromCPNodePools", mock.Anything, clusterID, mock.Anything).Return(nil).Maybe()
+				expectControlPlaneConfigCreate(tx, clusterID)
 			},
 			responseStatus: http.StatusCreated,
 		},
@@ -320,20 +321,8 @@ func TestClusterService_CreateCluster(t *testing.T) {
 				Nico:                          nicoClusterProvider(siteID, uuid.MustParse("550e8400-e29b-41d4-a716-446655440002")),
 				CniPlugin:                     "calico",
 				ControlPlaneKubernetesVersion: "1.29.0",
+				ControlPlaneConfig:            nicoCreateControlPlaneConfig(1, true),
 				NodePools: &[]api.NodePoolCreateConfig{
-					{
-						Name:           "cp",
-						NodeNamePrefix: "cp-prefix",
-						Nico: &api.NicoNodePoolProvider{
-							VpcPrefixIDs:   []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440005")},
-							InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440004"),
-							SSHKeyGroupIDs: &[]uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-							OSProfile:      "ubuntu",
-							ConfigProfile:  "default",
-						},
-						ControlPlane:     true,
-						DesiredNodeCount: 1,
-					},
 					{
 						Name:           "w",
 						NodeNamePrefix: "w-prefix",
@@ -341,9 +330,11 @@ func TestClusterService_CreateCluster(t *testing.T) {
 							VpcPrefixIDs:   []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440005")},
 							InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440004"),
 							SSHKeyGroupIDs: &[]uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-							OSProfile:      "ubuntu",
+							Release:        "ubuntu",
 							ConfigProfile:  "default",
 						},
+						NodeLabels:       map[string]string{"label1": "value1", "label2": "value2"},
+						NodeTaints:       []api.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: api.NodeTaintEffectNoSchedule}},
 						DesiredNodeCount: 1,
 					},
 				},
@@ -373,20 +364,16 @@ func TestClusterService_CreateCluster(t *testing.T) {
 					return ok && m["clusterID"] == clusterID
 				})).Return(db.WorkflowOutbox{}, nil)
 
-				cpNodePoolID := uuid.New()
-				tx.On("CreateNodePool", mock.Anything, mock.MatchedBy(func(np *db.NodePool) bool {
-					nico, err := np.NicoProvider()
-					return err == nil && np.ClusterID == clusterID && np.ControlPlane && np.NodeNamePrefix == "cp-prefix" && len(nico.VpcPrefixIDs) > 0
-				})).Return(db.NodePool{
-					ID:             cpNodePoolID,
-					ControlPlane:   true,
-					NodeNamePrefix: "cp-prefix",
-				}, nil)
-
 				workerNodePoolID := uuid.New()
 				tx.On("CreateNodePool", mock.Anything, mock.MatchedBy(func(np *db.NodePool) bool {
 					nico, err := np.NicoProvider()
-					return err == nil && np.ClusterID == clusterID && !np.ControlPlane && np.NodeNamePrefix == "w-prefix" && len(nico.VpcPrefixIDs) > 0
+					return err == nil &&
+						np.ClusterID == clusterID &&
+						!np.ControlPlane &&
+						np.NodeNamePrefix == "w-prefix" &&
+						len(nico.VpcPrefixIDs) > 0 &&
+						assert.ObjectsAreEqual(map[string]string{"label1": "value1", "label2": "value2"}, np.NodeLabels) &&
+						assert.ObjectsAreEqual([]db.NodeTaint{{Key: "nvidia.com/dedicated", Value: "gpu", Effect: "NoSchedule"}}, np.NodeTaints)
 				})).Return(db.NodePool{
 					ID:             workerNodePoolID,
 					ControlPlane:   false,
@@ -396,7 +383,7 @@ func TestClusterService_CreateCluster(t *testing.T) {
 				tx.On("CreateWorkflowOutboxEntry", mock.Anything, "ProvisionNodePool", mock.Anything, mock.Anything).
 					Return(db.WorkflowOutbox{}, nil)
 
-				tx.On("SyncClusterControlPlaneConfigFromCPNodePools", mock.Anything, clusterID, mock.Anything).Return(nil).Maybe()
+				expectControlPlaneConfigCreate(tx, clusterID)
 			},
 			responseStatus: http.StatusCreated,
 		},
@@ -407,21 +394,7 @@ func TestClusterService_CreateCluster(t *testing.T) {
 				Nico:                          nicoClusterProvider(uuid.MustParse("550e8400-e29b-41d4-a716-446655440001"), uuid.MustParse("550e8400-e29b-41d4-a716-446655440002")),
 				CniPlugin:                     "calico",
 				ControlPlaneKubernetesVersion: "1.29.0",
-				NodePools: &[]api.NodePoolCreateConfig{
-					{
-						Name:           "cp",
-						NodeNamePrefix: "cp-prefix",
-						Nico: &api.NicoNodePoolProvider{
-							SubnetIDs:      []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440003")},
-							InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440004"),
-							SSHKeyGroupIDs: &[]uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-							OSProfile:      "ubuntu",
-							ConfigProfile:  "default",
-						},
-						ControlPlane:     true,
-						DesiredNodeCount: 1,
-					},
-				},
+				ControlPlaneConfig:            nicoCreateControlPlaneConfig(1, false),
 			},
 			setupMockCalls: func(tx *mockTx) {
 				tx.On("CreateCluster", mock.Anything, mock.MatchedBy(func(c *db.Cluster) bool {
@@ -435,7 +408,7 @@ func TestClusterService_CreateCluster(t *testing.T) {
 			responseErrorContains: "A cluster already exists with the name \\\"test-cluster\\\"",
 		},
 		{
-			name: "missing control plane",
+			name: "missing controlPlaneConfig",
 			request: api.CreateClusterRequest{
 				Name:                          "test-cluster",
 				Nico:                          nicoClusterProvider(uuid.MustParse("550e8400-e29b-41d4-a716-446655440001"), uuid.MustParse("550e8400-e29b-41d4-a716-446655440002")),
@@ -445,7 +418,7 @@ func TestClusterService_CreateCluster(t *testing.T) {
 			},
 			wantResponseError:     true,
 			responseStatus:        http.StatusBadRequest,
-			responseErrorContains: "cluster must have at least one control plane node",
+			responseErrorContains: "controlPlaneConfig is required",
 		},
 		{
 			name: "cluster creation error",
@@ -454,21 +427,7 @@ func TestClusterService_CreateCluster(t *testing.T) {
 				Nico:                          nicoClusterProvider(uuid.MustParse("550e8400-e29b-41d4-a716-446655440001"), uuid.MustParse("550e8400-e29b-41d4-a716-446655440002")),
 				CniPlugin:                     "calico",
 				ControlPlaneKubernetesVersion: "1.29.0",
-				NodePools: &[]api.NodePoolCreateConfig{
-					{
-						Name:           "cp",
-						NodeNamePrefix: "cp-prefix",
-						Nico: &api.NicoNodePoolProvider{
-							SubnetIDs:      []uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440003")},
-							InstanceTypeID: uuid.MustParse("550e8400-e29b-41d4-a716-446655440004"),
-							SSHKeyGroupIDs: &[]uuid.UUID{uuid.MustParse("550e8400-e29b-41d4-a716-446655440004")},
-							OSProfile:      "ubuntu",
-							ConfigProfile:  "default",
-						},
-						ControlPlane:     true,
-						DesiredNodeCount: 1,
-					},
-				},
+				ControlPlaneConfig:            nicoCreateControlPlaneConfig(1, false),
 			},
 			setupMockCalls: func(tx *mockTx) {
 				tx.On("CreateCluster", mock.Anything, mock.Anything).Return(db.Cluster{}, errors.New("create cluster error"))
@@ -476,21 +435,23 @@ func TestClusterService_CreateCluster(t *testing.T) {
 			wantError: true,
 		},
 		{
-			name: "no control planes",
+			name: "control-plane node pool rejected",
 			request: api.CreateClusterRequest{
 				Name:                          "test-cluster",
 				Nico:                          nicoClusterProvider(siteID, uuid.MustParse("550e8400-e29b-41d4-a716-446655440002")),
 				CniPlugin:                     "calico",
 				ControlPlaneKubernetesVersion: "1.29.0",
+				ControlPlaneConfig:            nicoCreateControlPlaneConfig(1, false),
 				NodePools: &[]api.NodePoolCreateConfig{
 					{
 						DesiredNodeCount: 1,
+						ControlPlane:     true,
 					},
 				},
 			},
 			wantResponseError:     true,
 			responseStatus:        http.StatusBadRequest,
-			responseErrorContains: "cluster must have at least one control plane node",
+			responseErrorContains: "control-plane node pools are not allowed",
 		},
 		{
 			name: "cluster name too long for cluster namespace",
@@ -499,12 +460,7 @@ func TestClusterService_CreateCluster(t *testing.T) {
 				Nico:                          nicoClusterProvider(siteID, uuid.MustParse("550e8400-e29b-41d4-a716-446655440002")),
 				CniPlugin:                     "calico",
 				ControlPlaneKubernetesVersion: "1.29.0",
-				NodePools: &[]api.NodePoolCreateConfig{
-					{
-						DesiredNodeCount: 1,
-						ControlPlane:     true,
-					},
-				},
+				ControlPlaneConfig:            nicoCreateControlPlaneConfig(1, false),
 			},
 			wantResponseError:     true,
 			responseStatus:        http.StatusBadRequest,
@@ -593,23 +549,12 @@ func TestClusterService_CreateClusterRejectsInsufficientPodCIDRCapacity(t *testi
 			Nico:                          nicoClusterProvider(uuid.New(), uuid.New()),
 			CniPlugin:                     "ovn-kubernetes",
 			ControlPlaneKubernetesVersion: "1.29.0",
+			ControlPlaneVIP:               "192.168.1.10",
 			Network: &api.ClusterNetworkCreateConfig{
 				PodCIDR:     "10.240.0.0/23",
 				ServiceCIDR: "10.120.0.0/24",
 			},
-			NodePools: &[]api.NodePoolCreateConfig{{
-				Name:           "cp",
-				NodeNamePrefix: "cp-prefix",
-				Nico: &api.NicoNodePoolProvider{
-					SubnetIDs:      []uuid.UUID{uuid.New()},
-					InstanceTypeID: uuid.New(),
-					SSHKeyGroupIDs: &[]uuid.UUID{uuid.New()},
-					OSProfile:      "ubuntu",
-					ConfigProfile:  "default",
-				},
-				ControlPlane:     true,
-				DesiredNodeCount: 2,
-			}},
+			ControlPlaneConfig: nicoCreateControlPlaneConfig(2, false),
 		},
 	})
 	require.NoError(t, err)
@@ -622,7 +567,6 @@ func TestClusterService_CreateClusterRejectsInsufficientPodCIDRCapacity(t *testi
 
 func TestClusterService_CreateClusterRejectsControlPlaneVIPOverlap(t *testing.T) {
 	siteID := uuid.New()
-	subnetID := uuid.New()
 	mockDB := &mockDB{MockTx: &mockTx{}}
 
 	service := newTestClusterService(discardLogger(), mockDB)
@@ -633,18 +577,7 @@ func TestClusterService_CreateClusterRejectsControlPlaneVIPOverlap(t *testing.T)
 			CniPlugin:                     "calico",
 			ControlPlaneKubernetesVersion: "1.29.0",
 			ControlPlaneVIP:               "192.168.1.10",
-			NodePools: &[]api.NodePoolCreateConfig{{
-				Name:           "cp",
-				NodeNamePrefix: "cp",
-				Nico: &api.NicoNodePoolProvider{
-					SubnetIDs:      []uuid.UUID{subnetID},
-					InstanceTypeID: uuid.New(),
-					OSProfile:      "ubuntu",
-					ConfigProfile:  "default",
-				},
-				ControlPlane:     true,
-				DesiredNodeCount: 1,
-			}},
+			ControlPlaneConfig:            nicoCreateControlPlaneConfig(1, false),
 		},
 	})
 	require.NoError(t, err)
@@ -670,18 +603,7 @@ func TestClusterService_CreateClusterRejectsCustomNetworkForCalico(t *testing.T)
 				PodCIDR:     "10.240.0.0/16",
 				ServiceCIDR: "10.120.0.0/16",
 			},
-			NodePools: &[]api.NodePoolCreateConfig{{
-				Name:           "cp",
-				NodeNamePrefix: "cp",
-				Nico: &api.NicoNodePoolProvider{
-					SubnetIDs:      []uuid.UUID{uuid.New()},
-					InstanceTypeID: uuid.New(),
-					OSProfile:      "ubuntu",
-					ConfigProfile:  "default",
-				},
-				ControlPlane:     true,
-				DesiredNodeCount: 1,
-			}},
+			ControlPlaneConfig: nicoCreateControlPlaneConfig(1, false),
 		},
 	})
 	require.NoError(t, err)
@@ -702,6 +624,7 @@ func TestClusterService_CreateClusterRejectsUnsupportedInfraProvider(t *testing.
 		false,
 		[]string{config.InfraProviderNico},
 		false,
+		"",
 	)
 
 	resp, err := service.CreateCluster(context.Background(), api.CreateClusterRequestObject{
@@ -821,6 +744,7 @@ func TestClusterService_GetCluster(t *testing.T) {
 
 func TestClusterService_DeleteCluster(t *testing.T) {
 	clusterID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
+	updateFailed := db.NewCondition(false, "Cluster update failed")
 	tests := []struct {
 		name             string
 		clusterID        uuid.UUID
@@ -850,8 +774,9 @@ func TestClusterService_DeleteCluster(t *testing.T) {
 				},
 			},
 			setupMockCalls: func(tx *mockTx) {
-				tx.On("GetCluster", mock.Anything, clusterID).Return(db.Cluster{
-					ID: clusterID,
+				tx.On("GetClusterForUpdate", mock.Anything, clusterID).Return(db.Cluster{
+					ID:         clusterID,
+					Conditions: db.ClusterConditions{UpdateFailed: &updateFailed},
 				}, nil)
 				tx.On("UpdateCluster", mock.Anything, mock.MatchedBy(func(c *db.Cluster) bool {
 					return c.ID == clusterID && c.Conditions.Deleting.Status == db.ConditionStatusTrue
@@ -864,6 +789,8 @@ func TestClusterService_DeleteCluster(t *testing.T) {
 			verifyConditions: func(t *testing.T, conditions db.ClusterConditions) {
 				t.Helper()
 				assert.Equal(t, db.ConditionStatusTrue, conditions.Deleting.Status)
+				require.NotNil(t, conditions.UpdateFailed)
+				assert.True(t, conditions.UpdateFailed.Equal(updateFailed))
 			},
 		},
 		{
@@ -872,7 +799,7 @@ func TestClusterService_DeleteCluster(t *testing.T) {
 			getClusterErr: db.ErrNotFound,
 			want404:       true,
 			setupMockCalls: func(tx *mockTx) {
-				tx.On("GetCluster", mock.Anything, clusterID).Return(db.Cluster{}, db.ErrNotFound)
+				tx.On("GetClusterForUpdate", mock.Anything, clusterID).Return(db.Cluster{}, db.ErrNotFound)
 			},
 		},
 		{
@@ -881,7 +808,7 @@ func TestClusterService_DeleteCluster(t *testing.T) {
 			updateErr: errors.New("update error"),
 			wantError: true,
 			setupMockCalls: func(tx *mockTx) {
-				tx.On("GetCluster", mock.Anything, clusterID).Return(db.Cluster{
+				tx.On("GetClusterForUpdate", mock.Anything, clusterID).Return(db.Cluster{
 					ID: clusterID,
 				}, nil)
 				tx.On("UpdateCluster", mock.Anything, mock.Anything).Return(db.Cluster{}, errors.New("update error"))
@@ -893,7 +820,7 @@ func TestClusterService_DeleteCluster(t *testing.T) {
 			workflowErr: errors.New("workflow error"),
 			wantError:   true,
 			setupMockCalls: func(tx *mockTx) {
-				tx.On("GetCluster", mock.Anything, clusterID).Return(db.Cluster{
+				tx.On("GetClusterForUpdate", mock.Anything, clusterID).Return(db.Cluster{
 					ID: clusterID,
 				}, nil)
 				tx.On("UpdateCluster", mock.Anything, mock.Anything).Return(db.Cluster{}, nil)
@@ -1046,10 +973,11 @@ func TestValidateKubernetesVersionSkewWithControlPlane(t *testing.T) {
 			expectError:    false,
 		},
 		{
-			name:           "valid upgrade - same version",
+			name:           "invalid - same version",
 			currentVersion: "1.30.14",
 			newVersion:     "1.30.14",
-			expectError:    false,
+			expectError:    true,
+			errorMsg:       "must be greater than the current version",
 		},
 		{
 			name:           "invalid - major version downgrade",
@@ -1690,7 +1618,7 @@ func TestClusterService_UpdateCluster_EnableEtcdEncryption_StartsWorkflowForCAPI
 
 // TestClusterService_GetCluster_ExposesUpdateInProgress confirms the API
 // response includes the UpdateInProgress field so fleet dashboards and
-// nkecli can surface what operation is running and when it started.
+// nvkectl can surface what operation is running and when it started.
 func TestClusterService_GetCluster_ExposesUpdateInProgress(t *testing.T) {
 	clusterID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
 	started := time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC)
@@ -1775,7 +1703,7 @@ func TestClusterService_UpdateCluster_ControlPlaneConfig(t *testing.T) {
 		ControlPlaneConfig: db.ControlPlaneConfig{
 			MaxSurge: 0,
 			ControlPlaneConfigSpec: db.ControlPlaneConfigSpec{
-				Nico: &db.NicoControlPlaneProvider{},
+				Nico: &db.NicoControlPlaneProvider{Release: "ubuntu", ConfigProfile: "default"},
 			},
 		},
 		Nico: &db.NicoClusterProvider{
@@ -1857,6 +1785,7 @@ func TestClusterService_UpdateCluster_ControlPlaneConfig_CreatesSnapshotOnVersio
 	mockDB.MockTx.On("GetClusterForUpdate", mock.Anything, clusterID).Return(db.Cluster{
 		ID:                clusterID,
 		KubernetesVersion: "1.30.0",
+		ControlPlaneVIP:   "172.31.0.10",
 		ProviderType:      db.ProviderTypeCAPI,
 		ControlPlaneConfig: db.ControlPlaneConfig{
 			ConfigurationID: oldCfgID,
@@ -2086,7 +2015,7 @@ func TestClusterService_UpdateCluster_ControlPlaneConfig_RejectsUnsupportedProvi
 		ProviderType: db.ProviderTypeNico,
 	}, nil).Once()
 
-	nodePoolService := server.NewNodePoolService(discardLogger(), mockDB, config.TeleportConfig{}, []string{config.InfraProviderInfra}, false)
+	nodePoolService := server.NewNodePoolService(discardLogger(), mockDB, config.TeleportConfig{}, []string{config.InfraProviderInfra})
 	svc := server.NewClusterService(
 		discardLogger(),
 		mockDB,
@@ -2095,6 +2024,7 @@ func TestClusterService_UpdateCluster_ControlPlaneConfig_RejectsUnsupportedProvi
 		false,
 		[]string{config.InfraProviderInfra},
 		false,
+		"",
 	)
 
 	resp, err := svc.UpdateCluster(context.Background(), api.UpdateClusterRequestObject{
@@ -2146,25 +2076,64 @@ func baseNicoClusterCreateRequest() *api.CreateClusterRequest {
 		},
 		CniPlugin:                     "calico",
 		ControlPlaneKubernetesVersion: "1.29.0",
-		NodePools: &[]api.NodePoolCreateConfig{
-			{
-				Name:           "cp",
-				NodeNamePrefix: "cp",
-				Nico: &api.NicoNodePoolProvider{
-					SubnetIDs:      []uuid.UUID{uuid.New()},
-					InstanceTypeID: uuid.New(),
-					OSProfile:      "ubuntu",
-					ConfigProfile:  "default",
-				},
-				ControlPlane:     true,
-				DesiredNodeCount: 1,
-			},
-		},
+		ControlPlaneConfig:            nicoCreateControlPlaneConfig(1, false),
 	}
 }
 
+func TestValidateCreateClusterRequestFields_LegacyCalicoCreationGate(t *testing.T) {
+	tests := []struct {
+		name        string
+		cni         api.CreateClusterRequestCniPlugin
+		allowCalico bool
+		wantErr     string
+	}{
+		{name: "omitted CNI defaults to OVN"},
+		{name: "explicit OVN", cni: api.CreateClusterRequestCniPluginOvnKubernetes},
+		{
+			name:    "unknown CNI only advertises OVN",
+			cni:     "flannel",
+			wantErr: "invalid CNI plugin: flannel, valid plugins: [ovn-kubernetes]",
+		},
+		{
+			name:    "Calico disabled by default",
+			cni:     api.CreateClusterRequestCniPluginCalico,
+			wantErr: "calico cluster creation is disabled by this controller deployment; use ovn-kubernetes",
+		},
+		{name: "Calico enabled for legacy fleet", cni: api.CreateClusterRequestCniPluginCalico, allowCalico: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := server.NewClusterService(discardLogger(), nil, nil, config.TeleportConfig{}, false, nil, tt.allowCalico, "")
+			req := baseNicoClusterCreateRequest()
+			req.CniPlugin = tt.cni
+
+			err := svc.ValidateCreateClusterRequestFields(req)
+
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestClusterService_CreateClusterRejectsCalicoBeforeTransaction(t *testing.T) {
+	mockDB := &mockDB{}
+	svc := server.NewClusterService(discardLogger(), mockDB, nil, config.TeleportConfig{}, false, nil, false, "")
+
+	resp, err := svc.CreateCluster(context.Background(), api.CreateClusterRequestObject{Body: baseNicoClusterCreateRequest()})
+
+	require.NoError(t, err)
+	badRequest, ok := resp.(api.CreateCluster400JSONResponse)
+	require.True(t, ok, "expected CreateCluster400JSONResponse, got %T", resp)
+	assert.Equal(t, "calico cluster creation is disabled by this controller deployment; use ovn-kubernetes", badRequest.Message)
+	mockDB.AssertNotCalled(t, "RunInTx", mock.Anything, mock.Anything)
+}
+
 func TestValidateCreateClusterRequestFields_RequiresExactlyOneProvider(t *testing.T) {
-	svc := server.NewClusterService(discardLogger(), nil, nil, config.TeleportConfig{}, false, nil, false)
+	svc := server.NewClusterService(discardLogger(), nil, nil, config.TeleportConfig{}, false, nil, false, "")
 
 	t.Run("neither provider", func(t *testing.T) {
 		req := baseNicoClusterCreateRequest()
@@ -2187,7 +2156,7 @@ func TestValidateCreateClusterRequestFields_RequiresExactlyOneProvider(t *testin
 // The Forge identity fields are required, and they are only reachable through
 // the nested nico payload.
 func TestValidateCreateClusterRequestFields_NicoIdentityFieldsRequired(t *testing.T) {
-	svc := server.NewClusterService(discardLogger(), nil, nil, config.TeleportConfig{}, false, nil, false)
+	svc := server.NewClusterService(discardLogger(), nil, nil, config.TeleportConfig{}, false, nil, false, "")
 
 	cases := []struct {
 		name    string

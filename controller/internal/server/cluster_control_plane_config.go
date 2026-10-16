@@ -5,15 +5,18 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/nodes"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/internal/clients"
+	"github.com/dsx-ai-factory/nvke/controller/internal/clients/nico"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/nodes"
 )
 
 // GetClusterControlPlane returns a read-only view of a cluster's control plane:
@@ -132,8 +135,8 @@ func controlPlaneRolloutSummary(
 }
 
 // validateCreateClusterLevelControlPlane validates the cluster-level control
-// plane configuration supplied on cluster create when control-plane controller
-// provisioning is enabled. It rejects control-plane node pools and applies the
+// plane configuration supplied on cluster create. It rejects control-plane node
+// pools and applies the
 // Forge vs CAPI field-split rules that mirror node pools. The Forge
 // subnet/VPC-prefix native-networking rules are validated separately (they
 // require a Forge site lookup).
@@ -141,6 +144,7 @@ func validateCreateClusterLevelControlPlane(
 	req *api.CreateClusterRequest,
 	nodePools []api.NodePoolCreateConfig,
 	providerType db.ProviderType,
+	allowlistedLabelKeys []string,
 ) error {
 	for _, np := range nodePools {
 		if np.ControlPlane {
@@ -150,10 +154,13 @@ func validateCreateClusterLevelControlPlane(
 
 	ccpc := req.ControlPlaneConfig
 	if ccpc == nil {
-		return fmt.Errorf("controlPlaneConfig is required when control-plane controller provisioning is enabled")
+		return fmt.Errorf("controlPlaneConfig is required")
 	}
 	if ccpc.DesiredCount < 1 {
 		return fmt.Errorf("controlPlaneConfig.desiredCount must be at least 1")
+	}
+	if err := validateNodeLabels(ccpc.NodeLabels, allowlistedLabelKeys); err != nil {
+		return fmt.Errorf("controlPlaneConfig: %w", err)
 	}
 	if ccpc.MaxSurge != nil && *ccpc.MaxSurge > 1 {
 		return errClusterMaxSurgeTooHigh
@@ -161,7 +168,7 @@ func validateCreateClusterLevelControlPlane(
 
 	switch providerType {
 	case db.ProviderTypeCAPI:
-		return validateCreateCAPIControlPlaneConfig(ccpc)
+		return validateCreateCAPIControlPlaneConfig(providerType, ccpc)
 	case db.ProviderTypeNico:
 		return validateCreateForgeControlPlaneConfigFields(ccpc)
 	default:
@@ -171,14 +178,24 @@ func validateCreateClusterLevelControlPlane(
 
 // validateCreateCAPIControlPlaneConfig enforces CAPI control-plane config rules:
 // infra.machineTemplate is required and Forge-only fields are rejected.
-func validateCreateCAPIControlPlaneConfig(c *api.CreateClusterControlPlaneConfig) error {
+func validateCreateCAPIControlPlaneConfig(providerType db.ProviderType, c *api.CreateClusterControlPlaneConfig) error {
 	if c.Nico != nil {
 		return fmt.Errorf("controlPlaneConfig.nico is not supported, please provide controlPlaneConfig.infra")
 	}
 	if c.Infra == nil || isEmptyManifestObject(c.Infra.MachineTemplate) {
 		return fmt.Errorf("controlPlaneConfig.infra.machineTemplate is required")
 	}
-	if err := validateCAPIInfrastructureManifest(c.Infra.MachineTemplate); err != nil {
+	infraMachineTemplate, err := rawManifestFromObject(c.Infra.MachineTemplate)
+	if err != nil {
+		return fmt.Errorf("invalid controlPlaneConfig.infra.machineTemplate: %w", err)
+	}
+	var spec db.ControlPlaneConfigSpec
+	spec.SetCapi(db.CAPIControlPlaneProvider{InfraMachineTemplatePreferences: []json.RawMessage{infraMachineTemplate}})
+	validator, err := clients.GetControlPlaneConfigPayloadValidator(db.Cluster{ProviderType: providerType})
+	if err != nil {
+		return err
+	}
+	if err := validator.ValidateControlPlaneConfigPayload(spec); err != nil {
 		return fmt.Errorf("invalid controlPlaneConfig.infra.machineTemplate: %w", err)
 	}
 	return validateCloudInitFiles(c.Infra.BootstrapFiles)
@@ -197,14 +214,11 @@ func validateCreateForgeControlPlaneConfigFields(c *api.CreateClusterControlPlan
 	if len(c.Nico.InstanceTypePreference) == 0 {
 		return fmt.Errorf("controlPlaneConfig.nico.instanceTypePreference must contain at least one instance type ID for a nico cluster control plane")
 	}
-	if err := validateInstanceTypePreferenceIDs(c.Nico.InstanceTypePreference); err != nil {
+	if err := nico.ValidateInstanceTypePreferenceIDs(c.Nico.InstanceTypePreference); err != nil {
 		return err
 	}
-	if c.Nico.OSProfile == "" {
-		return fmt.Errorf("controlPlaneConfig.nico.osProfile is required for a nico cluster control plane")
-	}
-	if c.Nico.ConfigProfile == "" {
-		return fmt.Errorf("controlPlaneConfig.nico.configProfile is required for a nico cluster control plane")
+	if c.Nico.Release == "" {
+		return fmt.Errorf("controlPlaneConfig.nico.release is required for a nico cluster control plane")
 	}
 	return nil
 }
@@ -233,11 +247,8 @@ func validateMergedForgeControlPlaneSpec(spec db.ControlPlaneConfigSpec) error {
 	if len(spec.Nico.InstanceTypePreference) == 0 {
 		return newBadRequestErrorf("controlPlaneConfig.nico.instanceTypePreference must contain at least one instance type ID for a nico cluster control plane")
 	}
-	if spec.Nico.OSProfile == "" {
-		return newBadRequestErrorf("controlPlaneConfig.nico.osProfile is required for a nico cluster control plane")
-	}
-	if spec.Nico.ConfigProfile == "" {
-		return newBadRequestErrorf("controlPlaneConfig.nico.configProfile is required for a nico cluster control plane")
+	if spec.Nico.Release == "" {
+		return newBadRequestErrorf("controlPlaneConfig.nico.release is required for a nico cluster control plane")
 	}
 	return nil
 }
@@ -263,7 +274,7 @@ func validateMergedCAPIControlPlaneSpec(spec db.ControlPlaneConfigSpec) error {
 }
 
 func validateControlPlaneNicoNetworking(subnetIDs, vpcPrefixIDs []uuid.UUID) error {
-	if err := validateNicoNetworkSelection(subnetIDs, vpcPrefixIDs, "controlPlaneConfig.nico."); err != nil {
+	if err := nico.ValidateNetworkSelection(subnetIDs, vpcPrefixIDs, "controlPlaneConfig.nico."); err != nil {
 		return newBadRequestErrorf("%s", err)
 	}
 	return nil
@@ -286,12 +297,15 @@ func controlPlaneConfigSpecFromCreateAPI(
 
 	spec := db.ControlPlaneConfigSpec{
 		SystemReservedMemory:        c.SystemReservedMemory,
-		NodeLabels:                  append([]string(nil), c.NodeLabels...),
+		NodeLabels:                  db.CloneStringMap(c.NodeLabels),
 		TeleportEnabled:             teleportEnabled,
 		ProvisioningMonitorDisabled: provisioningMonitorDisabled,
 		KubernetesVersion:           kubernetesVersion,
 	}
 
+	if c.NodeAgentConfig != nil && c.NodeAgentConfig.Version != nil {
+		spec.NodeAgentConfig.Version = *c.NodeAgentConfig.Version
+	}
 	switch providerType {
 	case db.ProviderTypeNico:
 		nicoControlPlaneProvider := db.NicoControlPlaneProvider{
@@ -301,7 +315,7 @@ func controlPlaneConfigSpecFromCreateAPI(
 			nicoControlPlaneProvider.InstanceTypePreference = dedupeUUIDsPreserveOrder(uuidSliceFromAPI(c.Nico.InstanceTypePreference))
 			nicoControlPlaneProvider.SubnetIDs = uuidSliceDedupe(uuidSliceFromAPI(c.Nico.SubnetIDs))
 			nicoControlPlaneProvider.VpcPrefixIDs = uuidSliceDedupe(uuidSliceFromAPI(c.Nico.VpcPrefixIDs))
-			nicoControlPlaneProvider.OSProfile = c.Nico.OSProfile
+			nicoControlPlaneProvider.Release = c.Nico.Release
 			nicoControlPlaneProvider.ConfigProfile = c.Nico.ConfigProfile
 			nicoControlPlaneProvider.SSHKeyGroupIDs = uuidSliceDedupe(uuidSliceFromAPI(c.Nico.SSHKeyGroupIDs))
 		}
@@ -331,7 +345,7 @@ func apiNicoControlPlaneProviderFromDB(nicoControlPlaneProvider *db.NicoControlP
 		InstanceTypePreference: append([]openapi_types.UUID(nil), nicoControlPlaneProvider.InstanceTypePreference...),
 		SubnetIDs:              append([]openapi_types.UUID(nil), nicoControlPlaneProvider.SubnetIDs...),
 		VpcPrefixIDs:           append([]openapi_types.UUID(nil), nicoControlPlaneProvider.VpcPrefixIDs...),
-		OSProfile:              nicoControlPlaneProvider.OSProfile,
+		Release:                nicoControlPlaneProvider.Release,
 		ConfigProfile:          nicoControlPlaneProvider.ConfigProfile,
 		SSHKeyGroupIDs:         append([]openapi_types.UUID(nil), nicoControlPlaneProvider.SSHKeyGroupIDs...),
 	}

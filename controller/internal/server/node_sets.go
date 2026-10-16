@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/client"
 
-	"github.com/dsx-ai-factory/nke/controller/api"
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/api"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
 )
 
 type nodeSetService struct {
@@ -127,7 +127,7 @@ func apiNicoNodeSetProviderFromDB(nicoNodeSetProvider *db.NicoNodePoolProvider) 
 	return &api.NicoNodeSetProvider{
 		SubnetIDs:             append([]uuid.UUID(nil), nicoNodeSetProvider.SubnetIDs...),
 		VpcPrefixIDs:          append([]uuid.UUID(nil), nicoNodeSetProvider.VpcPrefixIDs...),
-		OSProfile:             nicoNodeSetProvider.OSProfile,
+		Release:               nicoNodeSetProvider.Release,
 		ConfigProfile:         nicoNodeSetProvider.ConfigProfile,
 		DiskSelectionStrategy: api.DiskSelectionStrategyCreate(nicoNodeSetProvider.DiskSelectionStrategy),
 	}

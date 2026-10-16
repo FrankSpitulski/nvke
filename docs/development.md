@@ -40,8 +40,17 @@ if you would rather manage the tools yourself.
 ```bash
 make build                # compile every module, binaries into bin/
 make test                 # every module's own test suite
+make coverage             # the same suites, with a per-module coverage table
 make -C controller lint   # one module, when that is all you changed
 ```
+
+`make test` already writes a coverage profile per module into `coverage/`.
+`make coverage` re-runs the collecting modules from scratch and reports;
+`make coverage-report` skips the run and reports on the profiles that are
+already there. `go tool cover -html=coverage/<module>.out` opens one.
+**No threshold gates a merge, and the percentage is not a measure of how well
+tested anything is** — read [coverage-policy.md](coverage-policy.md) before
+quoting one in a review.
 
 Each module answers the same four verbs, so `make -C <module> {build,test,lint,fmt}`
 works for `agent`, `cli`, `controller`, `controller/nico-sim`,
@@ -62,6 +71,14 @@ That works out which modules you changed, then lints and tests those, and adds
 the workspace and licence-header checks when your change touched what they cover.
 It prints what it is about to run, and what it is not covering, before it runs
 anything.
+
+When your change touches the workspace, preflight runs `make work-check`. That is
+not read-only: it runs `go work sync` and `go mod tidy` in every module, so it can
+rewrite `go.mod`, `go.sum` and `go.work.sum` under you. It reaches a Go module
+proxy whenever the module or checksum data it needs is not already in your
+module cache, so on a cold cache it needs network access. Commit what it
+changes, or stash first if you want a clean tree. See
+[go-workspace.md](go-workspace.md).
 
 Scope it yourself when you want to:
 

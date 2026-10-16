@@ -27,12 +27,12 @@ func TestProvisionModesRenderValidYAML(t *testing.T) {
 		want        []string
 	}{
 		{
-			"apt", AptProvision("https://r/", "https://g/", "nke-noble", "main", "pkg", "6"),
-			[]string{"apt-get install -y pkg=6 nke-agent"},
+			"apt", AptProvision("https://r/", "https://g/", "nvke-noble", "main", "pkg", "6"),
+			[]string{"apt-get install -y -o DPkg::Lock::Timeout=600 pkg=6 nvke-agent"},
 		},
 		{
 			"community", CommunityProvision("http://172.30.0.1:8080/install-k8s.sh", "http://172.30.0.1:8080/a.deb"),
-			[]string{"install-k8s.sh", "nke-agent.deb"},
+			[]string{"install-k8s.sh", "nvke-agent.deb"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

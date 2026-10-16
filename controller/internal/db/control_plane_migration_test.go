@@ -11,21 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/db"
-	"github.com/dsx-ai-factory/nke/controller/internal/testutil"
+	"github.com/dsx-ai-factory/nvke/controller/internal/db"
+	"github.com/dsx-ai-factory/nvke/controller/internal/testutil"
 )
-
-// TestMigrateControlPlaneToControllerFlagOffIsNoop verifies the flag-off path
-// short-circuits before touching the DB: a nil *bun.DB would panic if it were
-// dereferenced, so a clean return proves the guard runs first. This is the only
-// branch exercisable without a live Postgres; the SQL body is validated in
-// staging against a real database.
-func TestMigrateControlPlaneToControllerFlagOffIsNoop(t *testing.T) {
-	require.NotPanics(t, func() {
-		err := db.MigrateControlPlaneToController(context.Background(), nil, false)
-		require.NoError(t, err)
-	})
-}
 
 func TestSyncMissingControlPlaneConfigsFromCPNodePools(t *testing.T) {
 	t.Parallel()
@@ -47,7 +35,7 @@ func TestSyncMissingControlPlaneConfigsFromCPNodePools(t *testing.T) {
 	existingSnapshot, err := dbImpl.CreateControlPlaneConfiguration(ctx, &db.ControlPlaneConfiguration{
 		ClusterID: alreadySynced.ID,
 		Config: db.ControlPlaneConfigSpec{
-			Nico: &db.NicoControlPlaneProvider{OSProfile: "existing-os"},
+			Nico: &db.NicoControlPlaneProvider{Release: "existing-os"},
 		},
 		ChangeReason: "already present",
 	})
@@ -83,8 +71,8 @@ func TestSyncMissingControlPlaneConfigsFromCPNodePools(t *testing.T) {
 	assert.NotEqual(t, uuid.Nil, healed.ControlPlaneConfig.ConfigurationID)
 	assert.Equal(t, 1, healed.ControlPlaneConfig.DesiredCount)
 	require.NotNil(t, healed.ControlPlaneConfig.Nico)
-	assert.Equal(t, "nke-sc-os", healed.ControlPlaneConfig.Nico.OSProfile)
-	assert.Equal(t, "nke-sc-cp", healed.ControlPlaneConfig.Nico.ConfigProfile)
+	assert.Equal(t, "nvke-sc-os", healed.ControlPlaneConfig.Nico.Release)
+	assert.Equal(t, "nvke-sc-cp", healed.ControlPlaneConfig.Nico.ConfigProfile)
 
 	unchanged, err := dbImpl.GetCluster(ctx, alreadySynced.ID)
 	require.NoError(t, err)
@@ -100,11 +88,11 @@ func importedControlPlanePool(clusterID uuid.UUID, desired int) db.NodePool {
 	pool := db.NodePool{
 		ID:                   uuid.New(),
 		ClusterID:            clusterID,
-		Name:                 "nke-tier-0-controlplane",
+		Name:                 "nvke-tier-0-controlplane",
 		NodeNamePrefix:       "cp",
 		SystemReservedMemory: "16Gi",
 		ControlPlane:         true,
-		NodeLabels:           []string{},
+		NodeLabels:           map[string]string{},
 		KubernetesVersion:    "1.34.2",
 		DesiredCount:         desired,
 		Conditions: db.NodePoolConditions{
@@ -112,8 +100,8 @@ func importedControlPlanePool(clusterID uuid.UUID, desired int) db.NodePool {
 		},
 	}
 	pool.SetNico(db.NicoNodePoolProvider{
-		OSProfile:             "nke-sc-os",
-		ConfigProfile:         "nke-sc-cp",
+		Release:               "nvke-sc-os",
+		ConfigProfile:         "nvke-sc-cp",
 		InstanceTypeID:        uuid.MustParse("00000000-0000-4000-8000-000000000008"),
 		SubnetIDs:             []uuid.UUID{uuid.MustParse("00000000-0000-4000-8000-000000000003")},
 		DiskSelectionStrategy: db.DiskSelectionStrategySmallest,

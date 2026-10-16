@@ -31,18 +31,27 @@ on:
       # that defines the management plane triggers nothing, and the lane that
       # would have caught the break runs on some later, unrelated push.
       - "controller/deploy/**"
+      - "deploy/**"
       - .github/workflows/capd-e2e.yml
       - .github/workflows/backend-e2e.yml
       - .github/workflows/e2e-pr-path-filter.yml
-      # The CWE-facing CLI. hack/ci/nkectl-smoke.sh drives nkectl against this
-      # lane's CWE, so a change here has something to break. Keep in step with
+      # The controller-facing CLI. hack/ci/nvkectl-smoke.sh drives nvkectl against this
+      # lane's controller, so a change here has something to break. Keep in step with
       # cwe_facing in e2e-pr-path-filter.yml, which suppresses the rest of cli/.
+      #
+      # Both halves of the command tree: cmd/ is the shim holding main and the
+      # contract test, and internal/nvkectl is the tree itself. The smoke drives
+      # config set-site, config view, create cluster and delete nodepool, all of
+      # which live in the latter, so cmd/ alone would skip this lane for a change
+      # to any of them.
       - "cli/cmd/**"
+      - "cli/internal/nvkectl/**"
       - "cli/internal/clients/**"
       - "cli/internal/clusterstate/**"
-      - "cli/internal/cwe/**"
+      - "cli/internal/controller/**"
       - "cli/internal/providers/**"
       - "cli/internal/bootstrap/sitecluster/**"
+      - "cli/internal/telemetry/**"
       - "cli/internal/util/**"
   # Also twice a day, so a break the paths above filtered out, or one a flake
   # hid, still surfaces within twelve hours. A schedule ignores those paths, so
@@ -84,22 +93,10 @@ jobs:
     permissions:
       pull-requests: read
 
-  # Pull requests use the dedicated one-control-plane/one-worker core row and
-  # the ordinary node-pool path. The measured setup plus create/readiness/delete
-  # path leaves enough room for a sub-15-minute target without weakening the
-  # comprehensive main and scheduled coverage below.
-  #
-  # Non-PR runs use both control-plane provisioning modes on one runner and
-  # cluster, in sequence. The
-  # flag (PROVISION_CONTROL_PLANE_WITH_CONTROL_PLANE_CONTROLLER) is deployment-wide
-  # and each mode rejects the other's config, so a single CWE can't serve both at
-  # once. The script runs cp-controller flag-on first, then flips the flag off with
-  # a light redeploy for the node-pool leg.
-  #
-  # cp-controller runs first so the newer path fails fast: if it breaks, the script
-  # aborts before spending ~an hour on the node-pool leg and never reuses a dirty
-  # cluster. The node-pool leg runs only after cp-controller passes and the cluster
-  # is confirmed empty. `health` rides along with each leg (flag-on and flag-off).
+  # Pull requests use the dedicated one-control-plane/one-worker core row. The
+  # measured setup plus create/readiness/delete path leaves enough room for a
+  # sub-15-minute target without weakening the comprehensive main and scheduled
+  # coverage below.
   capd-e2e:
     needs: changes
     if: needs.changes.outputs.run_e2e == 'true'
@@ -115,30 +112,33 @@ jobs:
     uses: ./.github/workflows/backend-e2e.yml
     permissions:
       contents: read
+    secrets:
+      OVN_KUBERNETES_RO_TOKEN: ${{ secrets.OVN_KUBERNETES_RO_TOKEN }}
     with:
       backend: capd
       arch: ${{ matrix.arch }}
       runner: ${{ matrix.runner }}
       # Mirror branches select only the bounded core entry and health probes.
-      # Ignored under single-runner-control-plane-modes on comprehensive runs:
-      # the CI script drives
-      # each leg's label filter itself (cp-controller+health first, then
-      # node-pool+health+authn). This value mirrors the node-pool leg's filter to
-      # satisfy the required input and document what that leg runs. `health` and
-      # the authn specs ride along there -- both need a deployed, enforcing NKE.
-      # authn-spire is excluded (needs SPIRE pod attestation not wired in CAPD).
-      label-filter: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'pull-request/') && 'core-docker || health' || '((capd || health) && !cp-controller) || (authn && !authn-spire) || authn-permissive' }}
+      # Full runs select every CAPD entry plus `health` and the authn specs, both
+      # of which need a deployed, enforcing NVKE. authn-spire is excluded (needs
+      # SPIRE pod attestation not wired in CAPD). Keep the full expression in
+      # step with e2e_suite_filter in hack/backend-e2e-lib.sh.
+      # CAPD nodes are containers, with no TPM and no GPU, so a spec that needs
+      # either is excluded whatever else selects it.
+      label-filter: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'pull-request/') && '(core-docker || health) && !tpm-attestation && !gpu' || '((capd || health) || (authn && !authn-spire) || authn-permissive) && !tpm-attestation && !gpu' }}
       providers: '["capi_core", "bgp-containers", "capd", "capd-reboot-controller"]'
-      # Keep diagnostic headroom above the 15-minute pull-request target. Full
-      # runs still need room for two modes and every extended CAPD scenario.
-      timeout-minutes: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'pull-request/') && 20 || 150 }}
+      # copy-pr-bot mirrors PRs onto pull-request/<n> for self-hosted runners.
+      # Mirrored runs select the smaller core/health suite; 30 minutes leaves
+      # room for arm64 diagnostics and action cleanup after that suite finishes.
+      # Full runs cover the extended CAPD scenarios, so they retain their
+      # 150-minute allowance.
+      timeout-minutes: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'pull-request/') && 30 || 150 }}
       # Turn "authentication is not deployed" from a per-spec skip into a failure:
-      # the authn specs run on the node-pool leg, and without this a broken auth
+      # the authn specs run in the full runs, and without this a broken auth
       # deployment would leave them silently skipped and the job green.
       require-authn: ${{ github.event_name != 'push' || !startsWith(github.ref_name, 'pull-request/') }}
-      nkectl-smoke: true
+      nvkectl-smoke: true
       needs-capnico-source: true
-      single-runner-control-plane-modes: ${{ github.event_name != 'push' || !startsWith(github.ref_name, 'pull-request/') }}
       # Default on every trigger; a dispatch can still opt out.
       #
       # Written as "not a dispatch OR the input" rather than `inputs.x || true`:

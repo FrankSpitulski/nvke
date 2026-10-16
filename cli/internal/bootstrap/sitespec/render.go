@@ -17,35 +17,40 @@ import (
 )
 
 // templateYAML is the annotated site spec Render starts from. It is embedded
-// rather than read from cli/examples so nkectl carries it as a shipped binary,
+// rather than read from cli/examples so nvkectl carries it as a shipped binary,
 // and it is kept byte-identical in content to that example by
 // TestExampleMatchesTemplate.
 //
 //go:embed template.yaml
 var templateYAML []byte
 
-// deniedPaths are the field paths --set must refuse.
-//
-// registry.apiKey is a credential: the site spec is meant to be committed, so
-// the secret is supplied at bootstrap time instead. cluster.nodes comes from
+// deniedPaths are the field paths --set must refuse. cluster.nodes comes from
 // the node CSV, which carries per-node fields a dotted path cannot express.
+// infra.provider and spire.externalAddress are for a nico site spec, which
+// generate sitespec does not write: it requires --nodes, so with either set the
+// file it writes is refused by its own validation.
 func deniedPaths() map[string]string {
 	return map[string]string{
-		pathAPIKey: "a registry credential does not belong in a file meant to be committed; " +
-			"pass it to \"nkectl bootstrap site\" with --registry-api-key or " + registryAPIKeyEnvName,
 		pathNodes: "nodes come from --nodes",
+		pathInfraProvider: "generate sitespec writes a provisioned site spec from --nodes; " +
+			"write a nico one by hand from examples/sitespec-nico.yaml",
+		pathSpireExternalAddress: "spire.externalAddress is only valid with infra.provider nico, " +
+			"which generate sitespec does not write",
 	}
 }
 
-// registryAPIKeyEnvName is named here rather than imported from the command
-// package so the error can point at it without inverting the dependency.
-const registryAPIKeyEnvName = "REGISTRY_API_KEY"
+// fileOnlyPaths are settable fields with no environment variable: a record of
+// the site that the environment must not override.
+func fileOnlyPaths() []string {
+	return []string{pathSpireUpstreamCA}
+}
 
 // SettablePaths returns the field paths --set accepts, sorted.
 //
 // It is derived from the environment bindings rather than listed separately, so
 // a field that gains an environment variable becomes settable with it, and an
-// exclusion has to be written down in deniedPaths to take effect.
+// exclusion has to be written down in deniedPaths to take effect. Fields with no
+// environment variable are added from fileOnlyPaths.
 func SettablePaths() []string {
 	denied := deniedPaths()
 	paths := make([]string, 0, len(envBindings()))
@@ -55,11 +60,12 @@ func SettablePaths() []string {
 		}
 		paths = append(paths, path)
 	}
+	paths = append(paths, fileOnlyPaths()...)
 	sort.Strings(paths)
 	return paths
 }
 
-// ParseNodesCSV reads the node list for "nkectl generate sitespec".
+// ParseNodesCSV reads the node list for "nvkectl generate sitespec".
 //
 // The first record is a header naming the columns in any order: name and ip are
 // required, tpm_ek_thumbprint is optional per row. An unknown column is an
@@ -157,7 +163,7 @@ func valueAt(record []string, index map[string]int, column string) string {
 	return record[i]
 }
 
-// Build assembles a SiteSpec from the inputs "nkectl generate sitespec" takes
+// Build assembles a SiteSpec from the inputs "nvkectl generate sitespec" takes
 // and validates it, returning the first problem found in the arguments and
 // otherwise every field-level problem at once.
 //
@@ -210,9 +216,15 @@ func (spec *SiteSpec) Render() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := applySpec(doc.Content[0], spec); err != nil {
+	// A commented example at the end of the file hangs off the document, not
+	// off an entry. Lend it to the mapping so a key written for it lands
+	// there, with its prose, and hand what is left back for the encoder.
+	root := doc.Content[0]
+	root.FootComment, doc.FootComment = doc.FootComment, ""
+	if err := applySpec(root, spec); err != nil {
 		return nil, err
 	}
+	doc.FootComment, root.FootComment = root.FootComment, ""
 
 	var buf bytes.Buffer
 	encoder := yaml.NewEncoder(&buf)

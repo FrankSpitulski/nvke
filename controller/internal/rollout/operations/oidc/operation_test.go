@@ -5,6 +5,7 @@ package oidc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -15,15 +16,18 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	apiserverv1 "k8s.io/apiserver/pkg/apis/apiserver/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/yaml"
 
-	nkeproto "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	nvkeproto "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 
-	"github.com/dsx-ai-factory/nke/controller/internal/config"
-	"github.com/dsx-ai-factory/nke/controller/internal/kubeadmconfig"
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout"
-	"github.com/dsx-ai-factory/nke/controller/internal/rollout/nodeagent"
+	"github.com/dsx-ai-factory/nvke/controller/internal/config"
+	"github.com/dsx-ai-factory/nvke/controller/internal/controllerconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/kubeadmconfig"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout"
+	"github.com/dsx-ai-factory/nvke/controller/internal/rollout/nodeagent"
 )
 
 // --- fakes ---
@@ -39,29 +43,31 @@ func (f fakeNode) Role() rollout.NodeRole { return f.role }
 func (f fakeNode) AgentEndpoint() string  { return f.endpoint }
 
 type fakeCluster struct {
-	name string
-	k8s  string
-	cps  []rollout.Node
+	name      string
+	k8s       string
+	cps       []rollout.Node
+	providers []controllerconfig.OIDCProvider
 }
 
-func (f fakeCluster) ID() uuid.UUID                     { return uuid.New() }
-func (f fakeCluster) Name() string                      { return f.name }
-func (f fakeCluster) KubernetesVersion() string         { return f.k8s }
-func (f fakeCluster) ControlPlaneVIP() string           { return "10.0.0.1" }
-func (f fakeCluster) ControlPlaneNodes() []rollout.Node { return f.cps }
-func (f fakeCluster) Nodes() []rollout.Node             { return f.cps }
+func (f fakeCluster) ID() uuid.UUID                                  { return uuid.New() }
+func (f fakeCluster) Name() string                                   { return f.name }
+func (f fakeCluster) KubernetesVersion() string                      { return f.k8s }
+func (f fakeCluster) ControlPlaneVIP() string                        { return "10.0.0.1" }
+func (f fakeCluster) OIDCProviders() []controllerconfig.OIDCProvider { return f.providers }
+func (f fakeCluster) ControlPlaneNodes() []rollout.Node              { return f.cps }
+func (f fakeCluster) Nodes() []rollout.Node                          { return f.cps }
 
 type fakeClient struct {
-	patchResp *nkeproto.PatchAPIServerManifestResponse
+	patchResp *nvkeproto.PatchAPIServerManifestResponse
 	patchErr  error
-	calls     []*nkeproto.PatchAPIServerManifestRequest
+	calls     []*nvkeproto.PatchAPIServerManifestRequest
 }
 
-func (f *fakeClient) PatchAPIServerManifest(_ context.Context, req *nkeproto.PatchAPIServerManifestRequest, _ ...grpc.CallOption) (*nkeproto.PatchAPIServerManifestResponse, error) {
+func (f *fakeClient) PatchAPIServerManifest(_ context.Context, req *nvkeproto.PatchAPIServerManifestRequest, _ ...grpc.CallOption) (*nvkeproto.PatchAPIServerManifestResponse, error) {
 	f.calls = append(f.calls, req)
 	if f.patchResp == nil && f.patchErr == nil {
 		// Default to a benign success for callers (e.g. Rollback) that don't set one.
-		return &nkeproto.PatchAPIServerManifestResponse{Outcome: nkeproto.PatchAPIServerManifestResponse_OUTCOME_APPLIED}, nil
+		return &nvkeproto.PatchAPIServerManifestResponse{Outcome: nvkeproto.PatchAPIServerManifestResponse_OUTCOME_APPLIED}, nil
 	}
 	return f.patchResp, f.patchErr
 }
@@ -82,7 +88,7 @@ func validArtifact(t *testing.T) rollout.ApplyToNodePayload {
 	t.Helper()
 	op := NewEnableOIDCOperation(
 		WithClient(fakeK8sClient()),
-		WithOIDCConfig(&config.NkeOIDCAuth{Enabled: true, IssuerURL: "https://issuer.example"}),
+		WithOIDCConfig(&config.NvkeOIDCAuth{Enabled: true, IssuerURL: "https://issuer.example"}),
 	)
 	payload, err := op.BuildApplyToNodePayload(context.Background(), fakeCluster{name: "tenant-1", k8s: "1.30.0", cps: []rollout.Node{cpNode()}})
 	require.NoError(t, err)
@@ -92,8 +98,8 @@ func validArtifact(t *testing.T) rollout.ApplyToNodePayload {
 // --- ApplyToNode outcome mapping ---
 
 func TestApplyToNode_OutcomeMapping(t *testing.T) {
-	resp := func(o nkeproto.PatchAPIServerManifestResponse_Outcome) *nkeproto.PatchAPIServerManifestResponse {
-		return &nkeproto.PatchAPIServerManifestResponse{Outcome: o}
+	resp := func(o nvkeproto.PatchAPIServerManifestResponse_Outcome) *nvkeproto.PatchAPIServerManifestResponse {
+		return &nvkeproto.PatchAPIServerManifestResponse{Outcome: o}
 	}
 	cases := []struct {
 		name    string
@@ -101,11 +107,11 @@ func TestApplyToNode_OutcomeMapping(t *testing.T) {
 		want    rollout.Outcome
 		wantErr bool
 	}{
-		{"applied->applied", &fakeClient{patchResp: resp(nkeproto.PatchAPIServerManifestResponse_OUTCOME_APPLIED)}, rollout.OutcomeApplied, false},
-		{"unchanged->unchanged", &fakeClient{patchResp: resp(nkeproto.PatchAPIServerManifestResponse_OUTCOME_UNCHANGED)}, rollout.OutcomeUnchanged, false},
-		{"failed_restored->failed_restored", &fakeClient{patchResp: resp(nkeproto.PatchAPIServerManifestResponse_OUTCOME_FAILED_RESTORED)}, rollout.OutcomeFailedRestored, true},
-		{"failed_not_restored->failed_not_restored", &fakeClient{patchResp: resp(nkeproto.PatchAPIServerManifestResponse_OUTCOME_FAILED_NOT_RESTORED)}, rollout.OutcomeFailedNotRestored, true},
-		{"unspecified->failed_not_restored", &fakeClient{patchResp: resp(nkeproto.PatchAPIServerManifestResponse_OUTCOME_UNSPECIFIED)}, rollout.OutcomeFailedNotRestored, true},
+		{"applied->applied", &fakeClient{patchResp: resp(nvkeproto.PatchAPIServerManifestResponse_OUTCOME_APPLIED)}, rollout.OutcomeApplied, false},
+		{"unchanged->unchanged", &fakeClient{patchResp: resp(nvkeproto.PatchAPIServerManifestResponse_OUTCOME_UNCHANGED)}, rollout.OutcomeUnchanged, false},
+		{"failed_restored->failed_restored", &fakeClient{patchResp: resp(nvkeproto.PatchAPIServerManifestResponse_OUTCOME_FAILED_RESTORED)}, rollout.OutcomeFailedRestored, true},
+		{"failed_not_restored->failed_not_restored", &fakeClient{patchResp: resp(nvkeproto.PatchAPIServerManifestResponse_OUTCOME_FAILED_NOT_RESTORED)}, rollout.OutcomeFailedNotRestored, true},
+		{"unspecified->failed_not_restored", &fakeClient{patchResp: resp(nvkeproto.PatchAPIServerManifestResponse_OUTCOME_UNSPECIFIED)}, rollout.OutcomeFailedNotRestored, true},
 		{"grpc invalid_argument->failed_restored", &fakeClient{patchErr: status.Error(codes.InvalidArgument, "bad")}, rollout.OutcomeFailedRestored, true},
 		{"grpc failed_precondition->failed_restored", &fakeClient{patchErr: status.Error(codes.FailedPrecondition, "not cp")}, rollout.OutcomeFailedRestored, true},
 		{"grpc unimplemented->failed_restored", &fakeClient{patchErr: status.Error(codes.Unimplemented, "no such method")}, rollout.OutcomeFailedRestored, true},
@@ -164,7 +170,7 @@ func TestValidate(t *testing.T) {
 	ready := func() *EnableOIDCOperation {
 		op := NewEnableOIDCOperation(
 			WithClient(fakeK8sClient()),
-			WithOIDCConfig(&config.NkeOIDCAuth{Enabled: true, IssuerURL: "https://issuer.example"}),
+			WithOIDCConfig(&config.NvkeOIDCAuth{Enabled: true, IssuerURL: "https://issuer.example"}),
 		)
 		// Report the RPC as supported by default; subtests override it.
 		op.methodChecker = func(context.Context, rollout.Node, string) error { return nil }
@@ -206,7 +212,7 @@ func TestValidate(t *testing.T) {
 		assert.Error(t, withDialer(ready()).Validate(context.Background(), fakeCluster{name: "tenant-1", k8s: "1.29.5", cps: []rollout.Node{cpNode()}}))
 	})
 	t.Run("k8s with v-prefix and suffix accepted", func(t *testing.T) {
-		require.NoError(t, withDialer(ready()).Validate(context.Background(), fakeCluster{name: "tenant-1", k8s: "v1.31.2+nke1", cps: []rollout.Node{cpNode()}}))
+		require.NoError(t, withDialer(ready()).Validate(context.Background(), fakeCluster{name: "tenant-1", k8s: "v1.31.2+nvke1", cps: []rollout.Node{cpNode()}}))
 	})
 	t.Run("non-DNS-1123 cluster name rejected", func(t *testing.T) {
 		assert.Error(t, withDialer(ready()).Validate(context.Background(), fakeCluster{name: "Tenant_1", k8s: "1.30.0", cps: []rollout.Node{cpNode()}}))
@@ -244,15 +250,15 @@ func TestRollback_FailedOutcomeReturnsError(t *testing.T) {
 	// reporting success.
 	cases := []struct {
 		name    string
-		outcome nkeproto.PatchAPIServerManifestResponse_Outcome
+		outcome nvkeproto.PatchAPIServerManifestResponse_Outcome
 		wantMsg string
 	}{
-		{"failed_restored", nkeproto.PatchAPIServerManifestResponse_OUTCOME_FAILED_RESTORED, "failed and was restored"},
-		{"failed_not_restored", nkeproto.PatchAPIServerManifestResponse_OUTCOME_FAILED_NOT_RESTORED, "failed and was not restored"},
+		{"failed_restored", nvkeproto.PatchAPIServerManifestResponse_OUTCOME_FAILED_RESTORED, "failed and was restored"},
+		{"failed_not_restored", nvkeproto.PatchAPIServerManifestResponse_OUTCOME_FAILED_NOT_RESTORED, "failed and was not restored"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := &fakeClient{patchResp: &nkeproto.PatchAPIServerManifestResponse{
+			c := &fakeClient{patchResp: &nvkeproto.PatchAPIServerManifestResponse{
 				Outcome:      tc.outcome,
 				ErrorMessage: "boom",
 			}}
@@ -285,7 +291,7 @@ func TestParsePayload_Errors(t *testing.T) {
 func TestBuildApplyToNodePayload_DeterministicAndNonEmpty(t *testing.T) {
 	op := NewEnableOIDCOperation(
 		WithClient(fakeK8sClient()),
-		WithOIDCConfig(&config.NkeOIDCAuth{Enabled: true, IssuerURL: "https://issuer.example"}),
+		WithOIDCConfig(&config.NvkeOIDCAuth{Enabled: true, IssuerURL: "https://issuer.example"}),
 	)
 	cluster := fakeCluster{name: "tenant-1", k8s: "1.30.0", cps: []rollout.Node{cpNode()}}
 	first, err := op.BuildApplyToNodePayload(context.Background(), cluster)
@@ -301,6 +307,37 @@ func TestBuildApplyToNodePayload_DeterministicAndNonEmpty(t *testing.T) {
 	assert.Equal(t, "/etc/kubernetes/oidc/auth-config.yaml", parsed.AuthConfigPath)
 	assert.Equal(t, parsed.AuthConfigPath, parsed.Files[0].Path)
 	assert.NotEmpty(t, parsed.Files[0].Content)
+}
+
+func TestBuildApplyToNodePayload_KeepsPinnedProviders(t *testing.T) {
+	op := NewEnableOIDCOperation(
+		WithClient(fakeK8sClient()),
+		WithOIDCConfig(&config.NvkeOIDCAuth{Enabled: true, IssuerURL: "https://issuer.example"}),
+		WithTrustDomain("management.example.test"),
+	)
+	cluster := fakeCluster{name: "tenant-1", k8s: "1.34.1", cps: []rollout.Node{cpNode()}, providers: []controllerconfig.OIDCProvider{{
+		Name:           "corp",
+		IssuerURL:      "https://login.example.test",
+		Audiences:      []string{"nke"},
+		UsernameClaim:  "email",
+		UsernamePrefix: "corp:",
+		CABundle:       "corp CA",
+	}}}
+
+	payload, err := op.BuildApplyToNodePayload(context.Background(), cluster)
+	require.NoError(t, err)
+	parsed, err := parsePayload(payload)
+	require.NoError(t, err)
+	var auth apiserverv1.AuthenticationConfiguration
+	require.NoError(t, yaml.Unmarshal(parsed.Files[0].Content, &auth))
+	require.Len(t, auth.JWT, 2)
+	assert.Equal(t, "https://issuer.example", auth.JWT[0].Issuer.URL)
+	assert.Equal(t, "https://login.example.test", auth.JWT[1].Issuer.URL)
+	expressions := make([]string, 0, len(auth.JWT[1].UserValidationRules))
+	for _, rule := range auth.JWT[1].UserValidationRules {
+		expressions = append(expressions, rule.Expression)
+	}
+	assert.Contains(t, expressions, `!user.username.startsWith("spiffe://management.example.test/")`)
 }
 
 func TestBuildPatchRequests_MultipleFiles(t *testing.T) {
@@ -328,4 +365,31 @@ func TestBuildPatchRequests_MultipleFiles(t *testing.T) {
 	assert.ElementsMatch(t,
 		[]string{"/etc/kubernetes/oidc/auth-config.yaml", "/etc/kubernetes/oidc/ca.crt"},
 		disable.GetRemoveFiles(), "both files removed on disable")
+}
+
+func TestRollback_RejectsInvalidPreviousConfigBeforeDial(t *testing.T) {
+	artifact, err := parsePayload(validArtifact(t))
+	require.NoError(t, err)
+	artifact.Previous = &authConfigArtifact{AuthConfigPath: artifact.AuthConfigPath}
+	payload, err := json.Marshal(artifact)
+	require.NoError(t, err)
+	c := &fakeClient{}
+	op := NewEnableOIDCOperation()
+	op.nodeAgentClientDialer = dialerFor(c)
+	err = op.Rollback(context.Background(), cpNode(), payload)
+	require.ErrorContains(t, err, "invalid previous authentication config")
+	require.Empty(t, c.calls, "invalid rollback state must fail before mutating the node")
+}
+
+func TestBuildRollbackPatchRequest_RemovesFilesPreviousDoesNotStage(t *testing.T) {
+	artifact, err := parsePayload(validArtifact(t))
+	require.NoError(t, err)
+	previous := artifact
+	artifact.Files = append(artifact.Files, fileArtifact{Path: "/etc/kubernetes/oidc/shared-ca.crt", Content: []byte("ca"), Mode: 0o600, Owner: "root:root"})
+	artifact.Previous = &previous
+	req, err := buildRollbackPatchRequest(artifact)
+	require.NoError(t, err)
+	require.Len(t, req.GetFiles(), 1, "only the previous document is restored")
+	require.Equal(t, previous.AuthConfigPath, req.GetFlagOps()[0].GetSet().GetValue())
+	require.Equal(t, []string{"/etc/kubernetes/oidc/shared-ca.crt"}, req.GetRemoveFiles())
 }

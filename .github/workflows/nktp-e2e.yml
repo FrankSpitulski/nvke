@@ -11,8 +11,7 @@
 # or a Target Allocator that discovers nothing all fail here and nowhere else.
 #
 # The assertions live in nktp/hack/e2e-validate.sh, not inline, so the same
-# checks run locally. docs/nktp/kind-validation.md is the hand-run version and
-# the source of the queries.
+# checks run locally.
 #
 # Runs on linux-amd64-cpu8. One Kind node, and no KVM, but not a hosted runner:
 # the chart requests about 2 CPU across its pods, and a 4-vCPU ubuntu-latest
@@ -37,7 +36,7 @@ on:
       - "pull-request/[0-9]+"
     paths:
       - 'nktp/**'
-      - 'controller/hack/cwe-capi-kind.yaml'
+      - 'controller/hack/controller-capi-kind.yaml'
       - 'make/tool-versions.mk'
       - '.github/actions/setup-kind/**'
       - '.github/workflows/nktp-e2e.yml'
@@ -57,7 +56,7 @@ jobs:
   validate:
     name: install and validate on Kind
     runs-on: linux-amd64-cpu8
-    if: github.repository == 'dsx-ai-factory/nke'
+    if: github.repository_id == '1323115536'
     # The install alone is ~10 minutes on a hosted runner: the Operator, its
     # CRDs, seven Collectors and the LGTM image. The signal assertions then
     # retry for up to five minutes each.
@@ -116,6 +115,11 @@ jobs:
           raise_minimum fs.inotify.max_user_watches 1048576
 
       - name: Install and validate
+        env:
+          # The host daemon pulls the Kind node image, and it has no registry
+          # mirror on these runners. e2e-validate.sh rewrites the image to
+          # this mirror, as the backend lanes do for their Kind cluster.
+          NKE_E2E_DOCKERHUB_MIRROR: mirror.gcr.io
         run: ./nktp/hack/e2e-validate.sh
 
       # The script prints pods, Collectors and events on failure. This keeps the
@@ -134,7 +138,7 @@ jobs:
 
       - name: Upload diagnostics
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nktp-e2e-diagnostics-${{ github.run_id }}
           path: /tmp/nktp-diag

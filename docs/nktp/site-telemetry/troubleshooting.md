@@ -15,7 +15,7 @@ can't set finalizers on`.
 **Cause:**
 1. The Operator creates a NetworkPolicy for its own Pod, owned by its
    Deployment, with `blockOwnerDeletion: true`.
-2. Every cluster NKE builds runs the `OwnerReferencesPermissionEnforcement`
+2. Every cluster NVKE builds runs the `OwnerReferencesPermissionEnforcement`
    admission plugin (`defaultEnabledAdmissionPlugins` in
    `controller/internal/kubeadmconfig`). It allows that field only if the
    requester can `update` the owner's `deployments/finalizers`.
@@ -35,26 +35,27 @@ kubectl auth can-i update deployments.apps/nktp-operator --subresource=finalizer
   -n nktp --as=system:serviceaccount:nktp:opentelemetry-operator   # yes
 ```
 
-## The install stops at nke-base-config: "{{ .ClusterName }} has no value"
+## The install stops at nvke-base-config: "`{{ .ClusterName }}` has no value"
 
-**Cause:** the BootstrapConfig passed with `--config` has no `ClusterName`.
+**Cause:** the install has no site name. With `--sitespec`, the site spec's `clusterName` is empty; without one, the BootstrapConfig passed with `--config` has no `ClusterName`.
 The `nktp-cluster` ConfigMap is rendered from it, and the renderer refuses an
 empty value rather than labeling every signal with nothing.
 
-**Fix:** add `"ClusterName": "<site-name>"` to the BootstrapConfig.
+**Fix:** set `clusterName: <site-name>` in the site spec, or add `"ClusterName": "<site-name>"` to the BootstrapConfig.
 
 ## The nktp item fails building chart dependencies
 
-**Cause:** `build/use-nke-sbom.sh` runs `helm dependency build` for the chart
+**Cause:** `deploy/nvke-deploy.sh` runs `helm dependency build` for the chart
 before installing it. That needs egress to `open-telemetry.github.io`,
 `prometheus-community.github.io` and `kubernetes-sigs.github.io`.
 
 **Fix:**
 - **Allow that egress,** or
 - **Build the dependencies ahead of time** with `make nktp-chart-deps` in the
-  checkout the path installs from. `helm dependency build` still re-fetches
-  them, so for a fully offline install, pass a packaged chart instead:
-  `--chart-override nktp=<nktp-x.y.z.tgz>`.
+  checkout the path installs from, or
+- **Install from a release.** `nvke-deploy.sh install --sitespec … --stack-config … --release …` puts the packaged
+  nktp chart the release carries under `charts/`, and `helm dependency build`
+  is not run for an archive.
 
 ## Collectors don't appear, or the Operator's webhook fails
 
@@ -81,15 +82,15 @@ kubectl -n nktp logs -l app.kubernetes.io/component=opentelemetry-collector \
 
 | Target | Cause | Fix |
 |---|---|---|
-| `kube-scheduler`, `kube-controller-manager` | They listen on `127.0.0.1` on NKE, and on kubeadm clusters generally | The site values turn these monitors off. Make sure an override didn't turn them back on. |
+| `kube-scheduler`, `kube-controller-manager` | They listen on `127.0.0.1` on NVKE, and on kubeadm clusters generally | The site values turn these monitors off. Make sure an override didn't turn them back on. |
 | `kube-proxy` | OVN clusters run no kube-proxy | Also turned off in the site values |
-| `kube-etcd` | etcd serves metrics on `127.0.0.1` only | NKE sets `listen-metrics-urls: http://0.0.0.0:2381`; elsewhere, turn the monitor off |
+| `kube-etcd` | etcd serves metrics on `127.0.0.1` only | NVKE sets `listen-metrics-urls: http://0.0.0.0:2381`; elsewhere, turn the monitor off |
 | A target that just disappeared | Its monitor was deleted, but Prometheus keeps the last sample for up to five minutes | Wait it out |
 
 ## No API audit logs
 
 **Cause:**
-- **Wrong path:** the receiver reads a path that doesn't exist. NKE writes the
+- **Wrong path:** the receiver reads a path that doesn't exist. NVKE writes the
   audit log to `/var/log/kubernetes_audit/audit.log`, and the site values
   point `filelog/kube-api-audit` there. A cluster that writes it elsewhere
   needs the same override.
@@ -104,16 +105,6 @@ in-memory only, rather than `/var/log/journal`.
 `directory` at it; see
 [configuration](configuration.md#a-different-host-layout). Collection starts
 with new entries, so an idle node can take a while to show any.
-
-## Per-process metrics are sparse
-
-**Cause:** the node's AppArmor profile for containers denies `ptrace`, so the
-process scraper cannot read most of `/proc/<pid>` despite `SYS_PTRACE` and
-`DAC_READ_SEARCH`. The node's kernel log shows AppArmor `ptrace` denials for
-the Collector.
-
-**Status:** a known gap. A targeted AppArmor profile for the node Collector is
-the likely fix; until then, don't tune on per-process metrics.
 
 ## The autoscalers show no metrics
 
@@ -140,7 +131,7 @@ cumulative temporality is requested.
 `https://<site-ip>:30443/.well-known/openid-configuration` stops returning
 200 after someone upgraded the `spire` release by hand.
 
-**Cause:** the upgrade used an nke-sbom overlay with `--reuse-values`. The
+**Cause:** the upgrade used a `deploy/nico` overlay with `--reuse-values`. The
 overlay's `spiffe-oidc-discovery-provider.config.additionalDomains` list
 replaced the per-site one, which the deploy path had passed last with the
 site IP in it.
@@ -168,20 +159,31 @@ helm template nktp <nktp-x.y.z.tgz> --include-crds \
   | kubectl apply --server-side -f -
 ```
 
-## Target Allocators can't pull their image from a mirror
+## Some images still pull from public registries behind a mirror
 
-**Cause:** `global.imageRegistry` moves every Collector image to the mirror,
-but the three Target Allocators leave `targetAllocator.image` unset. They run
-the Operator's default image from `ghcr.io`. metrics-server and the Operator
-don't read `global.imageRegistry` either.
+**Cause:** `global.imageRegistry` moves the Collector and Target Allocator
+images to the mirror, but three images don't read it: metrics-server's, the
+OpenTelemetry Operator's, and the kubectl image of opentelemetry-kube-stack's
+uninstall hook.
 
-**Fix:** on an air-gapped site, set the image for each enabled allocator
-(`watchdog`, `daemonset`, `large_target_metrics`) under
-`<workload>.kubernetes.targetAllocator.image`. Set metrics-server's and the
-Operator's through their own values, as the chart README's
-[Images](../../../nktp/deploy/charts/nktp/README.md#images) section shows.
+**Fix:** on an air-gapped site, point those three at the mirror through their
+own values:
 
-## An image tag renders as `%!s(float64=...)`
+```yaml
+metrics-server:
+  image:
+    repository: <mirror>/metrics-server/metrics-server
+opentelemetry-kube-stack:
+  opentelemetry-operator:
+    manager:
+      image:
+        repository: <mirror>/open-telemetry/opentelemetry-operator/opentelemetry-operator
+  cleanupJob:
+    image:
+      repository: <mirror>/rancher/kubectl
+```
+
+## The chart fails with `image tag ... must be a quoted string`
 
 **Cause:** a numeric-looking tag such as `tag: 1.0` was written unquoted, so
 YAML reads it as a number.

@@ -43,6 +43,7 @@ const (
 	NodeAgent_UpdateAndFetchKubeAdmJoinStrings_FullMethodName             = "/proto.NodeAgent/UpdateAndFetchKubeAdmJoinStrings"
 	NodeAgent_GetKubeconfig_FullMethodName                                = "/proto.NodeAgent/GetKubeconfig"
 	NodeAgent_UpdateNKERBAC_FullMethodName                                = "/proto.NodeAgent/UpdateNKERBAC"
+	NodeAgent_UpdateNVKERBAC_FullMethodName                               = "/proto.NodeAgent/UpdateNVKERBAC"
 	NodeAgent_ExecuteScript_FullMethodName                                = "/proto.NodeAgent/ExecuteScript"
 	NodeAgent_GetKubeadmJoinString_FullMethodName                         = "/proto.NodeAgent/GetKubeadmJoinString"
 	NodeAgent_InitializeKubernetesAPIEncryption_FullMethodName            = "/proto.NodeAgent/InitializeKubernetesAPIEncryption"
@@ -62,7 +63,6 @@ const (
 	NodeAgent_InstallCollection_FullMethodName                            = "/proto.NodeAgent/InstallCollection"
 	NodeAgent_StartNodeAgentUpgrade_FullMethodName                        = "/proto.NodeAgent/StartNodeAgentUpgrade"
 	NodeAgent_GetNodeAgentUpgradeStatus_FullMethodName                    = "/proto.NodeAgent/GetNodeAgentUpgradeStatus"
-	NodeAgent_StartNodeAgentRollback_FullMethodName                       = "/proto.NodeAgent/StartNodeAgentRollback"
 	NodeAgent_InstallPackages_FullMethodName                              = "/proto.NodeAgent/InstallPackages"
 	NodeAgent_ListPackages_FullMethodName                                 = "/proto.NodeAgent/ListPackages"
 	NodeAgent_RemovePackages_FullMethodName                               = "/proto.NodeAgent/RemovePackages"
@@ -109,7 +109,7 @@ type NodeAgentClient interface {
 	// idempotent and is run again to finish any incomplete add-on convergence.
 	KubeadmUpgradeApply(ctx context.Context, in *KubeadmUpgradeApplyRequest, opts ...grpc.CallOption) (*KubeadmUpgradeApplyResponse, error)
 	// ReconcileKubeVip atomically converges the kube-vip static-pod manifest for
-	// NKE's active/active BGP control-plane mode. The fixed mode disables every
+	// NVKE's active/active BGP control-plane mode. The fixed mode disables every
 	// Kubernetes API-backed kube-vip feature. For kube-vip v1.2.0 compatibility,
 	// the pod receives a kubeconfig with no client credential; this RPC never
 	// reads, creates, or mounts the host's admin.conf or super-admin.conf.
@@ -142,8 +142,8 @@ type NodeAgentClient interface {
 	StartKubeVipRestore(ctx context.Context, in *StartKubeVipRestoreRequest, opts ...grpc.CallOption) (*StartKubeVipRestoreResponse, error)
 	// InstallCNI deploys packaged CNI charts or manifests into the cluster (helm install /
 	// kubectl apply). It assumes the charts/manifest Debian package is already installed
-	// on this node — use InstallPackages (or apt) for nke-cni-ovn-charts-<stream>,
-	// nke-cni-calico-manifests-<stream>, and optional image packages (when not pulling
+	// on this node — use InstallPackages (or apt) for nvke-cni-ovn-charts-<stream>,
+	// nvke-cni-calico-manifests-<stream>, and optional image packages (when not pulling
 	// exclusively from a tenant registry).
 	//
 	// OVN resolves the chart tree from /etc/dgx/ovn-kubernetes when present else from the
@@ -155,10 +155,10 @@ type NodeAgentClient interface {
 	InstallCNI(ctx context.Context, in *InstallCNIRequest, opts ...grpc.CallOption) (*InstallCNIResponse, error)
 	UpdateAndFetchKubeAdmJoinStrings(ctx context.Context, in *KubeadmJoinStringRequest, opts ...grpc.CallOption) (*KubeadmJoinStringResponse, error)
 	GetKubeconfig(ctx context.Context, in *KubeconfigRequest, opts ...grpc.CallOption) (*KubeconfigResponse, error)
-	// UpdateNKERBAC applies the NKE RBAC resources carried in the request
+	// UpdateNKERBAC applies the NVKE RBAC resources carried in the request
 	// manifest to the local cluster. This RPC is intended only for managing
-	// NKE-owned RBAC objects: only a fixed set of RBAC kinds is accepted, and
-	// every resource name must start within the agent-owned "nke:" prefix.
+	// NVKE-owned RBAC objects: only a fixed set of RBAC kinds is accepted, and
+	// every resource name must use the agent-owned "nvke:" or legacy "nke:" prefix.
 	// The request is rejected if any document falls outside that boundary.
 	//
 	// The request must be served by a control-plane node.
@@ -173,11 +173,14 @@ type NodeAgentClient interface {
 	//	FailedPrecondition — the node is not eligible to serve this RPC
 	//	                     (e.g. not a control-plane node).
 	//	InvalidArgument    — the manifest failed validation (empty, malformed,
-	//	                     or contains a resource outside the NKE RBAC
+	//	                     or contains a resource outside the NVKE RBAC
 	//	                     allowlist); no apply is attempted.
 	//	Internal           — the agent could not reach the local cluster to
 	//	                     perform the apply.
 	UpdateNKERBAC(ctx context.Context, in *UpdateNKERBACRequest, opts ...grpc.CallOption) (*UpdateNKERBACResponse, error)
+	// UpdateNVKERBAC applies RBAC resources. UpdateNKERBAC remains an alias for
+	// controllers from before the rename; both methods use the same wire messages.
+	UpdateNVKERBAC(ctx context.Context, in *UpdateNKERBACRequest, opts ...grpc.CallOption) (*UpdateNKERBACResponse, error)
 	ExecuteScript(ctx context.Context, in *ExecuteScriptRequest, opts ...grpc.CallOption) (*ExecuteScriptResponse, error)
 	GetKubeadmJoinString(ctx context.Context, in *KubeadmJoinStringRequest, opts ...grpc.CallOption) (*KubeadmJoinStringResponse, error)
 	InitializeKubernetesAPIEncryption(ctx context.Context, in *InitializeKubernetesAPIEncryptionRequest, opts ...grpc.CallOption) (*InitializeKubernetesAPIEncryptionResponse, error)
@@ -227,16 +230,13 @@ type NodeAgentClient interface {
 	GetBundleStatus(ctx context.Context, in *GetBundleStatusRequest, opts ...grpc.CallOption) (*GetBundleStatusResponse, error)
 	InstallCollection(ctx context.Context, in *InstallCollectionRequest, opts ...grpc.CallOption) (*InstallCollectionResponse, error)
 	// StartNodeAgentUpgrade persists an idempotent node-agent replacement
-	// request and starts the independent nke-agent-updater systemd service. The
+	// request and starts the independent nvke-agent-updater systemd service. The
 	// caller must poll GetNodeAgentUpgradeStatus because a successful package
 	// replacement restarts this gRPC server.
 	StartNodeAgentUpgrade(ctx context.Context, in *StartNodeAgentUpgradeRequest, opts ...grpc.CallOption) (*StartNodeAgentUpgradeResponse, error)
 	// GetNodeAgentUpgradeStatus returns durable updater state that survives an
-	// nke-agent restart.
+	// nvke-agent restart.
 	GetNodeAgentUpgradeStatus(ctx context.Context, in *GetNodeAgentUpgradeStatusRequest, opts ...grpc.CallOption) (*GetNodeAgentUpgradeStatusResponse, error)
-	// StartNodeAgentRollback restores the exact artifact retained by a prior
-	// successful StartNodeAgentUpgrade operation.
-	StartNodeAgentRollback(ctx context.Context, in *StartNodeAgentRollbackRequest, opts ...grpc.CallOption) (*StartNodeAgentRollbackResponse, error)
 	InstallPackages(ctx context.Context, in *InstallPackagesRequest, opts ...grpc.CallOption) (*InstallPackagesResponse, error)
 	ListPackages(ctx context.Context, in *ListPackagesRequest, opts ...grpc.CallOption) (*ListPackagesResponse, error)
 	RemovePackages(ctx context.Context, in *RemovePackagesRequest, opts ...grpc.CallOption) (*RemovePackagesResponse, error)
@@ -252,7 +252,7 @@ type NodeAgentClient interface {
 	ExecuteNodePreflight(ctx context.Context, in *ExecuteNodePreflightRequest, opts ...grpc.CallOption) (*ExecuteNodePreflightResponse, error)
 	// Installs the signing key, writes sources.list.d (deb_uri + suite + components), optional pin, apt-get update.
 	ConfigureAptRepo(ctx context.Context, in *ConfigureAptRepoRequest, opts ...grpc.CallOption) (*ConfigureAptRepoResponse, error)
-	// Removes the keyring, NKE apt preferences, and a matching sources.list.d entry so
+	// Removes the keyring, NVKE apt preferences, and a matching sources.list.d entry so
 	// apt update succeeds afterward. By default removes <keyring_name>.list; override with
 	// sources_list_basename when the file name differs.
 	RemoveAptRepo(ctx context.Context, in *RemoveAptRepoRequest, opts ...grpc.CallOption) (*RemoveAptRepoResponse, error)
@@ -501,6 +501,16 @@ func (c *nodeAgentClient) UpdateNKERBAC(ctx context.Context, in *UpdateNKERBACRe
 	return out, nil
 }
 
+func (c *nodeAgentClient) UpdateNVKERBAC(ctx context.Context, in *UpdateNKERBACRequest, opts ...grpc.CallOption) (*UpdateNKERBACResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateNKERBACResponse)
+	err := c.cc.Invoke(ctx, NodeAgent_UpdateNVKERBAC_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *nodeAgentClient) ExecuteScript(ctx context.Context, in *ExecuteScriptRequest, opts ...grpc.CallOption) (*ExecuteScriptResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ExecuteScriptResponse)
@@ -739,16 +749,6 @@ func (c *nodeAgentClient) GetNodeAgentUpgradeStatus(ctx context.Context, in *Get
 	return out, nil
 }
 
-func (c *nodeAgentClient) StartNodeAgentRollback(ctx context.Context, in *StartNodeAgentRollbackRequest, opts ...grpc.CallOption) (*StartNodeAgentRollbackResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(StartNodeAgentRollbackResponse)
-	err := c.cc.Invoke(ctx, NodeAgent_StartNodeAgentRollback_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *nodeAgentClient) InstallPackages(ctx context.Context, in *InstallPackagesRequest, opts ...grpc.CallOption) (*InstallPackagesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(InstallPackagesResponse)
@@ -874,7 +874,7 @@ type NodeAgentServer interface {
 	// idempotent and is run again to finish any incomplete add-on convergence.
 	KubeadmUpgradeApply(context.Context, *KubeadmUpgradeApplyRequest) (*KubeadmUpgradeApplyResponse, error)
 	// ReconcileKubeVip atomically converges the kube-vip static-pod manifest for
-	// NKE's active/active BGP control-plane mode. The fixed mode disables every
+	// NVKE's active/active BGP control-plane mode. The fixed mode disables every
 	// Kubernetes API-backed kube-vip feature. For kube-vip v1.2.0 compatibility,
 	// the pod receives a kubeconfig with no client credential; this RPC never
 	// reads, creates, or mounts the host's admin.conf or super-admin.conf.
@@ -907,8 +907,8 @@ type NodeAgentServer interface {
 	StartKubeVipRestore(context.Context, *StartKubeVipRestoreRequest) (*StartKubeVipRestoreResponse, error)
 	// InstallCNI deploys packaged CNI charts or manifests into the cluster (helm install /
 	// kubectl apply). It assumes the charts/manifest Debian package is already installed
-	// on this node — use InstallPackages (or apt) for nke-cni-ovn-charts-<stream>,
-	// nke-cni-calico-manifests-<stream>, and optional image packages (when not pulling
+	// on this node — use InstallPackages (or apt) for nvke-cni-ovn-charts-<stream>,
+	// nvke-cni-calico-manifests-<stream>, and optional image packages (when not pulling
 	// exclusively from a tenant registry).
 	//
 	// OVN resolves the chart tree from /etc/dgx/ovn-kubernetes when present else from the
@@ -920,10 +920,10 @@ type NodeAgentServer interface {
 	InstallCNI(context.Context, *InstallCNIRequest) (*InstallCNIResponse, error)
 	UpdateAndFetchKubeAdmJoinStrings(context.Context, *KubeadmJoinStringRequest) (*KubeadmJoinStringResponse, error)
 	GetKubeconfig(context.Context, *KubeconfigRequest) (*KubeconfigResponse, error)
-	// UpdateNKERBAC applies the NKE RBAC resources carried in the request
+	// UpdateNKERBAC applies the NVKE RBAC resources carried in the request
 	// manifest to the local cluster. This RPC is intended only for managing
-	// NKE-owned RBAC objects: only a fixed set of RBAC kinds is accepted, and
-	// every resource name must start within the agent-owned "nke:" prefix.
+	// NVKE-owned RBAC objects: only a fixed set of RBAC kinds is accepted, and
+	// every resource name must use the agent-owned "nvke:" or legacy "nke:" prefix.
 	// The request is rejected if any document falls outside that boundary.
 	//
 	// The request must be served by a control-plane node.
@@ -938,11 +938,14 @@ type NodeAgentServer interface {
 	//	FailedPrecondition — the node is not eligible to serve this RPC
 	//	                     (e.g. not a control-plane node).
 	//	InvalidArgument    — the manifest failed validation (empty, malformed,
-	//	                     or contains a resource outside the NKE RBAC
+	//	                     or contains a resource outside the NVKE RBAC
 	//	                     allowlist); no apply is attempted.
 	//	Internal           — the agent could not reach the local cluster to
 	//	                     perform the apply.
 	UpdateNKERBAC(context.Context, *UpdateNKERBACRequest) (*UpdateNKERBACResponse, error)
+	// UpdateNVKERBAC applies RBAC resources. UpdateNKERBAC remains an alias for
+	// controllers from before the rename; both methods use the same wire messages.
+	UpdateNVKERBAC(context.Context, *UpdateNKERBACRequest) (*UpdateNKERBACResponse, error)
 	ExecuteScript(context.Context, *ExecuteScriptRequest) (*ExecuteScriptResponse, error)
 	GetKubeadmJoinString(context.Context, *KubeadmJoinStringRequest) (*KubeadmJoinStringResponse, error)
 	InitializeKubernetesAPIEncryption(context.Context, *InitializeKubernetesAPIEncryptionRequest) (*InitializeKubernetesAPIEncryptionResponse, error)
@@ -992,16 +995,13 @@ type NodeAgentServer interface {
 	GetBundleStatus(context.Context, *GetBundleStatusRequest) (*GetBundleStatusResponse, error)
 	InstallCollection(context.Context, *InstallCollectionRequest) (*InstallCollectionResponse, error)
 	// StartNodeAgentUpgrade persists an idempotent node-agent replacement
-	// request and starts the independent nke-agent-updater systemd service. The
+	// request and starts the independent nvke-agent-updater systemd service. The
 	// caller must poll GetNodeAgentUpgradeStatus because a successful package
 	// replacement restarts this gRPC server.
 	StartNodeAgentUpgrade(context.Context, *StartNodeAgentUpgradeRequest) (*StartNodeAgentUpgradeResponse, error)
 	// GetNodeAgentUpgradeStatus returns durable updater state that survives an
-	// nke-agent restart.
+	// nvke-agent restart.
 	GetNodeAgentUpgradeStatus(context.Context, *GetNodeAgentUpgradeStatusRequest) (*GetNodeAgentUpgradeStatusResponse, error)
-	// StartNodeAgentRollback restores the exact artifact retained by a prior
-	// successful StartNodeAgentUpgrade operation.
-	StartNodeAgentRollback(context.Context, *StartNodeAgentRollbackRequest) (*StartNodeAgentRollbackResponse, error)
 	InstallPackages(context.Context, *InstallPackagesRequest) (*InstallPackagesResponse, error)
 	ListPackages(context.Context, *ListPackagesRequest) (*ListPackagesResponse, error)
 	RemovePackages(context.Context, *RemovePackagesRequest) (*RemovePackagesResponse, error)
@@ -1017,7 +1017,7 @@ type NodeAgentServer interface {
 	ExecuteNodePreflight(context.Context, *ExecuteNodePreflightRequest) (*ExecuteNodePreflightResponse, error)
 	// Installs the signing key, writes sources.list.d (deb_uri + suite + components), optional pin, apt-get update.
 	ConfigureAptRepo(context.Context, *ConfigureAptRepoRequest) (*ConfigureAptRepoResponse, error)
-	// Removes the keyring, NKE apt preferences, and a matching sources.list.d entry so
+	// Removes the keyring, NVKE apt preferences, and a matching sources.list.d entry so
 	// apt update succeeds afterward. By default removes <keyring_name>.list; override with
 	// sources_list_basename when the file name differs.
 	RemoveAptRepo(context.Context, *RemoveAptRepoRequest) (*RemoveAptRepoResponse, error)
@@ -1116,6 +1116,9 @@ func (UnimplementedNodeAgentServer) GetKubeconfig(context.Context, *KubeconfigRe
 func (UnimplementedNodeAgentServer) UpdateNKERBAC(context.Context, *UpdateNKERBACRequest) (*UpdateNKERBACResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateNKERBAC not implemented")
 }
+func (UnimplementedNodeAgentServer) UpdateNVKERBAC(context.Context, *UpdateNKERBACRequest) (*UpdateNKERBACResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateNVKERBAC not implemented")
+}
 func (UnimplementedNodeAgentServer) ExecuteScript(context.Context, *ExecuteScriptRequest) (*ExecuteScriptResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExecuteScript not implemented")
 }
@@ -1172,9 +1175,6 @@ func (UnimplementedNodeAgentServer) StartNodeAgentUpgrade(context.Context, *Star
 }
 func (UnimplementedNodeAgentServer) GetNodeAgentUpgradeStatus(context.Context, *GetNodeAgentUpgradeStatusRequest) (*GetNodeAgentUpgradeStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetNodeAgentUpgradeStatus not implemented")
-}
-func (UnimplementedNodeAgentServer) StartNodeAgentRollback(context.Context, *StartNodeAgentRollbackRequest) (*StartNodeAgentRollbackResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method StartNodeAgentRollback not implemented")
 }
 func (UnimplementedNodeAgentServer) InstallPackages(context.Context, *InstallPackagesRequest) (*InstallPackagesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InstallPackages not implemented")
@@ -1594,6 +1594,24 @@ func _NodeAgent_UpdateNKERBAC_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NodeAgent_UpdateNVKERBAC_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateNKERBACRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeAgentServer).UpdateNVKERBAC(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeAgent_UpdateNVKERBAC_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeAgentServer).UpdateNVKERBAC(ctx, req.(*UpdateNKERBACRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _NodeAgent_ExecuteScript_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ExecuteScriptRequest)
 	if err := dec(in); err != nil {
@@ -1947,24 +1965,6 @@ func _NodeAgent_GetNodeAgentUpgradeStatus_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
-func _NodeAgent_StartNodeAgentRollback_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(StartNodeAgentRollbackRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(NodeAgentServer).StartNodeAgentRollback(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: NodeAgent_StartNodeAgentRollback_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeAgentServer).StartNodeAgentRollback(ctx, req.(*StartNodeAgentRollbackRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _NodeAgent_InstallPackages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InstallPackagesRequest)
 	if err := dec(in); err != nil {
@@ -2219,6 +2219,10 @@ var NodeAgent_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _NodeAgent_UpdateNKERBAC_Handler,
 		},
 		{
+			MethodName: "UpdateNVKERBAC",
+			Handler:    _NodeAgent_UpdateNVKERBAC_Handler,
+		},
+		{
 			MethodName: "ExecuteScript",
 			Handler:    _NodeAgent_ExecuteScript_Handler,
 		},
@@ -2285,10 +2289,6 @@ var NodeAgent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetNodeAgentUpgradeStatus",
 			Handler:    _NodeAgent_GetNodeAgentUpgradeStatus_Handler,
-		},
-		{
-			MethodName: "StartNodeAgentRollback",
-			Handler:    _NodeAgent_StartNodeAgentRollback_Handler,
 		},
 		{
 			MethodName: "InstallPackages",

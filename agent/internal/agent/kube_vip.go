@@ -28,7 +28,7 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/yaml"
 
-	pb "github.com/dsx-ai-factory/nke/agent/pkg/agent/proto"
+	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
 )
 
 const (
@@ -62,10 +62,10 @@ type kubeVipRoute struct {
 	Gateway     string `json:"gateway"`
 }
 
-// ReconcileKubeVip converges NKE's credential-less, active/active BGP
+// ReconcileKubeVip converges NVKE's credential-less, active/active BGP
 // kube-vip static pod. The fixed manifest deliberately excludes every
 // Kubernetes API-backed kube-vip feature and models the single-peer settings
-// CWE historically supplied to the runbook rather than its operator-only
+// the controller historically supplied to the runbook rather than its operator-only
 // environment overrides.
 func (s *NodeAgentServer) ReconcileKubeVip(
 	ctx context.Context,
@@ -149,7 +149,7 @@ func (s *NodeAgentServer) ReconcileKubeVip(
 }
 
 // isKubeVipEligibleRole permits the unassigned role used before kubeadm init.
-// CWE selects the target from a control-plane node pool and must configure
+// The controller selects the target from a control-plane node pool and must configure
 // kube-vip before the static control-plane manifests exist. Once the agent has
 // assigned a role, only a control-plane node remains eligible.
 func (s *NodeAgentServer) isKubeVipEligibleRole() bool {

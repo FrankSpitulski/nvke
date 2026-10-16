@@ -1,4 +1,4 @@
-# NKE Agent — Design Document
+# NVKE Agent — Design Document
 
 > Status: living document / first pass. This describes the agent **as it is
 > actually implemented today**, not an aspirational design. The project has grown
@@ -10,9 +10,9 @@
 
 ## 1. Overview
 
-The **NKE agent** (`nke-agent`) is a Go gRPC server that runs as a systemd
-service on every node of an NKE (NVIDIA Kubernetes Engine) cluster. It is the
-**on-node execution surface** for cluster orchestration: the NKE controller
+The **NVKE agent** (`nvke-agent`) is a Go gRPC server that runs as a systemd
+service on every node of an NVKE (NVIDIA Kubernetes Engine) cluster. It is the
+**on-node execution surface** for cluster orchestration: the NVKE controller
 (the consolidated orchestrator under `controller/` in this monorepo) drives
 cluster lifecycle by issuing gRPC calls to the agent on each node rather than
 SSH-ing in and running commands ad hoc.
@@ -29,7 +29,7 @@ API.**
 - **CNI installation** — deploy packaged OVN / Calico charts or manifests into the
   cluster (current path), plus a legacy in-init CNI path retained for older
   orchestrators.
-- **Software/package management** — install NKE "bundles" (tgz), apt packages,
+- **Software/package management** — install NVKE "bundles" (tgz), apt packages,
   apt repo configuration, and "collections" of either.
 - **Kubernetes API/etcd secrets encryption at rest** — initialize, promote
   providers, key rotation, and object rewrite, all coordinated across control-plane
@@ -46,9 +46,9 @@ API.**
   and reports status. (A few operations are "convergent/idempotent" in the sense
   that re-issuing them is safe — see §7 — but there is no background control loop.)
 - It is **not** the orchestrator. Sequencing across nodes (e.g. "init one CP, then
-  join the rest, then install CNI on one node") lives in the NKE controller, not
+  join the rest, then install CNI on one node") lives in the NVKE controller, not
   the agent.
-- It is **not** cloud/infra specific. It targets Ubuntu-based NKE OS images and is
+- It is **not** cloud/infra specific. It targets Ubuntu-based NVKE OS images and is
   otherwise infrastructure-agnostic.
 
 ---
@@ -56,7 +56,7 @@ API.**
 ## 2. Background & evolution
 
 The agent began as a thin "run kubeadm over gRPC" service and accreted
-capabilities as NKE's needs grew. That history is visible in the code and the API:
+capabilities as NVKE's needs grew. That history is visible in the code and the API:
 
 - Deprecated stand-alone RPCs (`InstallKubeadm`, `UpgradeAgent`, `ApplyNodeProfile`,
   `InstallCNIPlugin`, `RewriteEncryptedObjects`, `UpdateKubernetesAPIEncryptionKey`,
@@ -94,7 +94,7 @@ Design implication: **prefer the newer patterns (§7)** for all new work.
 
 ### Non-goals
 
-- Cross-node coordination / cluster-wide state (owned by the NKE controller).
+- Cross-node coordination / cluster-wide state (owned by the NVKE controller).
 - General-purpose remote shell (script execution exists but is audited and scoped).
 - Multi-tenancy on a single node — one agent owns the node.
 
@@ -103,7 +103,7 @@ Design implication: **prefer the newer patterns (§7)** for all new work.
 ## 4. System context
 
                         ┌─────────────────────────────┐
-                        │      NKE controller         │
+                        │      NVKE controller         │
                         │        (orchestrator)        │
                         └───────────────┬──────────────┘
                                         │ gRPC (SPIFFE mTLS), per-node
@@ -112,7 +112,7 @@ Design implication: **prefer the newer patterns (§7)** for all new work.
    ┌───────────────────┐      ┌───────────────────┐      ┌───────────────────┐
    │   node (CP)       │      │   node (CP)       │      │   node (worker)   │
    │  ┌─────────────┐  │      │  ┌─────────────┐  │      │  ┌─────────────┐  │
-   │  │  nke-agent  │  │      │  │  nke-agent  │  │      │  │  nke-agent  │  │
+   │  │  nvke-agent  │  │      │  │  nvke-agent  │  │      │  │  nvke-agent  │  │
    │  └──────┬──────┘  │      │  └──────┬──────┘  │      │  └──────┬──────┘  │
    │  kubeadm/apt/     │      │  kubeadm/apt/     │      │  kubeadm/apt/     │
    │  crictl/cryptsetup│      │  crictl/cryptsetup│      │  ...              │
@@ -126,15 +126,15 @@ Design implication: **prefer the newer patterns (§7)** for all new work.
 
 External sources:
   - Bundle/apt artifacts: S3 (https://…s3…/nke_bundles, nke-apt-*) or OCI (nvcr.io)
-  - CNI charts/manifests + images: NKE Debian packages (nke-cni-ovn-*, nke-cni-calico-*)
+  - CNI charts/manifests + images: NVKE Debian packages (nvke-cni-ovn-*, nvke-cni-calico-*)
 ```
 
-- **Caller:** The NKE controller is the primary caller. `grpcurl` is used for
+- **Caller:** The NVKE controller is the primary caller. `grpcurl` is used for
   dev/debug and is first-class thanks to reflection.
 - **Identity:** SPIRE issues X.509 SVIDs; the agent authorizes clients by trust
   domain and a `/nke-service/` SPIFFE path prefix.
 - **Artifact sources:** bundles/packages come from S3 or an OCI registry; CNI
-  content comes from NKE-published Debian packages.
+  content comes from NVKE-published Debian packages.
 - **Local apiserver:** on control-plane nodes the agent talks to the *local*
   apiserver (`https://127.0.0.1:6443`, TLS-skip) for reload/readiness waits, and to
   the cluster apiserver via the admin kubeconfig for cluster mutations.
@@ -149,10 +149,10 @@ Entry point: `cmd/agent/main.go`.
    URL, CNI image registry, mTLS toggle, SPIFFE socket, audit/script log paths,
    mlx5 rescan toggle).
 2. **Logger setup** — three JSON `slog` loggers: default (stdout), **audit**
-   (`/var/log/nke-agent-audit.log`), **script execution**
-   (`/var/log/nke-execute-scripts.log`).
+   (`/var/log/nvke-agent-audit.log`), **script execution**
+   (`/var/log/nvke-execute-scripts.log`).
 3. **`RunNodeStartup`** → `NewNodeAgentServer`:
-   - Ensure `/var/lib/nke` and `state.json` exist (never truncate existing state).
+   - Ensure `/var/lib/nvke` and `state.json` exist (never truncate existing state).
    - Optionally parse the bundle source URI (HTTP/S3/`file://`/`oci://`). When
      unset or invalid, log a warning and continue — apt is preferred.
    - Resolve the bundle index file (Ubuntu 22 vs 24) when a bundle source is set,
@@ -182,9 +182,9 @@ goroutines and report progress via persisted status rather than blocking the RPC
 The central type. It embeds the generated `UnimplementedNodeAgentServer` and holds:
 
 - **Behavior seams (interfaces) for testability:**
-  - `Runner nkeutils.CommandRunner` — abstracts `exec` (`Run`, `RunSplitOutput`,
+  - `Runner nvkeutils.CommandRunner` — abstracts `exec` (`Run`, `RunSplitOutput`,
     stdin/stdout/stderr options). Mocked in tests.
-  - `FileWriter nkeutils.FileWriter` — abstracts file writes.
+  - `FileWriter nvkeutils.FileWriter` — abstracts file writes.
   - `Persister NodeStatusPersister` — load/persist `NodeStatus`.
   - `clientRegistry kubernetesClientRegistry` — lazy K8s clients.
   - `kubeadmFileOps fileOps` — ownership resolution for staged files.
@@ -302,7 +302,7 @@ order first (writes stay plaintext-readable by every CP apiserver), then
 `PromoteKubernetesAPIEncryptionProviders` flips to **secretbox-then-identity** on
 each node, then a single `RewriteKubernetesAPIObjects` re-persists objects encrypted,
 then `RemovePlainTextSecondaryEncryptionEntry` drops the fallback. Progress is gated
-by node labels (`nke.io/k8s-api-encryption-*`). New clusters skip this and enable
+by node labels (`nvke.nvidia.com/k8s-api-encryption-*`). New clusters skip this and enable
 encryption directly at `kubeadm init`.
 
 ### 7.6 Fail-fast RPC + async worker
@@ -314,7 +314,7 @@ that updates status on completion. Callers poll `GetKubeadmStatus`.
 ### 7.7 Allowlist + boundary enforcement
 
 Mutations that touch cluster/global state are constrained: `UpdateNKERBAC` accepts
-only a fixed `(kind, name)` allowlist under the `nke:` name prefix and validates the
+only a fixed `(kind, name)` allowlist under the `nvke:` or legacy `nke:` name prefix and validates the
 whole manifest before applying anything (all-or-nothing). Staged files are size- and
 path-constrained (absolute, canonical, ≤1 MiB).
 
@@ -380,7 +380,7 @@ Defined in `pkg/agent/proto/node_agent.proto`. Grouped conceptually:
 - **Preflight:** `kubeadm {init,join} phase preflight --config` with structured
   parsing of `[WARNING …]`/`[ERROR …]`/klog lines into results.
 - **Zombie prevention:** `registerNode: false` written to kubelet config so a node
-  restarted outside NKE control does not re-register.
+  restarted outside NVKE control does not re-register.
 
 ### 9.2 CNI
 - **Current (`InstallCNI`):** assumes the charts/manifest **Debian package** is
@@ -421,9 +421,9 @@ the VIP back on `lo`. Manifest moves are the control mechanism (kubelet reacts t
 - Direction of travel: apt/OCI over legacy bundles/profiles.
 
 ### 9.6 Support & scripts
-- `GetSupportBundle` gathers `state.json`, `nke-agent` journal, audit log, script
+- `GetSupportBundle` gathers `state.json`, `nvke-agent` journal, audit log, script
   log, dpkg inventory, and caller-requested absolute files into a tgz.
-- `ExecuteScript`/`StreamExecuteScript` run scripts (from `/usr/local/nke/user-scripts`
+- `ExecuteScript`/`StreamExecuteScript` run scripts (from `/usr/local/nvke/user-scripts`
   or an uploaded path); every call is logged to the script-execution log.
 
 ---
@@ -452,10 +452,10 @@ the VIP back on `lo`. Manifest moves are the control mechanism (kubelet reacts t
   `-ldflags -X main.VERSION`. `make package` builds `.deb`s under `build/deb`.
   Protos regenerated via `make generate-protos` (Docker or `NO_DOCKER=1`), verified
   by a pre-commit hook.
-- **Install:** shipped in NKE OS images (Skysmith) or via release-bundle install
+- **Install:** shipped in NVKE OS images (Skysmith) or via release-bundle install
   scripts (`agent-installer`, `kubeadm-installer.sh`); runs as a systemd unit
-  (`nke-agent`). Flags supplied via `/etc/default/nke-agent` (`AGENT_ARGS`).
-- **Ports/paths:** listens on `:15005`; state at `/var/lib/nke/state.json`; logs
+  (`nvke-agent`). Flags supplied via `/etc/default/nvke-agent` (`AGENT_ARGS`).
+- **Ports/paths:** listens on `:15005`; state at `/var/lib/nvke/state.json`; logs
   under `/var/log/`.
 
 ---
@@ -499,8 +499,8 @@ the VIP back on `lo`. Manifest moves are the control mechanism (kubelet reacts t
 
 ## 15. Glossary
 
-- **NKE** — NVIDIA Kubernetes Engine.
-- **NKE controller** — the consolidated orchestrator in this monorepo
+- **NVKE** — NVIDIA Kubernetes Engine.
+- **NVKE controller** — the consolidated orchestrator in this monorepo
   (`controller/`; formerly site-workflow-engine / cloud-workflow-engine) that
   drives the agent.
 - **SPIFFE/SPIRE** — workload-identity framework issuing the X.509 SVIDs used for mTLS.
