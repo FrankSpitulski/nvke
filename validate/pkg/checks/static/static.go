@@ -53,17 +53,26 @@ func HashFile(path string) (string, error) {
 }
 
 // ParseChecksums reads a sha256sum-format file (`<64 hex>  <name>` per line,
-// the format os-image-artifact.yml publishes) into a name → digest map. A
-// malformed line is an error: a checksums file that parses partially would
-// turn a missing artifact into a silent skip.
+// the format os-image-artifact.yml publishes) into a name → digest map.
 func ParseChecksums(path string) (map[string]string, error) {
-	f, err := os.Open(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("opening checksums: %w", err)
+		return nil, fmt.Errorf("reading checksums: %w", err)
 	}
-	defer f.Close()
+	sums, err := ParseChecksumsBytes(raw)
+	if err != nil {
+		return nil, fmt.Errorf("checksums %s: %w", path, err)
+	}
+	return sums, nil
+}
+
+// ParseChecksumsBytes parses sha256sum format from one byte snapshot, so
+// callers can authenticate and parse the same bytes. A malformed line is an
+// error: a file that parses partially would turn a missing artifact into a
+// silent skip.
+func ParseChecksumsBytes(raw []byte) (map[string]string, error) {
 	sums := make(map[string]string)
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(raw))
 	line := 0
 	for scanner.Scan() {
 		line++
@@ -74,18 +83,18 @@ func ParseChecksums(path string) (map[string]string, error) {
 		digest, name, ok := strings.Cut(text, "  ")
 		name = strings.TrimPrefix(name, "*") // sha256sum binary-mode marker
 		if !ok || !isHexDigest(digest) || name == "" {
-			return nil, fmt.Errorf("checksums %s line %d: not sha256sum format", path, line)
+			return nil, fmt.Errorf("line %d: not sha256sum format", line)
 		}
 		if prev, dup := sums[name]; dup && prev != digest {
-			return nil, fmt.Errorf("checksums %s line %d: conflicting digests for %s", path, line, name)
+			return nil, fmt.Errorf("line %d: conflicting digests for %s", line, name)
 		}
 		sums[name] = digest
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("reading checksums %s: %w", path, err)
+		return nil, fmt.Errorf("reading: %w", err)
 	}
 	if len(sums) == 0 {
-		return nil, fmt.Errorf("checksums %s: no entries", path)
+		return nil, fmt.Errorf("no entries")
 	}
 	return sums, nil
 }

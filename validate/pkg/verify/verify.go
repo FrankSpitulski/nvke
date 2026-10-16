@@ -234,9 +234,14 @@ func Verify(envelopeJSON []byte, imageSHA256 string, pol Policy, now time.Time) 
 		got := strings.ToLower(st.Predicate.CheckSetSHA256)
 		approved := false
 		for _, want := range pol.CheckSetSHA256 {
-			if got != "" && got == strings.ToLower(want) {
+			want = strings.ToLower(want)
+			if !isSHA256Hex(want) {
+				// A pin that can never match is a policy defect, not a
+				// silently inert entry.
+				return nil, fmt.Errorf("policy pin %q is not a bare-hex sha256", want)
+			}
+			if got == want {
 				approved = true
-				break
 			}
 		}
 		if !approved {
@@ -246,10 +251,32 @@ func Verify(envelopeJSON []byte, imageSHA256 string, pol Policy, now time.Time) 
 	if err := matchTarget(st.Predicate.Target, pol.ExpectedTarget); err != nil {
 		return nil, err
 	}
+	seen := make(map[string]bool, len(st.Predicate.Results))
+	for _, r := range st.Predicate.Results {
+		// Structural, not profile-dependent: a well-formed verdict never
+		// repeats an ID, and last-write-wins would let fail-then-pass read
+		// as pass.
+		if seen[r.ID] {
+			return nil, fmt.Errorf("the verdict carries duplicate results for check %s", r.ID)
+		}
+		seen[r.ID] = true
+	}
 	if err := requireChecks(st.Predicate.Results, pol.RequiredChecks); err != nil {
 		return nil, err
 	}
 	return &st, nil
+}
+
+func isSHA256Hex(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // matchTarget enforces every non-empty expectation exactly.
@@ -275,12 +302,7 @@ func requireChecks(results []CheckResult, required []string) error {
 	}
 	byID := make(map[string]CheckResult, len(results))
 	for _, r := range results {
-		// Last-write-wins on a duplicate ID would let fail-then-pass read
-		// as pass.
-		if _, dup := byID[r.ID]; dup {
-			return fmt.Errorf("the verdict carries duplicate results for check %s", r.ID)
-		}
-		byID[r.ID] = r
+		byID[r.ID] = r // duplicates already rejected structurally in Verify
 	}
 	for _, id := range required {
 		r, ok := byID[id]

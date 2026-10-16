@@ -6,6 +6,7 @@ package bundle
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -152,4 +153,31 @@ func TestLoadSBOMRejectsTamper(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.LoadSBOM("nke-node-fde-ubuntu-24.04.5-amd64.qcow2")
 	require.ErrorContains(t, err, "does not match the checksums entry")
+}
+
+// TestLoadParsesTheAuthenticatedSnapshot pins the round-3 integrity repair:
+// the digest map must come from the same bytes VerifyEvidence authenticates,
+// so replacing the checksums file after Load changes neither.
+func TestLoadParsesTheAuthenticatedSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{ChecksumsName, AttestationName, TrustedRootName} {
+		raw, err := os.ReadFile(filepath.Join(fixture, name))
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), raw, 0o644))
+	}
+	b, err := Load(dir)
+	require.NoError(t, err)
+	want := len(b.Checksums)
+	wantDigest, ok := b.Checksums["nke-node-fde-ubuntu-24.04.5-amd64.qcow2"]
+	require.True(t, ok)
+
+	// The swap an attacker would race: a map naming different digests.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ChecksumsName),
+		[]byte(strings.Repeat("0", 64)+"  nke-node-fde-ubuntu-24.04.5-amd64.qcow2\n"), 0o644))
+
+	assert.Len(t, b.Checksums, want, "the loaded map must not depend on later file state")
+	got := b.Checksums["nke-node-fde-ubuntu-24.04.5-amd64.qcow2"]
+	assert.Equal(t, wantDigest, got)
+	_, err = b.VerifyEvidence(Identity{Issuer: "https://token.actions.githubusercontent.com", SANRegex: `^https://github\.com/dsx-ai-factory/nvke/\.github/workflows/os-image-artifact\.yml@.+$`})
+	require.NoError(t, err, "evidence still verifies: subject and map share one snapshot")
 }

@@ -333,4 +333,17 @@ func TestDuplicateResultIDsAreRejected(t *testing.T) {
 	_, err = Verify(env, testDigest, Policy{Keys: []crypto.PublicKey{pub}, RequiredChecks: []string{"INT-001"}}, testFinished)
 	require.ErrorContains(t, err, "duplicate results",
 		"a signed fail-then-pass pair must not read as pass")
+
+	_, err = Verify(env, testDigest, Policy{Keys: []crypto.PublicKey{pub}}, testFinished)
+	require.ErrorContains(t, err, "duplicate results",
+		"duplicate rejection is structural, not profile-dependent")
+}
+
+func TestMalformedPolicyPinIsAnError(t *testing.T) {
+	signer, pub := ed25519Signer(t)
+	env, err := Sign(testStatement(t, nil), signer)
+	require.NoError(t, err)
+	_, err = Verify(env, testDigest, Policy{Keys: []crypto.PublicKey{pub}, CheckSetSHA256: []string{"not-a-digest"}}, testFinished)
+	require.ErrorContains(t, err, "not a bare-hex sha256",
+		"a pin that can never match is a policy defect, not an inert entry")
 }

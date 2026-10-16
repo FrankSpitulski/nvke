@@ -140,6 +140,11 @@ func TestRun(t *testing.T) {
 			want: exitPass,
 		},
 		{
+			name: "pin flag given but empty is a usage error",
+			args: []string{"--attestation", att, "--key", pub, "--digest", digest, "--check-set-sha256", " , "},
+			want: exitCannot,
+		},
+		{
 			name: "unapproved check set rejected",
 			args: []string{"--attestation", att, "--key", pub, "--digest", digest, "--check-set-sha256", strings.Repeat("b", 64)},
 			want: exitCannot,
