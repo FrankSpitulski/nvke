@@ -137,6 +137,23 @@ different content than the run used); and exactly one report document ever
 reaches stdout — a signing failure rides the report as `runError` instead of
 appending a second JSON object.
 
+## 2026-10 — One snapshot per input, end to end
+
+Third independent-review round extended the snapshot rule to the evidence
+itself: the bundle authenticated one read of checksums.txt while the digest
+map came from a second open, so a race-swapped file could pair an authentic
+INT-002 pass with digests the attestation never covered (reproduced against
+the real release fixture). Checksums now parse from the same bytes the
+attestation subject hashes. The image — too large to snapshot in memory — is
+re-hashed after any inspection tier reopened it by path, and a mismatch
+aborts the run. Same round: unsupported formats are rejected before any side
+effect (an invalid --format briefly left a signed verdict behind an exit 2),
+the verdict path must not alias the report stream, duplicate result IDs are
+rejected structurally rather than only under a profile, and malformed policy
+pins are errors instead of inert entries. Immutable staged inputs remain the
+recommended pipeline posture; these checks catch violations rather than
+excuse them.
+
 ## 2026-10 — Deferred, visibly
 
 FDE-004 (grub passphrase stripped after the TPM first-boot bind) needs a

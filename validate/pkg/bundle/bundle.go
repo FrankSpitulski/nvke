@@ -66,9 +66,11 @@ func Load(dir string) (*Bundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading bundle checksums: %w", err)
 	}
-	sums, err := static.ParseChecksums(checksumsPath)
+	// Parse the same byte snapshot VerifyEvidence authenticates: a second
+	// read could hand the checks a map the attestation never covered.
+	sums, err := static.ParseChecksumsBytes(raw)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("checksums %s: %w", checksumsPath, err)
 	}
 	b := &Bundle{Dir: dir, Checksums: sums, checksumsRaw: raw}
 

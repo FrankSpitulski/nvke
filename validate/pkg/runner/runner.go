@@ -102,6 +102,16 @@ func Run(ctx context.Context, opts Options, stdout io.Writer) (int, error) {
 	if (opts.EmitVerdictPath == "") != (opts.SignKeyPath == "") {
 		return report.ExitError, fmt.Errorf("verdict emission needs both the output path and the signing key")
 	}
+	switch opts.Format {
+	case "", "text", "json":
+	default:
+		// Validated before any work: rejecting the format only at render time
+		// would leave side effects (a signed verdict) behind an exit 2.
+		return report.ExitError, fmt.Errorf("unknown report format %q (want text or json)", opts.Format)
+	}
+	if err := distinctSink(opts.EmitVerdictPath, stdout); err != nil {
+		return report.ExitError, err
+	}
 	name := opts.Name
 	if name == "" {
 		name = filepath.Base(opts.ImagePath)
@@ -251,6 +261,19 @@ func Run(ctx context.Context, opts Options, stdout io.Writer) (int, error) {
 		BOM:          bom,
 		Boot:         prober,
 	})
+	// The inspection tiers reopen the image by path; re-hash after they ran
+	// so the digest in the report and verdict describes the bytes that were
+	// actually inspected.
+	if imgFS != nil || prober != nil {
+		recheck, err := static.HashFile(opts.ImagePath)
+		if err != nil {
+			return report.ExitError, fmt.Errorf("re-hashing image after inspection: %w", err)
+		}
+		if recheck != digest {
+			return report.ExitError, fmt.Errorf("image changed during validation: sha256 was %s, is now %s", digest, recheck)
+		}
+	}
+
 	rep := report.New(reg, target, digest, results, time.Now())
 	if opts.EmitVerdictPath != "" {
 		if err := writeVerdict(opts, rep, checkSetSHA256, bomSHA256); err != nil {
@@ -268,16 +291,40 @@ func Run(ctx context.Context, opts Options, stdout io.Writer) (int, error) {
 			return report.ExitError, err
 		}
 		if _, err := stdout.Write(out); err != nil {
-			return report.ExitError, err
+			// Output may have started; a broken sink gets exit 2 and no
+			// second document.
+			return report.ExitError, nil
 		}
-	case "text", "":
+	default: // "text" or "" — anything else was rejected up front.
 		if _, err := io.WriteString(stdout, rep.Text()); err != nil {
-			return report.ExitError, err
+			return report.ExitError, nil
 		}
-	default:
-		return report.ExitError, fmt.Errorf("unknown report format %q (want text or json)", opts.Format)
 	}
 	return rep.ExitCode(), nil
+}
+
+// distinctSink refuses a verdict path that aliases the report stream: both
+// documents interleaved in one file is neither a report nor a verdict.
+func distinctSink(verdictPath string, stdout io.Writer) error {
+	if verdictPath == "" {
+		return nil
+	}
+	f, ok := stdout.(*os.File)
+	if !ok {
+		return nil
+	}
+	vi, err := os.Stat(verdictPath)
+	if err != nil {
+		return nil // not created yet; a fresh file cannot alias the stream
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		return nil
+	}
+	if os.SameFile(vi, fi) {
+		return fmt.Errorf("the verdict path %s aliases the report output; write them to distinct destinations", verdictPath)
+	}
+	return nil
 }
 
 func sha256Hex(raw []byte) string {

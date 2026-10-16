@@ -101,6 +101,10 @@ func run(args []string, stdout, stderr *os.File) int {
 			approvedCheckSets = append(approvedCheckSets, d)
 		}
 	}
+	if *checkSetSHA256 != "" && len(approvedCheckSets) == 0 {
+		fmt.Fprintln(stderr, "nvke-verdict: --check-set-sha256 was given but holds no digests")
+		return exitCannot
+	}
 	st, err := verify.Verify(envelope, subject, verify.Policy{
 		Keys:               keys,
 		MinCheckSetVersion: *minChecks,
