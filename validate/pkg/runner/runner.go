@@ -71,6 +71,9 @@ type Options struct {
 	// Boot controls the boot tier (boots a throwaway copy under QEMU): on or
 	// off. Empty means off.
 	Boot string
+	// BootTimeout bounds the wait for the booted image's probe channel; zero
+	// means the qemu package default. Real FDE images under TCG need more.
+	BootTimeout time.Duration
 	// LUKSPassphraseFile holds the passphrase for opening FDE images.
 	LUKSPassphraseFile string
 	// EmitVerdictPath writes the run's result as a DSSE-signed attestation;
@@ -234,7 +237,7 @@ func Run(ctx context.Context, opts Options, stdout io.Writer) (int, error) {
 		if err != nil {
 			return report.ExitError, err
 		}
-		vm, err := qemu.Boot(ctx, opts.ImagePath, qemu.Options{Arch: opts.Arch, SeedISO: seed, SSHKeyPath: keyPath})
+		vm, err := qemu.Boot(ctx, opts.ImagePath, qemu.Options{Arch: opts.Arch, SeedISO: seed, SSHKeyPath: keyPath, BootTimeout: opts.BootTimeout})
 		if err != nil {
 			return report.ExitError, fmt.Errorf("boot tier: %w", err)
 		}
