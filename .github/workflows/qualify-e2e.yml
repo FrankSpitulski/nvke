@@ -556,10 +556,8 @@ jobs:
           go run ./release/cmd/qualify verify --plan plan.json --wait "${WAIT}"
 
   # Resolves versions and capabilities, builds the image archives and
-  # nvkectl, and uploads them for qualify-run -- validation is one of its
-  # twelve steps, not what the job is for, and the name no longer implies a
-  # gate: it runs even when its own stream later fails, by design. No
-  # environment, so it always runs; a dry run needs nothing beyond this.
+  # nvkectl, and uploads them for qualify-run. No environment, so it always
+  # runs; a dry run needs nothing beyond this.
   qualify-prepare:
     name: ${{ matrix.stream }} (prepare)
     needs: [plan, verify]
