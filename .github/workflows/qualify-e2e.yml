@@ -60,7 +60,7 @@
 #
 # PLAN FIRST, THEN TWO JOBS PER STREAM. The `plan` job runs `qualify plan` and
 # writes plan.json: what to qualify, resolved once, with every stream in the
-# scope. `qualify-validate` and `qualify-run` then each run once per stream of
+# scope. `qualify-prepare` and `qualify-run` then each run once per stream of
 # that plan, so every stream qualifies exactly the versions the plan named,
 # and a run can say afterwards what it qualified from plan.json alone. The
 # dispatch inputs and QUALIFY_E2E_* variables that name a version are
@@ -71,7 +71,7 @@
 # credential or a machine. A beta tag push instead resolves `forge-nightly`,
 # which carries the same secrets and no required reviewers -- an unattended
 # nightly cannot wait on a person, so the control is the deployment tag
-# policy (`v*-beta.*`) rather than a reviewer. `qualify-validate` carries no
+# policy (`v*-beta.*`) rather than a reviewer. `qualify-prepare` carries no
 # gate at all, so it starts the moment the plan is ready, any trigger.
 #
 # DRY RUN. A `dry-run` dispatch input, or the `qualify-e2e-dry-run` label on a
@@ -555,10 +555,13 @@ jobs:
           set -euo pipefail
           go run ./release/cmd/qualify verify --plan plan.json --wait "${WAIT}"
 
-  # Validates and builds everything that does not need a Forge credential.
-  # No environment, so it always runs; a dry run needs nothing beyond this.
-  qualify-validate:
-    name: ${{ matrix.stream }} (validate)
+  # Resolves versions and capabilities, builds the image archives and
+  # nvkectl, and uploads them for qualify-run -- validation is one of its
+  # twelve steps, not what the job is for, and the name no longer implies a
+  # gate: it runs even when its own stream later fails, by design. No
+  # environment, so it always runs; a dry run needs nothing beyond this.
+  qualify-prepare:
+    name: ${{ matrix.stream }} (prepare)
     needs: [plan, verify]
     strategy:
       fail-fast: false
@@ -1045,7 +1048,7 @@ jobs:
       # published one into .site-inputs itself.
       #
       # Same name across attempts, with overwrite: true, so a re-run that
-      # skips qualify-validate (because it already succeeded) still has a
+      # skips qualify-prepare (because it already succeeded) still has a
       # usable artifact. "Check the staged inputs are current" in
       # qualify-run is what catches a stale one, not the artifact name.
       - name: Upload the site inputs
@@ -1061,11 +1064,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Everything that reaches Forge or the jump host. Reads qualify-validate's
+  # Everything that reaches Forge or the jump host. Reads qualify-prepare's
   # resolved values and downloads what it built, rather than re-deriving them,
   # since GitHub does not fan a matrix job's outputs out by matrix entry.
   #
-  # Runs even when qualify-validate failed: `if` below overrides the default
+  # Runs even when qualify-prepare failed: `if` below overrides the default
   # skip-on-needs-failure so one stream's validation failure cannot block the
   # others. A stream whose own validate entry failed has no artifact to
   # download, and fails here at "Download the site inputs" instead -- its
@@ -1075,7 +1078,7 @@ jobs:
   # reaches Teleport or a machine.
   qualify-run:
     name: ${{ matrix.stream }}${{ needs.plan.outputs.dry-run == 'true' && ' (dry run)' || '' }}
-    needs: [plan, qualify-validate]
+    needs: [plan, qualify-prepare]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     strategy:
       # Never cancel a sibling. A cancelled lane dies before its teardown and
@@ -1121,7 +1124,7 @@ jobs:
       # full, so a run that names no stage qualifies the whole thing. A label
       # run and a tag push carry no dispatch input, and a beta that stopped at
       # a booted node would have qualified none of what it was cut for.
-      # provision for the DSX label: see qualify-validate's copy of this
+      # provision for the DSX label: see qualify-prepare's copy of this
       # formula.
       SITE_STAGE: ${{ inputs.stage || (github.event.label.name == 'qualify-e2e-dsx' && 'provision') || vars.QUALIFY_E2E_STAGE || 'full' }}
       DRY_RUN: ${{ needs.plan.outputs.dry-run }}
@@ -1135,7 +1138,7 @@ jobs:
             || 'commitDescribe' }}
       SITE_CONTROLLER_VERSION: ${{ matrix.controller }}
       # How the controller's version was resolved, and the commit a described
-      # one was taken at. Needed again here, not just in qualify-validate: this
+      # one was taken at. Needed again here, not just in qualify-prepare: this
       # is a separate checkout on a separate runner, and "Fetch the controller
       # release tag" below has to resolve the same ref a second time.
       CONTROLLER_VERSION_STRATEGY: ${{ matrix.controller_version_strategy }}
@@ -1162,7 +1165,7 @@ jobs:
       CLUSTERCTL_VERSION: ${{ matrix.clusterctl }}
       NERDCTL_VERSION: ${{ matrix.nerdctl }}
       # The os-image release the images were built from. Recorded by the
-      # resolved-inputs step below; qualify-validate has no use for it.
+      # resolved-inputs step below; qualify-prepare has no use for it.
       OS_IMAGE_RELEASE: ${{ matrix.os_image }}
       OS_IMAGE_BOOTLOADER_AMD64: ${{ matrix.os_image_bootloader_amd64 }}
       OS_IMAGE_AMD64: ${{ matrix.os_image_amd64 }}
@@ -1182,8 +1185,8 @@ jobs:
       # needed the machine has been read off it.
       KEEP_SITE: ${{ inputs.keep-site || vars.QUALIFY_E2E_KEEP_SITE || false }}
       # nvcr holds every build, so a commit between releases has an image. Not
-      # actually consumed here -- only qualify-validate pulls -- but resolved
-      # the same way so the summary below reports what qualify-validate used.
+      # actually consumed here -- only qualify-prepare pulls -- but resolved
+      # the same way so the summary below reports what qualify-prepare used.
       SITE_IMAGE_REGISTRY: ${{ inputs.image-registry || vars.QUALIFY_E2E_IMAGE_REGISTRY || 'nvcr' }}
       CAPI_PROVISIONED_VERSION: ${{ matrix.capi_provisioned }}
       QUALIFY_E2E_NGC_ORG: ${{ vars.QUALIFY_E2E_NGC_ORG }}
@@ -1268,7 +1271,7 @@ jobs:
             **/go.sum
 
       # The Teleport join token's own allow rules, checked here because its
-      # failure names neither the ref nor the rule. qualify-validate checks
+      # failure names neither the ref nor the rule. qualify-prepare checks
       # the same expression before it ever builds an image, so a bad ref is
       # already caught before this job starts; this is the live check for the
       # job that actually joins.
@@ -1300,10 +1303,10 @@ jobs:
             esac
           fi
 
-      # What qualify-validate built for this exact stream -- the three image
+      # What qualify-prepare built for this exact stream -- the three image
       # archives, nvkectl wherever resolved.env's SITE_NVKECTL says it is, and
       # resolved.env itself. Same name regardless of attempt, so a re-run
-      # that skips a still-successful qualify-validate still finds it;
+      # that skips a still-successful qualify-prepare still finds it;
       # staleness is checked below, not by the artifact name.
       - name: Download the site inputs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -1311,7 +1314,7 @@ jobs:
           name: qualify-site-inputs-${{ matrix.stream }}-${{ github.run_id }}
           path: ${{ github.workspace }}
 
-      # Written by qualify-validate's "Record the resolved environment" step:
+      # Written by qualify-prepare's "Record the resolved environment" step:
       # SITE_CONTROLLER_BUILD, SITE_CONTROLLER_VERSION, SITE_IMAGES, SITE_ARCH,
       # SITE_ENVIRONMENT, CAPABILITIES, OS_IMAGE_VERSIONS, SITE_CLI_BUILD,
       # CLI_VERSION, SITE_CLI_REF and SITE_NVKECTL, all for this stream. Read
@@ -1322,24 +1325,24 @@ jobs:
         run: cat "${SITE_INPUTS}/resolved.env" >> "${GITHUB_ENV}"
 
       # The staleness check the artifact name used to provide. If
-      # qualify-validate ran in this attempt (did not get skipped as
+      # qualify-prepare ran in this attempt (did not get skipped as
       # already-successful) and what got downloaded was not recorded from
       # this attempt, the artifact is stale: validate re-ran, maybe failed,
       # and this is still the old upload. A skipped validate means nothing
       # changed, so an older recorded attempt is fine.
       - name: Check the staged inputs are current
-        if: needs.qualify-validate.result != 'skipped' && env.VALIDATED_AT_ATTEMPT != github.run_attempt
+        if: needs.qualify-prepare.result != 'skipped' && env.VALIDATED_AT_ATTEMPT != github.run_attempt
         shell: bash
         run: |
-          echo "::error::the downloaded site inputs were validated at attempt ${VALIDATED_AT_ATTEMPT}, not this attempt (${GITHUB_RUN_ATTEMPT}); qualify-validate ran again without the artifact being refreshed"
+          echo "::error::the downloaded site inputs were validated at attempt ${VALIDATED_AT_ATTEMPT}, not this attempt (${GITHUB_RUN_ATTEMPT}); qualify-prepare ran again without the artifact being refreshed"
           exit 1
 
       # The one thing resolved.env cannot carry: this is a separate checkout
-      # from qualify-validate's, and the deploy path reads the controller's
+      # from qualify-prepare's, and the deploy path reads the controller's
       # release tag from it directly. A build from this commit needs no tag.
       #
       # What names it depends on how the version was resolved, same as
-      # qualify-validate's "Resolve the controller version": a version read
+      # qualify-prepare's "Resolve the controller version": a version read
       # from the tags is a tag, and a description is not a ref, so it resolves
       # locally through its commit hash once that commit is here.
       - name: Fetch the controller release tag

@@ -176,7 +176,7 @@ $ go run ./release/cmd/qualify plan --subject nvke --version v0.21.0 --scope ful
   taken, so an artifact that was never published fails there rather than an hour
   into a run. It waits when the plan resolved at a commit, because the publishers
   may still be running.
-- `qualify-validate` and `qualify-run` each run once for each stream of each
+- `qualify-prepare` and `qualify-run` each run once for each stream of each
   combination. Their versions, architecture and GPU model are that stream's
   entry in the plan, so every stream qualifies exactly what the plan
   resolved. Each job is named by its stream.
