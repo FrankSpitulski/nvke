@@ -167,10 +167,8 @@ func Boot(ctx context.Context, imagePath string, opts Options) (*VM, error) {
 		"-bios", opts.FirmwarePath,
 		"-drive", "if=virtio,format=qcow2,file=" + imagePath,
 		"-drive", "if=virtio,format=raw,readonly=on,file=" + opts.SeedISO,
-		// restrict=on isolates the guest from every external network while
-		// keeping slirp's DHCP/gateway and the host-initiated hostfwd below:
-		// the probe channel works, and a booted image cannot phone home
-		// through the host even when the host has egress.
+		// restrict=on: no guest egress even on a connected host; slirp DHCP
+		// and the host-initiated hostfwd probe channel keep working.
 		"-netdev", fmt.Sprintf("user,id=n0,restrict=on,hostfwd=tcp:127.0.0.1:%d-:22", port),
 		"-device", "virtio-net-pci,netdev=n0",
 		"-display", "none", "-serial", "none", "-monitor", "none",

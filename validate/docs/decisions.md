@@ -119,6 +119,24 @@ Three mechanisms close it:
   of the verdict's contents — a signer cannot shrink the profile by omitting
   results.
 
+## 2026-10 — Policy is enforced by pinning, not by recording
+
+Second independent-review round. Required-check completeness is not enough on
+its own: applicability comes from the caller-selected registry, so a registry
+whose `appliesTo` selectors never match the target turns every required check
+into an acceptable not-applicable skip (demonstrated with a one-letter arch
+typo across all selectors — 17 skips, signed pass, accepted). The verdict
+*recording* `checkSetSha256` describes; only the consumer *comparing* it
+enforces. Hence `Policy.CheckSetSHA256` (approved registry digests) and
+`Policy.ExpectedTarget` — and the documented trust boundary: without those
+pins, applicability belongs to the producer. Same round: duplicate result IDs
+are rejected at verification (last-write-wins would let a signed
+fail-then-pass pair read as pass); policy inputs are read once and the same
+byte snapshot is parsed and hashed (a re-read at signing time could hash
+different content than the run used); and exactly one report document ever
+reaches stdout — a signing failure rides the report as `runError` instead of
+appending a second JSON object.
+
 ## 2026-10 — Deferred, visibly
 
 FDE-004 (grub passphrase stripped after the TPM first-boot bind) needs a

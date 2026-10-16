@@ -53,6 +53,8 @@ func fixture(t *testing.T, outcome string) (att, pub, image, digest string) {
 			Validator:       verify.Tool{Name: "nvke-image-validate", Version: "test"},
 			FinishedAt:      time.Now().UTC(),
 			EvidenceMode:    verify.EvidenceModeBundle,
+			CheckSetSHA256:  "49" + strings.Repeat("a", 62),
+			Target:          verify.Target{Variant: "fde", Arch: "amd64", Ubuntu: "26.04.1"},
 			Results: []verify.CheckResult{
 				{ID: "INT-001", Status: "pass", Severity: "blocking"},
 				{ID: "INT-002", Status: "skip", Severity: "blocking", Reason: "input-missing"},
@@ -131,6 +133,26 @@ func TestRun(t *testing.T) {
 			name: "profile rejects omitted validation",
 			args: []string{"--attestation", att, "--key", pub, "--digest", digest, "--required-checks", "INT-001,INT-002"},
 			want: exitCannot,
+		},
+		{
+			name: "approved check set accepted",
+			args: []string{"--attestation", att, "--key", pub, "--digest", digest, "--check-set-sha256", "49" + strings.Repeat("a", 62)},
+			want: exitPass,
+		},
+		{
+			name: "unapproved check set rejected",
+			args: []string{"--attestation", att, "--key", pub, "--digest", digest, "--check-set-sha256", strings.Repeat("b", 64)},
+			want: exitCannot,
+		},
+		{
+			name: "wrong validated target rejected",
+			args: []string{"--attestation", att, "--key", pub, "--digest", digest, "--target-arch", "arm64"},
+			want: exitCannot,
+		},
+		{
+			name: "matching validated target accepted",
+			args: []string{"--attestation", att, "--key", pub, "--digest", digest, "--target-variant", "fde", "--target-arch", "amd64"},
+			want: exitPass,
 		},
 		{
 			name: "missing required flags is a usage error",

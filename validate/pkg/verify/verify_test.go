@@ -276,3 +276,61 @@ func TestPredicateBindingFieldsRoundTrip(t *testing.T) {
 	assert.Equal(t, strings.Repeat("a", 64), st.Predicate.CheckSetSHA256)
 	assert.Equal(t, strings.Repeat("b", 64), st.Predicate.BOMSHA256)
 }
+
+func TestPolicyPinsCheckSetAndTarget(t *testing.T) {
+	signer, pub := ed25519Signer(t)
+	keys := []crypto.PublicKey{pub}
+	approved := strings.Repeat("a", 64)
+	// Every result not-applicable: what a registry whose selectors never
+	// match the target produces (e.g. every appliesTo.arch misspelled).
+	allNA := func(st *Statement) {
+		st.Predicate.CheckSetSHA256 = strings.Repeat("f", 64)
+		st.Predicate.Results = []CheckResult{
+			{ID: "INT-001", Status: "skip", Severity: "blocking", Reason: SkipNotApplicable},
+			{ID: "INT-002", Status: "skip", Severity: "blocking", Reason: SkipNotApplicable},
+		}
+	}
+	naEnv, err := Sign(testStatement(t, allNA), signer)
+	require.NoError(t, err)
+	goodEnv, err := Sign(testStatement(t, func(st *Statement) { st.Predicate.CheckSetSHA256 = approved }), signer)
+	require.NoError(t, err)
+
+	// Documented trust boundary: without check-set pinning, applicability is
+	// the producer's — an all-not-applicable verdict satisfies any profile.
+	_, err = Verify(naEnv, testDigest, Policy{Keys: keys, RequiredChecks: []string{"INT-001", "INT-002"}}, testFinished)
+	require.NoError(t, err)
+
+	// Pinning closes it: the misselected registry's digest is not approved.
+	_, err = Verify(naEnv, testDigest, Policy{Keys: keys, RequiredChecks: []string{"INT-001"}, CheckSetSHA256: []string{approved}}, testFinished)
+	require.ErrorContains(t, err, "not an approved one")
+
+	// The approved registry passes, including case-insensitively.
+	_, err = Verify(goodEnv, testDigest, Policy{Keys: keys, CheckSetSHA256: []string{strings.ToUpper(approved)}}, testFinished)
+	require.NoError(t, err)
+
+	// A pre-field verdict (empty checkSetSha256) never satisfies a pin.
+	oldEnv, err := Sign(testStatement(t, nil), signer)
+	require.NoError(t, err)
+	_, err = Verify(oldEnv, testDigest, Policy{Keys: keys, CheckSetSHA256: []string{approved}}, testFinished)
+	require.ErrorContains(t, err, "not an approved one")
+
+	// Expected target: any mismatching field rejects; matching passes.
+	_, err = Verify(goodEnv, testDigest, Policy{Keys: keys, ExpectedTarget: Target{Arch: "arm64"}}, testFinished)
+	require.ErrorContains(t, err, `target arch is "amd64"`)
+	_, err = Verify(goodEnv, testDigest, Policy{Keys: keys, ExpectedTarget: Target{Variant: "fde", Arch: "amd64", Ubuntu: "26.04.1"}}, testFinished)
+	require.NoError(t, err)
+}
+
+func TestDuplicateResultIDsAreRejected(t *testing.T) {
+	signer, pub := ed25519Signer(t)
+	env, err := Sign(testStatement(t, func(st *Statement) {
+		st.Predicate.Results = []CheckResult{
+			{ID: "INT-001", Status: "fail", Severity: "blocking"},
+			{ID: "INT-001", Status: "pass", Severity: "blocking"},
+		}
+	}), signer)
+	require.NoError(t, err)
+	_, err = Verify(env, testDigest, Policy{Keys: []crypto.PublicKey{pub}, RequiredChecks: []string{"INT-001"}}, testFinished)
+	require.ErrorContains(t, err, "duplicate results",
+		"a signed fail-then-pass pair must not read as pass")
+}

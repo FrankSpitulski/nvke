@@ -43,16 +43,13 @@ type Report struct {
 	// Summary counts are derived from Results; they exist so a pipeline can
 	// branch without replaying the list.
 	Summary Summary `json:"summary"`
-	// RunError is set when the run failed before any check could execute —
-	// the report then carries no results and Summary.Error is 1, so a
-	// pipeline parsing report documents sees setup failures in the same
-	// schema instead of an empty stdout.
+	// RunError carries a failure outside the checks (setup, verdict signing)
+	// in the same schema; it always pairs with a Summary.Error count.
 	RunError string `json:"runError,omitempty"`
 }
 
-// NewRunError renders a run that could not start as a report document: no
-// results, one error, exit 2 — "could not evaluate" in the same schema the
-// pipeline already parses.
+// NewRunError renders a run that could not start: no results, one error,
+// exit 2, same schema.
 func NewRunError(err error, now time.Time) Report {
 	return Report{
 		SchemaVersion: SchemaVersion,
@@ -139,6 +136,9 @@ func (r Report) Text() string {
 	fmt.Fprintf(&b, "%s (sha256:%s)\ncheck set %s\n", r.Subject.Name, r.Subject.SHA256, r.CheckSetVersion)
 	for _, res := range r.Results {
 		fmt.Fprintf(&b, "  %-6s %-12s %s\n", strings.ToUpper(string(res.Status)), res.ID, res.Evidence)
+	}
+	if r.RunError != "" {
+		fmt.Fprintf(&b, "  ERROR  run          %s\n", r.RunError)
 	}
 	fmt.Fprintf(&b, "pass=%d fail=%d (blocking=%d warn=%d) skip=%d error=%d\n",
 		r.Summary.Pass, r.Summary.Fail, r.Summary.BlockingFail, r.Summary.WarnFail, r.Summary.Skip, r.Summary.Error)

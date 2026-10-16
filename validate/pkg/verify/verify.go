@@ -136,9 +136,8 @@ type CheckResult struct {
 	Evidence string `json:"evidence,omitempty"`
 }
 
-// SkipNotApplicable is the one skip reason a required check may carry: the
-// target is genuinely outside the check's scope. Every other skip is omitted
-// validation.
+// SkipNotApplicable is the one skip reason that satisfies a required check;
+// every other skip is omitted validation.
 const SkipNotApplicable = "not-applicable"
 
 // Policy is what a consumer requires of a verdict beyond a valid signature.
@@ -155,13 +154,16 @@ type Policy struct {
 	// MaxAge rejects verdicts whose FinishedAt is older than now-MaxAge;
 	// zero means no age limit.
 	MaxAge time.Duration
-	// RequiredChecks lists check IDs this consumer's qualification profile
-	// demands. Each must appear in the verdict and have passed, or be skipped
-	// as not-applicable (the target is outside the check's scope). A missing
-	// result, a disabled tier or a missing input is omitted validation and
-	// fails verification: an authentic verdict over two checks and fifteen
-	// skips must never satisfy a policy that expected seventeen.
+	// RequiredChecks is the qualification profile: each listed ID must have
+	// passed or be skipped not-applicable. A missing result, disabled tier or
+	// missing input is omitted validation and fails verification.
 	RequiredChecks []string
+	// CheckSetSHA256 pins approved registry contents (bare hex, any match).
+	// Without it, applicability belongs to the producer's registry, and every
+	// required check can be satisfied by a not-applicable skip.
+	CheckSetSHA256 []string
+	// ExpectedTarget: non-empty fields must equal the verdict's target.
+	ExpectedTarget Target
 }
 
 // Verify checks a verdict envelope against the policy and the image digest
@@ -228,22 +230,56 @@ func Verify(envelopeJSON []byte, imageSHA256 string, pol Policy, now time.Time) 
 			return nil, fmt.Errorf("verdict is %s old, policy maximum is %s", age.Round(time.Second), pol.MaxAge)
 		}
 	}
+	if len(pol.CheckSetSHA256) > 0 {
+		got := strings.ToLower(st.Predicate.CheckSetSHA256)
+		approved := false
+		for _, want := range pol.CheckSetSHA256 {
+			if got != "" && got == strings.ToLower(want) {
+				approved = true
+				break
+			}
+		}
+		if !approved {
+			return nil, fmt.Errorf("the verdict's check set (sha256 %q) is not an approved one", st.Predicate.CheckSetSHA256)
+		}
+	}
+	if err := matchTarget(st.Predicate.Target, pol.ExpectedTarget); err != nil {
+		return nil, err
+	}
 	if err := requireChecks(st.Predicate.Results, pol.RequiredChecks); err != nil {
 		return nil, err
 	}
 	return &st, nil
 }
 
-// requireChecks enforces the consumer's qualification profile: every required
-// check passed or was skipped as not-applicable. The list is the consumer's
-// policy, deliberately independent of the verdict's own contents — a signer
-// cannot shrink the profile by omitting results.
+// matchTarget enforces every non-empty expectation exactly.
+func matchTarget(got, want Target) error {
+	for _, f := range []struct{ name, got, want string }{
+		{"variant", got.Variant, want.Variant},
+		{"arch", got.Arch, want.Arch},
+		{"ubuntu", got.Ubuntu, want.Ubuntu},
+	} {
+		if f.want != "" && f.got != f.want {
+			return fmt.Errorf("verdict target %s is %q, policy expects %q", f.name, f.got, f.want)
+		}
+	}
+	return nil
+}
+
+// requireChecks enforces the qualification profile. The list is the
+// consumer's, independent of the verdict's contents, so a signer cannot
+// shrink it by omitting results.
 func requireChecks(results []CheckResult, required []string) error {
 	if len(required) == 0 {
 		return nil
 	}
 	byID := make(map[string]CheckResult, len(results))
 	for _, r := range results {
+		// Last-write-wins on a duplicate ID would let fail-then-pass read
+		// as pass.
+		if _, dup := byID[r.ID]; dup {
+			return fmt.Errorf("the verdict carries duplicate results for check %s", r.ID)
+		}
 		byID[r.ID] = r
 	}
 	for _, id := range required {

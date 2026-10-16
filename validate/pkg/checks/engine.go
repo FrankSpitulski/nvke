@@ -92,9 +92,8 @@ type EvidenceStatus struct {
 // registry's ID and severity.
 type Outcome struct {
 	Status Status
-	// Reason is required when Status is skip: an implementation-level skip
-	// always means a missing input, and saying so machine-readably is what
-	// lets a consumer policy distinguish it from genuine non-applicability.
+	// Reason is required when Status is skip; the engine rejects a
+	// reasonless skip so it can never read as coverage.
 	Reason   SkipReason
 	Evidence string
 }
@@ -144,9 +143,7 @@ func (e *Engine) Run(ctx context.Context, reg *Registry, t Target, in Inputs) []
 				res.Status = StatusError
 				res.Evidence = err.Error()
 			case out.Status == StatusSkip && out.Reason == "":
-				// A skip with no stated reason cannot be policy-evaluated;
-				// surfacing it as an error keeps "unexplained skip" from ever
-				// reading as acceptable coverage.
+				// An unexplained skip cannot be policy-evaluated.
 				res.Status = StatusError
 				res.Evidence = fmt.Sprintf("check %s skipped without a reason: %s", def.ID, out.Evidence)
 			default:
