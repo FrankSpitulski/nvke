@@ -1328,7 +1328,7 @@ jobs:
       # and this is still the old upload. A skipped validate means nothing
       # changed, so an older recorded attempt is fine.
       - name: Check the staged inputs are current
-        if: needs.qualify-validate.result != 'skipped' && env.VALIDATED_AT_ATTEMPT != env.GITHUB_RUN_ATTEMPT
+        if: needs.qualify-validate.result != 'skipped' && env.VALIDATED_AT_ATTEMPT != github.run_attempt
         shell: bash
         run: |
           echo "::error::the downloaded site inputs were validated at attempt ${VALIDATED_AT_ATTEMPT}, not this attempt (${GITHUB_RUN_ATTEMPT}); qualify-validate ran again without the artifact being refreshed"
