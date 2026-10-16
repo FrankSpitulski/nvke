@@ -74,5 +74,11 @@ func copyVariables(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("read EFI variables: %w", err)
 	}
-	return os.WriteFile(dst, data, 0o600)
+	// Write then rename, so a crash mid-write cannot leave a truncated dst that
+	// the Stat above would keep forever.
+	tmp := dst + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("write EFI variables: %w", err)
+	}
+	return os.Rename(tmp, dst)
 }

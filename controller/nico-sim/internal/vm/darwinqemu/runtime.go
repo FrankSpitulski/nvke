@@ -218,8 +218,11 @@ func (r *darwinQEMU) Stop(_ context.Context, machineID string) error {
 	if err := qmpShutdown(paths.QMPSock, stopTimeout); err != nil {
 		slog.Warn("darwin-qemu: graceful shutdown failed, killing QEMU", "instance", machineID, "error", err)
 	}
-	// -no-shutdown keeps QEMU alive after the guest powers off.
-	stopVMProcesses(paths)
+	// -no-shutdown keeps QEMU alive after the guest powers off. Leave swtpm up
+	// if QEMU may still be using it, and report the VM as not stopped.
+	if err := stopVMProcesses(paths); err != nil {
+		return err
+	}
 	return stopSwtpm(paths.TPM)
 }
 
@@ -399,11 +402,14 @@ func (r *darwinQEMU) LookupDHCPLease(context.Context, string, string) (string, b
 // --- process helpers ---
 
 // stopVMProcesses tears down the vmnet-client process group (which includes
-// QEMU) and cleans up stale PID/socket files in preparation for a relaunch.
-func stopVMProcesses(paths darwinInstancePaths) {
+// QEMU) and cleans up stale PID/socket files in preparation for a relaunch. It
+// returns an error, and leaves the files in place, when QEMU may still be running.
+func stopVMProcesses(paths darwinInstancePaths) error {
 	if vmnetPID, err := readPIDFile(paths.VMNetClientPIDFile); err == nil {
 		if stopErr := stopProcessGroup(vmnetPID); stopErr != nil {
-			_ = stopPIDFileProcess(paths.PIDFile)
+			if pidErr := stopPIDFileProcess(paths.PIDFile); pidErr != nil {
+				return fmt.Errorf("stop QEMU: process group %d: %w; pidfile fallback: %w", vmnetPID, stopErr, pidErr)
+			}
 		}
 	} else {
 		_ = stopPIDFileProcess(paths.PIDFile)
@@ -411,6 +417,7 @@ func stopVMProcesses(paths darwinInstancePaths) {
 	_ = os.Remove(paths.QMPSock)
 	_ = os.Remove(paths.PIDFile)
 	_ = os.Remove(paths.VMNetClientPIDFile)
+	return nil
 }
 
 // launchVMNetClient starts vmnet-client as a long-running foreground process.

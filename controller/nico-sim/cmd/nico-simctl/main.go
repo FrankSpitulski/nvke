@@ -171,9 +171,12 @@ func resolveInstanceIDs(opts commonOptions, args []string) []string {
 	req, err := http.NewRequest(http.MethodGet, opts.BaseURL+"/sim/instances", nil)
 	exitOnErr(err)
 	req.Header.Set("Authorization", "Bearer "+opts.Token)
-	res, err := http.DefaultClient.Do(req)
+	res, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	exitOnErr(err)
 	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		exitOnErr(fmt.Errorf("list VMs: %s", res.Status))
+	}
 	var vms []struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
