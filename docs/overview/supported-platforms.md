@@ -42,7 +42,7 @@ In the Notes column, **Pinned** means NVKE builds, installs or stages exactly th
 | Operating system | Ubuntu 26.04.1 LTS | Pinned. NVKR builds the node image from the Ubuntu 26.04.1 server installer, pinned by digest. |
 | CPU architectures | amd64, arm64 | NVKR has a node image Definition for each architecture. |
 | Kernel | `linux-nvidia` on amd64, `linux-nvidia-64k` on arm64 | Ubuntu's NVIDIA-tuned kernel flavors. |
-| Full-disk encryption | Not supported | The NVKR node image has no full-disk encryption. |
+| Full-disk encryption (FDE) | FDE node image, amd64 and arm64, for evaluation only | NVKR's hosted pipeline is configured to build `nvke-node-fde-amd64` and `nvke-node-fde-arm64`, with the root volume on LUKS2. A local build with NVKR's `scripts/nvke-os-local.sh` produces only the image without FDE. Nodes built from one FDE image share its volume encryption key, so the image does not protect data at rest; see [Preview status and known limitations](preview-status.md#building-artifacts). |
 | SPIFFE Runtime Environment (SPIRE) agent | 1.14.1, with TPM plugin 1.9.0 | Pinned. Installed on the node image for TPM node attestation. |
 | Node agent (`nvke-agent`) | Built from the NVKE source NVKR pins | Installed and enabled on the node image. Listens on port 15005. |
 
@@ -61,7 +61,7 @@ NVKR's [node image Definition](https://github.com/dsx-ai-factory/nvkr/blob/main/
 | Go, to build `nvkectl` and the NVKE images | 1.27.2 or later | Range. An older Go downloads 1.27.2 unless `GOTOOLCHAIN=local` is set. Also needs GNU Make. |
 | Go, to build `nvkr` (NVKR) | 1.27.2 | Pinned in NVKR's `.go-version`. |
 | `nvkectl` | Linux and macOS, amd64 and arm64 | `nvkectl bootstrap site` runs only on a Linux bootstrap host. |
-| Management cluster nodes | amd64, arm64 | Set `controllerStack.arch` in the site spec; the install selects the release's artifacts for it. NVKR's maintained release builds the controller image for both architectures. |
+| Management cluster nodes | amd64, arm64 | All nodes of one architecture. The install reads it from the nodes and selects the release's artifacts for it. NVKR's maintained release builds the controller image for both architectures. |
 | Local quickstart host | Linux, amd64 or arm64 | See [Quickstart: evaluate locally with mock-NICo](../get-started/quickstart-local.md). |
 
 ## nvkectl compatibility

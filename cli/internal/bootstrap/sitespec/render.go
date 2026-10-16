@@ -26,9 +26,16 @@ var templateYAML []byte
 
 // deniedPaths are the field paths --set must refuse. cluster.nodes comes from
 // the node CSV, which carries per-node fields a dotted path cannot express.
+// infra.provider and spire.externalAddress are for a nico site spec, which
+// generate sitespec does not write: it requires --nodes, so with either set the
+// file it writes is refused by its own validation.
 func deniedPaths() map[string]string {
 	return map[string]string{
 		pathNodes: "nodes come from --nodes",
+		pathInfraProvider: "generate sitespec writes a provisioned site spec from --nodes; " +
+			"write a nico one by hand from examples/sitespec-nico.yaml",
+		pathSpireExternalAddress: "spire.externalAddress is only valid with infra.provider nico, " +
+			"which generate sitespec does not write",
 	}
 }
 
@@ -209,9 +216,15 @@ func (spec *SiteSpec) Render() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := applySpec(doc.Content[0], spec); err != nil {
+	// A commented example at the end of the file hangs off the document, not
+	// off an entry. Lend it to the mapping so a key written for it lands
+	// there, with its prose, and hand what is left back for the encoder.
+	root := doc.Content[0]
+	root.FootComment, doc.FootComment = doc.FootComment, ""
+	if err := applySpec(root, spec); err != nil {
 		return nil, err
 	}
+	doc.FootComment, root.FootComment = root.FootComment, ""
 
 	var buf bytes.Buffer
 	encoder := yaml.NewEncoder(&buf)
