@@ -64,7 +64,7 @@ func TestNKEImageCluster(t *testing.T) {
 	}
 	const install = `sudo bash -eu -c '
 apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/nke-local.list -o Dir::Etc::sourceparts=- update
-DEBIAN_FRONTEND=noninteractive apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/nke-local.list -o Dir::Etc::sourceparts=- install -y nke-kubeadm-distro-1.34.2 nke-cni-calico-manifests-3.30.1 nke-cni-calico-images-3.30.1
+DEBIAN_FRONTEND=noninteractive apt-get -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/nke-local.list -o Dir::Etc::sourceparts=- install -y nvke-kubeadm-distro-1.34.2 nvke-cni-calico-manifests-3.30.1 nvke-cni-calico-images-3.30.1
 swapoff -a
 sysctl -w net.ipv4.ip_forward=1
 systemctl is-active containerd
@@ -80,10 +80,10 @@ systemctl is-active containerd
 	t.Log("Installing staged Calico with a pod CIDR outside the vmnet subnet")
 	run(cp, "Calico install", `sudo bash -eu -c '
 export KUBECONFIG=/etc/kubernetes/admin.conf
-kubectl apply --server-side -f /usr/share/nke-cni/calico/3.30.1/manifests/operator-crds.yaml
-kubectl wait --for=condition=Established --timeout=120s -f /usr/share/nke-cni/calico/3.30.1/manifests/operator-crds.yaml
-kubectl apply --server-side -f /usr/share/nke-cni/calico/3.30.1/manifests/tigera-operator.yaml
-sed "s|192.168.0.0/16|10.244.0.0/16|g" /usr/share/nke-cni/calico/3.30.1/manifests/custom-resources.yaml | kubectl apply -f -
+kubectl apply --server-side -f /usr/share/nvke-cni/calico/3.30.1/manifests/operator-crds.yaml
+kubectl wait --for=condition=Established --timeout=120s -f /usr/share/nvke-cni/calico/3.30.1/manifests/operator-crds.yaml
+kubectl apply --server-side -f /usr/share/nvke-cni/calico/3.30.1/manifests/tigera-operator.yaml
+sed "s|192.168.0.0/16|10.244.0.0/16|g" /usr/share/nvke-cni/calico/3.30.1/manifests/custom-resources.yaml | kubectl apply -f -
 kubectl wait nodes --all --for=condition=Ready --timeout=300s
 kubectl -n kube-system rollout status deployment/coredns --timeout=180s
 kubectl get nodes -o wide

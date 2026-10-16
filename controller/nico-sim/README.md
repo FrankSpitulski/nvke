@@ -180,7 +180,7 @@ VIP    172.31.0.0/24:  nke-controller allocates cluster VIPs; reached via BGP /3
 
 On startup the speaker installs a covering `blackhole` route for the VIP range (so traffic for a VIP that no CP is currently announcing is dropped locally rather than leaking to the host default route), plus a more-specific `/32` ECMP route per announced VIP. The Tiltfile sets `NICO_VMS_VIP_CIDR`, registers the site with nke-controller, and passes it as the speaker's allowlist; the layout is printed at `tilt up` time.
 
-The above describes Linux. On macOS the speaker listens on port 179 directly and installs a single-next-hop host route with `sudo route`; see [Full NKE stack on macOS](#full-nke-stack-on-macos).
+The above describes Linux. On macOS the speaker listens on port 179 directly and installs a single-next-hop host route with `sudo route`; see [Full NVKE stack on macOS](#full-nvke-stack-on-macos).
 
 ### Libvirt-Network Mode
 
@@ -338,7 +338,7 @@ Requirements (macOS/darwin-qemu):
 
 If `swtpm_setup` is not found in `$PATH` (or `NICO_VMS_SWTPM_SETUP_PATH`/`NICO_VMS_SWTPM_PATH` are unset and nothing resolves), a **new** instance is created without a TPM — no error, no configuration needed. An instance whose TPM state is already seeded is different: an already-bound FDE guest cannot boot without its TPM, so a missing swtpm there is a hard error rather than a silent downgrade.
 
-**On darwin-qemu, TPM state (`<instance-dir>/tpm/`) is the only thing that makes a bound FDE guest bootable again.** NKE's FDE node image seals its LUKS key to the TPM on first boot and removes the plaintext passphrase slot entirely — every boot after that needs the *same* swtpm state to unseal the disk. `swtpm_setup` runs exactly once per instance (gated on `tpm/tpm2-00.permall` already existing); a second run would mint a different EK and permanently lock the guest out of its own disk. **Never delete `<instance-dir>/tpm/` for a running FDE VM outside of `Delete`.** Rebooting (QMP `system_reset`) does not touch it and does not relaunch swtpm either: QEMU's `-chardev socket` has no reconnect, so if swtpm has died while QEMU is still running, the guest's TPM is unusable until the instance is recreated; an FDE guest then fails its readiness check after the reboot.
+**On darwin-qemu, TPM state (`<instance-dir>/tpm/`) is the only thing that makes a bound FDE guest bootable again.** NVKE's FDE node image seals its LUKS key to the TPM on first boot and removes the plaintext passphrase slot entirely — every boot after that needs the *same* swtpm state to unseal the disk. `swtpm_setup` runs exactly once per instance (gated on `tpm/tpm2-00.permall` already existing); a second run would mint a different EK and permanently lock the guest out of its own disk. **Never delete `<instance-dir>/tpm/` for a running FDE VM outside of `Delete`.** Rebooting (QMP `system_reset`) does not touch it and does not relaunch swtpm either: QEMU's `-chardev socket` has no reconnect, so if swtpm has died while QEMU is still running, the guest's TPM is unusable until the instance is recreated; an FDE guest then fails its readiness check after the reboot.
 
 ## nico-containers
 
@@ -972,8 +972,8 @@ From the repository root:
 
 ```sh
 flox activate                            # exposes the pinned QEMU, Go and ISO tools
-make -C controller/nico-sim nico-vms-test ARCH=arm64 IMAGE=/absolute/path/to/nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
-make -C controller/nico-sim nico-vms-up ARCH=arm64 IMAGE=/absolute/path/to/nke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
+make -C controller/nico-sim nico-vms-test ARCH=arm64 IMAGE=/absolute/path/to/nvke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
+make -C controller/nico-sim nico-vms-up ARCH=arm64 IMAGE=/absolute/path/to/nvke-node-non-fde-ubuntu-26.04.1-arm64.qcow2
 ```
 
 `nico-vms-test` creates isolated overlays and tests create/delete, SSH, reboot and
@@ -984,7 +984,7 @@ pod on each VM to verify bidirectional pod traffic and cluster DNS. The BusyBox
 test image is pulled from Docker Hub, so this cluster test requires registry
 access. Use an image with Calico manifest package revision 2 or later, which
 includes the separate operator CRDs. This test bootstraps Kubernetes directly;
-NKE/CAPI and SPIRE integration are the next layer of validation.
+NVKE/CAPI and SPIRE integration are the next layer of validation.
 
 The tests disable orphan cleanup so other sessions' VMs are
 left alone. `nico-vms-up` runs the simulator in the foreground; its per-checkout
@@ -1018,7 +1018,7 @@ name and request a MAC DHCP identifier. Cloud-init data comes from the attached
 NoCloud ISO. The BGP speaker runs on this path too; see
 [Sudoers rule for VIP routes](#sudoers-rule-for-vip-routes) for its prerequisite.
 
-### Full NKE stack on macOS
+### Full NVKE stack on macOS
 
 `controller/hack/mac-vm-dev-up.sh` walks through the whole bring-up, explaining
 and pausing at each step (`--yes` runs straight through):

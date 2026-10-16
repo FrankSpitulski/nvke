@@ -127,15 +127,6 @@ func TestUnit_HandleGetMachine(t *testing.T) {
 	}
 }
 
-func TestUnit_ListMachinesIsEmpty(t *testing.T) {
-	handler := newDispatchHandler(t, newUnifiedTestStore(t), &fakeContainerService{instances: map[string]nicosdk.Instance{}})
-	path := "/v2/org/" + dispatchTestOrgID + "/forge/machine?siteId=" + testSiteID + "&hasInstanceType=true&pageNumber=1&pageSize=100"
-	response := performJSONRequest(t, handler, nethttp.MethodGet, path, nil)
-	if response.Code != nethttp.StatusOK || response.Body.String() != "[]\n" {
-		t.Fatalf("status = %d, body = %q; want 200 and an empty list", response.Code, response.Body.String())
-	}
-}
-
 func instancePrimaryIPAddress(t *testing.T, instance nicosdk.Instance) string {
 	t.Helper()
 	interfaces := instance.GetInterfaces()

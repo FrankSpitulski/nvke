@@ -98,10 +98,6 @@ func NewHandler(store *state.Store, containers ContainerService, logger *slog.Lo
 	// CAPNICo resolves the DPU attached to an instance's primary machine
 	// interface after the instance is provisioned.
 	registerV2(mux, "GET", "machine/{machineId}", s.handleGetMachine)
-	// CAPNICo lists machines to discover failure domains, and NicoCluster is
-	// not provisioned until that succeeds. The simulator has no machine
-	// inventory, so no failure domains.
-	registerV2(mux, "GET", "machine", s.handleEmptyList)
 	// ── Static data endpoints ── v1 paths ────────────────────────────────
 	mux.HandleFunc("GET /v1/orgs/{orgId}/sites", s.handleListSites)
 	mux.HandleFunc("GET /v1/orgs/{orgId}/vpcs", s.handleListVPCs)

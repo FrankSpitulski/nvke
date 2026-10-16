@@ -13,7 +13,7 @@ STATE_DIR="${CONTROLLER_DIR}/.local/mac-vm-dev"
 export COLIMA_PROFILE="${COLIMA_PROFILE:-nke-mac}"
 export KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-cwe-capi}"
 TILT_PORT="${TILT_PORT:-10350}"
-CWE_API="http://localhost:${CWE_HTTP_PORT:-8080}/api"
+CWE_API="http://localhost:${NKE_CONTROLLER_HTTP_PORT:-8080}/api"
 
 ASSUME_YES=false
 
@@ -65,5 +65,5 @@ use_colima_docker() {
 api() {
   local path="$1"
   shift
-  curl -fsS -H "Authorization: Bearer $("${CONTROLLER_DIR}/hack/nke-token.sh")" "${CWE_API}${path}" "$@"
+  curl -fsS -H "Authorization: Bearer $("${CONTROLLER_DIR}/hack/nvke-token.sh")" "${CWE_API}${path}" "$@"
 }

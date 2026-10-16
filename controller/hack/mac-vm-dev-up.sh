@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Walk through bringing up NKE on an Apple silicon Mac with tenant clusters on
+# Walk through bringing up NVKE on an Apple silicon Mac with tenant clusters on
 # real VMs: the management plane runs in kind inside Colima, and nico-sim boots
 # each tenant node as a QEMU VM under Apple's Hypervisor.framework (HVF) on the
 # vmnet shared network. Each step explains itself and pauses; pass --yes to run
@@ -39,7 +39,7 @@ done
 
 CLUSTER_NAME="${CLUSTER_NAME:-mac-ovn}"
 export CAPNICO_SOURCE_DIR="${CAPNICO_SOURCE_DIR:-${HOME}/git/cluster-api-provider-nico}"
-OS_PROFILE=nke-nico-vms-24.04-arm64-fde
+RELEASE=nvke-nico-vms-24.04-arm64-fde
 PACKER_DIR="${REPO_ROOT}/os-image/packer"
 mkdir -p "${STATE_DIR}"
 
@@ -111,12 +111,12 @@ note "all tools present"
 
 # ─────────────────────────────────────────────────────────────────────────────
 step "1. Bake the node OS image" \
-  "Tenant VMs boot the NKE node image built from this checkout, so their" \
-  "nke-agent is your local agent. Apple silicon has no 64K pages, so the image" \
+  "Tenant VMs boot the NVKE node image built from this checkout, so their" \
+  "nvke-agent is your local agent. Apple silicon has no 64K pages, so the image" \
   "uses linux-generic instead of linux-nvidia-64k. Baking takes about 10 minutes" \
   "and needs a clean git checkout; it is skipped when the image already exists."
 shopt -s nullglob
-images=("${PACKER_DIR}"/output-non-fde/nke-node-non-fde-ubuntu-*-arm64.qcow2)
+images=("${PACKER_DIR}"/output-non-fde/nvke-node-non-fde-ubuntu-*-arm64.qcow2)
 if ((${#images[@]} > 0)); then
   note "found ${images[0]#"${REPO_ROOT}/"}"
 else
@@ -126,7 +126,7 @@ else
   run make -C "${PACKER_DIR}" clean-non-fde-output
   run with_nix_tools xorriso=xorriso 7z=p7zip -- \
     make -C "${PACKER_DIR}" os-image-non-fde ARCH=arm64
-  images=("${PACKER_DIR}"/output-non-fde/nke-node-non-fde-ubuntu-*-arm64.qcow2)
+  images=("${PACKER_DIR}"/output-non-fde/nvke-node-non-fde-ubuntu-*-arm64.qcow2)
   ((${#images[@]} > 0)) || die "the bake finished but left no image in ${PACKER_DIR}/output-non-fde"
 fi
 image="${images[0]}"
@@ -134,8 +134,8 @@ image="${images[0]}"
 # ─────────────────────────────────────────────────────────────────────────────
 step "2. Write local configuration (gitignored)" \
   "controller/.env.tilt      CWE settings; generated with random passwords if missing" \
-  "controller/.local/fixtures  the test profiles, with the arm64 profile's image-url" \
-  "                          pointed at the image from step 1" \
+  "controller/.local/fixtures  the test profiles and releases, with the arm64 release's" \
+  "                          image-url pointed at the image from step 1" \
   "controller/tilt_config.json  CAPI core + NICo providers, VM tenants only" \
   "controller/tilt.d/mac-vm-dev.tilt  stops two Tilt rebuild loops seen on macOS"
 pause
@@ -148,14 +148,18 @@ if [[ ! -f .env.tilt ]]; then
   done
   note "created .env.tilt"
 fi
-# The Tilt CWE image bakes profiles from CWE_PROFILES_DIR, whose parent must
-# hold the fixture Dockerfile and runbooks too.
-set_env_line CWE_PROFILES_DIR .local/fixtures/profiles
+# The Tilt controller image bakes profiles from NKE_CONTROLLER_PROFILES_DIR,
+# whose parent must hold the fixture Dockerfile and runbooks too. Tilt applies
+# the releases from the same parent's releases/ directory.
+set_env_line NKE_CONTROLLER_PROFILES_DIR .local/fixtures/profiles
 
 rm -rf .local/fixtures && mkdir -p .local/fixtures
-cp -R test/fixtures/Dockerfile test/fixtures/runbooks test/fixtures/profiles .local/fixtures/
-sed -i '' "s|^set image-url .*|set image-url ${image}|" ".local/fixtures/profiles/osProfiles/${OS_PROFILE}/ipxeScript"
-note "${OS_PROFILE} boots $(grep '^set image-url' ".local/fixtures/profiles/osProfiles/${OS_PROFILE}/ipxeScript" | cut -d' ' -f3-)"
+cp -R test/fixtures/Dockerfile test/fixtures/runbooks test/fixtures/profiles test/fixtures/releases .local/fixtures/
+# The release's MachineImage names its image in the iPXE script's indented
+# "set image-url" line; nico-sim copies a local path straight into its cache.
+machine_image=".local/fixtures/releases/${RELEASE}-machineimage.yaml"
+sed -i '' -E "s|^( +)set image-url .*|\\1set image-url ${image}|" "${machine_image}"
+note "${RELEASE} boots $(grep -E '^ +set image-url' "${machine_image}" | awk '{print $3}')"
 
 if [[ -f tilt_config.json ]] && ! cmp -s tilt_config.json <(jq -n '{providers: ["capi_core", "nico"], nico_sim_backends: ["vm"]}'); then
   cp tilt_config.json "${STATE_DIR}/tilt_config.json.bak"
@@ -220,12 +224,12 @@ step "6. Create a tenant cluster" \
   "172.31.0.10 up; kube-vip announces it over BGP and nico-sim routes it to the" \
   "control plane that holds it."
 pause
-created="$(CLUSTER_NAME="${CLUSTER_NAME}" OS_PROFILE="${OS_PROFILE}" run "${CONTROLLER_DIR}/hack/create-nico-vms-cluster.sh")"
+created="$(CLUSTER_NAME="${CLUSTER_NAME}" RELEASE="${RELEASE}" run "${CONTROLLER_DIR}/hack/create-nico-vms-cluster.sh")"
 cluster_id="$(jq -r .id <<<"${created}")"
 vip="$(jq -r .controlPlaneVIP <<<"${created}")"
 note "cluster ${CLUSTER_NAME}: id ${cluster_id}, VIP ${vip}"
 note "Each VM iPXE-boots the image, runs cloud-init, attests to SPIRE with its TPM," \
-  "then CWE drives kubeadm through nke-agent. Progress:"
+  "then CWE drives kubeadm through nvke-agent. Progress:"
 last="" deadline=$((SECONDS + 1800))
 while :; do
   status="$(api "/clusters/${cluster_id}" | jq -r '"\(.conditions.provisioned.status)|\(.conditions.provisioning.message)"')"
@@ -282,7 +286,7 @@ EOF
 
 step "Done" \
   "Tilt UI:       http://localhost:${TILT_PORT}" \
-  "CWE API:       ${CWE_API} (token: hack/nke-token.sh)" \
+  "CWE API:       ${CWE_API} (token: hack/nvke-token.sh)" \
   "Cluster:       ${CLUSTER_NAME} (${cluster_id}), API server at https://${vip}:6443" \
   "Node shell:    sshpass -p nico-diag ssh -o PubkeyAuthentication=no nico-diag@${cp_ip}" \
   "Tear down:     hack/mac-vm-dev-down.sh"

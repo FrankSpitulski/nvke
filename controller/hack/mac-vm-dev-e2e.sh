@@ -29,9 +29,9 @@ jq -n --arg context "kind-${KIND_CLUSTER_NAME}" \
   '{kube: {context: $context}, lifecycle: {preserveOnFailure: true}}' >"${STATE_DIR}/e2e-config.json"
 
 cd "${CONTROLLER_DIR}/test/e2e"
-# The fleet profiles fixture gives the OS profile matrix its metadata, as in CI.
+# The fleet releases fixture gives the release matrix its metadata, as in CI.
 # Ginkgo enforces the timeout; Go's own would kill the run without a report.
-CWE_PROFILES_DIR="${CONTROLLER_DIR}/test/fixtures/fleet-profiles" run go test -v -timeout 0 . -args \
+NKE_CONTROLLER_RELEASES_DIR="${CONTROLLER_DIR}/test/fixtures/fleet-releases" run go test -v -timeout 0 . -args \
   -e2e.config="${STATE_DIR}/e2e-config.json" \
   -ginkgo.v \
   -ginkgo.fail-on-empty \
