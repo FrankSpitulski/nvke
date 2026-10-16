@@ -52,6 +52,26 @@ A chart the file does not carry, such as `postgresql`, `spire-crds`, `temporal` 
 
    The install pulls a chart from its reference with the credentials in your Docker configuration: run `docker login <REGISTRY_HOST>` or `oras login <REGISTRY_HOST>` on the install host first. The management cluster's nodes pull the images; if the registry needs credentials, pass a pull Secret to the controller chart with `--values-for controller=<FILE>` in [Install management-plane services](install-management-plane-services.md).
 
+## Convert an NVKR release
+
+NVIDIA Kubernetes Recipes (NVKR) builds and publishes NVKE's artifacts from pinned sources; its own documentation covers building, publishing and verifying a Release. The install does not read NVKR's release description directly: convert it to the stack artifacts file.
+
+1. Verify the Release under your policy, as described in [Browse, export and verify a release](https://github.com/dsx-ai-factory/nvkr/blob/main/docs/release-quickstart.md). Nothing in NVKE verifies it.
+
+2. Export the Release description and convert it.
+
+   ```bash
+   nvkr release export --reference <RELEASE_REF> > release.json
+   ```
+
+   ```bash
+   python3 nvke/hack/nvkr-run-to-stack-artifacts.py --out stack-artifacts.json release.json
+   ```
+
+   `<RELEASE_REF>` is the Release reference you verified. Every output becomes an artifact; the Release reference and its declared qualification become the file's `source` block, which the install's check prints with the `nvkr release verify` command for it. For a Run that was not published, add `--run-dir <NVKR_CHECKOUT>/.nvkr/runs/<ATTEMPT>`: each artifact whose digest a layout under the Run lists gets that layout, and the install imports it instead of pulling. `--name-map <OLD>=<NEW>` renames an output whose name differs from the one the deploy path binds.
+
+   The converter refuses a filtered export, as `nvkr release browse --output` writes, and an export that lacks an image the deploy path binds is refused by the install's check, which names it. See [Preview status and known limitations](../overview/preview-status.md) for what NVKR's maintained Definition builds.
+
 ## Verify
 
 1. Confirm that the file loads and names what the deploy path binds.
