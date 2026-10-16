@@ -79,24 +79,23 @@ reach it; a `full` run places three at once, and its tenant half speaks Forge
 only, so it is refused before a machine is taken. The dsx stream is outside the
 `full` scope for that reason.
 
-A run starts with a `plan` job that runs `qualify plan` and uploads `plan.json`.
-A `verify` job then checks that everything the plan names is published, before
-any machine is taken, and two jobs run for each stream of the plan's scope:
-`qualify-prepare` resolves versions and capabilities and builds the site
-inputs, then `qualify-run` reads what it built and reaches Forge, DSX or
-Teleport. The versions, the architecture and the GPU model of a job are the
-plan's, and the dispatch inputs that name a version override what the plan
-resolves.
+A run starts with a `plan` job that runs `qualify plan` and uploads
+`plan.json`, and then a single `qualify-run` job runs once for each stream of
+the plan's scope: it checks that everything the plan names is published,
+resolves versions and capabilities, builds the site inputs, and reaches
+Forge, DSX or Teleport. The versions, the architecture and the GPU model of a
+job are the plan's, and the dispatch inputs that name a version override
+what the plan resolves.
 
-`qualify-run` is gated behind a GitHub environment, so a real run waits for
-approval before it can touch a credential or a machine. A `workflow_dispatch`
-or a labelled pull request resolves `forge`, which carries a required
-reviewer. A beta tag push instead resolves `forge-nightly`, which carries the
-same secrets but no required reviewer -- an unattended nightly cannot wait on
-a person, so the control there is the deployment tag policy (`v*-beta.*`)
-rather than a reviewer. `qualify-prepare` carries no gate at all and starts
-as soon as the plan is ready, any trigger, which is what lets it give quick
-feedback on a pull request.
+`qualify-run` is gated behind a GitHub environment from its first step, so a
+real run waits for approval before it can touch any credential -- including
+the NGC key it logs into NVCR with -- or a machine. A `workflow_dispatch` or
+a labelled pull request resolves `forge`, which carries a required reviewer.
+A beta tag push instead resolves `forge-nightly`, which carries the same
+secrets but no required reviewer -- an unattended nightly cannot wait on a
+person, so the control there is the deployment tag policy (`v*-beta.*`)
+rather than a reviewer. There is no ungated job left in this lane: a label or
+a dispatch alone cannot reach any credential without an approval.
 
 **Qualifying a beta.** A beta tag names a commit and carries no component tags,
 so resolving the components from their own tags would answer with the last
@@ -115,14 +114,15 @@ The plan records the commit and, for each component, the strategy that answered,
 so a run says afterwards how every version was arrived at.
 
 A **dry run** does everything except join Teleport and run the suite, so it
-takes no Forge machine and never reaches the `forge` environment gate. It is
-the `dry-run` dispatch input, or the `qualify-e2e-dry-run` label on a pull
-request. Each stream's `qualify-prepare` still builds the site inputs, which
-confirms every image and archive exists, and `qualify-run` still writes the
-e2e config. It then prints the `-e2e.versions` and `-e2e.capabilities` the
-suite would have been given into `qualify-e2e.log`. A dry run has its own
-concurrency group, so it does not wait behind a real run, and its jobs are
-named `<stream> (dry run)`.
+takes no Forge machine and never reaches the `forge`/`forge-nightly`
+environment gate. It is the `dry-run` dispatch input, or the
+`qualify-e2e-dry-run` label on a pull request. Each stream's `qualify-run`
+still builds the site inputs, which confirms every image and archive exists
+(a real NGC_API_KEY-backed NVCR login, same as any other run), and still
+writes the e2e config. It then prints the `-e2e.versions` and
+`-e2e.capabilities` the suite would have been given into `qualify-e2e.log`. A
+dry run has its own concurrency group, so it does not wait behind a real run,
+and its jobs are named `<stream> (dry run)`.
 
 `-e2e.site-stage` chooses how far to go, so you can pay for the part you need:
 
