@@ -61,7 +61,7 @@ CAPNICo authenticates to the NICo API with a bearer token from the Secret `nico-
 |---|---|---|
 | `endpoint` | The NICo API base URL. | `controllerStack.nico.endpoint` |
 | `orgID` | Your NICo organization ID. | `controllerStack.nico.orgID` |
-| `token` | Your NICo API token. | The contents of the file that `controllerStack.nico.tokenFile` names. |
+| `token` | Your NICo API token. | `NVKECTL_NICO_TOKEN` in the install's environment. |
 | `apiName` | The API name in the NICo API path that your NICo deployment serves, such as `forge`. | `controllerStack.nico.apiName` |
 
 To rotate the token or change any other value:
@@ -96,7 +96,7 @@ To rotate the token or change any other value:
 
    The Secret is read on each reconcile, so the change takes effect without a restart.
 
-3. Put the same values in the site spec: write the new token into the file that `controllerStack.nico.tokenFile` names, and update `endpoint`, `orgID` and `apiName` under `controllerStack.nico` if they changed. If you run the install again, it writes the Secret from the site spec and overwrites your change.
+3. Keep the install's inputs in step: set `NVKECTL_NICO_TOKEN` to the new token wherever you run the install, and update `endpoint`, `orgID` and `apiName` under `controllerStack.nico` in the site spec if they changed. If you run the install again, it writes the Secret from those inputs and overwrites your change.
 
 ## Collect the NICo identifiers
 
@@ -113,7 +113,7 @@ The management plane holds no site-wide NICo settings. Each workload cluster req
 | `sshKeyGroupIDs` | Control plane and node pool `nico` | Optional. SSH key groups for node access. |
 | `infinibandPartitionID`, `nvLinkLogicalPartitionID` | Node pool `nico` | Optional. An InfiniBand partition and an NVLink logical partition. Fixed when the node pool is created. |
 
-The `orgID`, `siteID` and `vpcID` of a cluster are fixed when the cluster is created. The control plane and node pools also name an OS profile, `osProfile`, one of the profiles you applied in [Install management-plane services](install-management-plane-services.md), and optionally a config profile, `configProfile`. [Create a workload cluster](../workload-clusters/create.md) shows a full request.
+The `orgID`, `siteID` and `vpcID` of a cluster are fixed when the cluster is created. The control plane and each node pool select one of the releases you applied in [Install management-plane services](install-management-plane-services.md) with `nico.release` and, optionally, a config profile with `nico.configProfile`. [Create a workload cluster](../workload-clusters/create.md) shows a full request.
 
 ## Verify
 

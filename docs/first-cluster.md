@@ -180,8 +180,9 @@ nvkectl get kubeconfig <cluster> --output-file tenant.kubeconfig
 ```
 
 This reads the `<cluster>-admin-kubeconfig` Secret in `nke-system`, which
-holds the verbatim `admin.conf`. The `-kubeconfig` Secret beside it is the one
-CWE consumes, and it becomes a SPIRE exec-auth kubeconfig when OIDC is on.
+holds an `nvke:breakglass` admin kubeconfig. The `-kubeconfig` Secret beside
+it is the one CWE consumes, and it becomes a SPIRE exec-auth kubeconfig when
+OIDC is on.
 
 ## Real Site
 
@@ -213,8 +214,10 @@ runcmd:
 Skip this and the bootstrap runs its full 30 minutes before failing on
 `NodePreflight` / `check_cloud_init_status`, which never mentions kubeadm.
 
-**A SPIRE CA.** A certificate and key you pass in the site spec, whose
-certificate also reaches each node through cloud-init. Without it SPIRE mints a
+**A SPIRE CA.** A certificate and key you pass through
+`NVKECTL_SPIRE_CA_CERT_FILE` and `NVKECTL_SPIRE_CA_KEY_FILE`, with
+`spire.upstreamCA: true` in the site spec, whose certificate also reaches each
+node through cloud-init. Without it SPIRE mints a
 new CA on every run that no node trusts.
 
 **A SPIFFE trust domain, when bootstrapping with SPIRE/SPIFFE enabled.** Set
@@ -283,9 +286,10 @@ nvkectl generate sitespec my-site --nodes hosts.csv \
   --set cluster.controlPlaneVIP=10.10.50.10 \
   --set cluster.podCidr=10.244.0.0/16 \
   --set spire.trustDomain=site.example.com \
-  --set spire.caCertFile=./spire-ca.crt \
-  --set spire.caKeyFile=./spire-ca.key > sitespec.yaml
+  --set spire.upstreamCA=true > sitespec.yaml
 
+# The SPIRE CA comes from the environment.
+export NVKECTL_SPIRE_CA_CERT_FILE=./spire-ca.crt NVKECTL_SPIRE_CA_KEY_FILE=./spire-ca.key
 nvkectl bootstrap site -f sitespec.yaml --dry-run   # validate, touch nothing
 ```
 
@@ -293,8 +297,7 @@ nvkectl bootstrap site -f sitespec.yaml --dry-run   # validate, touch nothing
 with the nodes. See [sitespec.md](../cli/docs/sitespec.md).
 
 Read what it rendered. Unset fields get defaults that are silent rather than
-absent — the Kubernetes version, `systemReservedMemory` at 16Gi, and a literal
-`nvcr.io/org` in the registry block. Every field is in
+absent — the Kubernetes version and `systemReservedMemory` at 16Gi. Every field is in
 [sitespec.md](../cli/docs/sitespec.md).
 
 **Check `systemReservedMemory` against the node you actually have.** kubelet
@@ -320,11 +323,11 @@ Step 4 lists what it fetches.
 ### 4. Bootstrap
 
 ```bash
-REGISTRY_API_KEY=<key> nvkectl bootstrap site -f sitespec.yaml
+nvkectl bootstrap site -f sitespec.yaml
 ```
 
-The key can come from the environment, from `--registry-api-key`, or from
-`registry.apiKey` in the spec; the flag wins.
+To use images from a private registry, log in to it first with
+`nerdctl login <registry>`; `nvkectl` pulls them with nerdctl.
 
 `nvkectl get bootstrap-manifest` lists the charts and images the bootstrap
 fetches. It leaves out the kind node image and what `clusterctl init` installs.
@@ -437,7 +440,7 @@ nvkectl create nodepoolrelease -f nodepoolrelease.yaml
 nvkectl get machineimages      # the name you just published
 ```
 
-That name is what a cluster asks for as its `osProfile`. Published content is
+That name is what a cluster asks for as its `release`. Published content is
 immutable, so changing a release means publishing a new name.
 
 ### 8. Create a tenant cluster
@@ -449,7 +452,7 @@ nvkectl get clusters
 
 Start from [`cli/examples/nico-cluster.yaml`](../cli/examples/nico-cluster.yaml).
 Replace every UUID and `orgID` — a leftover placeholder returns 500 rather than
-a validation error. Every `osProfile` has to name a release already published on
+a validation error. Every `release` has to name a release already published on
 the site — the one from step 7. Every `configProfile` has to name a config
 profile the site controller already holds, and that content is maintained
 outside this repository.
@@ -511,7 +514,7 @@ controlPlaneConfig:
       - 00000000-0000-0000-0000-000000000000
     sshKeyGroupIDs:
       - 00000000-0000-0000-0000-000000000000
-    osProfile: nke-260625-24.04-x86-fde
+    release: nke-260625-24.04-x86-fde
     configProfile: default-cp
 ```
 

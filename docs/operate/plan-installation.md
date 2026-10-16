@@ -14,7 +14,7 @@ A management cluster with an odd number of nodes, each a control-plane node that
 
 | Step | What you do | Page |
 |---|---|---|
-| 1. Build | Build the NVKE controller image and the node OS image with NVIDIA Kubernetes Recipes (NVKR), and package the OS profiles. | [Get NVKE artifacts and OS profiles built with NVKR](build-node-images.md) |
+| 1. Build | Build the NVKE controller image and the node OS image with NVIDIA Kubernetes Recipes (NVKR), and package the releases. | [Get NVKE artifacts from NVKR and write release manifests](build-node-images.md) |
 | 2. Prepare nodes | Boot the management cluster's nodes from the node image with cloud-init user data, and record each node's TPM thumbprint. | [Prepare nodes](prepare-nodes.md) |
 | 3. Bootstrap | Run `nvkectl bootstrap site` to form the management cluster. | [Bootstrap the management cluster](bootstrap-management-cluster.md) |
 | 4. Install | Install Cluster API, CAPNICo, SPIRE, telemetry and the NVKE API and controllers. | [Install management-plane services](install-management-plane-services.md) |
@@ -106,7 +106,7 @@ NVKE admits callers by group but does no authorization: every admitted caller ca
 | Workload cluster etcd encryption | Cluster creation | `etcdEncrypted` has no default. You can turn encryption on later, never off. |
 | Workload cluster API VIP | Cluster creation | Without one, the control plane has one node that you cannot scale, upgrade or replace. Adding a VIP means recreating the cluster. |
 | NICo identifiers | Cluster or node pool creation | A cluster's `orgID`, `siteID` and `vpcID`, and a node pool's `instanceTypeID`, InfiniBand partition and NVLink logical partition. |
-| OS profiles | When applied | `MachineImage`, `ClusterRelease` and `NodePoolRelease` resources are immutable. To change an image or its user data, publish a profile with a new name. |
+| Releases | When applied | `MachineImage`, `ClusterRelease` and `NodePoolRelease` resources are immutable. To change an image or its user data, publish a release with a new name. |
 
 ## Fill in your values
 
@@ -125,7 +125,7 @@ Each placeholder has the same name on the page that uses it. Keep credentials in
 | Memory reserved for the system | `<RESERVED_MEMORY>` | Bootstrap | |
 | Address the nodes use to reach the bootstrap host | `<BOOTSTRAP_HOST_IP>` | Prepare nodes | |
 | SPIFFE trust domain | `<TRUST_DOMAIN>` | Prepare nodes, Bootstrap, Install | |
-| SPIRE CA certificate and key files; the certificate in PEM | `<CA_CERT_PATH>`, `<CA_KEY_PATH>`; `<SPIRE_CA_CERT_PEM>` | Bootstrap; Prepare nodes | |
+| SPIRE CA certificate and key files, passed as `NVKECTL_SPIRE_CA_CERT_FILE` and `NVKECTL_SPIRE_CA_KEY_FILE` with `spire.upstreamCA: true` in the site spec; the certificate in PEM | `<CA_CERT_PATH>`, `<CA_KEY_PATH>`; `<SPIRE_CA_CERT_PEM>` | Bootstrap, Install; Prepare nodes | |
 | CPU architecture of the management nodes, `amd64` or `arm64` | `<ARCH>` | Install | |
 
 ### Registries and images
@@ -147,7 +147,7 @@ Each placeholder has the same name on the page that uses it. Keep credentials in
 |---|---|---|---|
 | API endpoint | `<NICO_ENDPOINT>` | Install, Configure NICo | |
 | Organization ID | `<NICO_ORG_ID>` | Install, Configure NICo, Create | |
-| API token, in a file only you can read | `nico-token` | Install | |
+| API token | `NVKECTL_NICO_TOKEN` | Install | |
 | API name | `<NICO_API_NAME>` | Install, Configure NICo | |
 | Site ID and VPC ID | `<NICO_SITE_ID>`, `<NICO_VPC_ID>` | Create | |
 | Instance type IDs for control-plane and worker nodes | `<CP_INSTANCE_TYPE_ID>`, `<WORKER_INSTANCE_TYPE_ID>` | Create, Manage node pools | |
@@ -158,8 +158,8 @@ Each placeholder has the same name on the page that uses it. Keep credentials in
 
 | Value | Placeholder | Used on | Your value |
 |---|---|---|---|
-| Login account written into every workload cluster node's user data; the password in a file | `<NODE_USER>`, `tenant-password` | Install | |
-| Database password file; the install generates the password if the file does not exist | `db-password` | Install | |
+| Login account written into every workload cluster node's user data, and its password | `NVKECTL_NODE_USER`, `NVKECTL_NODE_PASSWORD` | Install | |
+| Database password, chosen once and kept in your secret manager | `NVKECTL_DATABASE_PASSWORD` | Install | |
 | Issuer URL | `<ISSUER_URL>` | Secure the API | |
 | Signing-key URL | `<JWKS_URI>` | Secure the API | |
 | OIDC client ID for `nvkectl` | `<CLIENT_ID>` | Secure the API | |
@@ -181,7 +181,7 @@ The workload cluster pages name each cluster `<WORKLOAD_CLUSTER>`. [Create a wor
 | Pod and service networks, if not the defaults | `network.podCIDR`, `network.serviceCIDR` | |
 | CNI | `cniPlugin` | |
 | etcd encryption | `etcdEncrypted` | |
-| OS profiles for the control plane and the workers | `<CP_OS_PROFILE>`, `<WORKER_OS_PROFILE>` | |
+| Releases for the control plane and the workers | `<CP_RELEASE>`, `<WORKER_RELEASE>` | |
 | Each node pool's name | `<POOL_NAME>` | |
 
 ## Verify
@@ -190,4 +190,4 @@ Your plan is complete when every row in [Fill in your values](#fill-in-your-valu
 
 ## Next steps
 
-- [Get NVKE artifacts and OS profiles built with NVKR](build-node-images.md).
+- [Get NVKE artifacts from NVKR and write release manifests](build-node-images.md).

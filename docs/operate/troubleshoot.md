@@ -165,7 +165,7 @@ kubectl get deployment nke-controller -n nke-controller -o jsonpath='{.spec.temp
      journalctl -u spire-agent | grep 'Node attestation was successful'
      ```
 
-     Until it attests, `nvke-agent` logs `timed out waiting for SPIFFE workload API socket`. If nothing prints, check that the node's TPM thumbprint in `hosts.csv` matches `get_tpm_pubhash` on the node, that `trust_domain` in `/etc/spire-agent/agent.conf` equals `spire.trustDomain` in the site spec, that `/etc/nke/trust-bundle.pem` holds the certificate you passed as `spire.caCertFile`, and that the node reaches the bootstrap host on port 30081.
+     Until it attests, `nvke-agent` logs `timed out waiting for SPIFFE workload API socket`. If nothing prints, check that the node's TPM thumbprint in `hosts.csv` matches `get_tpm_pubhash` on the node, that `trust_domain` in `/etc/spire-agent/agent.conf` equals `spire.trustDomain` in the site spec, that `/etc/nke/trust-bundle.pem` holds the certificate you passed as `NVKECTL_SPIRE_CA_CERT_FILE`, and that the node reaches the bootstrap host on port 30081.
   3. From the bootstrap host, check that each node accepts connections on port 15005.
 
      ```bash
@@ -264,7 +264,7 @@ The install stops at the component that failed. Fix the cause and run the same c
 
 ### nvkectl create cluster returns an error
 
-- **Symptom:** `nvkectl create cluster` prints `creating cluster:` with a `400` and a message such as `controlPlaneConfig.nico.osProfile is required for a nico cluster control plane`.
+- **Symptom:** `nvkectl create cluster` prints `creating cluster:` with a `400` and a message such as `controlPlaneConfig.nico.release is required for a nico cluster control plane`.
 - **Cause:** The cluster spec is invalid. Nothing was created.
 - **Fix:** Correct the field the message names. [Create a workload cluster](../workload-clusters/create.md#create-the-cluster) lists the common causes.
 
@@ -280,9 +280,9 @@ The install stops at the component that failed. Fix the cause and run the same c
   | `Waiting for node preflight to succeed` | The machine booted, but `nvke-agent` is unreachable or cloud-init has not finished. | The `-- last error:` text, then the node logs. |
   | `Workflow failed:` | Provisioning of the node stopped with the error that follows. | The error text and the management-plane log. |
 
-### Nodes do not progress because of the OS profile
+### Nodes do not progress because of the release
 
-- **Symptom:** Nodes do not progress, and the management-plane log contains `resolving OSProfile "<NAME>"`.
+- **Symptom:** Nodes do not progress, and the management-plane log contains `resolving release "<NAME>"`.
 - **Cause:** The control plane must name an existing cluster release and each node pool an existing node pool release.
 - **Fix:** Check the names with `nvkectl get clusterreleases` and `nvkectl get nodepoolreleases`. Apply the missing releases as in [Install management-plane services](install-management-plane-services.md), or delete the cluster and create it again with names that exist.
 
