@@ -27,7 +27,7 @@ on:
       - deploy/**
       - controller/deploy/charts/**
       - cli/internal/deploypath/**
-      - cli/internal/bootstrap/nvkrrelease/**
+      - cli/internal/stackartifacts/**
       - cli/internal/bootstrap/sitespec/**
       - cli/internal/bootstrap/controllerdeploy/**
       - cli/internal/nvkectl/validate.go

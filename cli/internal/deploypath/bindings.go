@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/nvkrrelease"
+	"github.com/dsx-ai-factory/nvke/cli/internal/stackartifacts"
 )
 
 // Binding states.
@@ -43,7 +43,7 @@ type Binding struct {
 // r for arch, in item order, and returns with them the names of the
 // artifacts no item binds. The render makes the same selections. A
 // per-architecture sibling of a bound name is bound, not unused.
-func Bindings(dir string, r *nvkrrelease.Release, arch string) ([]Binding, []string, error) {
+func Bindings(dir string, r *stackartifacts.Set, arch string) ([]Binding, []string, error) {
 	items, err := Items(dir)
 	if err != nil {
 		return nil, nil, err
@@ -59,9 +59,9 @@ func Bindings(dir string, r *nvkrrelease.Release, arch string) ([]Binding, []str
 		switch {
 		case err == nil:
 			b.Resolved, b.State = a.Name, StateBound
-		case errors.Is(err, nvkrrelease.ErrNotPublished) && required:
+		case errors.Is(err, stackartifacts.ErrNotProvided) && required:
 			b.State = StateMissing
-		case errors.Is(err, nvkrrelease.ErrNotPublished):
+		case errors.Is(err, stackartifacts.ErrNotProvided):
 			b.State = StateCommitted
 		default:
 			var platforms []string
@@ -107,7 +107,7 @@ func Bindings(dir string, r *nvkrrelease.Release, arch string) ([]Binding, []str
 		}
 	}
 	var unused []string
-	for _, a := range r.Outputs {
+	for _, a := range r.Artifacts {
 		if !used[a.Name] {
 			unused = append(unused, a.Name)
 		}
