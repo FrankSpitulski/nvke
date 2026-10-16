@@ -227,8 +227,17 @@ func (r *darwinQEMU) Stop(_ context.Context, machineID string) error {
 }
 
 // Start relaunches a stopped VM exactly as CreateAndStart launched it, with its
-// existing TPM state (never re-seeded).
+// existing TPM state (never re-seeded). It is a no-op on a running VM: the
+// engine records Running only after Start returns, so a failed state write
+// retries Start, and a second QEMU on the same disk would corrupt it.
 func (r *darwinQEMU) Start(ctx context.Context, machineID string) error {
+	st, err := r.GetState(ctx, machineID)
+	if err != nil {
+		return fmt.Errorf("check runtime state: %w", err)
+	}
+	if st == vm.MachineStateRunning {
+		return nil
+	}
 	paths := r.pathsForInstance(machineID)
 	raw, err := os.ReadFile(paths.ManifestFile)
 	if err != nil {
