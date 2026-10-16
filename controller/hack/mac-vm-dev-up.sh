@@ -133,7 +133,7 @@ image="${images[0]}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 step "2. Write local configuration (gitignored)" \
-  "controller/.env.tilt      CWE settings; generated with random passwords if missing" \
+  "controller/.env.tilt      NVKE controller settings; generated with random passwords if missing" \
   "controller/.local/fixtures  the test profiles and releases, with the arm64 release's" \
   "                          image-url pointed at the image from step 1" \
   "controller/tilt_config.json  CAPI core + NICo providers, VM tenants only" \
@@ -169,7 +169,7 @@ jq -n '{providers: ["capi_core", "nico"], nico_sim_backends: ["vm"]}' >tilt_conf
 
 mkdir -p tilt.d
 cat >tilt.d/mac-vm-dev.tilt <<'EOF'
-# Written by hack/mac-vm-dev-up.sh. The CWE image build rewrites bin/controller,
+# Written by hack/mac-vm-dev-up.sh. The controller image build rewrites bin/controller,
 # which is also its dependency, and macOS reports files a build merely reads
 # (the Dockerfile, the CAPNICo chart) as changed, so both resources would
 # rebuild forever. Rebuild them from the Tilt UI instead.
@@ -197,13 +197,13 @@ note "DOCKER_HOST=${DOCKER_HOST}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 step "4. Create the kind management cluster with Cluster API core" \
-  "CAPNICo and CWE come later from Tilt."
+  "CAPNICo and NVKE come later from Tilt."
 pause
 run make -C "${CONTROLLER_DIR}" capi-core-up
 
 # ─────────────────────────────────────────────────────────────────────────────
 step "5. Start Tilt" \
-  "Tilt builds and deploys CWE, Temporal, Postgres, SPIRE and CAPNICo into kind," \
+  "Tilt builds and deploys NVKE, Temporal, Postgres, SPIRE and CAPNICo into kind," \
   "and runs nico-sim on this Mac with the darwin-qemu backend. The first run" \
   "builds everything and takes 10-20 minutes." \
   "Watch it at http://localhost:${TILT_PORT} or in ${STATE_DIR#"${CONTROLLER_DIR}/"}/tilt.log."
@@ -229,7 +229,7 @@ cluster_id="$(jq -r .id <<<"${created}")"
 vip="$(jq -r .controlPlaneVIP <<<"${created}")"
 note "cluster ${CLUSTER_NAME}: id ${cluster_id}, VIP ${vip}"
 note "Each VM iPXE-boots the image, runs cloud-init, attests to SPIRE with its TPM," \
-  "then CWE drives kubeadm through nvke-agent. Progress:"
+  "then NVKE drives kubeadm through nvke-agent. Progress:"
 last="" deadline=$((SECONDS + 1800))
 while :; do
   status="$(api "/clusters/${cluster_id}" | jq -r '"\(.conditions.provisioned.status)|\(.conditions.provisioning.message)"')"
@@ -263,7 +263,7 @@ note "control plane ${cp_name} at ${cp_ip}; diagnostic SSH: nico-diag/nico-diag"
 ssh_node "${cp_ip}" bash -s -- "${cp_name}" "${worker}" <<'EOF'
 set -euo pipefail
 k() { sudo kubectl --kubeconfig /etc/kubernetes/admin.conf "$@"; }
-# CWE reports the cluster provisioned before the worker has joined.
+# NVKE reports the cluster provisioned before the worker has joined.
 until k get node "$2" >/dev/null 2>&1; do sleep 5; done
 k wait --for=condition=Ready node --all --timeout=5m >/dev/null
 k get nodes -o wide
@@ -286,7 +286,7 @@ EOF
 
 step "Done" \
   "Tilt UI:       http://localhost:${TILT_PORT}" \
-  "CWE API:       ${CWE_API} (token: hack/nvke-token.sh)" \
+  "NVKE API:      ${NVKE_API} (token: hack/nvke-token.sh)" \
   "Cluster:       ${CLUSTER_NAME} (${cluster_id}), API server at https://${vip}:6443" \
   "Node shell:    sshpass -p nico-diag ssh -o PubkeyAuthentication=no nico-diag@${cp_ip}" \
   "Tear down:     hack/mac-vm-dev-down.sh"

@@ -4,7 +4,7 @@
 #
 # Tear down what mac-vm-dev-up.sh brought up: Tilt, the nico-sim VMs and their
 # state, the kind management cluster and the Colima VM. Nothing is deleted
-# gracefully through CWE: the management plane goes with kind anyway.
+# gracefully through NVKE: the management plane goes with kind anyway.
 #
 #   --yes    do not pause between steps
 #
@@ -49,7 +49,7 @@ fi
 run rm -rf "${CONTROLLER_DIR}/nico-sim/.dev"
 
 step "3. Delete the kind management cluster" \
-  "This removes CWE, Temporal, Postgres, SPIRE and CAPI along with it."
+  "This removes NVKE, Temporal, Postgres, SPIRE and CAPI along with it."
 if colima status --profile "${COLIMA_PROFILE}" >/dev/null 2>&1; then
   use_colima_docker
   pause
