@@ -108,7 +108,7 @@ $ go run ./release/cmd/qualify plan --subject nvke --version v0.21.0 --scope ful
         { "name": "capi-provisioned", "version": "v0.1.0", "url": "oci://nvcr.io/<org>/cluster-api-provider-provisioned:v0.1.0", "versionStrategy": "gitTag", "locationStrategy": "ociArtifact" }
       ],
       "dependencies": [
-        { "name": "cni-ovn",               "version": "1.4.11", "versionStrategy": "aptPackage" },
+        { "name": "cni-ovn",               "version": "2.4.2", "versionStrategy": "aptPackage" },
         { "name": "os-image-bootloader-amd64", "url": "https://cdn.example/nke-isos/qcow/efi/x86_64/qcow-imager.efi", "locationStrategy": "url" },
         { "name": "os-image-bootloader-arm64", "url": "https://cdn.example/nke-isos/qcow/efi/aarch64/qcow-imager.efi", "locationStrategy": "url" },
         { "name": "cli-amd64",                 "version": "v0.1.0", "url": "oci://nvcr.io/<org>/nvkectl:v0.1.0-linux-amd64", "locationStrategy": "ociArtifact" },
@@ -172,14 +172,15 @@ $ go run ./release/cmd/qualify plan --subject nvke --version v0.21.0 --scope ful
   selected by input or by `QUALIFY_E2E_RESOLUTION`, and a beta tag push takes
   `commitDescribe` whatever the variable says.
   The plan is uploaded as an artifact.
-- The `verify` job runs `qualify verify` on that plan before any machine is
-  taken, so an artifact that was never published fails there rather than an hour
-  into a run. It waits when the plan resolved at a commit, because the publishers
-  may still be running.
-- The `qualify-matrix` job runs once for each stream of each combination. Its
-  versions, architecture and GPU model are that stream's entry in the plan, so
-  every stream qualifies exactly what the plan resolved. Each job is named by
-  its stream.
+- `qualify-run` runs once for each stream of each combination, gated behind a
+  GitHub environment from its first step. It runs `qualify verify` on that
+  plan before any machine is taken, so an artifact that was never published
+  fails there rather than an hour into a run -- waiting when the plan
+  resolved at a commit, because the publishers may still be running -- then
+  resolves versions and capabilities and builds the site inputs. Its
+  versions, architecture and GPU model are that stream's entry in the plan,
+  so every stream qualifies exactly what the plan resolved. Each job is
+  named by its stream.
 
 The plan carries what a job needs, the versions to test and the capabilities of
 the stream to run on. The e2e suite requires every version a Forge run uses
