@@ -1023,6 +1023,7 @@ jobs:
             echo "CLI_VERSION=${CLI_VERSION}"
             echo "SITE_CLI_REF=${SITE_CLI_REF:-}"
             echo "SITE_NVKECTL=${SITE_NVKECTL}"
+            echo "VALIDATED_AT_ATTEMPT=${GITHUB_RUN_ATTEMPT}"
           } > "${SITE_INPUTS}/resolved.env"
 
       # Handed to qualify-run below, which is a separate runner and so starts
@@ -1030,15 +1031,15 @@ jobs:
       # when SITE_CLI_BUILD=1 built nvkectl there instead of staging a
       # published one into .site-inputs itself.
       #
-      # run_attempt, not just run_id: artifacts outlive a single attempt, so a
-      # re-run whose validate fails before reaching here must not let
-      # qualify-run download the previous attempt's artifact instead. Naming
-      # it per attempt makes a missing upload a download failure rather than
-      # a silent stale one.
+      # Same name across attempts, with overwrite: true, so a re-run that
+      # skips qualify-validate (because it already succeeded) still has a
+      # usable artifact. "Check the staged inputs are current" in
+      # qualify-run is what catches a stale one, not the artifact name.
       - name: Upload the site inputs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: qualify-site-inputs-${{ matrix.stream }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: qualify-site-inputs-${{ matrix.stream }}-${{ github.run_id }}
+          overwrite: true
           path: |
             .site-inputs/
             cli/dist/
@@ -1284,13 +1285,13 @@ jobs:
 
       # What qualify-validate built for this exact stream -- the three image
       # archives, nvkectl wherever resolved.env's SITE_NVKECTL says it is, and
-      # resolved.env itself. Named per run_attempt to match the upload: a
-      # re-run whose qualify-validate has not re-uploaded yet fails here
-      # instead of silently pulling the previous attempt's inputs.
+      # resolved.env itself. Same name regardless of attempt, so a re-run
+      # that skips a still-successful qualify-validate still finds it;
+      # staleness is checked below, not by the artifact name.
       - name: Download the site inputs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: qualify-site-inputs-${{ matrix.stream }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: qualify-site-inputs-${{ matrix.stream }}-${{ github.run_id }}
           path: ${{ github.workspace }}
 
       # Written by qualify-validate's "Record the resolved environment" step:
@@ -1302,6 +1303,19 @@ jobs:
       - name: Load the resolved environment
         shell: bash
         run: cat "${SITE_INPUTS}/resolved.env" >> "${GITHUB_ENV}"
+
+      # The staleness check the artifact name used to provide. If
+      # qualify-validate ran in this attempt (did not get skipped as
+      # already-successful) and what got downloaded was not recorded from
+      # this attempt, the artifact is stale: validate re-ran, maybe failed,
+      # and this is still the old upload. A skipped validate means nothing
+      # changed, so an older recorded attempt is fine.
+      - name: Check the staged inputs are current
+        if: needs.qualify-validate.result != 'skipped' && env.VALIDATED_AT_ATTEMPT != env.GITHUB_RUN_ATTEMPT
+        shell: bash
+        run: |
+          echo "::error::the downloaded site inputs were validated at attempt ${VALIDATED_AT_ATTEMPT}, not this attempt (${GITHUB_RUN_ATTEMPT}); qualify-validate ran again without the artifact being refreshed"
+          exit 1
 
       # The one thing resolved.env cannot carry: this is a separate checkout
       # from qualify-validate's, and the deploy path reads the controller's
