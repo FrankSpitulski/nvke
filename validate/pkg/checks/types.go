@@ -123,10 +123,9 @@ func (c CheckDef) validate() error {
 	return nil
 }
 
-// SkipReason says why a skipped check did not evaluate, machine-readably. A
-// consumer policy treats these very differently: a check the target is
-// genuinely outside of is satisfied by its absence, while a disabled tier or
-// a missing input is omitted validation that must never count as coverage.
+// SkipReason says why a skipped check did not evaluate: not-applicable
+// satisfies a consumer policy, tier-off and input-missing are omitted
+// validation and never count as coverage.
 type SkipReason string
 
 const (

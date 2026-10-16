@@ -44,6 +44,10 @@ func run(args []string, stdout, stderr *os.File) int {
 	minChecks := fs.String("min-check-set-version", "", "Lowest acceptable check-set version")
 	maxAge := fs.Duration("max-age", 0, "Reject verdicts older than this (0 = no limit)")
 	requiredChecks := fs.String("required-checks", "", "Comma-separated check IDs the qualification profile demands: each must have passed or be skipped as not-applicable — a disabled tier or missing input does not count (e.g. INT-001,INT-002,INT-004,HARD-001)")
+	checkSetSHA256 := fs.String("check-set-sha256", "", "Comma-separated sha256 digests of approved checks.yaml contents; without it, applicability is whatever registry the signer chose")
+	expectVariant := fs.String("target-variant", "", "Variant the verdict must have been validated as (fde | non-fde)")
+	expectArch := fs.String("target-arch", "", "Architecture the verdict must have been validated as")
+	expectUbuntu := fs.String("target-ubuntu", "", "Ubuntu release the verdict must have been validated as")
 	if err := fs.Parse(args); err != nil {
 		return exitCannot
 	}
@@ -91,11 +95,19 @@ func run(args []string, stdout, stderr *os.File) int {
 			required = append(required, id)
 		}
 	}
+	var approvedCheckSets []string
+	for _, d := range strings.Split(*checkSetSHA256, ",") {
+		if d = strings.TrimSpace(d); d != "" {
+			approvedCheckSets = append(approvedCheckSets, d)
+		}
+	}
 	st, err := verify.Verify(envelope, subject, verify.Policy{
 		Keys:               keys,
 		MinCheckSetVersion: *minChecks,
 		MaxAge:             *maxAge,
 		RequiredChecks:     required,
+		CheckSetSHA256:     approvedCheckSets,
+		ExpectedTarget:     verify.Target{Variant: *expectVariant, Arch: *expectArch, Ubuntu: *expectUbuntu},
 	}, time.Now())
 	if err != nil {
 		fmt.Fprintf(stderr, "nvke-verdict: %v\n", err)

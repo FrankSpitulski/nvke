@@ -9,6 +9,8 @@ package runner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -81,10 +83,10 @@ type Options struct {
 	ValidatorVersion string
 }
 
-// Run executes one validation run, writing the report to stdout, and returns
-// the exit contract: 0 pass, 1 a blocking check failed, 2 could-not-evaluate.
-// A non-nil error always pairs with exit 2 and is the caller's to print —
-// nothing is written to stdout but the report.
+// Run executes one validation run, writing the report to stdout: exit 0 pass,
+// 1 blocking fail, 2 could-not-evaluate. At most one document reaches stdout —
+// a non-nil error means nothing was written, and a post-report failure rides
+// the report as runError.
 func Run(ctx context.Context, opts Options, stdout io.Writer) (int, error) {
 	for field, v := range map[string]string{
 		"image": opts.ImagePath, "checks registry": opts.RegistryPath,
@@ -113,10 +115,17 @@ func Run(ctx context.Context, opts Options, stdout io.Writer) (int, error) {
 		certSANRegex = DefaultCertSANRegex
 	}
 
-	reg, err := checks.LoadRegistry(opts.RegistryPath)
+	// One read per policy input: the bytes hashed into the verdict must be
+	// the bytes that were parsed and ran.
+	registryRaw, err := os.ReadFile(opts.RegistryPath)
 	if err != nil {
-		return report.ExitError, err
+		return report.ExitError, fmt.Errorf("reading check registry: %w", err)
 	}
+	reg, err := checks.ParseRegistry(registryRaw)
+	if err != nil {
+		return report.ExitError, fmt.Errorf("check registry %s: %w", opts.RegistryPath, err)
+	}
+	checkSetSHA256 := sha256Hex(registryRaw)
 	var sums map[string]string
 	var evidence checks.EvidenceStatus
 	var evidenceBundle *bundle.Bundle
@@ -145,11 +154,16 @@ func Run(ctx context.Context, opts Options, stdout io.Writer) (int, error) {
 		return report.ExitError, err
 	}
 	var bom map[string]string
+	bomSHA256 := ""
 	if opts.BOMPath != "" {
-		bom, err = static.ParseBOM(opts.BOMPath)
+		bomRaw, err := os.ReadFile(opts.BOMPath)
 		if err != nil {
-			return report.ExitError, err
+			return report.ExitError, fmt.Errorf("reading target BOM: %w", err)
 		}
+		if bom, err = static.ParseBOMBytes(bomRaw); err != nil {
+			return report.ExitError, fmt.Errorf("target BOM %s: %w", opts.BOMPath, err)
+		}
+		bomSHA256 = sha256Hex(bomRaw)
 	}
 
 	var imgFS checks.ImageFS
@@ -238,6 +252,14 @@ func Run(ctx context.Context, opts Options, stdout io.Writer) (int, error) {
 		Boot:         prober,
 	})
 	rep := report.New(reg, target, digest, results, time.Now())
+	if opts.EmitVerdictPath != "" {
+		if err := writeVerdict(opts, rep, checkSetSHA256, bomSHA256); err != nil {
+			// The signing failure rides the one report document, never a
+			// second JSON object.
+			rep.RunError = fmt.Sprintf("emitting verdict: %v", err)
+			rep.Summary.Error++
+		}
+	}
 
 	switch opts.Format {
 	case "json":
@@ -255,18 +277,18 @@ func Run(ctx context.Context, opts Options, stdout io.Writer) (int, error) {
 	default:
 		return report.ExitError, fmt.Errorf("unknown report format %q (want text or json)", opts.Format)
 	}
-	if opts.EmitVerdictPath != "" {
-		if err := writeVerdict(opts, rep); err != nil {
-			return report.ExitError, fmt.Errorf("emitting verdict: %w", err)
-		}
-	}
 	return rep.ExitCode(), nil
+}
+
+func sha256Hex(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }
 
 // writeVerdict signs the run's result as an in-toto attestation over the
 // image's digest. A failing or erroring run still emits its verdict: the
 // signed outcome is the evidence a consumer enforces on.
-func writeVerdict(opts Options, rep report.Report) error {
+func writeVerdict(opts Options, rep report.Report, checkSetSHA256, bomSHA256 string) error {
 	keyPEM, err := os.ReadFile(opts.SignKeyPath)
 	if err != nil {
 		return fmt.Errorf("reading signing key: %w", err)
@@ -293,18 +315,6 @@ func writeVerdict(opts Options, rep report.Report) error {
 	evidenceMode := verify.EvidenceModeBundle
 	if opts.BundleDir == "" {
 		evidenceMode = verify.EvidenceModeDigestOnly
-	}
-	// Pin the policy inputs by content, not just by label: the check-set
-	// version names the policy, these digests prove which bytes carried it.
-	checkSetSHA256, err := static.HashFile(opts.RegistryPath)
-	if err != nil {
-		return fmt.Errorf("hashing check registry: %w", err)
-	}
-	bomSHA256 := ""
-	if opts.BOMPath != "" {
-		if bomSHA256, err = static.HashFile(opts.BOMPath); err != nil {
-			return fmt.Errorf("hashing target BOM: %w", err)
-		}
 	}
 	statement := verify.Statement{
 		Type:          verify.StatementType,

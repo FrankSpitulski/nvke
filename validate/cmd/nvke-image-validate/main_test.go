@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -310,4 +311,26 @@ func TestRunVerdictFlagsAreRequiredTogether(t *testing.T) {
 	assert.Equal(t, report.ExitError, run(args, sink, sink))
 	args = append(fixture(t, false), "--sign-key", filepath.Join(t.TempDir(), "missing.key"))
 	assert.Equal(t, report.ExitError, run(args, sink, sink))
+}
+
+// TestRunEmissionFailureIsOneDocument pins the pipeline contract: a run whose
+// checks completed but whose verdict could not be signed emits exactly one
+// JSON document carrying both the results and the operational error, exit 2.
+func TestRunEmissionFailureIsOneDocument(t *testing.T) {
+	args := append(fixture(t, false),
+		"--format", "json",
+		"--emit-verdict", filepath.Join(t.TempDir(), "v.json"),
+		"--sign-key", filepath.Join(t.TempDir(), "missing.key"))
+	out := filepath.Join(t.TempDir(), "out.json")
+	f, err := os.Create(out)
+	require.NoError(t, err)
+	assert.Equal(t, report.ExitError, run(args, f, devNull(t)))
+	require.NoError(t, f.Close())
+	data, err := os.ReadFile(out)
+	require.NoError(t, err)
+	var rep report.Report
+	require.NoError(t, json.Unmarshal(data, &rep), "stdout must be exactly one JSON document")
+	assert.NotEmpty(t, rep.Results, "the completed check results must survive the emission failure")
+	assert.Contains(t, rep.RunError, "emitting verdict")
+	assert.Equal(t, report.ExitError, rep.ExitCode())
 }

@@ -188,29 +188,39 @@ var (
 )
 
 // ParseBOM reads a target BOM YAML (`components: {name: version}`) into a
-// package name → required version map. Unknown fields, empty documents and
-// entries outside the deb name/version charsets are errors: a BOM that parses
-// partially would turn a missing requirement into a silent pass.
+// package name → required version map.
 func ParseBOM(path string) (map[string]string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading target BOM: %w", err)
 	}
+	bom, err := ParseBOMBytes(raw)
+	if err != nil {
+		return nil, fmt.Errorf("target BOM %s: %w", path, err)
+	}
+	return bom, nil
+}
+
+// ParseBOMBytes validates a target BOM from one byte snapshot, so callers
+// hash and parse the same bytes. Unknown fields, empty documents and entries
+// outside the deb charsets are errors — a partially parsed BOM would turn a
+// missing requirement into a silent pass.
+func ParseBOMBytes(raw []byte) (map[string]string, error) {
 	var doc bomFile
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
 	if err := dec.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("parsing target BOM %s: %w", path, err)
+		return nil, fmt.Errorf("parsing: %w", err)
 	}
 	if len(doc.Components) == 0 {
-		return nil, fmt.Errorf("target BOM %s: no components", path)
+		return nil, fmt.Errorf("no components")
 	}
 	for name, version := range doc.Components {
 		if !debName.MatchString(name) {
-			return nil, fmt.Errorf("target BOM %s: %q is not a deb package name", path, name)
+			return nil, fmt.Errorf("%q is not a deb package name", name)
 		}
 		if !debVersion.MatchString(version) {
-			return nil, fmt.Errorf("target BOM %s: component %s: %q is not a deb version", path, name, version)
+			return nil, fmt.Errorf("component %s: %q is not a deb version", name, version)
 		}
 	}
 	return doc.Components, nil

@@ -95,8 +95,8 @@ func run(args []string, stdout, stderr *os.File) int {
 		ValidatorVersion:   version,
 	}, stdout)
 	if err != nil {
-		// A run that died before any check still answers the pipeline in the
-		// report schema, not just on stderr.
+		// Runner contract: err != nil means nothing reached stdout, so this
+		// never produces a second document.
 		if *format == "json" {
 			if out, jerr := report.NewRunError(err, time.Now()).JSON(); jerr == nil {
 				_, _ = stdout.Write(out)
