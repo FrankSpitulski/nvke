@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -46,52 +44,4 @@ func ChartLayer(manifest []byte, fallback string) (layer ocispec.Descriptor, fil
 		file = fallback
 	}
 	return layer, file, nil
-}
-
-// FindLayout returns the OCI layout under dir whose index lists a manifest
-// with digest. dir is a completed NVKR Run (.nvkr/runs/<attempt>), which holds
-// one layout per artifact under packages/, or a directory of layouts: dir
-// itself, its direct subdirectories and those of dir/packages are searched.
-// Layouts are found by digest, never by name. Exactly one must match.
-func FindLayout(dir, digest string) (string, error) {
-	candidates := []string{dir}
-	for _, parent := range []string{dir, filepath.Join(dir, "packages")} {
-		entries, err := os.ReadDir(parent)
-		if err != nil {
-			if parent == dir {
-				return "", err
-			}
-			continue
-		}
-		for _, entry := range entries {
-			if entry.IsDir() {
-				candidates = append(candidates, filepath.Join(parent, entry.Name()))
-			}
-		}
-	}
-	var found []string
-	for _, candidate := range candidates {
-		data, err := os.ReadFile(filepath.Join(candidate, "index.json"))
-		if err != nil {
-			continue
-		}
-		var index ocispec.Index
-		if err := json.Unmarshal(data, &index); err != nil {
-			return "", fmt.Errorf("%s/index.json: %w", candidate, err)
-		}
-		for _, manifest := range index.Manifests {
-			if manifest.Digest.String() == digest {
-				found = append(found, candidate)
-				break
-			}
-		}
-	}
-	switch len(found) {
-	case 0:
-		return "", fmt.Errorf("no OCI layout under %s lists a manifest with digest %s", dir, digest)
-	case 1:
-		return found[0], nil
-	default:
-		return "", fmt.Errorf("several OCI layouts under %s list digest %s: %s", dir, digest, strings.Join(found, ", "))
-	}
 }
