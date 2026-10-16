@@ -53,7 +53,7 @@ items:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `name` | Yes | The item's directory under the deploy path. For a `helm` item, also the default NVKR artifact name of its chart. Letters, digits, `-`, `_` and inner dots. |
+| `name` | Yes | The item's directory under the deploy path. For a `helm` item, also the default artifact name of its chart in the stack artifacts. Letters, digits, `-`, `_` and inner dots. |
 | `type` | Yes | `template`, `manifest` or `helm`. |
 
 The list order is the install order. Items are applied one at a time, and a failed item stops the run. Nothing is auto-detected: an item that is not listed is not applied, and `nvkectl` and the executor's own parser both refuse an unknown type before anything is applied.
@@ -120,8 +120,8 @@ chart:
   name: temporal            # the chart's name
   version: "0.74.0"         # required for a repository chart; a path chart names none
   repository: https://go.temporal.io/helm-charts   # or path: ../../nktp/deploy/charts/nktp
-  artifact: temporal        # NVKR artifact of the chart; default: the item name
-  imageArtifact: cwe        # NVKR artifact of the image the chart runs, if any
+  artifact: temporal        # the chart's artifact in the stack artifacts; default: the item name
+  imageArtifact: cwe        # the artifact of the image the chart runs, if any
   profilesArtifact: controller-profiles             # and of its profiles content image
   setFile:                  # <helm key>=<absolute path>, passed as --set-file
     - some.chart.key=/etc/nvke/some-file
@@ -139,29 +139,29 @@ requires:
 |-------|-------------|
 | `chart.repository` or `chart.path` | Where the chart comes from. One of the two. A repository is an `https://` index or an `oci://` reference. A path is relative to the deploy path, so from `deploy/nico` a chart in this checkout is reachable as `../../controller/deploy/charts/controller`. |
 | `chart.version` | Selects the chart in a repository. A path chart names no version: the chart at the path carries its own. |
-| `chart.artifact`, `chart.imageArtifact`, `chart.profilesArtifact` | Bind the item to an NVKR release by NVKR's output names: the chart, the image the chart runs, and its profiles content image. |
+| `chart.artifact`, `chart.imageArtifact`, `chart.profilesArtifact` | Bind the item to the stack artifacts by artifact name: the chart, the image the chart runs, and its profiles content image. |
 | `chart.setFile` | Files the operator holds, passed to helm as `--set-file`. The deploy path carries the path, never the content. |
 | `release.name`, `release.namespace` | The Helm release. The namespace must already exist; `nvke-base-config` creates the ones `deploy/nico` uses. |
-| `values` | Values files in the item directory, applied in order. A render appends `site-values.yaml`, and `release-images.yaml` when the release carries the item's images. `install --values-for <item>=<file>` adds a file after those. |
+| `values` | Values files in the item directory, applied in order. A render appends `site-values.yaml`, and `release-images.yaml` when the stack artifacts carry the item's images. `install --values-for <item>=<file>` adds a file after those. |
 | `requires` | Objects that must exist and reach a condition before the chart installs. `helm --wait` waits on workloads only, so a Certificate issued by an earlier item is declared here and waited on with `kubectl wait`. |
 
-The install runs `helm upgrade --install --wait` for each item, with the item's namespace and values, and retries a chart download that fails with a server error. With a release, the release decides the version of every chart it carries, and a `release.yaml` that pins another version gets a warning. The pin decides only for a chart the release lacks.
+The install runs `helm upgrade --install --wait` for each item, with the item's namespace and values, and retries a chart download that fails with a server error. The stack artifacts decide the version of every chart they carry, and a `release.yaml` that pins another version gets a warning. The pin decides only for a chart the file lacks.
 
-## Rendering for a Site and a Release
+## Rendering for a Site and the Stack Artifacts
 
-The committed deploy path is site-independent and names no digest. `nvkectl render deploy-path` writes a copy resolved for the site spec, the release, or both. The committed files are copied, never edited. The copy has:
+The committed deploy path is site-independent and names no digest. `nvkectl render deploy-path` writes a copy resolved for the site spec, the stack artifacts, or both. The committed files are copied, never edited. The copy has:
 
-- `site-values.yaml` in every item that takes a site value, appended to its `values`: the trust domain, the management VIP, the node architecture's TPM plugin checksum, the database password, the controller and profiles images. [`deploy/nico/README.md`](https://github.com/dsx-ai-factory/nvke/blob/main/deploy/nico/README.md#per-site-values) lists them.
+- `site-values.yaml` in every item that takes a site value, appended to its `values`: the trust domain, the management VIP, the node architecture's TPM plugin checksum, the database password. [`deploy/nico/README.md`](https://github.com/dsx-ai-factory/nvke/blob/main/deploy/nico/README.md#per-site-values) lists them.
 - Each template item rendered, as a manifest item.
-- `charts/<item>/` holding the chart archive pulled by digest, for every chart the release carries; the item's `chart.path` points at it. A chart the release lacks stays as committed.
-- `release-images.yaml` in every helm item whose image artifacts the release carries; `kustomization.yaml` in every manifest item bound to an image artifact.
-- At the root: `images.txt`, the images the result runs; `nvkr-release.json`, a copy of the release; and a `.gitignore` that ignores the tree.
+- `charts/<item>/` holding the chart archive read by digest from its layout or its registry, for every chart the stack artifacts carry; the item's `chart.path` points at it. A chart the file lacks stays as committed.
+- `release-images.yaml` in every helm item whose image artifacts the file carries; `kustomization.yaml` in every manifest item bound to an image artifact.
+- At the root: `images.txt`, the images the result runs, each with its OCI layout when the artifact has one; `stack-artifacts.json`, the file with every layout absolute; and a `.gitignore` that ignores the tree.
 
 The copy holds the site's credentials. It is written readable by its owner only, and the render refuses an output under a shared temp directory. `nvke-deploy.sh` renders into a scratch directory under `NVKE_STATE_DIR` (default `$XDG_STATE_HOME/nvke`) and removes it when it exits, so no rendered credential is left behind. To read a render, run the command yourself:
 
 ```bash
 nvkectl render deploy-path --deploy-path deploy/nico --sitespec sitespec.yaml --stack-config stack-config.json \
-  --arch linux/arm64 --release release.json --out ~/.local/state/nvke/renders/my-site
+  --arch linux/arm64 --stack-artifacts stack-artifacts.json --out ~/.local/state/nvke/renders/my-site
 ```
 
 ## Applying It Another Way
@@ -171,7 +171,7 @@ Every item is a Helm chart with values, or plain YAML, so another tool can deliv
 1. Apply the items in list order; stop at the first failure.
 2. Render the template items first. Under GitOps, the Secrets they produce come from your secret store instead.
 3. Wait for each `requires` entry before its chart. In GitOps that is a sync-wave boundary or a health check on the object.
-4. With a local NVKR Run (`--nvkr-run-dir`), import the images listed in `images.txt` into the node's containerd before the first item.
+4. Import the images `images.txt` lists with a layout into the node's containerd before the first item.
 
 A GitOps tool maps these onto sync waves and a secret store; `nvkectl render deploy-path` writes the per-site values and the rendered template items it delivers. The steps around the deploy path, such as `clusterctl init` and the SPIRE exec-auth patch, are in the same guide and stay imperative.
 

@@ -11,6 +11,8 @@ instances:
 redirects:
   - source: /nvke/index.html
     destination: /nvke
+  - source: /nvke/operate/build-node-images
+    destination: /nvke/operate/get-artifacts
 
 title: NVIDIA Kubernetes Engine
 

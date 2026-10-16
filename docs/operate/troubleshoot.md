@@ -206,11 +206,11 @@ The install stops at the component that failed. Fix the cause and run the same c
 - **Cause:** A value in the stack config is still a `REPLACE_*` placeholder, a required key is empty, the file carries a key it must not, or one of the `NVKECTL_*` variables is not exported in the shell you run from.
 - **Fix:** Edit the key or export the variable as described in [Install management-plane services](install-management-plane-services.md#write-the-stack-config), then run the check again until the stack config passes.
 
-### The install refuses the release
+### The install refuses the stack artifacts
 
-- **Symptom:** The install stops before it changes the cluster with `<ITEM>: <ROLE> <ARTIFACT> is not in the release`, for example for `controller-profiles` or `capnico-controller`.
-- **Cause:** The release description does not carry an artifact that the deploy path names, for the management nodes' CPU architecture.
-- **Fix:** Use a release that carries the artifact, or install without `--release` and name the images in the stack config's `images`, as described in [Choose where the artifacts come from](install-management-plane-services.md#choose-where-the-artifacts-come-from).
+- **Symptom:** The install stops before it changes the cluster with `<ITEM>: <ROLE> <ARTIFACT> is not in the stack artifacts`, for example for `controller-profiles` or `capnico-controller`, or with `is published only for other architectures`.
+- **Cause:** The stack artifacts file does not carry an image that the deploy path names, for the management nodes' CPU architecture.
+- **Fix:** Add the artifact to the file, or build the file again for the nodes' architecture with `make local-stack-artifacts ARCH=<ARCH>`, as described in [Get the NVKE artifacts](get-artifacts.md).
 
 ### A volume claim stays Pending
 
