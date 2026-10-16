@@ -17,14 +17,14 @@ import (
 	"github.com/dsx-ai-factory/nvke/controller/nico-sim/test/integration/testutil"
 )
 
-// TestNKEImageCluster boots the actual reference image in two native VMs and
+// TestNVKEImageCluster boots the actual reference image in two native VMs and
 // uses its staged Debian packages to initialize and join a Kubernetes cluster.
 // It is separate from the generic cloud-image lifecycle tests.
-func TestNKEImageCluster(t *testing.T) {
-	if os.Getenv("NICO_VMS_TEST_NKE_IMAGE") != "true" {
-		t.Skip("set NICO_VMS_TEST_NKE_IMAGE=true with NICO_VMS_BASE_IMAGE")
+func TestNVKEImageCluster(t *testing.T) {
+	if os.Getenv("NICO_VMS_TEST_NVKE_IMAGE") != "true" {
+		t.Skip("set NICO_VMS_TEST_NVKE_IMAGE=true with NICO_VMS_BASE_IMAGE")
 	}
-	require.NotEmpty(t, os.Getenv("NICO_VMS_BASE_IMAGE"), "an explicit NKE image is required")
+	require.NotEmpty(t, os.Getenv("NICO_VMS_BASE_IMAGE"), "an explicit NVKE image is required")
 	profile, err := testutil.BuildRealVMProfile(testutil.VMBackendDarwinQEMU)
 	require.NoError(t, err)
 	seed := testutil.DefaultSeedDoc()
@@ -90,14 +90,14 @@ kubectl get nodes -o wide
 '`)
 	t.Log("Control plane and worker are Ready; CoreDNS is available")
 	t.Log("Checking cross-node pod traffic and cluster DNS")
-	run(cp, "pod network smoke", `sudo env KUBECONFIG=/etc/kubernetes/admin.conf bash -se <<'NKE'
+	run(cp, "pod network smoke", `sudo env KUBECONFIG=/etc/kubernetes/admin.conf bash -se <<'NVKE'
 cp_node=$(kubectl get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[0].metadata.name}')
 worker_node=$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}')
 kubectl apply -f - <<PODS
 apiVersion: v1
 kind: Pod
 metadata:
-  name: nke-net-cp
+  name: nvke-net-cp
 spec:
   nodeName: $cp_node
   containers:
@@ -108,7 +108,7 @@ spec:
 apiVersion: v1
 kind: Pod
 metadata:
-  name: nke-net-worker
+  name: nvke-net-worker
 spec:
   nodeName: $worker_node
   containers:
@@ -116,12 +116,12 @@ spec:
     image: docker.io/library/busybox@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
     command: ["sleep", "600"]
 PODS
-kubectl wait pod/nke-net-cp pod/nke-net-worker --for=condition=Ready --timeout=180s
-cp_ip=$(kubectl get pod nke-net-cp -o jsonpath='{.status.podIP}')
-worker_ip=$(kubectl get pod nke-net-worker -o jsonpath='{.status.podIP}')
-kubectl exec nke-net-worker -- ping -c 3 -W 3 "$cp_ip"
-kubectl exec nke-net-cp -- ping -c 3 -W 3 "$worker_ip"
-kubectl exec nke-net-worker -- nslookup kubernetes.default.svc.cluster.local
-NKE`)
+kubectl wait pod/nvke-net-cp pod/nvke-net-worker --for=condition=Ready --timeout=180s
+cp_ip=$(kubectl get pod nvke-net-cp -o jsonpath='{.status.podIP}')
+worker_ip=$(kubectl get pod nvke-net-worker -o jsonpath='{.status.podIP}')
+kubectl exec nvke-net-worker -- ping -c 3 -W 3 "$cp_ip"
+kubectl exec nvke-net-cp -- ping -c 3 -W 3 "$worker_ip"
+kubectl exec nvke-net-worker -- nslookup kubernetes.default.svc.cluster.local
+NVKE`)
 	t.Log("Cross-node pod traffic and cluster DNS passed")
 }

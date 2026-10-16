@@ -23,7 +23,7 @@
 # Environment:
 #   CLUSTER_NAME        tenant cluster to create (default mac-ovn)
 #   CAPNICO_SOURCE_DIR  cluster-api-provider-nico checkout (default ~/git/cluster-api-provider-nico)
-#   COLIMA_PROFILE      Colima profile for kind (default nke-mac)
+#   COLIMA_PROFILE      Colima profile for kind (default nvke-mac)
 
 set -euo pipefail
 # shellcheck source=hack/mac-vm-dev-lib.sh
@@ -88,7 +88,7 @@ step "0. Check the host" \
   "control-plane VIP routes with route(8), which only root may change."
 [[ "$(uname -s)/$(uname -m)" == Darwin/arm64 ]] || die "this script is for Apple silicon Macs"
 sudo -n -l /sbin/route -n add -host 172.31.0.10 192.168.64.2 >/dev/null 2>&1 ||
-  die "passwordless sudo for VIP routes is not set up. Run 'sudo visudo -f /etc/sudoers.d/nke-nico-sim' and add:
+  die "passwordless sudo for VIP routes is not set up. Run 'sudo visudo -f /etc/sudoers.d/nvke-nico-sim' and add:
 %admin ALL=(root) NOPASSWD: /sbin/route -n add -host 172.31.0.*, /sbin/route -n delete -host 172.31.0.*
 See \"Sudoers rule for VIP routes\" in controller/nico-sim/README.md."
 [[ "$(sysctl -n kern.hv_support)" == 1 ]] || die "Hypervisor.framework is not available"
@@ -142,7 +142,7 @@ pause
 cd "${CONTROLLER_DIR}"
 if [[ ! -f .env.tilt ]]; then
   (umask 077 && cp .env.tilt.example .env.tilt)
-  set_env_line DGXC_TENANT_USER nke-dev
+  set_env_line DGXC_TENANT_USER nvke-dev
   for key in DGXC_TENANT_PASSWORD CNPG_SUPERUSER_PASSWORD CNPG_CLOUD_PASSWORD CNPG_TEMPORAL_PASSWORD; do
     set_env_line "${key}" "$(openssl rand -hex 16)"
   done

@@ -38,9 +38,9 @@ case "$mode" in
     -v ./test/integration/qemu
   ;;
  test-cluster)
-  export NICO_VMS_TEST_NKE_IMAGE=true
+  export NICO_VMS_TEST_NVKE_IMAGE=true
   export NICO_VMS_FLOW_TIMEOUT="${NICO_VMS_FLOW_TIMEOUT:-8m}"
-  exec go test -tags=integration -count=1 -parallel=1 -timeout=25m -run '^TestNKEImageCluster$' -v ./test/integration/qemu
+  exec go test -tags=integration -count=1 -parallel=1 -timeout=25m -run '^TestNVKEImageCluster$' -v ./test/integration/qemu
   ;;
  *) echo "Unknown mode: $mode (expected up, test or test-cluster)" >&2; exit 1;;
 esac

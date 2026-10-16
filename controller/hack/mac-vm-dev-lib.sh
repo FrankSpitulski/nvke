@@ -10,7 +10,7 @@ CONTROLLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "${CONTROLLER_DIR}/.." && pwd)"
 STATE_DIR="${CONTROLLER_DIR}/.local/mac-vm-dev"
 
-export COLIMA_PROFILE="${COLIMA_PROFILE:-nke-mac}"
+export COLIMA_PROFILE="${COLIMA_PROFILE:-nvke-mac}"
 export KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-cwe-capi}"
 TILT_PORT="${TILT_PORT:-10350}"
 CWE_API="http://localhost:${NKE_CONTROLLER_HTTP_PORT:-8080}/api"

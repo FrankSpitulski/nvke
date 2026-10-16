@@ -36,7 +36,7 @@ func CheckRouteSudo() error {
 	args := []string{"-n", "-l", "/sbin/route", "-n", "add", "-host", "172.31.0.10", "192.168.64.2"}
 	if out, err := exec.Command("sudo", args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("passwordless sudo for /sbin/route host routes is not configured, "+
-			"see the \"Full NKE stack on macOS\" section of controller/nico-sim/README.md: %w: %s", err, strings.TrimSpace(string(out)))
+			"see the \"Full NVKE stack on macOS\" section of controller/nico-sim/README.md: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

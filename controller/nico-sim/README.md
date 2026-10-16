@@ -1061,7 +1061,7 @@ How the darwin path differs from the Linux bridge:
 
 nico-sim installs the VIP host routes by running `sudo -n /sbin/route`, which
 needs a one-time passwordless rule. It survives reboots. Put it in
-`/etc/sudoers.d/nke-nico-sim` with `sudo visudo -f /etc/sudoers.d/nke-nico-sim`:
+`/etc/sudoers.d/nvke-nico-sim` with `sudo visudo -f /etc/sudoers.d/nvke-nico-sim`:
 
 ```
 %admin ALL=(root) NOPASSWD: /sbin/route -n add -host 172.31.0.*, /sbin/route -n delete -host 172.31.0.*
@@ -1070,7 +1070,7 @@ needs a one-time passwordless rule. It survives reboots. Put it in
 sudoers `*` also matches spaces, so this limits the destination to
 `172.31.0.x` host routes, not the gateway or other arguments. nico-sim and
 `mac-vm-dev-up.sh` check the rule first and stop with an error pointing here if
-it is missing. To remove it, run `sudo rm /etc/sudoers.d/nke-nico-sim`.
+it is missing. To remove it, run `sudo rm /etc/sudoers.d/nvke-nico-sim`.
 
 On nix-darwin, declare it instead:
 
