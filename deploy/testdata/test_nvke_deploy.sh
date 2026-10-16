@@ -722,6 +722,25 @@ grep -q nerdctl "${WORK}/cli.log" && pass "without docker the images build with 
 out="$(PATH="${nodocker}" bash "${BUILD}" --profiles-src "${REPO}/controller/test/fixtures" --out "${WORK}/dist/other" --container-cli docker 2>&1)" && fail "--container-cli docker without docker exited 0"
 expect "a missing tool is named" '^stack-artifacts: docker is not on PATH$' "${out}"
 
+
+# hack/local-site.sh: the one-command local site. Its stages shell out to the
+# runtimes, so only the parts that run without them are tested here: usage,
+# status and down on an empty state, and that up refuses off Linux or without root.
+LOCAL_SITE="${REPO}/hack/local-site.sh"
+out="$(bash "${LOCAL_SITE}" 2>&1)" && fail "local-site.sh without a verb exited 0"
+expect "local-site.sh prints its usage" 'hack/local-site.sh setup ' "${out}"
+out="$(NVKE_LOCAL_SITE_DIR="${WORK}/local-site" bash "${LOCAL_SITE}" status 2>&1)" || fail "local-site.sh status on nothing exited $?: ${out}"
+expect "status says the node is down" '^node: *down$' "${out}"
+expect "status says the management cluster is down" '^management: *down$' "${out}"
+expect "status says nico-sim is down" '^nico-sim: *down$' "${out}"
+out="$(NVKE_LOCAL_SITE_DIR="${WORK}/local-site" bash "${LOCAL_SITE}" down 2>&1)" || fail "local-site.sh down on nothing exited $?: ${out}"
+expect "down on nothing ends down" '^\[local-site\] down$' "${out}"
+[[ ! -e "${WORK}/local-site" ]] && pass "down leaves no state" || fail "state left"
+if [[ "$(uname -s)" != Linux || "$(id -u)" != 0 ]]; then
+  out="$(NVKE_LOCAL_SITE_DIR="${WORK}/local-site" bash "${LOCAL_SITE}" up 2>&1)" && fail "local-site.sh up off Linux or without root exited 0"
+  expect "up names what it needs" 'Colima machine|run as root' "${out}"
+fi
+
 if [[ "${failures}" -eq 0 ]]; then
   echo "all nvke-deploy tests passed"
 else

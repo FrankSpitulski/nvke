@@ -1,6 +1,6 @@
 # local-site
 
-The inputs of the local site: the operator flow end to end on container nodes, bootstrapped by `nvkectl`. [Run NVKE end to end on one machine](../../../docs/get-started/local-site.md) is the page that uses them; `cli/e2e/bootstrap/run.sh` runs the same steps with `NVKECTL_E2E_INSTALL_STACK=1`.
+The inputs of the local site: the operator flow end to end on container nodes, bootstrapped by `nvkectl`. `hack/local-site.sh setup` (`make local-site-setup`) copies them into the operator's workspace and `deploy/nvke-deploy-local.sh` installs from there; [Run NVKE end to end on one machine](../../../docs/get-started/local-site.md) is the page; `cli/e2e/bootstrap/run.sh` runs the same steps with `NVKECTL_E2E_INSTALL_STACK=1`.
 
 | File | Used by |
 |---|---|
