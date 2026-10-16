@@ -42,6 +42,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	ubuntu := fs.String("target-ubuntu", "", "Target Ubuntu release, e.g. 24.04.5")
 	inspect := fs.String("inspect", "auto", "guestfs inspection tier: auto (on when guestfish is on PATH) | on | off")
 	bootTier := fs.String("boot", "off", "boot tier (boots a throwaway copy under QEMU, minutes): on | off")
+	bootTimeout := fs.Duration("boot-timeout", 0, "Wait bound for the boot tier's probe channel (0 = default); raise for FDE images under TCG")
 	luksKeyFile := fs.String("luks-passphrase-file", "", "File holding the LUKS passphrase for FDE images (never pass the passphrase itself on the command line)")
 	emitVerdict := fs.String("emit-verdict", "", "Write the run's result as a DSSE-signed in-toto attestation to this path (requires --sign-key); a failing run still emits its verdict")
 	signKey := fs.String("sign-key", "", "PEM private key (Ed25519 or ECDSA P-256) that signs the verdict")
@@ -88,6 +89,7 @@ func run(args []string, stdout, stderr *os.File) int {
 		BOMPath:            *bomPath,
 		Inspect:            *inspect,
 		Boot:               *bootTier,
+		BootTimeout:        *bootTimeout,
 		LUKSPassphraseFile: *luksKeyFile,
 		EmitVerdictPath:    *emitVerdict,
 		SignKeyPath:        *signKey,

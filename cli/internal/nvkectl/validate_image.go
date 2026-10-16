@@ -5,6 +5,7 @@ package nvkectl
 
 import (
 	"errors"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -26,6 +27,7 @@ type validateImageOptions struct {
 	ubuntu             string
 	inspect            string
 	boot               string
+	bootTimeout        time.Duration
 	luksPassphraseFile string
 	emitVerdict        string
 	signKey            string
@@ -74,6 +76,7 @@ nvke-verdict instead of ever re-reading the image.`,
 	cmd.Flags().StringVar(&opts.ubuntu, "target-ubuntu", "", "Target Ubuntu release, e.g. 26.04.1 (required)")
 	cmd.Flags().StringVar(&opts.inspect, "inspect", "auto", "guestfs inspection tier: auto (on when guestfish is on PATH) | on | off")
 	cmd.Flags().StringVar(&opts.boot, "boot", "off", "boot tier (boots a throwaway copy under QEMU, minutes): on | off")
+	cmd.Flags().DurationVar(&opts.bootTimeout, "boot-timeout", 0, "Wait bound for the boot tier's probe channel (0 = default)")
 	cmd.Flags().StringVar(&opts.luksPassphraseFile, "luks-passphrase-file", "", "File holding the LUKS passphrase for FDE images")
 	cmd.Flags().StringVar(&opts.emitVerdict, "emit-verdict", "", "Write the result as a DSSE-signed attestation to this path")
 	cmd.Flags().StringVar(&opts.signKey, "sign-key", "", "PEM private key (Ed25519 or ECDSA P-256) that signs the verdict")
@@ -106,6 +109,7 @@ func runValidateImage(cmd *cobra.Command, opts *validateImageOptions, ver string
 		BOMPath:            opts.targetBOM,
 		Inspect:            opts.inspect,
 		Boot:               opts.boot,
+		BootTimeout:        opts.bootTimeout,
 		LUKSPassphraseFile: opts.luksPassphraseFile,
 		EmitVerdictPath:    opts.emitVerdict,
 		SignKeyPath:        opts.signKey,
