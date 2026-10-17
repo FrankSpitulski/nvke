@@ -279,7 +279,7 @@ func Run(ctx context.Context, opts Options, stdout io.Writer) (int, error) {
 
 	rep := report.New(reg, target, digest, results, time.Now())
 	if opts.EmitVerdictPath != "" {
-		if err := writeVerdict(opts, rep, checkSetSHA256, bomSHA256); err != nil {
+		if err := writeVerdict(opts, rep, checkSetSHA256, bomSHA256, stdout); err != nil {
 			// The signing failure rides the one report document, never a
 			// second JSON object.
 			rep.RunError = fmt.Sprintf("emitting verdict: %v", err)
@@ -338,7 +338,7 @@ func sha256Hex(raw []byte) string {
 // writeVerdict signs the run's result as an in-toto attestation over the
 // image's digest. A failing or erroring run still emits its verdict: the
 // signed outcome is the evidence a consumer enforces on.
-func writeVerdict(opts Options, rep report.Report, checkSetSHA256, bomSHA256 string) error {
+func writeVerdict(opts Options, rep report.Report, checkSetSHA256, bomSHA256 string, reportSink io.Writer) error {
 	keyPEM, err := os.ReadFile(opts.SignKeyPath)
 	if err != nil {
 		return fmt.Errorf("reading signing key: %w", err)
@@ -395,7 +395,25 @@ func writeVerdict(opts Options, rep report.Report, checkSetSHA256, bomSHA256 str
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(opts.EmitVerdictPath, envelope, 0o644); err != nil {
+	// Open first and compare descriptors: a device path like /dev/stdout
+	// resolves only at open time (the path-stat preflight cannot see through
+	// it on macOS), and the envelope must never land in the report stream.
+	f, err := os.OpenFile(opts.EmitVerdictPath, os.O_WRONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		return fmt.Errorf("opening verdict path: %w", err)
+	}
+	defer f.Close()
+	if sink, ok := reportSink.(*os.File); ok {
+		vi, vErr := f.Stat()
+		si, sErr := sink.Stat()
+		if vErr == nil && sErr == nil && os.SameFile(vi, si) {
+			return fmt.Errorf("the verdict path %s aliases the report output; write them to distinct destinations", opts.EmitVerdictPath)
+		}
+	}
+	if err := f.Truncate(0); err != nil {
+		return fmt.Errorf("writing verdict: %w", err)
+	}
+	if _, err := f.Write(envelope); err != nil {
 		return fmt.Errorf("writing verdict: %w", err)
 	}
 	return nil

@@ -5,8 +5,14 @@ package runner
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -82,4 +88,38 @@ func TestRunPassesOnTheFixture(t *testing.T) {
 	exit, err := Run(context.Background(), fixtureOptions(t), sink(t))
 	require.NoError(t, err)
 	assert.Equal(t, report.ExitPass, exit)
+}
+
+// TestVerdictDeviceAliasIsCaughtAtOpenTime pins the descriptor-level guard: a
+// device path that resolves to the report sink only at open time (e.g.
+// /dev/stdout, /dev/fd/N) must yield exit 2 and one error-carrying report,
+// never a concatenated envelope.
+func TestVerdictDeviceAliasIsCaughtAtOpenTime(t *testing.T) {
+	opts := fixtureOptions(t)
+	opts.Format = "json"
+	out := sink(t)
+	opts.EmitVerdictPath = fmt.Sprintf("/dev/fd/%d", out.Fd())
+	key := writeSigningKey(t)
+	opts.SignKeyPath = key
+
+	exit, err := Run(context.Background(), opts, out)
+	require.NoError(t, err, "a post-report failure rides the report, it is not returned")
+	assert.Equal(t, report.ExitError, exit)
+
+	data, err := os.ReadFile(out.Name())
+	require.NoError(t, err)
+	var rep report.Report
+	require.NoError(t, json.Unmarshal(data, &rep), "stdout must hold exactly one JSON document")
+	assert.Contains(t, rep.RunError, "aliases the report output")
+}
+
+func writeSigningKey(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "sign.key")
+	require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600))
+	return path
 }
