@@ -8,11 +8,12 @@ name: OS Image Artifact
 # UBUNTU_RELEASE in os-image/packer/Makefile for why both ship), on an
 # os-image/v* tag, a manual dispatch, a main push that touches os-image/ or
 # the 12-hourly schedule, pushes all eight qcow2s to GHCR as OCI artifacts
-# (main pushes and the schedule stop there; NVCR, S3 and the Release stay
-# tag/dispatch only), and on a real tag cuts a GitHub
-# Release carrying nvke-os-image-check + checksums covering all nine files.
-# The GitHub Release is created here (not in release.yml) so a failed bake or
-# validation never cuts a release.
+# under sha-<commit> tags (main pushes and the schedule stop there; NVCR and
+# S3 stay tag/dispatch only and read that sha- alias), and on a real tag, when
+# NVKE_GITHUB_PUBLISH names os-image (it does not by default), adds the version
+# tags on GHCR and cuts a GitHub Release carrying nvke-os-image-check +
+# checksums covering all nine files. The GitHub Release is created here (not
+# in release.yml) so a failed bake or validation never cuts a release.
 #
 # FDE security note: its build-time LUKS_PASSPHRASE defaults to a shared,
 # documented placeholder ("changeit", see
@@ -56,8 +57,9 @@ name: OS Image Artifact
 # A bare vX.Y.Z-beta.N tag only triggers the run. It bakes that commit on the
 # golden path only -- Ubuntu 24.04, non-FDE, amd64 and arm64 -- and versions it
 # by the os-image/v* describe, like any other build of it: GHCR gets
-# sha-<commit> and the describe version, NVCR and the prod S3 path get the
-# describe version. The beta tag name is not published, and there is no Release.
+# sha-<commit> (and the describe version when NVKE_GITHUB_PUBLISH names
+# os-image), NVCR and the prod S3 path get the describe version. The beta tag
+# name is not published, and there is no Release.
 #
 # Distinct from image.yml, which compiles controller Dockerfiles and pushes
 # nothing. Distinct from image-nvcr.yml, which publishes the controller
@@ -415,13 +417,18 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.matrix.outputs.version }}
+          # NVKE_GITHUB_PUBLISH names the components whose releases go to GitHub;
+          # see docs/artifact-publication.md. Unset means every component but os-image.
+          GITHUB_PUBLISH: ${{ contains(format(',{0},', vars.NVKE_GITHUB_PUBLISH || 'root,controller,cli,agent,cluster-api-provider-provisioned,nktp'), ',os-image,') }}
         run: |
           set -euo pipefail
 
           version="${VERSION}"
 
+          # The sha- alias is the hand-off the NVCR and S3 publishers and the
+          # NICo VMs lane read. The version alias is the GitHub publication.
           aliases=("sha-${GITHUB_SHA}")
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+          if [[ "${GITHUB_REF}" == refs/tags/* && "${GITHUB_PUBLISH}" == "true" ]]; then
             aliases+=("${version}")
           fi
 
@@ -973,11 +980,15 @@ jobs:
             echo "::error::NVKE_NGC_ORG is not set in the nvcr environment"
             exit 1
           fi
-          tag="sha-${GITHUB_SHA}${SUFFIX}-${ARCH}"
+          # The source is always the sha- alias: the version alias exists on
+          # GHCR only when NVKE_GITHUB_PUBLISH names os-image.
+          source_tag="sha-${GITHUB_SHA}${SUFFIX}-${ARCH}"
+          tag="${source_tag}"
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             tag="${VERSION}${SUFFIX}-${ARCH}"
           fi
           {
+            echo "source_tag=${source_tag}"
             echo "tag=${tag}"
             echo "nvcr_repo=nvcr.io/${NVKE_NGC_ORG}/nvke-os-image-${{ matrix.variant }}"
           } >> "${GITHUB_OUTPUT}"
@@ -998,10 +1009,11 @@ jobs:
       - name: Copy GHCR to NVCR
         shell: bash
         env:
+          SOURCE_TAG: ${{ steps.meta.outputs.source_tag }}
           TAG: ${{ steps.meta.outputs.tag }}
           REPO: ${{ matrix.variant == 'fde' && env.REPO_FDE || env.REPO_NON_FDE }}
           NVCR_REPO: ${{ steps.meta.outputs.nvcr_repo }}
-        run: oras cp "${REPO}:${TAG}" "${NVCR_REPO}:${TAG}"
+        run: oras cp "${REPO}:${SOURCE_TAG}" "${NVCR_REPO}:${TAG}"
 
   # Same "separate job" reasoning as publish-nvcr. Downloads the qcow2 from
   # GHCR rather than the runner's local disk, since this job doesn't share a
@@ -1075,9 +1087,10 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             release="${VERSION}"
           fi
-          tag="${release}${SUFFIX}-${ARCH}"
+          # Pull the sha- alias: the version alias exists on GHCR only when
+          # NVKE_GITHUB_PUBLISH names os-image. The S3 path keeps the version.
           mkdir -p dist
-          oras pull "${REPO}:${tag}" -o dist
+          oras pull "${REPO}:sha-${GITHUB_SHA}${SUFFIX}-${ARCH}" -o dist
           {
             echo "s3_uri=${S3_URI}"
             echo "role_arn=${ROLE_ARN}"
@@ -1128,7 +1141,11 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          for f in dist/*.qcow2; do
+          # The SBOM, this leg's checksums and (amd64 non-FDE only) the checker
+          # binary travel with the disk, so S3 holds them when
+          # NVKE_GITHUB_PUBLISH leaves os-image off the GitHub Release.
+          shopt -s nullglob
+          for f in dist/*.qcow2 expected/*.spdx.json expected/checksums-*.txt expected/nvke-os-image-check; do
             S3_PREFIX="os-image/releases/${RELEASE}/${ARCH}" \
               ./scripts/upload-s3-flat.sh "$f"
           done
@@ -1152,7 +1169,8 @@ jobs:
           bucket="${S3_URI#s3://}"
           bucket="${bucket%%/*}"
           s3_path="${S3_URI#s3://*/}"
-          for f in dist/*.qcow2; do
+          shopt -s nullglob
+          for f in dist/*.qcow2 expected/*.spdx.json expected/checksums-*.txt expected/nvke-os-image-check; do
             bn="$(basename "$f")"
             key="${s3_path}/os-image/releases/${RELEASE}/${ARCH}/${bn}"
             aws s3api head-object --bucket "${bucket}" --key "${key}" >/dev/null
@@ -1162,9 +1180,12 @@ jobs:
 
   release:
     needs: publish
+    # NVKE_GITHUB_PUBLISH names the components whose releases go to GitHub;
+    # see docs/artifact-publication.md. Unset means every component but os-image.
     if: >-
       github.repository_id == '1323115536' &&
-      startsWith(github.ref, 'refs/tags/os-image/')
+      startsWith(github.ref, 'refs/tags/os-image/') &&
+      contains(format(',{0},', vars.NVKE_GITHUB_PUBLISH || 'root,controller,cli,agent,cluster-api-provider-provisioned,nktp'), ',os-image,')
     name: Cut the GitHub Release
     runs-on: ubuntu-latest
     timeout-minutes: 30
