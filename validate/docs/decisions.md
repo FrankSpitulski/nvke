@@ -154,6 +154,17 @@ pins are errors instead of inert entries. Immutable staged inputs remain the
 recommended pipeline posture; these checks catch violations rather than
 excuse them.
 
+## 2026-10 — Linux is the runtime; devices resolve at open time
+
+The validator deploys on Linux (operator build pipelines); macOS is a
+development convenience. Fourth review round showed why output-destination
+guards cannot rely on path stat alone: on macOS /dev/stdout is a character
+device whose path stat never matches the redirect target. The verdict writer
+therefore opens its destination first and compares descriptors with the
+report sink, writing through the checked handle. Evidence from acceptance
+runs is exported (report, verdict, key, BOM, input digests, tool versions) so
+results are archivable facts rather than narrated ones.
+
 ## 2026-10 — Deferred, visibly
 
 FDE-004 (grub passphrase stripped after the TPM first-boot bind) needs a
