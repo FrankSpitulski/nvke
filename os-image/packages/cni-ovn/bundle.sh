@@ -166,9 +166,12 @@ kubectl_minor="$(awk '/^[[:space:]]*k8s.io\/kubernetes v/ { v = substr($2, 2); s
   "${src}/go-controller/go.mod")"
 [[ -n "$kubectl_minor" ]] || die "no k8s.io/kubernetes in ${REPO} go-controller/go.mod"
 
-# The fork's Dockerfile.ubuntu leaves out three things the chart needs (Dockerfile.ubuntu.nv has all):
+# The fork's Dockerfile.ubuntu leaves out four things the chart needs (Dockerfile.ubuntu.nv has all):
 # - the node liveness and readiness scripts (and ovnkube-init.sh) the chart runs as probes from /root:
 #   without them the liveness probe fails and kubelet kills ovnkube-controller every two minutes.
+# - ncat and nslookup (dnsutils), which the readiness script runs: without them it exits
+#   "command not found" at its first check and ovnkube-node is never Ready, so a template change
+#   makes the DaemonSet controller delete every pod at once instead of one per maxUnavailable.
 # - firewalld: ovnkube-cluster-manager looks up firewall-cmd at startup, and the chart only
 #   turns firewalld off for the node.
 # - a real iptables: the image copies wrappers that `chroot /host /sbin/iptables`, but the chart
@@ -179,10 +182,10 @@ dockerfile="${WORK}/Dockerfile.ovnkube"
 awk '/^LABEL io.k8s.display-name/ && !done {
   print "COPY --chmod=755 --from=ovnkube-builder /workspace/ovn-kubernetes/dist/images/ovnkube-init.sh /workspace/ovn-kubernetes/dist/images/ovnkube-node-readiness-check.sh /workspace/ovn-kubernetes/dist/images/ovnkube-node-liveness-check.sh /root/"
   print "RUN rm -f /usr/sbin/iptables /usr/sbin/iptables-save /usr/sbin/iptables-restore /usr/sbin/ip6tables /usr/sbin/ip6tables-save /usr/sbin/ip6tables-restore && \\"
-  print "    apt-get update && apt-get install -y --no-install-recommends firewalld iptables && rm -rf /var/lib/apt/lists/*"
+  print "    apt-get update && apt-get install -y --no-install-recommends firewalld iptables ncat dnsutils && rm -rf /var/lib/apt/lists/*"
   done = 1 } { print }' "${src}/dist/images/Dockerfile.ubuntu" >"$dockerfile"
-grep -q 'install -y --no-install-recommends firewalld iptables' "$dockerfile" ||
-  die "${REPO} Dockerfile.ubuntu has no 'LABEL io.k8s.display-name' line to add the probe scripts, firewalld and iptables before"
+grep -q 'install -y --no-install-recommends firewalld iptables ncat dnsutils' "$dockerfile" ||
+  die "${REPO} Dockerfile.ubuntu has no 'LABEL io.k8s.display-name' line to add the probe scripts and packages before"
 
 # The build uses only public inputs: the Go and Ubuntu base images, the Ubuntu
 # archive and pkgs.k8s.io. Not dist/images' ubuntu-nv-image (Artifactory).

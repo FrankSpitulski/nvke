@@ -69,12 +69,14 @@ commit, arch and build arguments, and a second build reuses it. That is what let
 `make repro-check` show the packaging is deterministic; it does not show the
 image rebuilds identically. Delete `DIST_DIR` to force a fresh image build.
 
-The fork's `Dockerfile.ubuntu` leaves out three things its chart needs, so `bundle.sh` builds from
+The fork's `Dockerfile.ubuntu` leaves out four things its chart needs, so `bundle.sh` builds from
 a copy of it that adds them to the runtime layer: the node liveness and readiness scripts the chart
-runs as probes from `/root` (without them kubelet kills `ovnkube-controller` every two minutes), and
-`firewalld` and a real `iptables`. `ovnkube-cluster-manager` looks up `firewall-cmd` at startup, and
-the image's iptables wrappers `chroot /host`, which the chart never mounts. (`Dockerfile.ubuntu.nv`
-has all of these.)
+runs as probes from `/root` (without them kubelet kills `ovnkube-controller` every two minutes),
+`ncat` and `nslookup` (`dnsutils`), which the readiness script runs (without them it exits
+"command not found" and `ovnkube-node` is never Ready, so a template change makes the DaemonSet
+controller delete every pod at once), and `firewalld` and a real `iptables`.
+`ovnkube-cluster-manager` looks up `firewall-cmd` at startup, and the image's iptables wrappers
+`chroot /host`, which the chart never mounts. (`Dockerfile.ubuntu.nv` has all of these.)
 
 ## Building
 
