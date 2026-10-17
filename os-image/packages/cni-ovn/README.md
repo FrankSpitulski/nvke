@@ -77,6 +77,9 @@ runs as probes from `/root` (without them kubelet kills `ovnkube-controller` eve
 controller delete every pod at once), and `firewalld` and a real `iptables`.
 `ovnkube-cluster-manager` looks up `firewall-cmd` at startup, and the image's iptables wrappers
 `chroot /host`, which the chart never mounts. (`Dockerfile.ubuntu.nv` has all of these.)
+It also points the readiness script's DNS check at `kubernetes.default.svc.cluster.local` instead of
+google.com and cloudflare.com, which the chart cannot change: without internet DNS the pods would
+never be Ready, and a template change would again delete every pod at once.
 
 ## Building
 

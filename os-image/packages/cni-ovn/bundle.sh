@@ -166,6 +166,18 @@ kubectl_minor="$(awk '/^[[:space:]]*k8s.io\/kubernetes v/ { v = substr($2, 2); s
   "${src}/go-controller/go.mod")"
 [[ -n "$kubectl_minor" ]] || die "no k8s.io/kubernetes in ${REPO} go-controller/go.mod"
 
+# The readiness script's last check resolves google.com or cloudflare.com through
+# CoreDNS, and the chart cannot change the names, so a node without internet DNS is
+# never Ready and a template change then deletes every ovnkube-node pod at once.
+# The API service name still proves CoreDNS answers and needs no egress. Remove once
+# the fork exposes EXTERNAL_DNS_NAMES in the chart. The Dockerfile comment below keys
+# the image cache on it: the cache hashes the Dockerfile and build args, not the source.
+readiness="${src}/dist/images/ovnkube-node-readiness-check.sh"
+public_names="dns_names=\${EXTERNAL_DNS_NAMES:-\"google.com cloudflare.com\"}"
+grep -qxF "$public_names" "$readiness" ||
+  die "${REPO} dist/images/ovnkube-node-readiness-check.sh no longer defaults to google.com cloudflare.com; re-check the probe patch"
+sed -i "s|^${public_names}\$|dns_names=\${EXTERNAL_DNS_NAMES:-\"kubernetes.default.svc.cluster.local\"}|" "$readiness"
+
 # The fork's Dockerfile.ubuntu leaves out four things the chart needs (Dockerfile.ubuntu.nv has all):
 # - the node liveness and readiness scripts (and ovnkube-init.sh) the chart runs as probes from /root:
 #   without them the liveness probe fails and kubelet kills ovnkube-controller every two minutes.
@@ -180,6 +192,7 @@ kubectl_minor="$(awk '/^[[:space:]]*k8s.io\/kubernetes v/ { v = substr($2, 2); s
 # overwrite a regular file). Remove once the fork's Dockerfile does this.
 dockerfile="${WORK}/Dockerfile.ovnkube"
 awk '/^LABEL io.k8s.display-name/ && !done {
+  print "# nvke: the readiness probe resolves kubernetes.default.svc.cluster.local (bundle.sh)"
   print "COPY --chmod=755 --from=ovnkube-builder /workspace/ovn-kubernetes/dist/images/ovnkube-init.sh /workspace/ovn-kubernetes/dist/images/ovnkube-node-readiness-check.sh /workspace/ovn-kubernetes/dist/images/ovnkube-node-liveness-check.sh /root/"
   print "RUN rm -f /usr/sbin/iptables /usr/sbin/iptables-save /usr/sbin/iptables-restore /usr/sbin/ip6tables /usr/sbin/ip6tables-save /usr/sbin/ip6tables-restore && \\"
   print "    apt-get update && apt-get install -y --no-install-recommends firewalld iptables ncat dnsutils && rm -rf /var/lib/apt/lists/*"
