@@ -104,7 +104,8 @@ service NodeAgent {
   // OUTCOME_UNCHANGED and does not restart etcd.
   //
   // Before the write the agent verifies that the local member is healthy and
-  // that at least min_voting_members voting members are present. Afterwards it
+  // that enough voting members answer a probe to keep a quorum once this one
+  // restarts: max(min_voting_members, registered_voters/2 + 2). Afterwards it
   // verifies local member health only, because a restarted member rejoining is
   // what the caller needs to know and a peer count cannot distinguish a peer
   // that this call disturbed from one that was already gone.
@@ -1253,8 +1254,10 @@ message GetEtcdStatusResponse {
   // and member ordering; StartEtcdDefrag transfers leadership away itself, so
   // a caller does not have to act on this before requesting a defragmentation.
   bool is_leader = 5;
-  // Voting (non-learner) members currently in the cluster. Also enforced
-  // agent-side by StartEtcdDefrag against its min_voting_members.
+  // Voting (non-learner) members REGISTERED in the cluster. This is membership,
+  // not liveness: an offline voter is still counted, so this must not be used
+  // on its own to decide a restart is safe. Both restart paths probe each
+  // member separately and gate on how many answer.
   int32 voting_member_count = 6;
   // Hexadecimal ID of the local member.
   string member_id = 7;
@@ -1273,14 +1276,21 @@ message PatchEtcdManifestRequest {
   // (Kubernetes >= 1.34) uses bootstrap-defrag-threshold-megabytes. The agent
   // does not infer it, so one agent build serves both.
   repeated FlagOp flag_ops = 1;
-  // Refuse the restart when fewer than this many voting members are present.
+  // A floor on how many voting members must be REACHABLE, not merely
+  // registered, before the restart is allowed. The agent probes each peer and
+  // enforces max(min_voting_members, registered_voters/2 + 2), so the effective
+  // requirement can exceed this value: on a five-voter cluster a setting of 3
+  // still requires 4 reachable voters, because a quorum of 3 has to survive
+  // this member going down.
+  //
   // Zero means the agent's default of 3, the smallest topology in which
   // restarting one member still leaves a quorum.
   //
   // Set it to 1 to patch a single-member or two-member control plane, where no
   // value can preserve quorum and the restart is a deliberate brief outage.
-  // That is an explicit caller decision because, unlike StartEtcdDefrag, this
-  // RPC is a configuration path that has to work on every topology.
+  // Passing 1 also disables the quorum term above. That is an explicit caller
+  // decision because, unlike StartEtcdDefrag, this RPC is a configuration path
+  // that has to work on every topology.
   int32 min_voting_members = 2;
 }
 
@@ -1314,10 +1324,13 @@ message StartEtcdDefragRequest {
   // Idempotency key. Retrying with the same value returns the in-flight or
   // completed operation rather than restarting etcd again.
   string operation_id = 1;
-  // Refuse the restart when fewer than this many voting members are present.
-  // Zero means the agent's default of 3, which blocks single-member and
-  // two-member control planes.
-  int32 min_voting_members = 2;
+  // There is deliberately no min_voting_members here, unlike on
+  // PatchEtcdManifestRequest. The floor is a property of the cluster, so the
+  // agent derives it from the membership: it probes each voting member and
+  // requires registered_voters/2 + 2 of them to answer, which is what leaves a
+  // quorum once this member goes down. Defragmentation is optional, so no
+  // caller has a reason to lower that, and the derived floor already refuses
+  // the one- and two-member topologies where no value could preserve a quorum.
 }
 
 message StartEtcdDefragResponse {
@@ -1338,8 +1351,9 @@ message GetEtcdDefragStatusResponse {
     // Callers should stop retrying and surface this rather than loop.
     OUTCOME_NOT_RECLAIMED = 2;
     // A precondition failed and etcd was never restarted, so the node is
-    // untouched: the local member was unhealthy, voting members were below
-    // min_voting_members, leadership could not be transferred away, or
+    // untouched: the local member was unhealthy, too few voting members
+    // answered a probe to keep a quorum through the restart, leadership could
+    // not be transferred away to a reachable member, or
     // reclaimable_bytes was below the manifest's configured bootstrap-defrag
     // threshold so the restart could not have reclaimed anything.
     OUTCOME_REFUSED = 3;

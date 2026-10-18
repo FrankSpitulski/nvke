@@ -52,7 +52,6 @@ func TestEtcdDefragPreflight(t *testing.T) {
 		name        string
 		manifest    string
 		client      fakeEtcdMemberClient
-		minVoters   int32
 		wantRefused bool
 		wantReason  string
 	}{
@@ -65,7 +64,6 @@ func TestEtcdDefragPreflight(t *testing.T) {
 				dbSize:      500 * mib,
 				dbSizeInUse: 100 * mib,
 			},
-			minVoters: 3,
 		},
 		{
 			name:     "refuses when reclaimable space is below the threshold",
@@ -76,7 +74,6 @@ func TestEtcdDefragPreflight(t *testing.T) {
 				dbSize:      150 * mib,
 				dbSizeInUse: 100 * mib,
 			},
-			minVoters:   3,
 			wantRefused: true,
 			wantReason:  "below the configured bootstrap-defrag threshold",
 		},
@@ -95,7 +92,6 @@ spec:
 				dbSize:      500 * mib,
 				dbSizeInUse: 100 * mib,
 			},
-			minVoters:   3,
 			wantRefused: true,
 			wantReason:  "would not defragment at any size",
 		},
@@ -108,7 +104,6 @@ spec:
 				dbSize:      500 * mib,
 				dbSizeInUse: 100 * mib,
 			},
-			minVoters:   3,
 			wantRefused: true,
 			wantReason:  "2 of 2 voting members are available, need 3",
 		},
@@ -125,7 +120,6 @@ spec:
 				dbSize:      500 * mib,
 				dbSizeInUse: 100 * mib,
 			},
-			minVoters: 3,
 			// The learner is excluded from the registered count, and the one
 			// voting peer advertises no client URL so it cannot be probed and
 			// cannot serve clients either.
@@ -142,7 +136,6 @@ spec:
 				dbSizeInUse:  100 * mib,
 				statusErrors: []string{"NOSPACE"},
 			},
-			minVoters:   3,
 			wantRefused: true,
 			wantReason:  "unhealthy",
 		},
@@ -168,7 +161,6 @@ spec:
 				dbSize:      500 * mib,
 				dbSizeInUse: 100 * mib,
 			},
-			minVoters:   3,
 			wantRefused: true,
 			wantReason:  "to a positive value",
 		},
@@ -185,7 +177,6 @@ spec:
 				dbSizeInUse:      100 * mib,
 				unavailablePeers: map[string]bool{"https://cp-3:2379": true},
 			},
-			minVoters:   3,
 			wantRefused: true,
 			wantReason:  "2 of 3 voting members are available, need 3",
 		},
@@ -197,7 +188,6 @@ spec:
 				localID:   2,
 				statusErr: errors.New("connection refused"),
 			},
-			minVoters:   3,
 			wantRefused: true,
 			wantReason:  "local etcd member is unhealthy: connection refused",
 		},
@@ -214,7 +204,6 @@ spec:
 					return &clientv3.StatusResponse{}, nil
 				},
 			},
-			minVoters:   3,
 			wantRefused: true,
 			wantReason:  "etcd status has no header",
 		},
@@ -225,7 +214,7 @@ spec:
 			s := writeEtcdManifest(t, tt.manifest)
 			client := tt.client
 
-			_, err := s.etcdDefragPreflight(context.Background(), &client, tt.minVoters)
+			_, _, err := s.etcdDefragPreflight(context.Background(), &client)
 
 			if !tt.wantRefused {
 				require.NoError(t, err)
@@ -282,7 +271,7 @@ func TestPickEtcdLeadershipTransferee(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := pickEtcdLeadershipTransferee(&clientv3.MemberListResponse{Members: tt.members}, tt.localID)
+			got, ok := pickEtcdLeadershipTransferee(tt.members, tt.localID)
 			assert.Equal(t, tt.wantOK, ok)
 			if tt.wantOK {
 				assert.Equal(t, tt.wantID, got)
@@ -296,7 +285,7 @@ func TestTransferEtcdLeadershipAway(t *testing.T) {
 		s := writeEtcdManifest(t, etcdManifestThreshold100MiB)
 		client := &fakeEtcdMemberClient{members: testEtcdMembersThree(), localID: 2, leaderID: 1}
 
-		require.NoError(t, s.transferEtcdLeadershipAway(context.Background(), client))
+		require.NoError(t, s.transferEtcdLeadershipAway(context.Background(), client, testEtcdMembersThree()))
 		assert.Zero(t, client.movedTo, "a follower must not trigger a leadership transfer")
 	})
 
@@ -304,7 +293,7 @@ func TestTransferEtcdLeadershipAway(t *testing.T) {
 		s := writeEtcdManifest(t, etcdManifestThreshold100MiB)
 		client := &fakeEtcdMemberClient{members: testEtcdMembersThree(), localID: 2, leaderID: 2}
 
-		require.NoError(t, s.transferEtcdLeadershipAway(context.Background(), client))
+		require.NoError(t, s.transferEtcdLeadershipAway(context.Background(), client, testEtcdMembersThree()))
 		assert.Equal(t, uint64(1), client.movedTo)
 		assert.Equal(t, []string{"https://cp-2:2379"}, client.movedFrom,
 			"MoveLeader must be issued against the current leader, which is the local member")
@@ -318,7 +307,7 @@ func TestTransferEtcdLeadershipAway(t *testing.T) {
 			leaderID: 2,
 		}
 
-		err := s.transferEtcdLeadershipAway(context.Background(), client)
+		err := s.transferEtcdLeadershipAway(context.Background(), client, client.members)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no other voting etcd member")
 	})
@@ -514,7 +503,7 @@ func TestRunEtcdDefragRestartSequence(t *testing.T) {
 		s, _ := etcdRestartTestServer(t, client)
 		progress := &fakeOperationProgress{}
 
-		require.NoError(t, s.runEtcdDefrag(context.Background(), progress, 3))
+		require.NoError(t, s.runEtcdDefrag(context.Background(), progress))
 
 		result := decodeDefragResult(t, progress)
 		assert.Equal(t, int32(pb.GetEtcdDefragStatusResponse_OUTCOME_RECLAIMED), result.Outcome)
@@ -537,7 +526,7 @@ func TestRunEtcdDefragRestartSequence(t *testing.T) {
 		s, _ := etcdRestartTestServer(t, client)
 		progress := &fakeOperationProgress{}
 
-		require.NoError(t, s.runEtcdDefrag(context.Background(), progress, 3))
+		require.NoError(t, s.runEtcdDefrag(context.Background(), progress))
 
 		result := decodeDefragResult(t, progress)
 		assert.Equal(t, int32(pb.GetEtcdDefragStatusResponse_OUTCOME_NOT_RECLAIMED), result.Outcome)
@@ -560,7 +549,7 @@ func TestRunEtcdDefragRestartSequence(t *testing.T) {
 		runner.stuck = true
 		progress := &fakeOperationProgress{}
 
-		err := s.runEtcdDefrag(context.Background(), progress, 3)
+		err := s.runEtcdDefrag(context.Background(), progress)
 
 		// Nil, because the member is verifiably back: this is a clean stop for
 		// a rollout, not a node that needs an operator.
@@ -596,7 +585,7 @@ func TestRunEtcdDefragRestartSequence(t *testing.T) {
 		s, _ := etcdRestartTestServer(t, client)
 		progress := &fakeOperationProgress{}
 
-		err := s.runEtcdDefrag(context.Background(), progress, 3)
+		err := s.runEtcdDefrag(context.Background(), progress)
 
 		require.Error(t, err, "a node needing intervention must fail the operation, not just the outcome")
 		result := decodeDefragResult(t, progress)
@@ -624,7 +613,7 @@ func TestRunEtcdDefragPutsTheManifestBackWhenCrictlFailsAfterTheMove(t *testing.
 	runner.failAfterMove = true
 	progress := &fakeOperationProgress{}
 
-	err := s.runEtcdDefrag(context.Background(), progress, 3)
+	err := s.runEtcdDefrag(context.Background(), progress)
 
 	// The member cannot be verified while the runtime is unreachable, so this
 	// is honestly FAILED_NOT_RESTORED - but the manifest is back, which is what
@@ -658,7 +647,7 @@ func TestRunEtcdDefragDoesNotBlockOnAnUnresponsiveMember(t *testing.T) {
 	progress := &fakeOperationProgress{}
 
 	done := make(chan error, 1)
-	go func() { done <- s.runEtcdDefrag(context.Background(), progress, 3) }()
+	go func() { done <- s.runEtcdDefrag(context.Background(), progress) }()
 
 	select {
 	case err := <-done:
@@ -695,13 +684,163 @@ func TestRunEtcdDefragRecoversAParkedManifest(t *testing.T) {
 	require.False(t, etcdManifestIsActive(t, s), "precondition: the manifest starts parked")
 
 	progress := &fakeOperationProgress{}
-	require.NoError(t, s.runEtcdDefrag(context.Background(), progress, 3))
+	require.NoError(t, s.runEtcdDefrag(context.Background(), progress))
 
 	result := decodeDefragResult(t, progress)
 	assert.Equal(t, int32(pb.GetEtcdDefragStatusResponse_OUTCOME_RECLAIMED), result.Outcome,
 		"a retry must recover and then do its job, not refuse")
 	assert.Contains(t, progress.steps, stepEtcdDefragRecovering)
 	assert.True(t, etcdManifestIsActive(t, s))
+}
+
+// The regression this exists for: the in-band recovery above was unreachable in
+// the one case it was written for. An agent restart with etcd.yaml parked
+// leaves a RUNNING record and no worker, and startNodeAgentOperation then
+// rejects every retry - the same ID as inactive, a fresh one as already
+// running, because the type check matches on the phase rather than on a live
+// worker. runEtcdDefrag never ran, so nothing ever put the manifest back.
+func TestStartEtcdDefragClearsARecordLeftRunningByAnAgentRestart(t *testing.T) {
+	const mib = int64(1024 * 1024)
+	tests := []struct {
+		name    string
+		retryID string
+	}{
+		{name: "retried under the same operation ID", retryID: "defrag-1"},
+		{name: "retried under a fresh operation ID", retryID: "defrag-2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeEtcdMemberClient{
+				members:  testEtcdMembersThree(),
+				localID:  2,
+				leaderID: 1,
+				statusFn: etcdSizingStatus(500*mib, 100*mib, 120*mib, 3),
+			}
+			s, _ := etcdRestartTestServer(t, client)
+			s.Persister = &MockPersister{}
+			// What the agent reads back after dying mid-defragmentation.
+			s.NodeStatus.NodeAgentOperations = map[string]NodeAgentOperation{
+				"defrag-1": {
+					ID:    "defrag-1",
+					Type:  operationTypeEtcdDefrag,
+					Phase: NodeAgentOperationPhaseRunning,
+					Step:  stepEtcdDefragWaitingExit,
+				},
+			}
+
+			resp, err := s.StartEtcdDefrag(context.Background(), &pb.StartEtcdDefragRequest{OperationId: tt.retryID})
+			require.NoError(t, err, "a record left RUNNING by an agent restart must not block the retry that recovers from it")
+			require.Equal(t, tt.retryID, resp.GetOperation().GetOperationId())
+
+			require.Eventually(t, func() bool {
+				op, getErr := s.getNodeAgentOperation(nodeAgentOperationSpec{ID: tt.retryID, Type: operationTypeEtcdDefrag})
+				return getErr == nil && nodeAgentOperationTerminal(op.Phase)
+			}, 10*time.Second, time.Millisecond, "the retry must actually run")
+		})
+	}
+}
+
+// The regression this exists for: a five-voter cluster whose first eligible
+// member is offline. The quorum floor allows the restart with four of five
+// available, but the transferee was chosen from the raw membership, so
+// MoveLeader was issued at a member that was already down - blocking to the
+// call deadline and refusing a defragmentation the cluster could have taken.
+func TestRunEtcdDefragPicksAReachableLeadershipTransferee(t *testing.T) {
+	const mib = int64(1024 * 1024)
+	client := &fakeEtcdMemberClient{
+		members: []*etcdserverpb.Member{
+			{ID: 1, Name: "cp-1", ClientURLs: []string{"https://cp-1:2379"}},
+			{ID: 2, Name: "cp-2", ClientURLs: []string{"https://cp-2:2379"}},
+			{ID: 3, Name: "cp-3", ClientURLs: []string{"https://cp-3:2379"}},
+			{ID: 4, Name: "cp-4", ClientURLs: []string{"https://cp-4:2379"}},
+			{ID: 5, Name: "cp-5", ClientURLs: []string{"https://cp-5:2379"}},
+		},
+		localID:          2,
+		unavailablePeers: map[string]bool{"https://cp-1:2379": true},
+		// The local member leads, so leadership has to move before the restart.
+		statusFn: func(_ context.Context, call int) (*clientv3.StatusResponse, error) {
+			dbSize := 500 * mib
+			if call >= 3 {
+				dbSize = 120 * mib
+			}
+			return &clientv3.StatusResponse{
+				Header:      &etcdserverpb.ResponseHeader{MemberId: 2},
+				Leader:      2,
+				DbSize:      dbSize,
+				DbSizeInUse: 100 * mib,
+			}, nil
+		},
+	}
+	s, _ := etcdRestartTestServer(t, client)
+	progress := &fakeOperationProgress{}
+
+	require.NoError(t, s.runEtcdDefrag(context.Background(), progress))
+
+	assert.Equal(t, uint64(3), client.movedTo,
+		"leadership must go to a member that answered a probe, not to the offline cp-1")
+}
+
+// staticPodListRunner replays a fixed sequence of crictl listings, so a test
+// can describe exactly what the restart wait observes.
+type staticPodListRunner struct {
+	t         *testing.T
+	listings  [][]string
+	callIndex int
+}
+
+func (r *staticPodListRunner) Run(name string, _ []string, _ *nvkeutils.CommandOptions) ([]byte, error) {
+	r.t.Helper()
+	require.Equal(r.t, "crictl", name)
+	listing := r.listings[min(r.callIndex, len(r.listings)-1)]
+	r.callIndex++
+	return etcdCrictlPS(listing...), nil
+}
+
+func (r *staticPodListRunner) RunSplitOutput(name string, args []string, opts *nvkeutils.CommandOptions) (nvkeutils.CommandOutput, error) {
+	out, err := r.Run(name, args, opts)
+	return nvkeutils.CommandOutput{Stdout: out}, err
+}
+
+func (*staticPodListRunner) RunDetached(string, []string, *nvkeutils.CommandOptions) error {
+	return errors.New("unexpected detached command")
+}
+
+// The regression this exists for: when the pre-restore listing failed, the
+// baseline was set to nil, and newStaticPodContainerIDs treats an empty
+// baseline as "anything counts". The wait then accepted the container that was
+// still running from before the move, reporting a restart that had not
+// happened. That nil also carries a second, deliberate meaning three lines
+// later - no swap expected - so the two had to be told apart rather than
+// merged.
+func TestWaitForStaticPodRunningWithAnUnknownBaseline(t *testing.T) {
+	s := &NodeAgentServer{drainKubeVipPollInterval: time.Millisecond}
+
+	t.Run("rejects the container that was already running", func(t *testing.T) {
+		runner := &staticPodListRunner{t: t, listings: [][]string{{"etcd-old"}}}
+
+		err := s.waitForStaticPodRunning(context.Background(), runner, etcdContainerName,
+			staticPodBaseline{unknown: true}, 50*time.Millisecond)
+
+		require.Error(t, err, "an unknown baseline must not accept a container that never went away")
+		assert.Contains(t, err.Error(), "container not running after")
+	})
+
+	t.Run("accepts a container that appears after the old one is gone", func(t *testing.T) {
+		runner := &staticPodListRunner{t: t, listings: [][]string{{"etcd-old"}, {}, {"etcd-new"}}}
+
+		require.NoError(t, s.waitForStaticPodRunning(context.Background(), runner, etcdContainerName,
+			staticPodBaseline{unknown: true}, time.Second))
+	})
+
+	t.Run("accepts any container when no swap is expected", func(t *testing.T) {
+		// The manifest was already in place, so nothing was renamed and there
+		// is no restart to wait for.
+		runner := &staticPodListRunner{t: t, listings: [][]string{{"etcd-old"}}}
+
+		require.NoError(t, s.waitForStaticPodRunning(context.Background(), runner, etcdContainerName,
+			staticPodBaseline{anyContainerSatisfies: true}, time.Second))
+	})
 }
 
 func testEtcdMembersThree() []*etcdserverpb.Member {

@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	nvkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
-	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -80,21 +80,66 @@ func (s *NodeAgentServer) StartEtcdDefrag(
 		return nil, status.Error(codes.FailedPrecondition, "status persister is not configured")
 	}
 
-	minVoters := req.GetMinVotingMembers()
-	if minVoters <= 0 {
-		minVoters = defaultMinVotingMembersForDefrag
+	if err := s.resetInterruptedEtcdDefrag(); err != nil {
+		return nil, err
 	}
 
 	op, err := s.startNodeAgentOperation(nodeAgentOperationSpec{
 		ID:   strings.TrimSpace(req.GetOperationId()),
 		Type: operationTypeEtcdDefrag,
 	}, func(runCtx context.Context, progress nodeAgentOperationProgress) error {
-		return s.runEtcdDefrag(runCtx, progress, minVoters)
+		return s.runEtcdDefrag(runCtx, progress)
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &pb.StartEtcdDefragResponse{Operation: nodeAgentOperationToProto(op)}, nil
+}
+
+// resetInterruptedEtcdDefrag drops defragmentation records left non-terminal by
+// an agent restart, so the Start that follows runs and recovers in band.
+//
+// Without it the in-band recovery is unreachable in the one case it exists for.
+// A restart with etcd.yaml parked leaves a RUNNING record and no worker, and
+// startNodeAgentOperation then rejects every retry: the same operation ID as
+// inactive, a fresh one as already running, because
+// runningNodeAgentOperationOfTypeLocked matches on the phase rather than on an
+// active worker. runEtcdDefrag never executes, so ensureEtcdManifestActive never
+// puts the parked manifest back and the member stays down.
+//
+// Every non-terminal record of this type is cleared, not just the requested ID,
+// since a stale record under any ID is what blocks a fresh one. Terminal records
+// stay, so a repeated Start after a completed attempt remains idempotent.
+func (s *NodeAgentServer) resetInterruptedEtcdDefrag() error {
+	s.mu.Lock()
+	s.ensureNodeAgentOperationStateLocked()
+	var stale []string
+	for id, op := range s.NodeStatus.NodeAgentOperations {
+		if op.Type != operationTypeEtcdDefrag || nodeAgentOperationTerminal(op.Phase) {
+			continue
+		}
+		if _, active := s.activeOperations[id]; active {
+			continue
+		}
+		stale = append(stale, id)
+	}
+	for _, id := range stale {
+		delete(s.NodeStatus.NodeAgentOperations, id)
+	}
+	statusCopy := s.nodeStatusSnapshotLocked()
+	s.mu.Unlock()
+
+	if len(stale) == 0 {
+		return nil
+	}
+	slog.Warn("dropping etcd defragmentation records left non-terminal by an agent restart", "operationIDs", stale)
+	if s.Persister == nil {
+		return nil
+	}
+	if err := s.Persister.Persist(&statusCopy); err != nil {
+		return status.Errorf(codes.Internal, "persist recovered etcd defrag operation: %v", err)
+	}
+	return nil
 }
 
 // GetEtcdDefragStatus returns the persisted state of an asynchronous etcd
@@ -154,7 +199,6 @@ func (s *NodeAgentServer) GetEtcdDefragStatus(
 func (s *NodeAgentServer) runEtcdDefrag(
 	ctx context.Context,
 	progress nodeAgentOperationProgress,
-	minVoters int32,
 ) error {
 	s.staticPodMutationMu.Lock()
 	defer s.staticPodMutationMu.Unlock()
@@ -180,13 +224,13 @@ func (s *NodeAgentServer) runEtcdDefrag(
 	}
 
 	progress.SetStep(stepEtcdDefragPreflight)
-	sizeBefore, err := s.etcdDefragPreflight(ctx, client, minVoters)
+	sizeBefore, reachable, err := s.etcdDefragPreflight(ctx, client)
 	if err != nil {
 		return s.recordEtcdDefragRefusal(progress, err.Error(), sizeBefore)
 	}
 
 	progress.SetStep(stepEtcdDefragTransferLeader)
-	if err := s.transferEtcdLeadershipAway(ctx, client); err != nil {
+	if err := s.transferEtcdLeadershipAway(ctx, client, reachable); err != nil {
 		// Leadership could not be moved, so a restart here would make the
 		// cluster briefly unavailable for writes. Nothing has been touched yet,
 		// so refusing is free and strictly safer than proceeding.
@@ -339,24 +383,25 @@ func (s *NodeAgentServer) recoverEtcdAfterFailedStop(
 }
 
 // etcdDefragPreflight verifies every condition that must hold before the member
-// is taken down, and returns the pre-restart backend size. Every error it
+// is taken down. It returns the pre-restart backend size and the voting members
+// that answered a probe, so the leadership transfer can pick a transferee that
+// is known to be up without probing the cluster a second time. Every error it
 // returns is a refusal: nothing here mutates anything, so the caller can report
 // OUTCOME_REFUSED knowing the node is untouched.
 func (s *NodeAgentServer) etcdDefragPreflight(
 	ctx context.Context,
 	client etcdMemberClient,
-	minVoters int32,
-) (int64, error) {
+) (int64, []*etcdserverpb.Member, error) {
 	_, manifestJSON, err := s.readEtcdManifest()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	threshold, found, err := etcdBootstrapDefragThresholdBytes(manifestJSON)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	if !found {
-		return 0, fmt.Errorf(
+		return 0, nil, fmt.Errorf(
 			"etcd manifest sets neither --%s nor --%s to a positive value, so a restart would not defragment at any size",
 			etcdBootstrapDefragFlag, etcdExperimentalBootstrapDefragFlag,
 		)
@@ -366,7 +411,7 @@ func (s *NodeAgentServer) etcdDefragPreflight(
 	localStatus, statusErr := client.Status(statusCtx, etcdLocalEndpoint)
 	cancelStatus()
 	if healthErr := etcdStatusHealthError(localStatus, statusErr); healthErr != nil {
-		return etcdStatusDbSize(localStatus), fmt.Errorf("local etcd member is unhealthy: %w", healthErr)
+		return etcdStatusDbSize(localStatus), nil, fmt.Errorf("local etcd member is unhealthy: %w", healthErr)
 	}
 	sizeBefore := localStatus.DbSize
 
@@ -374,14 +419,19 @@ func (s *NodeAgentServer) etcdDefragPreflight(
 	members, err := client.MemberList(memberListCtx)
 	cancelMemberList()
 	if err != nil {
-		return sizeBefore, fmt.Errorf("list etcd members: %w", err)
+		return sizeBefore, nil, fmt.Errorf("list etcd members: %w", err)
 	}
 	registeredVoters := votingMemberCount(members)
-	availableVoters := s.availableVotingMembers(ctx, client, members, localStatus.Header.MemberId)
-	if floor := etcdRestartSafetyFloor(registeredVoters, minVoters); availableVoters < floor {
-		return sizeBefore, fmt.Errorf(
+	reachable := s.reachableVotingMembers(ctx, client, members, localStatus.Header.MemberId)
+	// Defragmentation is optional, so the floor is derived from the membership
+	// alone and there is no caller override: nothing justifies defragmenting a
+	// member at the cost of the cluster's quorum. The derived floor already
+	// refuses the topologies where no value could preserve one, needing two
+	// available voters of one registered and three of two.
+	if floor := etcdRestartSafetyFloor(registeredVoters, defaultMinVotingMembersForDefrag); int32(len(reachable)) < floor {
+		return sizeBefore, nil, fmt.Errorf(
 			"refusing to restart etcd: %d of %d voting members are available, need %d",
-			availableVoters, registeredVoters, floor,
+			len(reachable), registeredVoters, floor,
 		)
 	}
 
@@ -390,18 +440,27 @@ func (s *NodeAgentServer) etcdDefragPreflight(
 	// defragmenting, so the restart would be downtime for nothing.
 	reclaimable := reclaimableBytes(localStatus.DbSize, localStatus.DbSizeInUse)
 	if reclaimable < threshold {
-		return sizeBefore, fmt.Errorf(
+		return sizeBefore, nil, fmt.Errorf(
 			"reclaimable space %d bytes is below the configured bootstrap-defrag threshold %d bytes; a restart would not defragment",
 			reclaimable, threshold,
 		)
 	}
-	return sizeBefore, nil
+	return sizeBefore, reachable, nil
 }
 
 // transferEtcdLeadershipAway moves leadership to another voting member when the
 // local member is the leader, so the restart does not cost a leader election.
 // It is a no-op when the local member is already a follower.
-func (s *NodeAgentServer) transferEtcdLeadershipAway(ctx context.Context, client etcdMemberClient) error {
+//
+// The candidates are the members the preflight probed, not the raw membership.
+// MoveLeader against a registered but unreachable member blocks until the call
+// deadline and then refuses the whole defragmentation, on a cluster that had a
+// healthy candidate the whole time.
+func (s *NodeAgentServer) transferEtcdLeadershipAway(
+	ctx context.Context,
+	client etcdMemberClient,
+	reachable []*etcdserverpb.Member,
+) error {
 	statusCtx, cancelStatus := s.etcdCallContext(ctx)
 	localStatus, err := client.Status(statusCtx, etcdLocalEndpoint)
 	cancelStatus()
@@ -416,17 +475,11 @@ func (s *NodeAgentServer) transferEtcdLeadershipAway(ctx context.Context, client
 		return nil
 	}
 
-	memberListCtx, cancelMemberList := s.etcdCallContext(ctx)
-	members, err := client.MemberList(memberListCtx)
-	cancelMemberList()
-	if err != nil {
-		return fmt.Errorf("list etcd members: %w", err)
-	}
-	transfereeID, ok := pickEtcdLeadershipTransferee(members, localID)
+	transfereeID, ok := pickEtcdLeadershipTransferee(reachable, localID)
 	if !ok {
 		return fmt.Errorf("no other voting etcd member is available to take leadership")
 	}
-	localEndpoints := etcdMemberClientURLs(members, localID)
+	localEndpoints := etcdMemberClientURLs(reachable, localID)
 	if len(localEndpoints) == 0 {
 		localEndpoints = []string{etcdLocalEndpoint}
 	}
@@ -444,12 +497,10 @@ func (s *NodeAgentServer) transferEtcdLeadershipAway(ctx context.Context, client
 
 // pickEtcdLeadershipTransferee chooses a started, voting member other than the
 // local one. Learners cannot be promoted to leader, and a member that has not
-// started (no name yet) cannot serve, so both are skipped.
-func pickEtcdLeadershipTransferee(members *clientv3.MemberListResponse, localID uint64) (uint64, bool) {
-	if members == nil {
-		return 0, false
-	}
-	for _, m := range members.Members {
+// started (no name yet) cannot serve, so both are skipped. The caller passes
+// members that answered a probe, so liveness is not rechecked here.
+func pickEtcdLeadershipTransferee(members []*etcdserverpb.Member, localID uint64) (uint64, bool) {
+	for _, m := range members {
 		if m.GetID() == localID || m.GetIsLearner() || m.GetName() == "" {
 			continue
 		}
@@ -459,11 +510,8 @@ func pickEtcdLeadershipTransferee(members *clientv3.MemberListResponse, localID 
 }
 
 // etcdMemberClientURLs returns the advertised client URLs for a member ID.
-func etcdMemberClientURLs(members *clientv3.MemberListResponse, id uint64) []string {
-	if members == nil {
-		return nil
-	}
-	for _, m := range members.Members {
+func etcdMemberClientURLs(members []*etcdserverpb.Member, id uint64) []string {
+	for _, m := range members {
 		if m.GetID() == id {
 			return m.GetClientURLs()
 		}

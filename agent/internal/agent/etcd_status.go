@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -120,6 +121,15 @@ func etcdQuotaBackendBytes(st *clientv3.StatusResponse, manifestJSON []byte) (in
 	if err != nil {
 		return 0, fmt.Errorf("parse --%s value %q: %w", etcdQuotaBackendBytesFlag, raw, err)
 	}
+	if quota < 0 {
+		// etcd would not start with this, so it means the manifest is not
+		// describing a real quota. Zero is the sentinel the proto documents for
+		// an unknown quota, and a caller comparing a size against a negative
+		// number would reach a worse conclusion than one told nothing.
+		slog.Warn("etcd manifest sets a negative backend quota; reporting it as unknown",
+			"flag", etcdQuotaBackendBytesFlag, "value", quota)
+		return 0, nil
+	}
 	return quota, nil
 }
 
@@ -186,8 +196,9 @@ func votingMemberCount(members *clientv3.MemberListResponse) int32 {
 	return count
 }
 
-// availableVotingMembers counts the voting members that answer a Status probe,
-// including the local one, which the caller has already verified.
+// reachableVotingMembers narrows a member list to the voting members that
+// answer a Status probe, including the local one, whose health the caller has
+// already verified.
 //
 // Registered membership is not a safety signal. On a three-voter cluster with
 // one peer already offline, a count of registered voters sees three and allows
@@ -195,21 +206,34 @@ func votingMemberCount(members *clientv3.MemberListResponse) int32 {
 // the whole restart, and for however long a bootstrap defragmentation then
 // takes. Probing is what tells those two situations apart.
 //
-// A peer that fails to answer is counted as unavailable rather than treated as
-// an error, because that is the condition being measured. Each probe is bounded
+// The result is a set rather than a count because both things a caller needs it
+// for are the same question. The quorum floor wants its size, and leadership
+// transfer wants a transferee from it: MoveLeader against a member that is
+// registered but down blocks until the call deadline and refuses a
+// defragmentation the cluster could have taken.
+//
+// A peer that fails to answer is left out rather than treated as an error,
+// because that is the condition being measured. Each probe is bounded
 // separately so one unreachable peer cannot stall the preflight.
-func (s *NodeAgentServer) availableVotingMembers(
+func (s *NodeAgentServer) reachableVotingMembers(
 	ctx context.Context,
 	client etcdMemberClient,
 	members *clientv3.MemberListResponse,
 	localID uint64,
-) int32 {
+) []*etcdserverpb.Member {
 	if members == nil {
-		return 0
+		return nil
 	}
-	available := int32(1) // the local member, whose health the caller checked
+	reachable := make([]*etcdserverpb.Member, 0, len(members.Members))
 	for _, m := range members.Members {
-		if m.GetID() == localID || m.GetIsLearner() {
+		if m.GetIsLearner() {
+			continue
+		}
+		if m.GetID() == localID {
+			// Taken from the membership rather than assumed, so a local member
+			// that has been removed or demoted to a learner cannot inflate the
+			// count the restart floor is compared against.
+			reachable = append(reachable, m)
 			continue
 		}
 		endpoints := m.GetClientURLs()
@@ -228,9 +252,9 @@ func (s *NodeAgentServer) availableVotingMembers(
 				"member", fmt.Sprintf("%x", m.GetID()), "err", healthErr)
 			continue
 		}
-		available++
+		reachable = append(reachable, m)
 	}
-	return available
+	return reachable
 }
 
 // etcdRestartSafetyFloor is how many voting members must be available before

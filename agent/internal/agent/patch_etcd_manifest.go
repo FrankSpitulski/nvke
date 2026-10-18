@@ -246,7 +246,7 @@ func (s *NodeAgentServer) PatchEtcdManifest(
 		return s.etcdPatchCleanFailure("", fmt.Sprintf("list etcd members: %v", err)), nil
 	}
 	registeredVoters := votingMemberCount(members)
-	availableVoters := s.availableVotingMembers(ctx, client, members, preStatus.Header.MemberId)
+	availableVoters := int32(len(s.reachableVotingMembers(ctx, client, members, preStatus.Header.MemberId)))
 	if floor := etcdRestartSafetyFloor(registeredVoters, minVoters); availableVoters < floor {
 		return s.etcdPatchCleanFailure("", fmt.Sprintf(
 			"refusing to restart etcd: %d of %d voting members are available, need %d",
@@ -328,7 +328,8 @@ func (s *NodeAgentServer) waitForEtcdRestart(
 	client etcdMemberClient,
 	previousContainerIDs []string,
 ) error {
-	if err := s.waitForStaticPodRunning(ctx, runner, etcdContainerName, previousContainerIDs, s.etcdHealthTimeoutOrDefault()); err != nil {
+	baseline := staticPodBaseline{containerIDs: previousContainerIDs}
+	if err := s.waitForStaticPodRunning(ctx, runner, etcdContainerName, baseline, s.etcdHealthTimeoutOrDefault()); err != nil {
 		return fmt.Errorf("wait for etcd pod swap: %w", err)
 	}
 	if _, err := s.waitForLocalEtcdHealthy(ctx, client); err != nil {

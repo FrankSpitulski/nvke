@@ -158,7 +158,8 @@ type NodeAgentClient interface {
 	// OUTCOME_UNCHANGED and does not restart etcd.
 	//
 	// Before the write the agent verifies that the local member is healthy and
-	// that at least min_voting_members voting members are present. Afterwards it
+	// that enough voting members answer a probe to keep a quorum once this one
+	// restarts: max(min_voting_members, registered_voters/2 + 2). Afterwards it
 	// verifies local member health only, because a restarted member rejoining is
 	// what the caller needs to know and a peer count cannot distinguish a peer
 	// that this call disturbed from one that was already gone.
@@ -990,7 +991,8 @@ type NodeAgentServer interface {
 	// OUTCOME_UNCHANGED and does not restart etcd.
 	//
 	// Before the write the agent verifies that the local member is healthy and
-	// that at least min_voting_members voting members are present. Afterwards it
+	// that enough voting members answer a probe to keep a quorum once this one
+	// restarts: max(min_voting_members, registered_voters/2 + 2). Afterwards it
 	// verifies local member health only, because a restarted member rejoining is
 	// what the caller needs to know and a peer count cannot distinguish a peer
 	// that this call disturbed from one that was already gone.

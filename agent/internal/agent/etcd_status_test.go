@@ -244,6 +244,70 @@ spec:
 		require.NoError(t, err)
 		assert.Zero(t, got, "zero signals unknown so callers decline rather than dividing by it")
 	})
+
+	t.Run("a negative flag value reports zero", func(t *testing.T) {
+		// etcd would not start on this, so it describes no real quota. Handing
+		// a negative back would be worse than saying nothing: a caller sizing a
+		// threshold as a fraction of quota would compute a negative target and
+		// find every member over it.
+		negative := writeEtcdManifest(t, `apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: etcd
+      command:
+        - etcd
+        - --quota-backend-bytes=-1
+`)
+		_, negativeJSON, err := negative.readEtcdManifest()
+		require.NoError(t, err)
+
+		got, err := etcdQuotaBackendBytes(&clientv3.StatusResponse{}, negativeJSON)
+		require.NoError(t, err)
+		assert.Zero(t, got, "a negative quota must read as the documented unknown sentinel")
+	})
+}
+
+func TestReachableVotingMembers(t *testing.T) {
+	members := func(ms ...*etcdserverpb.Member) *clientv3.MemberListResponse {
+		return &clientv3.MemberListResponse{Members: ms}
+	}
+
+	t.Run("counts the local member from the membership, not by assumption", func(t *testing.T) {
+		// The regression this exists for: the local member used to be seeded
+		// into the count before the list was walked, so a member that had been
+		// removed from the cluster or demoted to a learner still counted toward
+		// the floor that decides whether restarting it is safe.
+		s := &NodeAgentServer{}
+		client := &fakeEtcdMemberClient{}
+
+		demoted := s.reachableVotingMembers(context.Background(), client, members(
+			&etcdserverpb.Member{ID: 2, Name: "cp-2", IsLearner: true},
+		), 2)
+		assert.Empty(t, demoted, "a local member demoted to a learner does not vote")
+
+		removed := s.reachableVotingMembers(context.Background(), client, members(
+			&etcdserverpb.Member{ID: 1, Name: "cp-1", ClientURLs: []string{"https://cp-1:2379"}},
+		), 2)
+		assert.Len(t, removed, 1, "a local member absent from the membership must not be counted")
+	})
+
+	t.Run("leaves out peers that do not answer", func(t *testing.T) {
+		s := &NodeAgentServer{}
+		client := &fakeEtcdMemberClient{
+			unavailablePeers: map[string]bool{"https://cp-3:2379": true},
+		}
+
+		got := s.reachableVotingMembers(context.Background(), client, members(
+			&etcdserverpb.Member{ID: 1, Name: "cp-1", ClientURLs: []string{"https://cp-1:2379"}},
+			&etcdserverpb.Member{ID: 2, Name: "cp-2", ClientURLs: []string{"https://cp-2:2379"}},
+			&etcdserverpb.Member{ID: 3, Name: "cp-3", ClientURLs: []string{"https://cp-3:2379"}},
+		), 2)
+
+		require.Len(t, got, 2)
+		assert.Equal(t, uint64(1), got[0].GetID())
+		assert.Equal(t, uint64(2), got[1].GetID())
+	})
 }
 
 func TestReclaimableBytes(t *testing.T) {
