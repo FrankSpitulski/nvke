@@ -69,6 +69,8 @@ jobs:
       issues: read
       pull-requests: read
       checks: read
+      # Commit statuses, which the CI-Tests check lists.
+      statuses: read
       # No id-token: that is for publish_results, which is off below.
       #
       # Branch-Protection will score low or unknown as a result. It needs a PAT
