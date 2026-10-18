@@ -47,18 +47,18 @@ after the host.
 Every stream unpacks to the same directory, so the charts package `Provides`
 and `Conflicts` with `nvke-cni-ovn-charts`: one stream per node.
 
-## Source and access
+## Source
 
-`bundle.sh` fetches `https://api.github.com/repos/dsx-ai-factory/ovn-kubernetes/tarball/<commit>`
-and verifies it against the lock's `artifact` line. The chart is
+`bundle.sh` fetches the commit the lock names from
+`https://github.com/dsx-ai-factory/ovn-kubernetes.git` with one shallow `git fetch`
+and exports the tree with `git archive`. git checks every object against its hash,
+and the lock's `tree` line pins the exported files, so the lock carries no checksum
+of a generated archive: GitHub does not promise stable bytes for one, and its API
+tarball endpoint is rate-limited for anonymous callers. The chart is
 `charts/ovn-kubernetes/` in that tree (upstream's is `helm/ovn-kubernetes/`) and
 the image is built from `dist/images/Dockerfile.ubuntu`, the variant on the
 public `ubuntu` base. The `ubuntu-nv-image` variant needs Artifactory and is not
 built here.
-
-While the fork is internal, set `OVN_KUBERNETES_TOKEN` (or `GITHUB_TOKEN`) to a token that can read it. It
-goes to curl through a config file, never the command line, and is dropped on
-the redirect to codeload. Once the fork is public the variable is optional.
 
 The lock pins the source, not the image: the `Dockerfile.ubuntu` build runs
 `apt-get` and fetches the kubectl key, so no registry digest exists to pin. The
@@ -92,20 +92,20 @@ Linux only; on macOS `prepare-ovn-assets.sh` runs it in a Linux container that b
 `dpkg-scanpackages` when it finishes. `make repro-check` builds twice and
 compares every `.deb` byte-for-byte.
 
-The image build needs docker with buildx, nerdctl or podman (`OCI_BIN=nerdctl` or `podman`), and
+The build needs `git` and network access to github.com for the source. The image
+build needs docker with buildx, nerdctl or podman (`OCI_BIN=nerdctl` or `podman`), and
 network access to `quay.io` (the Go builder), Docker Hub (`ubuntu`), the Ubuntu
 archive and pkgs.k8s.io. Override the bases with `OVN_BUILDER_IMAGE` and
 `OVN_UBUNTU_BASE_IMAGE`. A build for the other architecture runs under
-emulation. `OVN_KUBERNETES_TOKEN` or `GITHUB_TOKEN` is needed while the fork is internal.
+emulation.
 
 ## Bumping the stream
 
 `OVN_STREAMS` is the chart version, which is the fork's release tag without
 the `v`: `2.4.2` is tag `v2.4.2`. `make lock` resolves that tag to a commit and
-records it with the tarball's checksum. Lock amd64 and arm64, review, commit:
+records it with its tree hash. Lock amd64 and arm64, review, commit:
 
 ```bash
-export OVN_KUBERNETES_TOKEN=...   # while the fork is internal
 make lock OVN_STREAMS=2.4.3
 make lock OVN_STREAMS=2.4.3 ARCH=arm64
 git diff -- lock
