@@ -83,7 +83,7 @@ Then run the install command from [Install management-plane services](install-ma
 
 ### Read the management plane metrics
 
-The management plane serves Prometheus metrics at `/metrics` on port 9090 of its pod. NVIDIA Kubernetes Telemetry Pipeline (NKTP) scrapes them, as described in [Find the management cluster's telemetry](#find-the-management-clusters-telemetry). To read them directly:
+The management plane serves Prometheus metrics at `/metrics` on port 9090 of its pod. NVKE telemetry pipelines (NKTP) scrapes them, as described in [Find the management cluster's telemetry](#find-the-management-clusters-telemetry). To read them directly:
 
 1. Forward the metrics port to your machine.
 
@@ -193,7 +193,7 @@ The repository includes three Grafana dashboards for NVKE in `controller/deploy/
 
 | File | Title in Grafana | What it shows | Data it needs |
 |---|---|---|---|
-| `nvke-site-controller-health-reference.json` | `Reference - NVKE Site Controller Health` | Management cluster workloads, SPIRE, cert-manager and node readiness. | kube-state-metrics, from NKTP. |
+| `nvke-site-controller-health-reference.json` | `Reference - NVKE Management Cluster Health` | Management cluster workloads, SPIRE, cert-manager and node readiness. | kube-state-metrics, from NKTP. |
 | `nvke-provisioning-duration-reference.json` | `Reference - NVKE Provisioning Duration` | Node provisioning and teardown time, success against give-up rate, and nodes in progress. | Management plane metrics. |
 | `nvke-cluster-upgrade-overview-reference.json` | `Reference - NVKE Cluster Upgrade Overview` | Kubelet versions per cluster, and control-plane and OS profile panels. | kube-state-metrics; management plane metrics for the optional panels. It shows only clusters that export telemetry to the same backend. |
 
@@ -214,7 +214,7 @@ The `$cluster` variable lists the values of the `k8s_cluster_name` label, which 
 
    The result has one series for each workload cluster that `nvkectl get clusters` lists.
 
-2. Open `Reference - NVKE Site Controller Health` and select the management cluster's name in the `$cluster` list. The panels show data.
+2. Open `Reference - NVKE Management Cluster Health` and select the management cluster's name in the `$cluster` list. The panels show data.
 
 ## Next steps
 

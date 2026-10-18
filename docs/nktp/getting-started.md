@@ -1,12 +1,12 @@
 # Getting started with NKTP
 
-NKTP is one Helm chart that collects a Kubernetes cluster's metrics, logs and
+NVKE telemetry pipelines (NKTP) is one Helm chart that collects a Kubernetes cluster's metrics, logs and
 traces and exports them over OTLP. This guide installs it, connects it to a
 backend, and covers the settings that most often differ from one cluster to the
 next. The [chart README](https://github.com/dsx-ai-factory/nvke/blob/main/nktp/deploy/charts/nktp/README.md) summarizes what the chart
 deploys, and the [topology](architecture/topology.md) links the page that covers
-each component and its values. On an NVKE site controller, `deploy/nico` deploys
-NKTP for you; see [Telemetry on a site controller](site-telemetry/getting-started.md).
+each component and its values. On an NVKE management cluster, `deploy/nico` deploys
+NKTP for you; see [Management cluster telemetry: getting started](site-telemetry/getting-started.md).
 
 ## Before you install
 

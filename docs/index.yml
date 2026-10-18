@@ -69,7 +69,7 @@ navigation:
           - page: Site Certificate Renewal
             path: site-operations/certificate-renewal.md
 
-      - section: Telemetry (NKTP)
+      - section: NVKE telemetry pipelines (NKTP)
         contents:
           - page: Getting started with NKTP
             path: nktp/getting-started.md
@@ -121,19 +121,18 @@ navigation:
                 path: nktp/designs/target-allocation.md
               - page: kube-state-metrics
                 path: nktp/designs/kube-state-metrics.md
-
-      - section: Site Telemetry (NKTP)
-        contents:
-          - page: "Telemetry on a site controller: getting started"
-            path: nktp/site-telemetry/getting-started.md
-          - page: "Telemetry on a site controller: configuration"
-            path: nktp/site-telemetry/configuration.md
-          - page: "Telemetry on a site controller: monitoring your service"
-            path: nktp/site-telemetry/monitoring-a-service.md
-          - page: "Telemetry on a site controller: verification"
-            path: nktp/site-telemetry/verification.md
-          - page: "Telemetry on a site controller: troubleshooting"
-            path: nktp/site-telemetry/troubleshooting.md
+          - section: Management cluster telemetry
+            contents:
+              - page: "Management cluster telemetry: getting started"
+                path: nktp/site-telemetry/getting-started.md
+              - page: "Management cluster telemetry: configuration"
+                path: nktp/site-telemetry/configuration.md
+              - page: "Management cluster telemetry: monitoring your service"
+                path: nktp/site-telemetry/monitoring-a-service.md
+              - page: "Management cluster telemetry: verification"
+                path: nktp/site-telemetry/verification.md
+              - page: "Management cluster telemetry: troubleshooting"
+                path: nktp/site-telemetry/troubleshooting.md
 
       - section: Reference
         contents:

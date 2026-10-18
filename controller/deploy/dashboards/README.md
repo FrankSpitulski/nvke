@@ -34,7 +34,7 @@ with "Dashboard refresh interval is too low".
 
 | File | Title | What it shows |
 |---|---|---|
-| [`nvke-site-controller-health-reference.json`](nvke-site-controller-health-reference.json) | Reference - NVKE Site Controller Health | Glance board for the site controller: NVKE, SPIRE, Temporal, cert-manager, and node Ready. Optional collapsed rows for apiserver/etcd and PostgreSQL/CNPG. |
+| [`nvke-site-controller-health-reference.json`](nvke-site-controller-health-reference.json) | Reference - NVKE Management Cluster Health | Glance board for the management cluster: NVKE, SPIRE, Temporal, cert-manager, and node Ready. Optional collapsed rows for apiserver/etcd and PostgreSQL/CNPG. |
 | [`nvke-provisioning-duration-reference.json`](nvke-provisioning-duration-reference.json) | Reference - NVKE Provisioning Duration | Node provision/teardown duration, success vs give-up rate, and in-progress nodes from controller `/metrics`. |
 | [`nvke-cluster-upgrade-overview-reference.json`](nvke-cluster-upgrade-overview-reference.json) | Reference - NVKE Cluster Upgrade Overview | Kubernetes cluster upgrade progress: kubelet versions from kube-state-metrics, plus control-plane and OS-profile panels when NVKE controller inventory metrics are available. |
 
