@@ -561,6 +561,18 @@ rm -rf "${WORK}/local-site"
 mkdir -p "${WORK}/local-site/releases" && : >"${WORK}/local-site/.local-site"
 out="$(lsite down)" || fail "down on a half-finished workspace exited $?: ${out}"
 [[ ! -e "${WORK}/local-site" ]] && pass "down removes a workspace the setup started" || fail "half-finished workspace left"
+# down removes the tenant nodes this workspace's nico-sim created, by the
+# instance ids in its database, not every node of the seeded site.
+if command -v python3 >/dev/null 2>&1; then
+  instance_id=7f3c9a2e-4b1d-4e8a-9c6f-2d5e8b1a0c47
+  mkdir -p "${WORK}/local-site" && : >"${WORK}/local-site/.local-site"
+  python3 -c 'import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); c.execute("CREATE TABLE instances (id TEXT PRIMARY KEY)"); c.execute("INSERT INTO instances VALUES (?)", (sys.argv[2],)); c.commit()' "${WORK}/local-site/.nico-sim.db" "${instance_id}"
+  : >"${WORK}/local-site.log"
+  out="$(STUB_LOG="${WORK}/local-site.log" lsite down)" || fail "down on a workspace with a nico-sim database exited $?: ${out}"
+  expect "down looks up this nico-sim's instances by id" "^docker ps .*label=nvidia\\.com/nico-containers\\.instance-id=${instance_id}\$" "$(cat "${WORK}/local-site.log")"
+  reject "down does not select by the shared seeded site" 'nico-containers\.site-id' "$(cat "${WORK}/local-site.log")"
+  [[ ! -e "${WORK}/local-site" ]] && pass "down removes a workspace with a nico-sim database" || fail "workspace with a nico-sim database left"
+fi
 if [[ "$(uname -s)" != Linux || "$(id -u)" != 0 ]]; then
   out="$(lsite setup)" && fail "local-site.sh setup off Linux or without root exited 0"
   expect "setup names what it needs" '^local-site: run as root|^local-site: run this inside the Colima machine' "${out}"

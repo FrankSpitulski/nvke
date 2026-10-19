@@ -12,8 +12,8 @@ The example credentials, the simulated NICo and the single-node site are for loc
 
 ## Before you begin
 
-- A Linux host, as root, with at least 10 CPUs, 24 GiB of free memory and 100 GiB of free disk; or macOS, set up in [On macOS](#on-macos).
-- The Linux kernel module `tpm_vtpm_proxy`, which the container node's TPM uses. `make -C controller host-up` loads it.
+- A Debian or Ubuntu Linux host, as root, with at least 10 CPUs, 24 GiB of free memory and 100 GiB of free disk; or macOS, set up in [On macOS](#on-macos). The runtime installer below uses `dpkg`, and `make -C controller host-up` installs the TPM module with `apt-get`.
+- The Linux kernel module `tpm_vtpm_proxy`, which the container node's TPM uses. `make -C controller host-up` loads it, and installs it on Debian and Ubuntu if it is missing.
 - A standalone containerd with `nerdctl` and `buildkitd` for the node, which `cli/hack/bootstrap-e2e-host.sh install-runtime` installs with the version, checksums and socket paths exported as the two `export` lines in [On macOS](#on-macos) show, and Docker for the workload cluster nodes.
 - These tools on `PATH`: `git`, GNU Make 4, Go 1.27.3 or later, `gcc`, `kind` v0.32.0, `kubectl`, Helm `v4.2.4`, `clusterctl` v1.13.6, `oras`, `curl`, `jq`, `python3`, `openssl` and `iptables`.
 - A GitHub token in `GITHUB_TOKEN`: `clusterctl init` reads the Cluster API releases through the GitHub API, which allows anonymous callers 60 requests an hour, and this page runs it twice.
@@ -22,11 +22,14 @@ The example credentials, the simulated NICo and the single-node site are for loc
 
 ### On macOS
 
-Run everything inside a Colima virtual machine with the Docker runtime. `make -C controller host-up` creates it, loads `tpm_vtpm_proxy` in its kernel and sizes it from three variables; it refuses to resize a machine that exists, so set the sizes before the first run.
+Run everything inside a Colima virtual machine with the Docker runtime. On the Mac you need only Colima, `git` and `make` (the Xcode Command Line Tools provide the last two; `brew install colima` provides Colima), and a clone of the repository to create the machine from:
 
 ```bash
+git clone https://github.com/dsx-ai-factory/nvke.git && cd nvke
 COLIMA_CPUS=10 COLIMA_MEMORY_GIB=28 COLIMA_DISK_GIB=100 make -C controller host-up
 ```
+
+`make -C controller host-up` creates the machine, loads `tpm_vtpm_proxy` in its kernel and sizes it from the three variables; it refuses to resize a machine that exists, so set the sizes before the first run.
 
 Then open a root shell in the machine, clone the repository inside it, and install the node's container runtime beside Colima's Docker. The installer reads the pinned version and checksums, and the runtime's socket paths, from the environment; the first line below takes the pins from the checkout:
 

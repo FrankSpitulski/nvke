@@ -54,8 +54,6 @@ SPIRE_VIP="${NVKECTL_E2E_SPIRE_SERVER_ADDRESS:-172.26.0.2}"
 # nerdctl's kind network, where the bootstrap's seed cluster runs. Pinned
 # away from Docker's kind network and the node network.
 KIND_NETWORK_SUBNET="10.26.0.0/16"
-# nico-sim's seeded site, which labels the tenant nodes it starts.
-NICO_SIM_SITE_ID="00000000-0000-0000-0000-000000000001"
 ARCH="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
 EXAMPLES="${REPO}/deploy/examples/local-site"
 # The controller image and the profile content image, built from this
@@ -224,9 +222,21 @@ node_ctr() { nerdctl exec -i "${NODE}" ctr -n k8s.io "$@"; }
 
 node_has_image() { node_ctr images ls -q </dev/null 2>/dev/null | grep -qx "$1"; }
 
+# restart_controller rolls the site's controller onto restaged images. The
+# stack config names them by the same tag whatever the build, so an install
+# renders the same pod template and the old build would keep running until
+# the pod next restarted. Nothing to do before the stack is installed.
+restart_controller() {
+  [[ -f "${KUBECONFIG_FILE}" ]] || return 0
+  kubectl --kubeconfig "${KUBECONFIG_FILE}" --request-timeout=10s -n nke-controller get deployment nke-controller >/dev/null 2>&1 || return 0
+  log "restarting the controller on the restaged images"
+  kubectl --kubeconfig "${KUBECONFIG_FILE}" -n nke-controller rollout restart deployment/nke-controller >/dev/null
+}
+
 # stage_images stages the two images into the node, and again whenever the
 # build changed: the staged ids are recorded in the workspace and compared
-# with the local images, so a setup after a `git pull` installs the new build.
+# with the local images. A restage restarts an installed controller, so a
+# setup after a `git pull` runs the new build.
 stage_images() {
   log "tagging the controller image ${CONTROLLER_IMAGE}"
   nerdctl tag "${BOOTSTRAP_CONTROLLER_IMAGE}" "${CONTROLLER_IMAGE}"
@@ -246,6 +256,7 @@ stage_images() {
     node_has_image "${image}" || die "${image} is not in the node's containerd after the import"
   done
   printf '%s\n' "${ids}" >"${staged}"
+  restart_controller
 }
 
 # ---- the files the flow reads -------------------------------------------------------
@@ -357,11 +368,19 @@ nico_sim_up() {
       log "copying the node image into Docker for the tenant nodes"
       nerdctl save cwe-capd-kindest-node:local | docker load >/dev/null
     fi
+    # nico-sim binds its port last, after its database, seed and Docker
+    # checks, so an answer on the port while it starts can be another
+    # process's; refuse a port that is already taken.
+    if curl -sS -m 1 "http://${gateway}:${NICO_SIM_PORT}/healthz" >/dev/null 2>&1; then
+      die "something already answers on ${gateway}:${NICO_SIM_PORT}; stop it (another local site's or Tilt's nico-sim) and run setup again"
+    fi
     log "starting nico-sim on ${gateway}:${NICO_SIM_PORT}"
     (
       cd "${sim}"
       export NICO_SIM_LISTEN_ADDR="${gateway}:${NICO_SIM_PORT}" NICO_SIM_DB_PATH="${WORKSPACE}/.nico-sim.db" NICO_SIM_SEED_PATH="${sim}/internal/seed/default-seed.yaml"
-      export NICO_SIM_LOG_FORMAT=text NICO_VMS_VM_BACKEND=mock NICO_VMS_BGP_ENABLED=false
+      # No console SSH server: it takes any client on every interface, and
+      # nothing here reads a console.
+      export NICO_SIM_LOG_FORMAT=text NICO_VMS_VM_BACKEND=mock NICO_VMS_BGP_ENABLED=false NICO_VMS_CONSOLE_SSH_PORT=-1
       export NICO_CONTAINERS_ENABLED=true NICO_CONTAINERS_REQUIRE_HEALTHY=true NICO_CONTAINERS_NODE_NETWORK="${TENANT_NETWORK}" NICO_CONTAINERS_NODE_IMAGE=cwe-capd-kindest-node:local
       nohup ./bin/nico-sim >"${WORKSPACE}/.nico-sim.log" 2>&1 &
       echo $! >"${pid_file}"
@@ -424,6 +443,22 @@ status() {
   fi
 }
 
+# sim_instance_ids prints the ids of the instances this workspace's nico-sim
+# created, read from its database; nothing when there is none.
+sim_instance_ids() {
+  local db="${WORKSPACE}/.nico-sim.db"
+  [[ -f "${db}" ]] || return 0
+  if ! command -v python3 >/dev/null 2>&1; then
+    log "warning: python3 is missing, so the tenant nodes in ${db} are left in Docker"
+    return 0
+  fi
+  python3 - "${db}" 2>/dev/null <<'PY' || log "warning: cannot read the instances in ${db}; its tenant nodes are left in Docker"
+import sqlite3, sys
+for (instance_id,) in sqlite3.connect(sys.argv[1]).execute("SELECT id FROM instances"):
+    print(instance_id)
+PY
+}
+
 down() {
   containerd_env
   if [[ -d "${WORKSPACE}" ]] && ! is_workspace; then
@@ -454,11 +489,15 @@ down() {
     kill -0 "${pid}" 2>/dev/null && { kill -9 "${pid}" 2>/dev/null || true; sleep 1; }
     kill -0 "${pid}" 2>/dev/null && die "nico-sim (pid ${pid}) did not exit; stop it and run down again"
   fi
-  # Only the tenant nodes of nico-sim's seeded site: another nico-sim's nodes
-  # on the same Docker daemon stay.
+  # Only the tenant nodes this workspace's nico-sim created, by the instance
+  # ids in its database: every nico-sim on the default seed labels its nodes
+  # with the same site, so another one's nodes on the same Docker daemon stay.
   if command -v docker >/dev/null 2>&1; then
-    mapfile -t ids < <(docker ps -aq --filter label=nvidia.com/nico-containers.managed=true --filter "label=nvidia.com/nico-containers.site-id=${NICO_SIM_SITE_ID}" 2>/dev/null || true)
-    [[ ${#ids[@]} -eq 0 ]] || docker rm -f "${ids[@]}" >/dev/null
+    local instance
+    for instance in $(sim_instance_ids); do
+      mapfile -t ids < <(docker ps -aq --filter label=nvidia.com/nico-containers.managed=true --filter "label=nvidia.com/nico-containers.instance-id=${instance}" 2>/dev/null || true)
+      [[ ${#ids[@]} -eq 0 ]] || docker rm -f "${ids[@]}" >/dev/null
+    done
   fi
   if command -v nerdctl >/dev/null 2>&1; then
     detach_bootstrap_network
