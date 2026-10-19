@@ -5,6 +5,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/dsx-ai-factory/nvke/agent/pkg/agent/proto"
+	nvkeutils "github.com/dsx-ai-factory/nvke/agent/pkg/utils"
 )
 
 func setBootstrapDefragOp(value string) []*pb.FlagOp {
@@ -288,6 +290,56 @@ func TestPatchEtcdManifestSurvivesCallerCancellation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, pb.PatchEtcdManifestResponse_OUTCOME_APPLIED, resp.GetOutcome())
 	assert.Equal(t, "2048", patchedThreshold(t, s), "the patch must survive the caller going away")
+}
+
+// failingListRunner fails its first crictl listing and then reports the same
+// container forever: the patched etcd that is still serving because kubelet
+// never swapped the pod.
+type failingListRunner struct {
+	t     *testing.T
+	calls int
+}
+
+func (r *failingListRunner) Run(name string, _ []string, _ *nvkeutils.CommandOptions) ([]byte, error) {
+	r.t.Helper()
+	require.Equal(r.t, "crictl", name)
+	r.calls++
+	if r.calls == 1 {
+		return nil, errors.New("crictl ps: connection to the container runtime failed")
+	}
+	return etcdCrictlPS("etcd-old"), nil
+}
+
+func (r *failingListRunner) RunSplitOutput(name string, args []string, opts *nvkeutils.CommandOptions) (nvkeutils.CommandOutput, error) {
+	out, err := r.Run(name, args, opts)
+	return nvkeutils.CommandOutput{Stdout: out}, err
+}
+
+func (*failingListRunner) RunDetached(string, []string, *nvkeutils.CommandOptions) error {
+	return errors.New("unexpected detached command")
+}
+
+// The regression this exists for: the rollback tolerates a failed container
+// listing, which is right, but it passed the resulting nil through as an empty
+// baseline rather than an unknown one. An empty baseline makes every running
+// container count as new, so the patched etcd that was still serving satisfied
+// the pod-swap gate on the first poll, the health probe passed against that
+// same process, and the call reported FAILED_RESTORED - "the node is back in
+// its pre-call state" - without a swap ever happening.
+func TestEtcdPatchRestoreDoesNotClaimRestoredWhenTheListingFails(t *testing.T) {
+	client := &fakeEtcdMemberClient{members: testEtcdMembersThree(), localID: 2, leaderID: 1}
+	s, _ := patchEtcdTestServer(t, client)
+	manifestRaw, _, err := s.readEtcdManifest()
+	require.NoError(t, err)
+	runner := &failingListRunner{t: t}
+
+	resp := s.etcdPatchRestore(context.Background(), runner, client,
+		"/backup/etcd.yaml", s.etcdManifestPath(), manifestRaw, 123, "etcd restart after patch failed")
+
+	assert.Equal(t, pb.PatchEtcdManifestResponse_OUTCOME_FAILED_NOT_RESTORED, resp.GetOutcome(),
+		"an unverifiable rollback must not be reported as restored")
+	assert.Contains(t, resp.GetErrorMessage(), "wait for etcd pod swap")
+	assert.Greater(t, runner.calls, 1, "the restore must still run after the listing fails")
 }
 
 func TestApplyFlagOpsOnEtcdManifest(t *testing.T) {

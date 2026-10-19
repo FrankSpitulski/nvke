@@ -289,7 +289,7 @@ func (s *NodeAgentServer) PatchEtcdManifest(
 	mutationCtx, cancelMutation := context.WithTimeout(context.WithoutCancel(ctx), s.etcdMutationBudgetOrDefault())
 	defer cancelMutation()
 
-	if err := s.waitForEtcdRestart(mutationCtx, runner, client, previousContainerIDs); err != nil {
+	if err := s.waitForEtcdRestart(mutationCtx, runner, client, staticPodBaseline{containerIDs: previousContainerIDs}); err != nil {
 		slog.ErrorContext(ctx, "etcd did not come back healthy after manifest patch; restoring", "err", err)
 		return s.etcdPatchRestore(mutationCtx, runner, client, backupPath, manifestPath, manifestRaw, sizeBefore,
 			fmt.Sprintf("etcd restart after patch failed: %v", err)), nil
@@ -326,9 +326,8 @@ func (s *NodeAgentServer) waitForEtcdRestart(
 	ctx context.Context,
 	runner nvkeutils.CommandRunner,
 	client etcdMemberClient,
-	previousContainerIDs []string,
+	baseline staticPodBaseline,
 ) error {
-	baseline := staticPodBaseline{containerIDs: previousContainerIDs}
 	if err := s.waitForStaticPodRunning(ctx, runner, etcdContainerName, baseline, s.etcdHealthTimeoutOrDefault()); err != nil {
 		return fmt.Errorf("wait for etcd pod swap: %w", err)
 	}
@@ -376,11 +375,20 @@ func (s *NodeAgentServer) etcdPatchRestore(
 	}
 
 	previousContainerIDs, err := listStaticPodContainerIDs(runner, etcdContainerName)
+	baseline := staticPodBaseline{containerIDs: previousContainerIDs}
 	if err != nil {
-		// Carry on with the restore regardless; losing the container-ID baseline
-		// only weakens the pod-swap gate, and leaving the patched manifest in
-		// place would be worse.
+		// Carry on with the restore regardless, because leaving the patched
+		// manifest in place would be worse. But the baseline is now unknown
+		// rather than empty, and those must not be confused: an empty set makes
+		// every running container count as new, so the patched etcd that is
+		// still serving would satisfy the swap gate on the first poll and this
+		// would report FAILED_RESTORED - "the node is back in its pre-call
+		// state" - without a swap having happened. Requiring the container to
+		// go away first can time out instead, which reports
+		// FAILED_NOT_RESTORED. That is the honest answer: the rollback bytes
+		// are on disk but nothing confirmed etcd picked them up.
 		slog.WarnContext(ctx, "etcdPatchRestore: failed to list etcd containers before restore", "err", err)
+		baseline = staticPodBaseline{unknown: true}
 	}
 
 	spec := fileSpec{path: manifestPath, content: manifestRaw, mode: patchManifestFileMode, uid: 0, gid: 0}
@@ -390,7 +398,7 @@ func (s *NodeAgentServer) etcdPatchRestore(
 	}
 	slog.InfoContext(ctx, "etcdPatchRestore: rewrote etcd manifest from in-memory snapshot", "manifest", manifestPath)
 
-	if rerr := s.waitForEtcdRestart(ctx, runner, client, previousContainerIDs); rerr != nil {
+	if rerr := s.waitForEtcdRestart(ctx, runner, client, baseline); rerr != nil {
 		slog.ErrorContext(ctx, "etcdPatchRestore: etcd did not return healthy after rollback", "manifest", manifestPath, "err", rerr)
 		return notRestored(rerr.Error())
 	}
