@@ -319,17 +319,21 @@ func authnRequired() bool {
 	return required
 }
 
-// parseAuthnRequired reads the variable; unset or empty is false. Anything
-// ParseBool refuses is an error, because a variable whose job is to fail a run
-// must not decline to.
 func parseAuthnRequired(raw string) (bool, error) {
+	return parseRequireEnv(authnRequireEnv, raw)
+}
+
+// parseRequireEnv reads one of the NKE_E2E_REQUIRE_* variables, which turn a
+// skip into a failure; unset or empty is false. Anything ParseBool refuses is
+// an error, because a variable whose job is to fail a run must not decline to.
+func parseRequireEnv(name, raw string) (bool, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return false, nil
 	}
 	required, err := strconv.ParseBool(trimmed)
 	if err != nil {
-		return false, fmt.Errorf("parsing %s=%q: %w (it takes a boolean: 1, t, T, TRUE, true, True, or their false counterparts)", authnRequireEnv, raw, err)
+		return false, fmt.Errorf("parsing %s=%q: %w (it takes a boolean: 1, t, T, TRUE, true, True, or their false counterparts)", name, raw, err)
 	}
 	return required, nil
 }

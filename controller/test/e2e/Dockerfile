@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # The E2E suite as an image, for validating a running site from inside its
-# cluster (DSX QA runs it under TestWave). It carries the whole suite; the
+# cluster, under an in-cluster test runner. It carries the whole suite; the
 # entrypoint selects site-validate, the specs that change nothing on the site.
 #
 # Build from the REPOSITORY ROOT, so the context includes controller/api,
@@ -14,37 +14,65 @@
 #
 # Bases are the controller image's, digest-pinned and refreshed by
 # hack/base-image-update.sh.
-ARG GOLANG_IMAGE=docker.io/golang:1.27.2@sha256:5bc7f572bbaa98885a3a1fd9c0aa76b59e3e14e8628bfc316bbfd0c701e4818c
+#
+# The build is reproducible: the same commit, build args and flags give the same
+# image digest wherever it is built, so a site that builds this itself can
+# compare its digest with the one the release attested. `make
+# validate-image-push` passes the args and flags; "Building the image yourself"
+# in README.md lists them.
+ARG GOLANG_IMAGE=docker.io/golang:1.27.3@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b
 ARG ALPINE_IMAGE=docker.io/alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
 # On the build platform, cross-compiling, so a multi-arch build needs no
 # emulation.
 FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS builder
-ENV GOPROXY=https://proxy.golang.org|direct
+# A module mirror, for a builder that cannot reach proxy.golang.org. It changes
+# where modules come from, not which: go.sum still decides.
+ARG GOPROXY=https://proxy.golang.org|direct
+ARG SOURCE_DATE_EPOCH
 ARG TARGETOS
 ARG TARGETARCH
 
 WORKDIR /workspace
 COPY . /workspace
 WORKDIR /workspace/controller/test/e2e
-RUN GOWORK=off CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go test -c -trimpath -o /out/e2e.test .
+# GOTOOLCHAIN=local, so the compiler is the base image's and never one go.mod
+# asks to download. The context carries no .git, so there is no VCS stamp to
+# vary either.
+RUN GOWORK=off GOTOOLCHAIN=local GOPROXY="${GOPROXY}" CGO_ENABLED=0 \
+    GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+    go test -c -trimpath -buildvcs=false -o /out/e2e.test .
+# rewrite-timestamp only clamps times later than SOURCE_DATE_EPOCH, so a file
+# copied from the context keeps an older mtime the checkout happened to give it.
+# Stamped here instead, so the final stage copies only files this build wrote.
+RUN mkdir /out/licenses && cp /workspace/LICENSE /workspace/NOTICE /out/licenses/ && \
+    touch -d "@${SOURCE_DATE_EPOCH:-0}" /out/licenses /out/licenses/*
 
 # No RUN: a cross-built target needs no emulation, and alpine (rather than
-# distroless) so a TestWave step can still use `script:`.
+# distroless) so a runner can still wrap the binary in a shell script.
 FROM ${ALPINE_IMAGE}
 COPY --from=builder /out/e2e.test /usr/local/bin/e2e.test
-COPY LICENSE NOTICE /licenses/
+COPY --from=builder /out/licenses/ /licenses/
 
-# TestWave mounts /artifacts and parses junit-test-report.xml at its root; the
-# rest of the directory is uploaded as is.
+# Reports go to /artifacts, which the runner mounts: junit-test-report.xml at
+# its root, the name runners that collect JUnit look for, and report.json.
 WORKDIR /e2e
 USER 65532:65532
 
+# A run that names no expected version fails rather than skipping the check,
+# which a report would show as a pass.
+ENV NKE_E2E_REQUIRE_EXPECTED_VERSION=true
+
+# Build args rather than --label, so a rebuild that passes the same values
+# writes the same config, and so the same digest.
+ARG VALIDATE_VERSION=""
+ARG VALIDATE_REVISION=""
 LABEL org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.title="nvke-validate" \
       org.opencontainers.image.source="https://github.com/dsx-ai-factory/nvke" \
-      org.opencontainers.image.description="NVKE site validation suite"
+      org.opencontainers.image.description="NVKE site validation suite" \
+      org.opencontainers.image.version="${VALIDATE_VERSION}" \
+      org.opencontainers.image.revision="${VALIDATE_REVISION}"
 
 # The label filter and report paths are in ENTRYPOINT so that arguments a
 # caller adds, such as -e2e.versions, extend the run rather than replace it.

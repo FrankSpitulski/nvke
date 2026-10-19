@@ -25,8 +25,15 @@ type healthConfig struct {
 	Service         string
 	ServicePort     string
 	ExpectedVersion string
-	Timeout         time.Duration
+	// RequireExpectedVersion fails the version spec, rather than skipping it,
+	// when no version is expected. The validation image sets it: there a
+	// skipped check reads as a pass.
+	RequireExpectedVersion bool
+	Timeout                time.Duration
 }
+
+// expectedVersionRequireEnv sets healthConfig.RequireExpectedVersion.
+const expectedVersionRequireEnv = "NKE_E2E_REQUIRE_EXPECTED_VERSION"
 
 func loadHealthConfig() (healthConfig, error) {
 	// CWE_HEALTH_TIMEOUT and CWE_EXPECTED_VERSION are deprecated aliases for the
@@ -36,15 +43,21 @@ func loadHealthConfig() (healthConfig, error) {
 		return healthConfig{}, fmt.Errorf("parsing NKE_CONTROLLER_HEALTH_TIMEOUT: %w", err)
 	}
 
+	requireVersion, err := parseRequireEnv(expectedVersionRequireEnv, os.Getenv(expectedVersionRequireEnv))
+	if err != nil {
+		return healthConfig{}, err
+	}
+
 	// Where the controller is, from internal/controller, which reads the same
 	// NKE_CONTROLLER_NAMESPACE / NKE_CONTROLLER_SERVICE / NKE_CONTROLLER_SERVICE_PORT
 	// everything else looking for the controller reads.
 	return healthConfig{
-		Namespace:       controller.Namespace(),
-		Service:         controller.Service(),
-		ServicePort:     controller.Port(),
-		ExpectedVersion: envOrDefaultLegacy("NKE_CONTROLLER_EXPECTED_VERSION", "CWE_EXPECTED_VERSION", ""),
-		Timeout:         timeout,
+		Namespace:              controller.Namespace(),
+		Service:                controller.Service(),
+		ServicePort:            controller.Port(),
+		ExpectedVersion:        envOrDefaultLegacy("NKE_CONTROLLER_EXPECTED_VERSION", "CWE_EXPECTED_VERSION", ""),
+		RequireExpectedVersion: requireVersion,
+		Timeout:                timeout,
 	}, nil
 }
 
@@ -70,6 +83,36 @@ func TestUnit_EnvOrDefaultLegacy(t *testing.T) {
 			t.Setenv(legacyKey, tc.legacy)
 			if got := envOrDefaultLegacy(key, legacyKey, "def"); got != tc.want {
 				t.Errorf("envOrDefaultLegacy = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadHealthConfigRequireExpectedVersion(t *testing.T) {
+	for _, tc := range []struct {
+		raw     string
+		want    bool
+		wantErr bool
+	}{
+		{raw: "", want: false},
+		{raw: "true", want: true},
+		{raw: "false", want: false},
+		{raw: "yes", wantErr: true},
+	} {
+		t.Run(tc.raw, func(t *testing.T) {
+			t.Setenv(expectedVersionRequireEnv, tc.raw)
+			hc, err := loadHealthConfig()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("loadHealthConfig with %s=%q succeeded, want an error", expectedVersionRequireEnv, tc.raw)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("loadHealthConfig: %v", err)
+			}
+			if hc.RequireExpectedVersion != tc.want {
+				t.Fatalf("RequireExpectedVersion = %v, want %v", hc.RequireExpectedVersion, tc.want)
 			}
 		})
 	}
@@ -136,6 +179,9 @@ var _ = Describe("controller management-plane health", Label("health", "site-val
 		defer cancel()
 
 		if hc.ExpectedVersion == "" {
+			if hc.RequireExpectedVersion {
+				Fail(fmt.Sprintf("NKE_CONTROLLER_EXPECTED_VERSION is not set, and %s requires it", expectedVersionRequireEnv))
+			}
 			Skip("NKE_CONTROLLER_EXPECTED_VERSION is not set")
 		}
 
