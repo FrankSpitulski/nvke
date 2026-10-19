@@ -8,15 +8,28 @@ In the Notes column, **Pinned** means NVKE builds, installs or stages exactly th
 
 | Item | Supported | Notes |
 |---|---|---|
-| Kubernetes version | 1.36.3 | Pinned. The node image stages an `nvke-kubeadm-distro` package for it. Another patch release of 1.36 is not on the node. |
+| Kubernetes version | 1.36.3 | Pinned. Release qualification targets 1.36 (`release/policy.yaml`). The node image also stages `nvke-kubeadm-distro` packages for 1.34.2 and 1.35.3; those versions are not supported. Another patch release of 1.36 is not on the node. |
 | Version format | `X.Y.Z`, with no leading `v` | The API and the site spec reject any other format. |
-| Management cluster | 1.36.3 | Set once, in the site spec's `cluster.k8sVersion` field, at bootstrap. `nvkectl generate sitespec` writes an older default unless you set it. The management cluster does not upgrade itself. |
+| Management cluster | 1.36.3 | Set once, in the site spec's `cluster.k8sVersion` field, at bootstrap. `nvkectl generate sitespec` writes 1.36.3 unless you set it. The management cluster does not upgrade itself. |
 | Workload cluster | 1.36.3 | `controlPlaneKubernetesVersion` is required and has no default. The API accepts any `X.Y.Z`, but nodes run only a version their node image carries. |
 | Control-plane upgrade | One minor version up, or a later patch release | Range. Downgrades and requests for the current version are rejected. The cluster must have a `controlPlaneVIP`, and only one upgrade runs at a time. |
 | Worker node pool skew | Up to 3 minor versions behind the control plane | Range. Checked when you upgrade the control plane. A new node pool starts at the cluster's version. |
 | Upgrade target on NICo | A registered release for the target version | The upgrade selects a release for the target Kubernetes version with the same architecture, variant and Ubuntu version as the current one. It fails if none is registered, unless the current release sets the Kubernetes version at provisioning time. |
 | OpenID Connect (OIDC) on a workload cluster | 1.30.0 or later | Range. Applies to `enableOidc` and `nvkeOIDCAuth`. |
 | Fleet-wide OIDC providers on a workload cluster | 1.34.0 or later | Range. Applies to `oidc.providers`. A cluster created on an earlier version gets none. |
+
+### Kubernetes feature gates
+
+NVKE runs every Kubernetes component with the upstream default feature gates for its Kubernetes version. On the supported version, NVKE sets no `--feature-gates` flag on `kube-apiserver`, `kube-controller-manager` or `kube-scheduler`, and no `featureGates` in the kubelet or kube-proxy configuration. The same applies to the management cluster and to workload clusters.
+
+| Feature stage | State in NVKE | Notes |
+|---|---|---|
+| General availability (GA) | Enabled | Kubernetes locks most GA gates on, and removes them in a later release. |
+| Beta | The upstream default | Most beta gates are on by default upstream, and some are off. NVKE does not change either. |
+| Alpha | Disabled | Alpha gates are off by default upstream. NVKE does not enable any. |
+| Beta API versions | The upstream default | NVKE does not set `--runtime-config`, so beta API versions that are off by default upstream stay off. |
+
+The NVKE API and the site spec have no field to change a feature gate. The [Kubernetes feature gates reference](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) lists each gate's stage and default for every Kubernetes version.
 
 ## Container networking
 

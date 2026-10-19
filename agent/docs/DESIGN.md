@@ -327,8 +327,7 @@ Defined in `pkg/agent/proto/node_agent.proto`. Grouped conceptually:
 **Kubeadm lifecycle**
 `ExecuteKubeadmInit`, `ExecuteKubeadmJoin`, `ExecuteKubeadmReset`,
 `GetKubeadmStatus`, `ExecuteKubeadmPreflight`, `ExecuteNodePreflight`,
-`GetKubeadmJoinString`, `UpdateAndFetchKubeAdmJoinStrings`, `GetKubeconfig`,
-`SetUnsetIsMaster`.
+`GetKubeadmJoinString`, `UpdateAndFetchKubeAdmJoinStrings`, `GetKubeconfig`.
 
 **CNI**
 `InstallCNI` (current). Legacy in-init CNI during `ExecuteKubeadmInit` when
@@ -342,7 +341,7 @@ Defined in `pkg/agent/proto/node_agent.proto`. Grouped conceptually:
 `InitializeKubernetesAPIEncryption`, `PromoteKubernetesAPIEncryptionProviders`,
 `UpdateEncryptionConfig`,
 `StartEtcdEncryptionAtRestObjectsRewrite` + `Get…Status`,
-`RemovePlainTextSecondaryEncryptionEntry`, `RestartAPIPods`.
+`RemovePlainTextSecondaryEncryptionEntry`.
 
 **Control-plane availability**
 `StartK8sControlPlaneNodeGracefulShutdown` + `Get…Status`, `StartKubeVipRestore`,

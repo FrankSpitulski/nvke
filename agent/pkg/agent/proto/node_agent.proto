@@ -150,8 +150,6 @@ service NodeAgent {
 
   rpc RemovePlainTextSecondaryEncryptionEntry(RemovePlainTextSecondaryEncryptionEntryRequest) returns (RemovePlainTextSecondaryEncryptionEntryResponse) {}
 
-  rpc RestartAPIPods(RestartAPIPodsRequest) returns (RestartAPIPodsResponse) {}
-
   rpc UploadFileBundle(stream FileChunk) returns (UploadStatus) {}
 
   // WriteNodeAgentConfig replaces /etc/agent/config.yaml with the given YAML
@@ -159,8 +157,6 @@ service NodeAgent {
   rpc WriteNodeAgentConfig(WriteNodeAgentConfigRequest) returns (WriteNodeAgentConfigResponse) {}
 
   rpc StreamExecuteScript(ExecuteScriptRequest) returns (stream ScriptOutputChunk) {}
-
-  rpc SetUnsetIsMaster(SetUnsetIsMasterRequest) returns (SetUnsetIsMasterResponse) {}
 
   rpc InstallBundle(InstallBundleRequest) returns (InstallBundleResponse) {}
 
@@ -672,27 +668,11 @@ message WriteNodeAgentConfigResponse {
   int32 code = 2;
 }
 
-message RestartAPIPodsRequest {}
-
-message RestartAPIPodsResponse {
-  string status = 1;
-  string error_message = 2;
-}
-
 message ScriptOutputChunk {
   string output = 1;
   string error = 2;
   int32 exit_code = 3; // Exit code (set in final chunk)
   bool is_complete = 4; // Indicates if this is the final chunk
-}
-
-message SetUnsetIsMasterRequest {
-  bool is_master = 1;
-}
-
-message SetUnsetIsMasterResponse {
-  string status = 1;
-  string error_message = 2;
 }
 
 message InstallBundleRequest {
