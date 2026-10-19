@@ -120,7 +120,7 @@ Authentication has three modes. Off is the default.
      --values-for controller=../auth-values.yaml
    ```
 
-   The wrapper reads the site spec, the stack config and the kubeconfig from `NVKE_SITESPEC`, `NVKE_STACK_CONFIG` and `NVKE_KUBECONFIG`, which `env.sh` exports, so the controller chart and image stay the ones you installed. The install upgrades each component in place, and applies `auth-values.yaml` to the controller after the deploy path's own values, which turn authentication off. The chart refuses to render if `config` is set without `create`, or if `caBundlePath` names a file under `/etc/nke/auth` that `extraFiles` does not list.
+   The wrapper reads its inputs from the `NVKE_*` variables that `env.sh` exports, so the controller chart and image stay the ones you installed. The install upgrades each component in place, and applies `auth-values.yaml` to the controller after the deploy path's own values, which turn authentication off. The chart refuses to render if `config` is set without `create`, or if `caBundlePath` names a file under `/etc/nke/auth` that `extraFiles` does not list.
 
 4. Wait for the new pods and check the startup log.
 
