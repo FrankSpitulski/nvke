@@ -88,9 +88,6 @@ func (s *clusterService) GetClusterControlPlane(
 
 // controlPlaneFailureDomains lists eligible domains plus any other domain holding a node, sorted by name.
 func controlPlaneFailureDomains(eligible []string, cpNodes []db.Node) *[]api.ControlPlaneFailureDomain {
-	if len(eligible) == 0 {
-		return nil
-	}
 	byName := map[string]api.ControlPlaneFailureDomain{}
 	for _, name := range eligible {
 		byName[name] = api.ControlPlaneFailureDomain{Name: name}
@@ -107,6 +104,9 @@ func controlPlaneFailureDomains(eligible []string, cpNodes []db.Node) *[]api.Con
 			d.ReadyNodeCount++
 		}
 		byName[name] = d
+	}
+	if len(byName) == 0 {
+		return nil
 	}
 	out := slices.SortedFunc(maps.Values(byName), func(a, b api.ControlPlaneFailureDomain) int { return cmp.Compare(a.Name, b.Name) })
 	return &out

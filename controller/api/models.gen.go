@@ -413,7 +413,8 @@ type ControlPlaneStatus struct {
 	// DeleteRequestedNodeCount Control-plane nodes with an accepted delete that has not started.
 	DeleteRequestedNodeCount int `json:"deleteRequestedNodeCount"`
 
-	// FailureDomains Control-plane failure domains and the nodes in each. Omitted when the provider publishes none.
+	// FailureDomains Control-plane failure domains and the nodes in each: the published domains, or the domains nodes report
+	// when the provider places them itself. Omitted when there are neither.
 	FailureDomains *[]ControlPlaneFailureDomain `json:"failureDomains,omitempty"`
 
 	// ControlPlaneUpgrading The control plane is being upgraded.
@@ -422,8 +423,10 @@ type ControlPlaneStatus struct {
 	// CpNodesRecycling Control-plane nodes are being replaced.
 	CpNodesRecycling Condition `json:"cpNodesRecycling"`
 
-	// FailureDomainSpread `True` when each control-plane node is in its own failure domain and each domain has a Ready node.
-	// `False` otherwise; the message names the domains. `Unknown` when no domains are published.
+	// FailureDomainSpread `True` when each control-plane node is in its own failure domain and each domain holding a provisioned
+	// node has a Ready one; empty domains and nodes being deleted do not count. `False` otherwise; the message
+	// names the domains. Without published domains, it checks the domains nodes report. `Unknown` when there
+	// are neither.
 	FailureDomainSpread *Condition `json:"failureDomainSpread,omitempty"`
 
 	// Rollout Rollout progress.

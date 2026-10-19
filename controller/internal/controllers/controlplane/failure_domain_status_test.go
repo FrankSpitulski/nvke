@@ -5,7 +5,6 @@ package controlplane
 
 import (
 	"context"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -31,6 +30,13 @@ func fdNode(name, domain string, provisioned, ready bool) db.Node {
 	}
 }
 
+// reportedNode is a provisioned, Ready node whose domain only the provider reports.
+func reportedNode(name, domain string) db.Node {
+	node := fdNode(name, "", true, true)
+	node.ObservedFailureDomain = domain
+	return node
+}
+
 func TestControlPlaneFailureDomainStatus(t *testing.T) {
 	deleting := fdNode("cp-3", "rack-a", true, true)
 	deleting.Conditions.Deleting = db.NewCondition(true, "")
@@ -43,10 +49,22 @@ func TestControlPlaneFailureDomainStatus(t *testing.T) {
 		message  string
 	}{
 		{
-			name:    "no published domains",
+			name:    "no published or reported domains",
 			nodes:   []db.Node{fdNode("cp-1", "", true, true)},
 			status:  db.ConditionStatusUnknown,
-			message: "No failure domains are published.",
+			message: "No failure domains are published or reported.",
+		},
+		{
+			name:    "provider places each node in its own domain",
+			nodes:   []db.Node{reportedNode("cp-1", "rack-a"), reportedNode("cp-2", "rack-b"), fdNode("cp-3", "", false, false)},
+			status:  db.ConditionStatusTrue,
+			message: "Each control-plane node is in its own failure domain.",
+		},
+		{
+			name:    "provider places nodes in a shared domain",
+			nodes:   []db.Node{reportedNode("cp-1", "rack-a"), reportedNode("cp-2", "rack-a"), fdNode("cp-3", "", true, true)},
+			status:  db.ConditionStatusFalse,
+			message: "no failure domain for cp-3; nodes share rack-a.",
 		},
 		{
 			name:     "one node per domain",
@@ -91,6 +109,13 @@ func TestControlPlaneFailureDomainStatus(t *testing.T) {
 			message:  "no failure domain for cp-2.",
 		},
 		{
+			name:     "unprovisioned node without a domain is not unplaced",
+			eligible: []string{"rack-a"},
+			nodes:    []db.Node{fdNode("cp-1", "rack-a", true, true), fdNode("cp-2", "", false, false)},
+			status:   db.ConditionStatusTrue,
+			message:  "Each control-plane node is in its own failure domain.",
+		},
+		{
 			name:     "observed domain wins over requested",
 			eligible: []string{"rack-a", "rack-b"},
 			nodes: func() []db.Node {
@@ -122,9 +147,9 @@ func TestReconcileFailureDomainStatusRecordsObservedDomainAndStatus(t *testing.T
 			!d.Spread.LastTransitionTime.IsZero()
 	})).Return(nil)
 
-	r := &reconciler{db: mockTx, logger: slog.Default()}
+	r := &reconciler{db: mockTx}
 	cp := &controlPlane{nodes: []db.Node{node}}
-	fds := &failureDomains{eligible: []string{"rack-b", "rack-a"}, observedByNodeName: map[string]string{"cp-1": "rack-b"}}
+	fds := &failureDomains{eligible: []string{"rack-b", "rack-a"}, reportedByNodeName: map[string]string{"cp-1": "rack-b"}}
 
 	require.NoError(t, r.reconcileFailureDomainStatus(context.Background(), cluster, cp, fds))
 	mockTx.AssertExpectations(t)
@@ -134,22 +159,38 @@ func TestReconcileFailureDomainStatusRecordsObservedDomainAndStatus(t *testing.T
 func TestReconcileFailureDomainStatusSkipsUnchangedStatus(t *testing.T) {
 	node := fdNode("cp-1", "rack-a", true, true)
 	node.ObservedFailureDomain = "rack-a"
-	since := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	cluster := db.Cluster{ID: uuid.New(), ControlPlaneFailureDomains: &db.ControlPlaneFailureDomains{
 		Eligible: []string{"rack-a"},
 		Spread: db.Condition{
 			Status:             db.ConditionStatusTrue,
 			Message:            "Each control-plane node is in its own failure domain.",
-			LastTransitionTime: since,
+			LastTransitionTime: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
 		},
 	}}
 	mockTx := &testutil.MockTx{}
 
-	r := &reconciler{db: mockTx, logger: slog.Default()}
+	r := &reconciler{db: mockTx}
 	cp := &controlPlane{nodes: []db.Node{node}}
-	fds := &failureDomains{eligible: []string{"rack-a"}, observedByNodeName: map[string]string{"cp-1": "rack-a"}}
+	fds := &failureDomains{eligible: []string{"rack-a"}, reportedByNodeName: map[string]string{"cp-1": "rack-a"}}
 
 	require.NoError(t, r.reconcileFailureDomainStatus(context.Background(), cluster, cp, fds))
 	mockTx.AssertNotCalled(t, "UpdateNodeObservedFailureDomain", mock.Anything, mock.Anything, mock.Anything)
 	mockTx.AssertNotCalled(t, "UpdateClusterControlPlaneFailureDomains", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestReconcileFailureDomainStatusClearsOnlyAnEmptyReport(t *testing.T) {
+	cleared, missing := fdNode("cp-1", "rack-a", true, true), fdNode("cp-2", "rack-b", true, true)
+	cleared.ObservedFailureDomain, missing.ObservedFailureDomain = "rack-c", "rack-d"
+	mockTx := &testutil.MockTx{}
+	mockTx.On("UpdateNodeObservedFailureDomain", mock.Anything, cleared.ID, "").Return(nil)
+	mockTx.On("UpdateClusterControlPlaneFailureDomains", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	r := &reconciler{db: mockTx}
+	cp := &controlPlane{nodes: []db.Node{cleared, missing}}
+	fds := &failureDomains{eligible: []string{"rack-a", "rack-b"}, reportedByNodeName: map[string]string{"cp-1": ""}}
+
+	require.NoError(t, r.reconcileFailureDomainStatus(context.Background(), db.Cluster{ID: uuid.New()}, cp, fds))
+	mockTx.AssertExpectations(t)
+	assert.Equal(t, "rack-a", cp.nodes[0].EffectiveFailureDomain())
+	assert.Equal(t, "rack-d", cp.nodes[1].EffectiveFailureDomain())
 }

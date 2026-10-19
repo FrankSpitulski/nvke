@@ -671,6 +671,26 @@ func TestGetClusterControlPlane(t *testing.T) {
 		mockDB.AssertExpectations(t)
 	})
 
+	t.Run("provider-owned placement lists the reported domains", func(t *testing.T) {
+		cluster := newCluster()
+		cluster.ControlPlaneFailureDomains = &db.ControlPlaneFailureDomains{Spread: db.NewCondition(true, "")}
+		mockDB := &testutil.MockDB{}
+		mockDB.On("GetCluster", mock.Anything, clusterID).Return(cluster, nil)
+		mockDB.On("ListNodes", mock.Anything, mock.MatchedBy(cpFilter)).Return([]db.Node{
+			{ID: uuid.New(), ClusterID: clusterID, ControlPlane: true, ObservedFailureDomain: "rack-b"},
+			{ID: uuid.New(), ClusterID: clusterID, ControlPlane: true},
+		}, nil)
+
+		svc := clusterService{db: mockDB}
+		resp, err := svc.GetClusterControlPlane(ctx, api.GetClusterControlPlaneRequestObject{ClusterID: clusterID})
+		require.NoError(t, err)
+
+		out := resp.(api.GetClusterControlPlane200JSONResponse)
+		require.NotNil(t, out.Status.FailureDomains)
+		assert.Equal(t, []api.ControlPlaneFailureDomain{{Name: "rack-b", NodeCount: 1}}, *out.Status.FailureDomains)
+		mockDB.AssertExpectations(t)
+	})
+
 	t.Run("controller-managed control plane surfaces a rollout summary", func(t *testing.T) {
 		desiredCfgID := uuid.MustParse("aaaaaaaa-0000-0000-0000-0000000000d1")
 		driftedCfgID := uuid.MustParse("aaaaaaaa-0000-0000-0000-0000000000d2")

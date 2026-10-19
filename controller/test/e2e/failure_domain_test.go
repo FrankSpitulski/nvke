@@ -179,13 +179,14 @@ func capdControlPlaneFailureDomainsAt(ctx context.Context, test *tenantTest, des
 }
 
 // cweFailureDomainStatusAt checks that the control-plane status reports the
-// placement CAPD shows: per-domain node counts, and the spread condition.
+// placement CAPD shows: per-domain node counts, and the spread condition. A
+// domain holding a node is reported even when it is not published.
 func cweFailureDomainStatusAt(ctx context.Context, test *tenantTest, got map[string]int, published map[string]bool) error {
 	cp, err := test.nvke.GetClusterControlPlane(ctx, test.cluster.ID)
 	if err != nil {
 		return err
 	}
-	wantCounts := make(map[string]int)
+	wantCounts := maps.Clone(got)
 	for name, controlPlane := range published {
 		if controlPlane {
 			wantCounts[name] = got[name]

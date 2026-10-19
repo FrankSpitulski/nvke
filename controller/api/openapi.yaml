@@ -1219,15 +1219,19 @@ components:
           readOnly: true
           items:
             $ref: "#/components/schemas/ControlPlaneFailureDomain"
-          description: Control-plane failure domains and the nodes in each. Omitted when the provider publishes none.
+          description: |
+            Control-plane failure domains and the nodes in each: the published domains, or the domains nodes report
+            when the provider places them itself. Omitted when there are neither.
           x-order: 9
         failureDomainSpread:
           allOf:
             - $ref: "#/components/schemas/Condition"
           readOnly: true
           description: |
-            `True` when each control-plane node is in its own failure domain and each domain has a Ready node.
-            `False` otherwise; the message names the domains. `Unknown` when no domains are published.
+            `True` when each control-plane node is in its own failure domain and each domain holding a provisioned
+            node has a Ready one; empty domains and nodes being deleted do not count. `False` otherwise; the message
+            names the domains. Without published domains, it checks the domains nodes report. `Unknown` when there
+            are neither.
           x-order: 10
 
     ControlPlaneFailureDomain:

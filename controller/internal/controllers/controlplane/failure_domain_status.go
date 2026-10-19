@@ -18,14 +18,15 @@ import (
 // writing only on change.
 func (r *reconciler) reconcileFailureDomainStatus(ctx context.Context, cluster db.Cluster, cp *controlPlane, fds *failureDomains) error {
 	for i := range cp.nodes {
-		observed := fds.observedByNodeName[cp.nodes[i].Name]
-		if observed == "" || observed == cp.nodes[i].ObservedFailureDomain {
+		// A node without an active Machine keeps its last observed domain.
+		reported, active := fds.reportedByNodeName[cp.nodes[i].Name]
+		if !active || reported == cp.nodes[i].ObservedFailureDomain {
 			continue
 		}
-		if err := r.db.UpdateNodeObservedFailureDomain(ctx, cp.nodes[i].ID, observed); err != nil && !errors.Is(err, db.ErrNotFound) {
+		if err := r.db.UpdateNodeObservedFailureDomain(ctx, cp.nodes[i].ID, reported); err != nil && !errors.Is(err, db.ErrNotFound) {
 			return err
 		}
-		cp.nodes[i].ObservedFailureDomain = observed
+		cp.nodes[i].ObservedFailureDomain = reported
 	}
 
 	prev := cmp.Or(cluster.ControlPlaneFailureDomains, &db.ControlPlaneFailureDomains{})
@@ -39,15 +40,10 @@ func (r *reconciler) reconcileFailureDomainStatus(ctx context.Context, cluster d
 	return r.db.UpdateClusterControlPlaneFailureDomains(ctx, cluster.ID, &next)
 }
 
-// controlPlaneFailureDomainStatus computes the spread condition over nodes not being deleted.
-// A domain is degraded when it has provisioned nodes and none is Ready.
+// controlPlaneFailureDomainStatus computes the spread condition over the published domains, or the domains nodes report
+// when none are published. Deleting nodes are ignored; a domain is degraded when it has provisioned nodes and none is Ready.
 func controlPlaneFailureDomainStatus(eligible []string, nodes []db.Node) db.ControlPlaneFailureDomains {
 	status := db.ControlPlaneFailureDomains{Eligible: slices.Sorted(slices.Values(eligible))}
-	if len(status.Eligible) == 0 {
-		status.Spread = db.Condition{Status: db.ConditionStatusUnknown, Message: "No failure domains are published."}
-		return status
-	}
-
 	var unplaced []string
 	nodeCount, provisioned, ready := map[string]int{}, map[string]int{}, map[string]int{}
 	for _, node := range nodes {
@@ -56,7 +52,9 @@ func controlPlaneFailureDomainStatus(eligible []string, nodes []db.Node) db.Cont
 		}
 		domain := node.EffectiveFailureDomain()
 		if domain == "" {
-			unplaced = append(unplaced, node.Name)
+			if isProvisioned(node) {
+				unplaced = append(unplaced, node.Name)
+			}
 			continue
 		}
 		nodeCount[domain]++
@@ -66,6 +64,11 @@ func controlPlaneFailureDomainStatus(eligible []string, nodes []db.Node) db.Cont
 				ready[domain]++
 			}
 		}
+	}
+
+	if len(status.Eligible) == 0 && len(nodeCount) == 0 {
+		status.Spread = db.Condition{Status: db.ConditionStatusUnknown, Message: "No failure domains are published or reported."}
+		return status
 	}
 
 	var shared, degraded []string
