@@ -8,9 +8,9 @@ name: OS Image Artifact
 # UBUNTU_RELEASE in os-image/packer/Makefile for why both ship), on an
 # os-image/v* tag, a manual dispatch, a main push that touches os-image/ or
 # the 12-hourly schedule, pushes all eight qcow2s to GHCR as OCI artifacts
-# under sha-<commit> tags, main-sha-<commit> on a main push (main pushes and
-# the schedule stop there; NVCR and S3 stay tag/dispatch only and read that
-# sha- alias), and on a real tag, when
+# under sha-<commit> tags, or main-sha-<commit> when the run is on main (main
+# pushes and the schedule stop there; NVCR and S3 stay tag/dispatch only and
+# read the alias their own run pushed), and on a real tag, when
 # NVKE_GITHUB_PUBLISH names os-image (it does not by default), adds the version
 # tags on GHCR and cuts a GitHub Release carrying nvke-os-image-check +
 # checksums covering all nine files. The GitHub Release is created here (not
@@ -124,10 +124,12 @@ concurrency:
 env:
   REPO_FDE: ghcr.io/dsx-ai-factory/nvke/os-image-fde
   REPO_NON_FDE: ghcr.io/dsx-ai-factory/nvke/os-image-non-fde
-  # The GHCR hand-off alias. A main push gets its own prefix: a release branch or
-  # tag at the same commit builds the same legs, and one shared alias let the slower
-  # run move the tag under the other run's publish.
-  SHA_ALIAS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && format('main-sha-{0}', github.sha) || format('sha-{0}', github.sha) }}
+  # The GHCR hand-off alias. A run on main (a push or the schedule) gets its own
+  # prefix: a tag at the same commit builds the same legs, and one shared alias
+  # let the slower run move the tag under the other run's publish. The readers
+  # (the skip check below, the NICo VMs lane, os-image/prune-ghcr-versions.sh)
+  # accept both prefixes.
+  SHA_ALIAS: ${{ github.ref == 'refs/heads/main' && format('main-sha-{0}', github.sha) || format('sha-{0}', github.sha) }}
   # The S3 build cache. The bucket and its two roles are repository variables;
   # this workflow only reads, and os-image-cache.yml, on main, is the only
   # writer.
@@ -185,9 +187,9 @@ jobs:
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
       # A scheduled run, or a re-run of a main push, on a commit whose
-      # default-flavor non-FDE images are already published has nothing to
-      # add. A tag, a mirror-branch push or a dispatch always bakes. Fails
-      # open: if GHCR cannot be listed, bake anyway.
+      # default-flavor non-FDE images are already published under either alias
+      # prefix has nothing to add. A tag, a mirror-branch push or a dispatch
+      # always bakes. Fails open: if GHCR cannot be listed, bake anyway.
       - name: Skip when this commit is already published
         id: existing
         if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
@@ -202,10 +204,13 @@ jobs:
             echo "::warning::could not list ${REPO_NON_FDE} versions; baking anyway"
             tags=""
           fi
-          if grep -qx "${SHA_ALIAS}-amd64" <<< "${tags}" && grep -qx "${SHA_ALIAS}-arm64" <<< "${tags}"; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "${SHA_ALIAS} is already published for both arches; nothing to bake"
-          fi
+          for alias in "sha-${GITHUB_SHA}" "main-sha-${GITHUB_SHA}"; do
+            if grep -qx "${alias}-amd64" <<< "${tags}" && grep -qx "${alias}-arm64" <<< "${tags}"; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "${alias} is already published for both arches; nothing to bake"
+              break
+            fi
+          done
 
       - name: Pick
         id: pick
@@ -430,8 +435,8 @@ jobs:
 
           version="${VERSION}"
 
-          # The sha- alias (main-sha- on a main push) is the hand-off the NVCR and
-          # S3 publishers and the NICo VMs lane read. The version alias is the
+          # The sha- alias (main-sha- on main) is the hand-off the NVCR and S3
+          # publishers and the NICo VMs lane read. The version alias is the
           # GitHub publication.
           aliases=("${SHA_ALIAS}")
           if [[ "${GITHUB_REF}" == refs/tags/* && "${GITHUB_PUBLISH}" == "true" ]]; then
@@ -984,8 +989,8 @@ jobs:
             echo "::error::NVKE_NGC_ORG is not set in the nvcr environment"
             exit 1
           fi
-          # The source is always the sha- alias: the version alias exists on
-          # GHCR only when NVKE_GITHUB_PUBLISH names os-image.
+          # The source is always this run's sha- or main-sha- alias: the version
+          # alias exists on GHCR only when NVKE_GITHUB_PUBLISH names os-image.
           source_tag="${SHA_ALIAS}${SUFFIX}-${ARCH}"
           tag="${source_tag}"
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
@@ -1091,8 +1096,9 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             release="${VERSION}"
           fi
-          # Pull the sha- alias: the version alias exists on GHCR only when
-          # NVKE_GITHUB_PUBLISH names os-image. The S3 path keeps the version.
+          # Pull this run's sha- or main-sha- alias: the version alias exists on
+          # GHCR only when NVKE_GITHUB_PUBLISH names os-image. The S3 path keeps
+          # the version.
           mkdir -p dist
           oras pull "${REPO}:${SHA_ALIAS}${SUFFIX}-${ARCH}" -o dist
           {

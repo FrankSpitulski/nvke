@@ -108,9 +108,9 @@ artifacts on GHCR. Unset, it means
 component but `os-image`, whose qcow2s go to NVCR and S3 only. Set it to `none`
 to stop every GitHub publication, or list the components you want. NVCR, S3 and
 CloudFront are not affected, and neither is the CI hand-off on GHCR: the `sha-`
-and `edge` aliases of `agent` and `cli` and the `sha-` tagged qcow2s of
-`os-image` keep flowing, because `agent/Makefile`, the NVCR and S3 publishers
-and the NICo VMs lane read them. Only the version-tagged aliases, the GitHub
+and `edge` aliases of `agent` and `cli` and the `sha-` and `main-sha-` tagged
+qcow2s of `os-image` keep flowing, because `agent/Makefile`, the NVCR and S3
+publishers and the NICo VMs lane read them. Only the version-tagged aliases, the GitHub
 Releases and their attestations stop. The variable must be a repository or
 organization variable; an environment variable is not visible to the job
 conditions. With `os-image` off, each leg's SBOM, checksums file and the
