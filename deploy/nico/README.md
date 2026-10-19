@@ -38,9 +38,10 @@ What the node needs, all present on the reference instance type:
   renderer are Python), plus `clusterctl` for the prerequisites
 - to install for a site: `nvkectl` (`make -C cli build` writes
   `cli/bin/nvkectl`; `NVKECTL` names it, else PATH). `deploy/check-site.sh --sitespec
-  sitespec.yaml --kubeconfig site.kubeconfig`
+  sitespec.yaml --stack-config stack-config.json --kubeconfig site.kubeconfig`
   reports what is still missing; `deploy/nvke-deploy.sh install --deploy-path
-  deploy/nico --sitespec sitespec.yaml --kubeconfig site.kubeconfig` renders
+  deploy/nico --sitespec sitespec.yaml --stack-config stack-config.json
+  --kubeconfig site.kubeconfig` renders
   this deploy path for the site and applies it: the site spec gives the site
   name, VIP and trust domain, and the install supplies the NICo API and the
   optional images and mirror. The render lives in a private scratch directory
