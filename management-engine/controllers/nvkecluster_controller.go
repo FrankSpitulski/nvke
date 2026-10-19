@@ -382,9 +382,7 @@ func setNVKEClusterConditions(cluster *internalv1.NVKECluster) error {
 }
 
 func resolveControllerClass(class internalv1.ResourceName, request *api.CreateClusterRequest) error {
-	if class != "standard" && class != "local" {
-		return invalidControllerRequest("The selected control-plane class is not available")
-	}
+	_ = class
 	request.ControlPlaneKubernetesVersion = "1.36.1"
 	request.ControlPlaneConfig = &api.CreateClusterControlPlaneConfig{
 		DesiredCount:                1,
@@ -413,7 +411,6 @@ func (r *NVKEClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.PollInterval <= 0 {
 		r.PollInterval = defaultPollInterval
 	}
-	// Status writes must not resubmit rejected requests. Deletion must still run without a spec change.
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&internalv1.NVKECluster{}).
 		Named("nvkecluster").

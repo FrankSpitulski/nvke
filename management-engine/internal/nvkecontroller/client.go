@@ -144,7 +144,7 @@ func (c *Client) Create(ctx context.Context, request api.CreateClusterRequest) (
 	return &result, nil
 }
 
-// Delete requests asynchronous deletion. A missing cluster is already deleted.
+// Delete requests asynchronous deletion
 func (c *Client) Delete(ctx context.Context, id string) error {
 	clusterID, err := parseID(id)
 	if err != nil {
@@ -160,7 +160,6 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 
 func readResponse(response *http.Response, requestErr error, expected int, target any) error {
 	if requestErr != nil {
-		// Transport errors can contain credentials. Preserve only safe context error identities.
 		if errors.Is(requestErr, context.Canceled) {
 			return fmt.Errorf("NVKE controller request canceled: %w", context.Canceled)
 		}
