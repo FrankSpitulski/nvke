@@ -4,7 +4,7 @@ This page describes how to build the reference node OS image from the `os-image/
 
 Run the checker against every image you build, in the environment where its nodes will run. A pass shows that a node booted from the image attests to your SPIRE server, and that its `nvke-agent` accepts mTLS calls from an NVKE service identity, which is what the management plane needs to manage the node.
 
-To build the node images you deploy, use NVIDIA Kubernetes Recipes (NVKR), as described in [Get NVKE artifacts from NVKR and write release manifests](build-node-images.md#the-node-os-image).
+For HTTP(S) hosting and provisioning after the build, see [Build and host node OS images](build-node-images.md).
 
 > **Note:** The image is built from Canonical Ubuntu. For internal/dev use only - contact Canonical before commercial production use.
 

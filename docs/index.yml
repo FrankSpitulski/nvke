@@ -32,7 +32,7 @@ navigation:
         contents:
           - page: Plan your installation
             path: operate/plan-installation.md
-          - page: Get NVKE artifacts from NVKR and write release manifests
+          - page: Build and host node OS images
             path: operate/build-node-images.md
           - page: Build and verify your own node image
             path: operate/build-and-verify-node-image.md

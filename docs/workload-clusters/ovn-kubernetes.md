@@ -38,9 +38,9 @@ The chart package installs the chart under `/etc/dgx/ovn-kubernetes`. Its NVKE v
 
 ## Build the default artifacts
 
-1. Build the NVKR node image by following [The node OS image](../operate/build-node-images.md#the-node-os-image).
+1. Build the reference node image by following [Build and host node OS images](../operate/build-node-images.md#build-the-node-os-image).
 
-   During the build, NVKR invokes the NVKE node-image build. That build:
+   The node-image build:
 
    - downloads the locked OVN-Kubernetes source and builds its image;
    - creates the chart and image Debian packages for the image architecture;
