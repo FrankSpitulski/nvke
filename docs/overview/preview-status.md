@@ -1,6 +1,6 @@
 # Preview status and known limitations
 
-> **Preview:** NVKE is available as a preview. APIs, configuration and behavior can change between releases, and we do not recommend NVKE for production workloads. See [Preview status and known limitations](preview-status.md).
+> **Preview:** NVKE is available as a preview. APIs, configuration and behavior can change between releases, and we do not recommend NVKE for production workloads.
 
 This page lists what the NVIDIA Kubernetes Engine (NVKE) preview supports and every known limitation. For versions and platforms, see [Supported platforms and versions](supported-platforms.md).
 

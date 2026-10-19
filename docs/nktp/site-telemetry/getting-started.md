@@ -89,7 +89,7 @@ plus:
 Nothing else. The deploy path creates the `nktp` namespace with the
 `privileged` Pod Security level the node Collector needs, and every setting a
 management cluster needs is in
-[`nktp/values.yaml`](../../../deploy/nico/nktp/values.yaml).
+[`nktp/values.yaml`](https://github.com/dsx-ai-factory/nvke/blob/main/deploy/nico/nktp/values.yaml).
 
 ## Install order
 
@@ -157,7 +157,7 @@ For the full checklist, see [verification](verification.md).
 - [Monitoring your service](monitoring-a-service.md): how a service gets its
   own metrics scraped.
 - [Verification](verification.md): checking every signal end to end.
-- [Troubleshooting](troubleshooting.md): the failures seen on real site
-  controllers, and their fixes.
+- [Troubleshooting](troubleshooting.md): the failures seen on real management
+  clusters, and their fixes.
 - [Observe NVKE and its clusters](../../operate/observe.md): health checks,
   controller logs and metrics, which NKTP complements rather than replaces.

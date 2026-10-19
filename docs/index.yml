@@ -160,11 +160,11 @@ navigation:
         # this the URL repeats it.
         skip-slug: true
         # Sections in reading order rather than in order of first appearance
-        # in openapi.yaml, which would put Catalog first.
+        # in openapi.yaml. Catalog is absent on purpose: both of its operations
+        # carry x-fern-ignore, so Fern has no group to place.
         layout:
           - clusters
           - controlPlane
           - nodePools
           - nodeSets
           - nodes
-          - catalog

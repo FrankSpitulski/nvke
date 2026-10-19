@@ -83,7 +83,7 @@ nvkectl generate sitespec my-tier0-site --nodes hosts.csv \
 ```
 
 The file format is described in [sitespec.md](sitespec.md); a complete example
-is in [examples/sitespec.yaml](../examples/sitespec.yaml).
+is in [examples/sitespec.yaml](https://github.com/dsx-ai-factory/nvke/blob/main/cli/examples/sitespec.yaml).
 
 ### 3. Bootstrap the site cluster
 
@@ -116,7 +116,7 @@ read -rs NVKECTL_DATABASE_PASSWORD && export NVKECTL_DATABASE_PASSWORD
 Fill in every `REPLACE_*` value: the NICo API endpoint, organization ID and
 API name. Without a release, name the profile content image in
 `images.profiles`. The file holds no secret, so it can sit next to the site
-spec. [deploy/README.md](../../deploy/README.md) lists every key.
+spec. [deploy/README.md](https://github.com/dsx-ai-factory/nvke/blob/main/deploy/README.md) lists every key.
 
 ### 5. Install the controller stack
 
@@ -197,7 +197,7 @@ Secret, and `LAST CHECK` says how long ago that check ran. Look for `CONFIGURED`
 with `HEALTHY`. `HEALTHY` means the credentials authenticated recently; it does
 not prove that provisioning will succeed. `NO-IDENTITY` and `UNSUPPORTED` mean
 nothing is checking the credentials yet; see
-[Infrastructure providers](../README.md#infrastructure-providers) for what each
+[Infrastructure providers](https://github.com/dsx-ai-factory/nvke/blob/main/cli/README.md#infrastructure-providers) for what each
 value means.
 
 `nvkectl` only reads this state and never changes it, so it makes no difference
@@ -215,7 +215,7 @@ cat examples/capd-cluster.yaml | nvkectl create cluster -f -
 ```
 
 The spec is a `CreateClusterRequest`; the schema is served at `/api/docs` on
-the management plane. [examples/capd-cluster.yaml](../examples/capd-cluster.yaml)
+the management plane. [examples/capd-cluster.yaml](https://github.com/dsx-ai-factory/nvke/blob/main/cli/examples/capd-cluster.yaml)
 is a starting point.
 
 ### 9. Watch it come up
@@ -268,7 +268,7 @@ same `nico` or `infra` payload as its cluster, and that is where the node type
 is chosen. `nvkectl create nodepool` adds workers; the control plane is managed
 through the cluster's `controlPlaneConfig`.
 
-[examples/nico-mock-nodepool.yaml](../examples/nico-mock-nodepool.yaml) is a
+[examples/nico-mock-nodepool.yaml](https://github.com/dsx-ai-factory/nvke/blob/main/cli/examples/nico-mock-nodepool.yaml) is a
 starting point. Provisioning is asynchronous, the same as cluster creation.
 
 ### 13. Scale a node pool
@@ -288,8 +288,9 @@ request is sent.
 Scaling is asynchronous: the command returns once the controller has recorded the change,
 and the management plane provisions or tears down nodes to match it. A rejected
 scale-up, such as one the cluster's pod CIDR has no room for, is reported with
-the controller's own message. There is no confirmation prompt, so a lower count starts
-removing nodes straight away.
+the controller's own message. There is no confirmation prompt. A lower count removes
+only pending nodes that provisioning has not started; running nodes stay until you
+delete them.
 
 
 ### 14. Delete a node pool

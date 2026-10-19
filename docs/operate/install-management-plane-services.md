@@ -98,7 +98,7 @@ The install takes its charts and images from one of three places. The commands i
 | A local NVKR Run | `--release ../release.json --nvkr-run-dir <NVKR_CHECKOUT>/.nvkr/runs/<ATTEMPT>` | Charts and images come out of the Run's OCI layouts and are imported into the nodes' container runtime. No registry is involved. |
 | No release | Neither flag | Every chart comes from the checkout and the public repositories. Set `images.profiles` in the stack config, as `repository:tag` or `repository@sha256:<digest>`: the deploy path enables the profile content image without naming it. `images.controller` is optional in the same form; without it the install uses the overlay's pinned image, the newest controller release. |
 
-The install refuses a release that lacks an image artifact the deploy path names: the controller image `cwe`, the profile content image `controller-profiles` or the CAPNICo image `capnico-controller`. See [Preview status and known limitations](../overview/preview-status.md).
+The install refuses a release that lacks an image artifact the deploy path names: the controller image `cwe`, the profile content image `controller-profiles` or the CAPNICo image `capnico-controller`. NVKR's maintained M2 Definition builds neither `controller-profiles` nor `capnico-controller`, so for a Release built from it use the last row: run the commands below without `--release`, and set `images.profiles` in the stack config as [Get NVKE artifacts from NVKR and write release manifests](build-node-images.md) describes. See [Preview status and known limitations](../overview/preview-status.md).
 
 ## Install
 

@@ -24,7 +24,7 @@ NVKE does no authorization. Every caller that NVKE admits can call every endpoin
   ```
 
   The install created the Helm release `nke-controller` and the Deployment `nke-controller`, both in the `nke-controller` namespace.
-- The shell you run the install from has the `NVKECTL_*` variables from [Fill in the controller stack settings](install-management-plane-services.md#fill-in-the-controller-stack-settings) exported, as described in [Run the install again](install-management-plane-services.md#run-the-install-again).
+- The shell you run the install from has the `NVKECTL_*` variables from [Write the stack config](install-management-plane-services.md#write-the-stack-config) exported, as described in [Run the install again](install-management-plane-services.md#run-the-install-again).
 - Your IdP publishes an OIDC discovery document over HTTPS, and the management cluster can reach its signing-key endpoint.
 - Your IdP has a group for the people and automation allowed to call the NVKE API, and puts it in a token claim named `groups`, a list of strings. NVKE reads group membership only from that claim.
 - Your IdP has an OIDC client for `nvkectl` that needs no client secret.
