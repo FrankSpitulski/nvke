@@ -1,6 +1,6 @@
 # The Go workspace
 
-This repository holds twelve Go modules. The root `go.work` ties them together,
+This repository holds thirteen Go modules. The root `go.work` ties them together,
 so one `make build` covers the whole tree and one Go toolchain version applies.
 `go.work`, `go.work.sum`, and the module manifests are committed; the generated
 `vendor/` tree is not. All dependencies, including
@@ -22,6 +22,7 @@ but no NVIDIA credentials.
 | `management-engine` | yes | management services |
 | `os-image` | yes | node-image tooling |
 | `release` | yes | release qualification tooling |
+| `validate` | yes | node-image validator |
 
 ## Everyday use
 

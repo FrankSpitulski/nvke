@@ -100,12 +100,12 @@ go tool cover -func=coverage/controller.out        # per function, on stdout
 
 ### Which modules collect
 
-Ten of the twelve workspace modules. `controller/api` holds generated OpenAPI
-types and a generated client, and `controller/hack/capd-reboot-controller` is a
-development helper run by hand; neither has a test file. Both are declared as
-such in `hack/coverage.sh`, and `make coverage-check` fails if either gains one
-without being moved — a module that starts testing and does not start collecting
-is the drift this is here to catch.
+Twelve of the thirteen workspace modules.
+`controller/hack/capd-reboot-controller` is a development helper run by hand
+with no test file. It is declared as such in `hack/coverage.sh`, and
+`make coverage-check` fails if it gains one without being moved — a module that
+starts testing and does not start collecting is the drift this is here to
+catch.
 
 ## What fails, and what it means
 
