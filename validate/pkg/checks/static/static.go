@@ -225,6 +225,7 @@ func checkBOMMatchesSBOM(_ context.Context, _ checks.Target, in checks.Inputs) (
 	if in.BOM == nil {
 		return checks.Outcome{
 			Status:   checks.StatusSkip,
+			Reason:   checks.SkipInputMissing,
 			Evidence: "no target BOM supplied (--target-bom)",
 		}, nil
 	}
@@ -272,6 +273,7 @@ func checkEvidenceVerified(_ context.Context, _ checks.Target, in checks.Inputs)
 	if !ev.Checked {
 		return checks.Outcome{
 			Status:   checks.StatusSkip,
+			Reason:   checks.SkipInputMissing,
 			Evidence: "evidence verification not attempted: digest-only (--checksums) mode",
 		}, nil
 	}

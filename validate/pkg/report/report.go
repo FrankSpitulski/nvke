@@ -43,6 +43,23 @@ type Report struct {
 	// Summary counts are derived from Results; they exist so a pipeline can
 	// branch without replaying the list.
 	Summary Summary `json:"summary"`
+	// RunError is set when the run failed before any check could execute —
+	// the report then carries no results and Summary.Error is 1, so a
+	// pipeline parsing report documents sees setup failures in the same
+	// schema instead of an empty stdout.
+	RunError string `json:"runError,omitempty"`
+}
+
+// NewRunError renders a run that could not start as a report document: no
+// results, one error, exit 2 — "could not evaluate" in the same schema the
+// pipeline already parses.
+func NewRunError(err error, now time.Time) Report {
+	return Report{
+		SchemaVersion: SchemaVersion,
+		GeneratedAt:   now.UTC(),
+		Summary:       Summary{Error: 1},
+		RunError:      err.Error(),
+	}
 }
 
 // TargetSummary echoes what the run validated against.

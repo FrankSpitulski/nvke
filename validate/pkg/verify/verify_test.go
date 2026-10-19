@@ -221,3 +221,58 @@ func TestVersionLess(t *testing.T) {
 		assert.Equal(t, tt.want, got, "%s < %s", tt.a, tt.b)
 	}
 }
+
+func TestRequiredChecksProfile(t *testing.T) {
+	signer, pub := ed25519Signer(t)
+	keys := []crypto.PublicKey{pub}
+	results := []CheckResult{
+		{ID: "INT-001", Status: "pass", Severity: "blocking"},
+		{ID: "INT-002", Status: "skip", Severity: "blocking", Reason: "input-missing", Evidence: "digest-only mode"},
+		{ID: "FDE-001", Status: "skip", Severity: "blocking", Reason: SkipNotApplicable, Evidence: "target outside appliesTo"},
+		{ID: "HARD-001", Status: "skip", Severity: "blocking", Reason: "tier-off"},
+		{ID: "OLD-001", Status: "skip", Severity: "blocking"}, // pre-reason verdict
+		{ID: "SPEC-005", Status: "fail", Severity: "blocking", Evidence: "timeout is 120"},
+	}
+	env, err := Sign(testStatement(t, func(st *Statement) { st.Predicate.Results = results }), signer)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		required []string
+		wantErr  string
+	}{
+		{name: "no profile keeps old behavior", required: nil},
+		{name: "passing required check accepted", required: []string{"INT-001"}},
+		{name: "not-applicable skip satisfies the profile", required: []string{"INT-001", "FDE-001"}},
+		{name: "input-missing skip is omitted validation", required: []string{"INT-002"}, wantErr: "omitted validation"},
+		{name: "tier-off skip is omitted validation", required: []string{"HARD-001"}, wantErr: "omitted validation"},
+		{name: "reasonless skip is omitted validation", required: []string{"OLD-001"}, wantErr: "no reason recorded"},
+		{name: "absent result is rejected", required: []string{"INT-404"}, wantErr: "no result for it"},
+		{name: "failed required check is rejected", required: []string{"SPEC-005"}, wantErr: "status fail"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Verify(env, testDigest, Policy{Keys: keys, RequiredChecks: tt.required}, testFinished)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestPredicateBindingFieldsRoundTrip(t *testing.T) {
+	signer, pub := ed25519Signer(t)
+	env, err := Sign(testStatement(t, func(st *Statement) {
+		st.Predicate.EvidenceMode = EvidenceModeDigestOnly
+		st.Predicate.CheckSetSHA256 = strings.Repeat("a", 64)
+		st.Predicate.BOMSHA256 = strings.Repeat("b", 64)
+	}), signer)
+	require.NoError(t, err)
+	st, err := Verify(env, testDigest, Policy{Keys: []crypto.PublicKey{pub}}, testFinished)
+	require.NoError(t, err)
+	assert.Equal(t, EvidenceModeDigestOnly, st.Predicate.EvidenceMode)
+	assert.Equal(t, strings.Repeat("a", 64), st.Predicate.CheckSetSHA256)
+	assert.Equal(t, strings.Repeat("b", 64), st.Predicate.BOMSHA256)
+}

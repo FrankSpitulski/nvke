@@ -288,7 +288,23 @@ func writeVerdict(opts Options, rep report.Report) error {
 	}
 	results := make([]verify.CheckResult, 0, len(rep.Results))
 	for _, r := range rep.Results {
-		results = append(results, verify.CheckResult{ID: r.ID, Status: string(r.Status), Severity: string(r.Severity), Evidence: r.Evidence})
+		results = append(results, verify.CheckResult{ID: r.ID, Status: string(r.Status), Severity: string(r.Severity), Reason: string(r.Reason), Evidence: r.Evidence})
+	}
+	evidenceMode := verify.EvidenceModeBundle
+	if opts.BundleDir == "" {
+		evidenceMode = verify.EvidenceModeDigestOnly
+	}
+	// Pin the policy inputs by content, not just by label: the check-set
+	// version names the policy, these digests prove which bytes carried it.
+	checkSetSHA256, err := static.HashFile(opts.RegistryPath)
+	if err != nil {
+		return fmt.Errorf("hashing check registry: %w", err)
+	}
+	bomSHA256 := ""
+	if opts.BOMPath != "" {
+		if bomSHA256, err = static.HashFile(opts.BOMPath); err != nil {
+			return fmt.Errorf("hashing target BOM: %w", err)
+		}
 	}
 	statement := verify.Statement{
 		Type:          verify.StatementType,
@@ -304,8 +320,11 @@ func writeVerdict(opts Options, rep report.Report) error {
 				Pass: rep.Summary.Pass, Fail: rep.Summary.Fail, BlockingFail: rep.Summary.BlockingFail,
 				WarnFail: rep.Summary.WarnFail, Skip: rep.Summary.Skip, Error: rep.Summary.Error,
 			},
-			Results:    results,
-			FinishedAt: rep.GeneratedAt,
+			Results:        results,
+			FinishedAt:     rep.GeneratedAt,
+			EvidenceMode:   evidenceMode,
+			CheckSetSHA256: checkSetSHA256,
+			BOMSHA256:      bomSHA256,
 		},
 	}
 	payload, err := json.Marshal(statement)

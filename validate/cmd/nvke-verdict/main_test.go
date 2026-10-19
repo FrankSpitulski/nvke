@@ -52,6 +52,12 @@ func fixture(t *testing.T, outcome string) (att, pub, image, digest string) {
 			CheckSetVersion: "0.2.0",
 			Validator:       verify.Tool{Name: "nvke-image-validate", Version: "test"},
 			FinishedAt:      time.Now().UTC(),
+			EvidenceMode:    verify.EvidenceModeBundle,
+			Results: []verify.CheckResult{
+				{ID: "INT-001", Status: "pass", Severity: "blocking"},
+				{ID: "INT-002", Status: "skip", Severity: "blocking", Reason: "input-missing"},
+				{ID: "FDE-001", Status: "skip", Severity: "blocking", Reason: "not-applicable"},
+			},
 		},
 	}
 	payload, err := json.Marshal(statement)
@@ -114,6 +120,16 @@ func TestRun(t *testing.T) {
 		{
 			name: "check-set floor above the verdict cannot verify",
 			args: []string{"--attestation", att, "--key", pub, "--digest", digest, "--min-check-set-version", "0.3.0"},
+			want: exitCannot,
+		},
+		{
+			name: "profile satisfied by pass and not-applicable",
+			args: []string{"--attestation", att, "--key", pub, "--digest", digest, "--required-checks", "INT-001, FDE-001"},
+			want: exitPass,
+		},
+		{
+			name: "profile rejects omitted validation",
+			args: []string{"--attestation", att, "--key", pub, "--digest", digest, "--required-checks", "INT-001,INT-002"},
 			want: exitCannot,
 		},
 		{

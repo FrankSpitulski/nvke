@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/dsx-ai-factory/nvke/validate/pkg/report"
 	"github.com/dsx-ai-factory/nvke/validate/pkg/runner"
@@ -94,7 +95,18 @@ func run(args []string, stdout, stderr *os.File) int {
 		ValidatorVersion:   version,
 	}, stdout)
 	if err != nil {
+		// A run that died before any check still answers the pipeline in the
+		// report schema, not just on stderr.
+		if *format == "json" {
+			if out, jerr := report.NewRunError(err, time.Now()).JSON(); jerr == nil {
+				_, _ = stdout.Write(out)
+			}
+		}
 		fmt.Fprintf(stderr, "nvke-image-validate: %v\n", err)
+		return exit
+	}
+	if *emitVerdict != "" && *checksums != "" {
+		fmt.Fprintln(stderr, "nvke-image-validate: note: this verdict covers a digest-only run — the release evidence itself was not verified (evidenceMode=digest-only)")
 	}
 	return exit
 }

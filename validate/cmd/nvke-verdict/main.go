@@ -43,6 +43,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	image := fs.String("image", "", "Image file to hash instead of passing --digest")
 	minChecks := fs.String("min-check-set-version", "", "Lowest acceptable check-set version")
 	maxAge := fs.Duration("max-age", 0, "Reject verdicts older than this (0 = no limit)")
+	requiredChecks := fs.String("required-checks", "", "Comma-separated check IDs the qualification profile demands: each must have passed or be skipped as not-applicable — a disabled tier or missing input does not count (e.g. INT-001,INT-002,INT-004,HARD-001)")
 	if err := fs.Parse(args); err != nil {
 		return exitCannot
 	}
@@ -84,10 +85,17 @@ func run(args []string, stdout, stderr *os.File) int {
 		return exitCannot
 	}
 
+	var required []string
+	for _, id := range strings.Split(*requiredChecks, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			required = append(required, id)
+		}
+	}
 	st, err := verify.Verify(envelope, subject, verify.Policy{
 		Keys:               keys,
 		MinCheckSetVersion: *minChecks,
 		MaxAge:             *maxAge,
+		RequiredChecks:     required,
 	}, time.Now())
 	if err != nil {
 		fmt.Fprintf(stderr, "nvke-verdict: %v\n", err)
@@ -100,9 +108,13 @@ func run(args []string, stdout, stderr *os.File) int {
 			break
 		}
 	}
-	fmt.Fprintf(stdout, "verified: %s sha256:%s\n  outcome: %s\n  check set: %s\n  validator: %s %s\n  finished: %s\n",
+	evidenceMode := st.Predicate.EvidenceMode
+	if evidenceMode == "" {
+		evidenceMode = "not recorded (pre-evidenceMode verdict)"
+	}
+	fmt.Fprintf(stdout, "verified: %s sha256:%s\n  outcome: %s\n  check set: %s\n  evidence mode: %s\n  validator: %s %s\n  finished: %s\n",
 		name, subject,
-		st.Predicate.Outcome, st.Predicate.CheckSetVersion,
+		st.Predicate.Outcome, st.Predicate.CheckSetVersion, evidenceMode,
 		st.Predicate.Validator.Name, st.Predicate.Validator.Version,
 		st.Predicate.FinishedAt.Format(time.RFC3339))
 	if st.Predicate.Outcome != verify.OutcomePass {
