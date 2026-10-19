@@ -331,6 +331,32 @@ func main() {
 		}
 	}
 
+	// Writes the SPIRE agent ID path MachineSpireEntryController consumes, so it
+	// is only useful alongside that controller. Gated on CAPLL's CRD rather than
+	// supportedInfraProviders: dropping launchLayer from that list stops new
+	// clusters, while existing clusters' new and replacement machines still need
+	// their agent path to join.
+	if machineCRDInstalled {
+		launchLayerCRDInstalled, err := capi.LaunchLayerMachineCRDInstalled(k8sControllerManager.GetRESTMapper())
+		if err != nil {
+			logger.Error("Failed to look up the LaunchLayerMachine CRD", "error", err)
+			os.Exit(1)
+		}
+		if !launchLayerCRDInstalled {
+			logger.Warn("LaunchLayerMachine CRD not installed; skipping the LaunchLayer SPIFFE controller")
+		} else {
+			launchLayerSpiffeController := capi.NewLaunchLayerSpiffeController(
+				dbInstance,
+				k8sControllerManager.GetClient(),
+				logger.With("logger", "launchlayer-spiffe-controller"),
+			)
+			if err := launchLayerSpiffeController.SetupWithManager(k8sControllerManager); err != nil {
+				logger.Error("Failed to set up LaunchLayer SPIFFE controller", "error", err)
+				os.Exit(1)
+			}
+		}
+	}
+
 	if !cfg.NicoControllersEnabled {
 		logger.Info("NICo controllers disabled by configuration")
 	} else {
