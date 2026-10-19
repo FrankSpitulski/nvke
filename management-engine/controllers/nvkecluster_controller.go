@@ -93,6 +93,11 @@ func (r *NVKEClusterReconciler) reconcileCluster(ctx context.Context, cluster *i
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("ensure nvke controller cluster: %w", err)
 	}
+	conditions.Set(cluster, metav1.Condition{
+		Type:   internalv1.ClusterReconciledCondition,
+		Status: metav1.ConditionTrue,
+		Reason: internalv1.ReconcileSucceededReason,
+	})
 	return ctrl.Result{RequeueAfter: r.PollInterval}, nil
 }
 
@@ -107,6 +112,12 @@ func (r *NVKEClusterReconciler) ensureCluster(ctx context.Context, cluster *inte
 
 	request, err := resolveControllerRequest(cluster)
 	if err != nil {
+		conditions.Set(cluster, metav1.Condition{
+			Type:    internalv1.ClusterReconciledCondition,
+			Status:  metav1.ConditionFalse,
+			Reason:  internalv1.ReconcileFailedReason,
+			Message: err.Error(),
+		})
 		return nil, fmt.Errorf("resolve controller request: %w", err)
 	}
 	observedCluster, err := r.NVKEController.Create(ctx, request)
@@ -237,6 +248,7 @@ var nvkeClusterOwnedConditions = []string{
 	internalv1.NVKEControllerControlPlaneUpgradingCondition,
 	internalv1.NVKEControllerCPNodesRecyclingCondition,
 	internalv1.NVKEControllerUpdateFailedCondition,
+	internalv1.ClusterReconciledCondition,
 }
 
 var nvkeControllerNegativeConditionTypes = []string{
@@ -325,7 +337,7 @@ func setNVKEClusterConditions(cluster *internalv1.NVKECluster) error {
 		cluster,
 		cluster,
 		internalv1.SyncedCondition,
-		conditions.ForConditionTypes{internalv1.ControlPlaneReadyCondition},
+		conditions.ForConditionTypes{internalv1.ClusterReconciledCondition, internalv1.ControlPlaneReadyCondition},
 		conditions.CustomMergeStrategy{
 			MergeStrategy: conditions.DefaultMergeStrategy(
 				conditions.ComputeReasonFunc(conditions.GetDefaultComputeMergeReasonFunc(

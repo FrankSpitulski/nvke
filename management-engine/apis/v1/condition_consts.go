@@ -6,6 +6,12 @@ package v1
 const ControlPlaneReadyCondition = "ControlPlaneReady"
 
 const (
+	ClusterReconciledCondition = "ClusterReconciled"
+	ReconcileSucceededReason   = "ReconcileSucceeded"
+	ReconcileFailedReason      = "ReconcileFailed"
+)
+
+const (
 	NVKEControllerProvisionedCondition           = "NVKEControllerProvisioned"
 	NVKEControllerProvisioningCondition          = "NVKEControllerProvisioning"
 	NVKEControllerDeletingCondition              = "NVKEControllerDeleting"
