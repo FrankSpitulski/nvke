@@ -103,11 +103,8 @@ type UserParams struct {
 type NodePoolStatus struct {
 	// Name identifies the corresponding pool in spec.nodePools.
 	Name ResourceName `json:"name"`
-	// ObservedGeneration refers to the enclosing NVKECluster's generation.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// Conditions report pool readiness and progress, with details in reason and message.
+	// Each condition's observedGeneration refers to the enclosing NVKECluster's generation.
 	// +optional
 	// +listType=map
 	// +listMapKey=type

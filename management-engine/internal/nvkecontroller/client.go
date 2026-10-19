@@ -49,8 +49,7 @@ type Config struct {
 
 // Client validates cluster identity and redacts failures from generated NVKE controller requests.
 type Client struct {
-	api      *api.Client
-	endpoint string
+	api *api.Client
 }
 
 // New constructs a client with bounded requests, verified TLS and no redirects.
@@ -87,11 +86,8 @@ func New(cfg Config) (*Client, error) {
 	if err != nil {
 		return nil, errors.New("could not construct NVKE controller API client")
 	}
-	return &Client{api: raw, endpoint: endpoint}, nil
+	return &Client{api: raw}, nil
 }
-
-// Endpoint returns the normalized API URL for checking persisted backend identity.
-func (c *Client) Endpoint() string { return c.endpoint }
 
 // FindByName finds a single exact-name match. It does not establish ownership.
 func (c *Client) FindByName(ctx context.Context, name string) (*api.Cluster, error) {

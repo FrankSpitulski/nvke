@@ -1,1 +1,9 @@
-{}
+create:
+  id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+  conditions:
+    provisioned:
+      status: "False"
+    provisioning:
+      status: "True"
+    deleting:
+      status: "False"

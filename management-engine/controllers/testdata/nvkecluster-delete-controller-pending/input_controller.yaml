@@ -1,1 +1,11 @@
-{"ready": true, "deletePending": true}
+clusters:
+  resources:
+  - id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+    name: cluster-1-default-mgmt-eng
+    conditions:
+      provisioned:
+        status: "False"
+      provisioning:
+        status: "True"
+      deleting:
+        status: "False"

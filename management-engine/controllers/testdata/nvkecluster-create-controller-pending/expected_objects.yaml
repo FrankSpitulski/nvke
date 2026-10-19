@@ -27,32 +27,86 @@ items:
   status:
     conditions:
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: Waiting for control-plane provisioning
+      message: |-
+        * ControlPlaneReady:
+          * NVKEControllerProvisioned: Reported
+          * NVKEControllerProvisioning: Reported
       observedGeneration: 1
       reason: NotAvailable
       status: "False"
       type: Available
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: Waiting for control-plane provisioning
+      message: |-
+        * NVKEControllerProvisioned: Reported
+        * NVKEControllerProvisioning: Reported
       observedGeneration: 1
-      reason: Provisioning
+      reason: NotReady
       status: "False"
       type: ControlPlaneReady
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: Waiting for control-plane provisioning
+      message: ""
+      observedGeneration: 1
+      reason: NotDeleting
+      status: "False"
+      type: Deleting
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotYetReported
+      status: Unknown
+      type: NVKEControllerCPNodesRecycling
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotYetReported
+      status: Unknown
+      type: NVKEControllerControlPlaneUpgrading
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: Reported
+      status: "False"
+      type: NVKEControllerDeleting
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: Reported
+      status: "False"
+      type: NVKEControllerProvisioned
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: Reported
+      status: "True"
+      type: NVKEControllerProvisioning
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: ""
+      observedGeneration: 1
+      reason: NotYetReported
+      status: Unknown
+      type: NVKEControllerUpdateFailed
+    - lastTransitionTime: "1970-01-01T00:00:00Z"
+      message: |-
+        * Available:
+          * ControlPlaneReady:
+            * NVKEControllerProvisioned: Reported
+            * NVKEControllerProvisioning: Reported
+        * Synced:
+          * ControlPlaneReady:
+            * NVKEControllerProvisioned: Reported
+            * NVKEControllerProvisioning: Reported
       observedGeneration: 1
       reason: NotReady
       status: "False"
       type: Ready
     - lastTransitionTime: "1970-01-01T00:00:00Z"
-      message: Cluster configuration has been accepted
+      message: |-
+        * ControlPlaneReady:
+          * NVKEControllerProvisioned: Reported
+          * NVKEControllerProvisioning: Reported
       observedGeneration: 1
-      reason: Synced
-      status: "True"
+      reason: NotSynced
+      status: "False"
       type: Synced
-    observedGeneration: 1
-    provisioning:
-      endpoint: https://controller.example.com/api
-      generation: 1
-      id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+    id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 metadata: {}

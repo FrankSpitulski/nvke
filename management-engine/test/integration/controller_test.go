@@ -27,6 +27,7 @@ import (
 
 	"github.com/dsx-ai-factory/nvke/controller/api"
 	internalv1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
+	"github.com/dsx-ai-factory/nvke/management-engine/controllers"
 )
 
 //go:embed testdata/cluster.yaml
@@ -71,7 +72,7 @@ var _ = Describe("NVKECluster through the local NVKE controller API", func() {
 
 		By("creating an NVKECluster in the state cluster")
 		Expect(env.state.Create(ctx, &cluster)).To(Succeed())
-		remoteName := "nke-" + string(cluster.UID)
+		remoteName := controllers.ClusterRemoteName(&cluster)
 		evidence := integrationEvidence{
 			Namespace: cluster.Namespace, Name: cluster.Name, UID: string(cluster.UID), RemoteName: remoteName,
 			TemporalNamespace: env.temporalNamespace,
@@ -106,12 +107,10 @@ var _ = Describe("NVKECluster through the local NVKE controller API", func() {
 		By("observing the controller's persisted cluster identity and current status")
 		Eventually(ctx, func(g Gomega) {
 			g.Expect(env.state.Get(ctx, client.ObjectKeyFromObject(&cluster), &cluster)).To(Succeed())
-			g.Expect(cluster.Status.Provisioning).NotTo(BeNil())
-			g.Expect(cluster.Status.Provisioning.ID).To(Equal(evidence.RemoteID))
-			g.Expect(cluster.Status.Provisioning.Generation).To(Equal(cluster.Generation))
-			g.Expect(cluster.Status.ObservedGeneration).To(Equal(cluster.Generation))
+			g.Expect(cluster.Status.ID).To(Equal(evidence.RemoteID))
 			condition := meta.FindStatusCondition(cluster.Status.Conditions, internalv1.ControlPlaneReadyCondition)
 			g.Expect(condition).NotTo(BeNil())
+			g.Expect(condition.ObservedGeneration).To(Equal(cluster.Generation))
 			g.Expect(condition.Reason).To(Equal("Provisioning"))
 		}).WithTimeout(time.Minute).WithPolling(pollInterval).Should(Succeed())
 

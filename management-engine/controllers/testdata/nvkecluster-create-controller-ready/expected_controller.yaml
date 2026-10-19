@@ -1,31 +1,25 @@
-calls:
-- POST /api/clusters (1 calls; finalizer persisted)
-createRequest:
-  cniPlugin: ovn-kubernetes
-  controlPlaneConfig:
-    desiredCount: 3
-    infra:
-      bootstrapFiles:
-      - content: example
-        owner: ""
-        path: /tmp/example
-        permissions: ""
-      machineTemplate:
-        apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
-        kind: DockerMachineTemplate
-        spec:
-          template:
-            spec:
-              subnetIDs:
-              - id: opaque
-  controlPlaneKubernetesVersion: 1.36.1
-  etcdEncrypted: true
-  infra:
-    cluster:
-      apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
-      kind: DockerCluster
-      spec: {}
-  name: nke-CLUSTER-UID
+clusters:
+- cniPlugin: ""
+  cniVersion: ""
+  conditions:
+    deleting:
+      lastTransitionTime: "0001-01-01T00:00:00Z"
+      message: ""
+      status: "False"
+    provisioned:
+      lastTransitionTime: "0001-01-01T00:00:00Z"
+      message: ""
+      status: "True"
+    provisioning:
+      lastTransitionTime: "0001-01-01T00:00:00Z"
+      message: ""
+      status: "False"
+  controlPlaneKubernetesVersion: ""
+  createdAt: "0001-01-01T00:00:00Z"
+  etcdEncrypted: false
+  id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+  name: cluster-1-default-mgmt-eng
   network:
-    podCIDR: 10.244.0.0/16
-    serviceCIDR: 10.96.0.0/12
+    podCIDR: ""
+    serviceCIDR: ""
+requests: []

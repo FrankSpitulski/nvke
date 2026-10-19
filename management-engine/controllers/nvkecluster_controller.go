@@ -8,30 +8,31 @@ package controllers
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/netip"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/dsx-ai-factory/nvke/controller/api"
 	internalv1 "github.com/dsx-ai-factory/nvke/management-engine/apis/v1"
+	"github.com/dsx-ai-factory/nvke/management-engine/internal/nvkecontroller"
 )
 
 const (
 	nvkeClusterFinalizer = "internal.nvke.nvidia.com/cluster-cleanup"
 	defaultPollInterval  = 10 * time.Second
+	clusterNameSuffix    = "-mgmt-eng"
 )
 
 // ControllerClient is the existing REST API surface used by cluster reconciliation.
 type ControllerClient interface {
-	Endpoint() string
-	FindByName(ctx context.Context, name string) (*api.Cluster, error)
 	Get(ctx context.Context, id string) (*api.Cluster, error)
 	Create(ctx context.Context, request api.CreateClusterRequest) (*api.Cluster, error)
 	Delete(ctx context.Context, id string) error
@@ -41,7 +42,6 @@ type ControllerClient interface {
 type NVKEClusterReconciler struct {
 	client.Client
 	NVKEController ControllerClient
-	Bindings       []ControllerBinding
 	PollInterval   time.Duration
 }
 
@@ -59,24 +59,19 @@ func (r *NVKEClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	patchHelper, err := patch.NewHelper(&cluster, r.Client)
 	if err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("create nvkecluster patch helper: %w", err)
 	}
-	observed := true
 	defer func() {
 		if conditionErr := setNVKEClusterConditions(&cluster); conditionErr != nil {
 			retErr = errors.Join(retErr, conditionErr)
 		}
-		if observed && retErr == nil {
-			// Set this explicitly: the patch helper returns early when other status fields are unchanged.
-			cluster.Status.ObservedGeneration = cluster.Generation
-		}
 		if patchErr := patchHelper.Patch(ctx, &cluster, patch.WithOwnedConditions{Conditions: nvkeClusterOwnedConditions}); client.IgnoreNotFound(patchErr) != nil {
-			retErr = errors.Join(retErr, patchErr)
+			retErr = errors.Join(retErr, fmt.Errorf("patch nvkecluster: %w", patchErr))
 		}
 	}()
 
 	if r.NVKEController == nil {
-		setLifecycleConditions(&cluster, metav1.ConditionUnknown, metav1.ConditionUnknown, "ProvisioningNotConfigured", "Cluster provisioning is not configured")
+		propagateNVKEControllerConditions(&cluster, nil)
 		return ctrl.Result{}, nil
 	}
 	if !cluster.DeletionTimestamp.IsZero() {
@@ -85,10 +80,332 @@ func (r *NVKEClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !controllerutil.ContainsFinalizer(&cluster, nvkeClusterFinalizer) {
 		// Persist cleanup responsibility before making any provisioning request.
 		controllerutil.AddFinalizer(&cluster, nvkeClusterFinalizer)
-		observed = false
-		return ctrl.Result{RequeueAfter: r.PollInterval}, nil
+		return ctrl.Result{}, nil
 	}
 	return r.reconcileCluster(ctx, &cluster)
+}
+
+// Cluster reconciliation creates resources or observes them by their stored ID.
+
+func (r *NVKEClusterReconciler) reconcileCluster(ctx context.Context, cluster *internalv1.NVKECluster) (ctrl.Result, error) {
+	observedCluster, err := r.ensureCluster(ctx, cluster)
+	propagateNVKEControllerConditions(cluster, observedCluster)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("ensure nvke controller cluster: %w", err)
+	}
+	return ctrl.Result{RequeueAfter: r.PollInterval}, nil
+}
+
+func (r *NVKEClusterReconciler) ensureCluster(ctx context.Context, cluster *internalv1.NVKECluster) (*api.Cluster, error) {
+	if cluster.Status.ID != "" {
+		observedCluster, err := r.NVKEController.Get(ctx, cluster.Status.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get nvke controller cluster %q: %w", cluster.Status.ID, err)
+		}
+		return observedCluster, nil
+	}
+
+	request, err := resolveControllerRequest(cluster)
+	if err != nil {
+		return nil, fmt.Errorf("resolve controller request: %w", err)
+	}
+	observedCluster, err := r.NVKEController.Create(ctx, request)
+	if err != nil {
+		return nil, fmt.Errorf("create cluster: %w", err)
+	}
+	cluster.Status.ID = observedCluster.ID.String()
+	return observedCluster, nil
+}
+
+// ClusterRemoteName returns the backing cluster name used by the management engine.
+func ClusterRemoteName(cluster *internalv1.NVKECluster) string {
+	return cluster.Name + "-" + cluster.Namespace + clusterNameSuffix
+}
+
+func (r *NVKEClusterReconciler) reconcileDelete(ctx context.Context, cluster *internalv1.NVKECluster) (ctrl.Result, error) {
+	if !controllerutil.ContainsFinalizer(cluster, nvkeClusterFinalizer) {
+		return ctrl.Result{}, nil
+	}
+
+	if cluster.Status.ID == "" {
+		controllerutil.RemoveFinalizer(cluster, nvkeClusterFinalizer)
+		return ctrl.Result{}, nil
+	}
+
+	observedCluster, err := r.NVKEController.Get(ctx, cluster.Status.ID)
+	propagateNVKEControllerConditions(cluster, observedCluster)
+	if errors.Is(err, nvkecontroller.ErrNotFound) {
+		controllerutil.RemoveFinalizer(cluster, nvkeClusterFinalizer)
+		return ctrl.Result{}, nil
+	}
+
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("get nvke controller cluster %q for deletion: %w", cluster.Status.ID, err)
+	}
+
+	if observedCluster.Conditions.Deleting.Status != api.ConditionStatus("True") {
+		if err := r.NVKEController.Delete(ctx, cluster.Status.ID); err != nil && !errors.Is(err, nvkecontroller.ErrNotFound) {
+			return ctrl.Result{}, fmt.Errorf("delete nvke controller cluster %q: %w", cluster.Status.ID, err)
+		}
+	}
+	return ctrl.Result{RequeueAfter: r.PollInterval}, nil
+}
+
+// Cluster intent resolution combines the spec with selected configuration for reconciliation.
+// NVKE controller REST API specific calls will be replaced with the CAPI objects, but this is a temporary placeholder.
+
+// InvalidSpecError identifies a request that needs corrected configuration.
+type InvalidSpecError struct{ Message string }
+
+func (e *InvalidSpecError) Error() string { return e.Message }
+
+// resolveControllerRequest translates supported cluster intent using the temporary hardcoded class configuration.
+func resolveControllerRequest(cluster *internalv1.NVKECluster) (api.CreateClusterRequest, error) {
+	var empty api.CreateClusterRequest
+	if err := validateControllerSpec(cluster); err != nil {
+		return empty, fmt.Errorf("validate cluster spec: %w", err)
+	}
+	var request api.CreateClusterRequest
+	if err := resolveControllerClass(cluster.Spec.ControlPlaneClass, &request); err != nil {
+		return empty, fmt.Errorf("resolve control-plane class: %w", err)
+	}
+	request.Name = ClusterRemoteName(cluster)
+	if cluster.UID == "" {
+		return empty, invalidControllerRequest("A persisted cluster UID is required before provisioning")
+	}
+	request.CniPlugin = api.CreateClusterRequestCniPluginOvnKubernetes
+	request.EtcdEncrypted = true
+	pod, err := controllerNetworkPrefix(cluster.Spec.ClusterNetwork.Pods.CIDRBlocks)
+	if err != nil {
+		return empty, fmt.Errorf("resolve pod network: %w", err)
+	}
+	service, err := controllerNetworkPrefix(cluster.Spec.ClusterNetwork.Services.CIDRBlocks)
+	if err != nil {
+		return empty, fmt.Errorf("resolve service network: %w", err)
+	}
+	request.Network = &api.ClusterNetworkCreateConfig{PodCIDR: pod, ServiceCIDR: service}
+	return request, nil
+}
+
+func invalidControllerRequest(message string) error { return &InvalidSpecError{Message: message} }
+
+func validateControllerSpec(cluster *internalv1.NVKECluster) error {
+	if len(cluster.Spec.NodePools) != 0 {
+		return invalidControllerRequest("Worker node pools are not supported")
+	}
+	if cluster.Spec.Network != nil {
+		return invalidControllerRequest("Worker network selection is not supported")
+	}
+	if cluster.Spec.Authentication != nil {
+		return invalidControllerRequest("Custom authentication is not supported")
+	}
+	if cluster.Spec.APIServerAccess.PublicAccessEnabled || len(cluster.Spec.APIServerAccess.PublicAccessCIDRs) != 0 {
+		return invalidControllerRequest("Public API access configuration is not supported")
+	}
+	if runtime := cluster.Spec.AcceleratedRuntime; runtime != nil && (runtime.Name != "none" || runtime.Version != "") {
+		return invalidControllerRequest("Accelerated runtime configuration is not supported")
+	}
+	if cluster.Spec.ClusterNetwork.ServiceDomain != "cluster.local" {
+		return invalidControllerRequest("Only the cluster.local service domain is supported")
+	}
+	return nil
+}
+
+func controllerNetworkPrefix(blocks []internalv1.NetworkCIDR) (string, error) {
+	if len(blocks) != 1 {
+		return "", invalidControllerRequest("Exactly one IPv4 pod range and one IPv4 service range are required")
+	}
+	prefix, err := netip.ParsePrefix(string(blocks[0]))
+	if err != nil || !prefix.Addr().Is4() {
+		return "", invalidControllerRequest("Pod and service ranges must be valid IPv4 CIDRs")
+	}
+	// The NVKE controller remains authoritative for private ranges, overlap, size, and capacity validation.
+	return prefix.Masked().String(), nil
+}
+
+// Status mapping presents provisioning observations and failures as public cluster conditions.
+
+var nvkeClusterOwnedConditions = []string{
+	clusterv1.AvailableCondition,
+	internalv1.SyncedCondition,
+	internalv1.ReadyCondition,
+	internalv1.ControlPlaneReadyCondition,
+	clusterv1.DeletingCondition,
+	internalv1.NVKEControllerProvisionedCondition,
+	internalv1.NVKEControllerProvisioningCondition,
+	internalv1.NVKEControllerDeletingCondition,
+	internalv1.NVKEControllerControlPlaneUpgradingCondition,
+	internalv1.NVKEControllerCPNodesRecyclingCondition,
+	internalv1.NVKEControllerUpdateFailedCondition,
+}
+
+var nvkeControllerNegativeConditionTypes = []string{
+	internalv1.NVKEControllerProvisioningCondition,
+	internalv1.NVKEControllerDeletingCondition,
+}
+
+func propagateNVKEControllerConditions(cluster *internalv1.NVKECluster, observedCluster *api.Cluster) {
+	if observedCluster == nil {
+		observedCluster = &api.Cluster{}
+	}
+	setNVKEControllerCondition(cluster, internalv1.NVKEControllerProvisionedCondition, &observedCluster.Conditions.Provisioned)
+	setNVKEControllerCondition(cluster, internalv1.NVKEControllerProvisioningCondition, &observedCluster.Conditions.Provisioning)
+	setNVKEControllerCondition(cluster, internalv1.NVKEControllerDeletingCondition, &observedCluster.Conditions.Deleting)
+	setNVKEControllerCondition(cluster, internalv1.NVKEControllerControlPlaneUpgradingCondition, observedCluster.Conditions.ControlPlaneUpgrading)
+	setNVKEControllerCondition(cluster, internalv1.NVKEControllerCPNodesRecyclingCondition, observedCluster.Conditions.CpNodesRecycling)
+	setNVKEControllerCondition(cluster, internalv1.NVKEControllerUpdateFailedCondition, observedCluster.Conditions.UpdateFailed)
+}
+
+func setNVKEControllerCondition(cluster *internalv1.NVKECluster, conditionType string, child *api.Condition) {
+	if child == nil {
+		conditions.Set(cluster, metav1.Condition{
+			Type:   conditionType,
+			Status: metav1.ConditionUnknown,
+			Reason: internalv1.NotYetReportedReason,
+		})
+		return
+	}
+	status := metav1.ConditionStatus(child.Status)
+	reason := internalv1.ReportedReason
+	switch status {
+	case metav1.ConditionTrue, metav1.ConditionFalse, metav1.ConditionUnknown:
+	default:
+		status = metav1.ConditionUnknown
+		reason = internalv1.NotYetReportedReason
+	}
+	conditions.Set(cluster, metav1.Condition{
+		Type:               conditionType,
+		Status:             status,
+		LastTransitionTime: metav1.NewTime(child.LastTransitionTime),
+		Reason:             reason,
+		Message:            child.Message,
+	})
+}
+
+func setNVKEClusterConditions(cluster *internalv1.NVKECluster) error {
+	if cluster.DeletionTimestamp.IsZero() {
+		conditions.Set(cluster, metav1.Condition{
+			Type:   clusterv1.DeletingCondition,
+			Status: metav1.ConditionFalse,
+			Reason: clusterv1.NotDeletingReason,
+		})
+	} else {
+		conditions.Set(cluster, metav1.Condition{
+			Type:    clusterv1.DeletingCondition,
+			Status:  metav1.ConditionTrue,
+			Reason:  clusterv1.DeletingReason,
+			Message: "Cluster deletion is in progress",
+		})
+	}
+
+	if err := conditions.SetSummaryCondition(
+		cluster,
+		cluster,
+		internalv1.ControlPlaneReadyCondition,
+		conditions.ForConditionTypes{
+			internalv1.NVKEControllerProvisionedCondition,
+			internalv1.NVKEControllerProvisioningCondition,
+			internalv1.NVKEControllerDeletingCondition,
+		},
+		conditions.NegativePolarityConditionTypes(nvkeControllerNegativeConditionTypes),
+		conditions.CustomMergeStrategy{
+			MergeStrategy: conditions.DefaultMergeStrategy(
+				conditions.GetPriorityFunc(conditions.GetDefaultMergePriorityFunc(nvkeControllerNegativeConditionTypes...)),
+				conditions.ComputeReasonFunc(conditions.GetDefaultComputeMergeReasonFunc(
+					clusterv1.NotReadyReason,
+					clusterv1.ReadyUnknownReason,
+					clusterv1.ReadyReason,
+				)),
+			),
+		},
+	); err != nil {
+		return fmt.Errorf("summarize NVKECluster ControlPlaneReady condition: %w", err)
+	}
+	if err := conditions.SetSummaryCondition(
+		cluster,
+		cluster,
+		internalv1.SyncedCondition,
+		conditions.ForConditionTypes{internalv1.ControlPlaneReadyCondition},
+		conditions.CustomMergeStrategy{
+			MergeStrategy: conditions.DefaultMergeStrategy(
+				conditions.ComputeReasonFunc(conditions.GetDefaultComputeMergeReasonFunc(
+					internalv1.NotSyncedReason,
+					internalv1.SyncUnknownReason,
+					internalv1.SyncedReason,
+				)),
+			),
+		},
+	); err != nil {
+		return fmt.Errorf("summarize NVKECluster Synced condition: %w", err)
+	}
+	if err := conditions.SetSummaryCondition(
+		cluster,
+		cluster,
+		clusterv1.AvailableCondition,
+		conditions.ForConditionTypes{internalv1.ControlPlaneReadyCondition},
+		conditions.CustomMergeStrategy{
+			MergeStrategy: conditions.DefaultMergeStrategy(
+				conditions.ComputeReasonFunc(conditions.GetDefaultComputeMergeReasonFunc(
+					clusterv1.NotAvailableReason,
+					clusterv1.AvailableUnknownReason,
+					clusterv1.AvailableReason,
+				)),
+			),
+		},
+	); err != nil {
+		return fmt.Errorf("summarize NVKECluster Available condition: %w", err)
+	}
+	if err := conditions.SetSummaryCondition(
+		cluster,
+		cluster,
+		internalv1.ReadyCondition,
+		conditions.ForConditionTypes{
+			clusterv1.AvailableCondition,
+			internalv1.SyncedCondition,
+			clusterv1.DeletingCondition,
+		},
+		conditions.NegativePolarityConditionTypes{clusterv1.DeletingCondition},
+		conditions.CustomMergeStrategy{
+			MergeStrategy: conditions.DefaultMergeStrategy(
+				conditions.GetPriorityFunc(conditions.GetDefaultMergePriorityFunc(clusterv1.DeletingCondition)),
+				conditions.ComputeReasonFunc(conditions.GetDefaultComputeMergeReasonFunc(
+					clusterv1.NotReadyReason,
+					clusterv1.ReadyUnknownReason,
+					clusterv1.ReadyReason,
+				)),
+			),
+		},
+	); err != nil {
+		return fmt.Errorf("summarize NVKECluster Ready condition: %w", err)
+	}
+	return nil
+}
+
+func resolveControllerClass(class internalv1.ResourceName, request *api.CreateClusterRequest) error {
+	if class != "standard" && class != "local" {
+		return invalidControllerRequest("The selected control-plane class is not available")
+	}
+	request.ControlPlaneKubernetesVersion = "1.36.1"
+	request.ControlPlaneConfig = &api.CreateClusterControlPlaneConfig{
+		DesiredCount:                1,
+		ProvisioningMonitorDisabled: new(true),
+		Infra: &api.InfraControlPlaneProvider{MachineTemplate: map[string]any{
+			"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta2",
+			"kind":       "DockerMachineTemplate",
+			"spec": map[string]any{
+				"template": map[string]any{
+					"metadata": map[string]any{"annotations": map[string]any{clusterv1.PausedAnnotation: "true"}},
+					"spec":     map[string]any{},
+				},
+			},
+		}},
+	}
+	request.Infra = &api.InfraClusterProvider{Cluster: map[string]any{
+		"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta2",
+		"kind":       "DockerCluster",
+		"spec":       map[string]any{},
+	}}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -98,10 +415,7 @@ func (r *NVKEClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	// Status writes must not resubmit rejected requests. Deletion must still run without a spec change.
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&internalv1.NVKECluster{}, builder.WithPredicates(predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
-			return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() ||
-				!e.ObjectOld.GetDeletionTimestamp().Equal(e.ObjectNew.GetDeletionTimestamp())
-		}})).
+		For(&internalv1.NVKECluster{}).
 		Named("nvkecluster").
 		Complete(r)
 }

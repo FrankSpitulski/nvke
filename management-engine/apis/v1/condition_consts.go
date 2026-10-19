@@ -6,6 +6,17 @@ package v1
 const ControlPlaneReadyCondition = "ControlPlaneReady"
 
 const (
+	NVKEControllerProvisionedCondition           = "NVKEControllerProvisioned"
+	NVKEControllerProvisioningCondition          = "NVKEControllerProvisioning"
+	NVKEControllerDeletingCondition              = "NVKEControllerDeleting"
+	NVKEControllerControlPlaneUpgradingCondition = "NVKEControllerControlPlaneUpgrading"
+	NVKEControllerCPNodesRecyclingCondition      = "NVKEControllerCPNodesRecycling"
+	NVKEControllerUpdateFailedCondition          = "NVKEControllerUpdateFailed"
+	ReportedReason                               = "Reported"
+	NotYetReportedReason                         = "NotYetReported"
+)
+
+const (
 	SyncedCondition   = "Synced"
 	SyncedReason      = "Synced"
 	NotSyncedReason   = "NotSynced"

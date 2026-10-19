@@ -139,7 +139,7 @@ create fields, so these assignments never override tenant input.
 | `apiServerAccess.publicAccessEnabled` | `false` | Public API-server access configuration is unsupported by the management-engine provisioning integration at this time. |
 | `clusterNetwork.serviceDomain` | `cluster.local` | Matches the DNS domain configured by the NVKE controller's kubeadm renderer. Custom service domains are unsupported at this time. |
 
-The [provisioning validation](../../controllers/nvkecluster_resolve.go) rejects
+The [provisioning validation](../../controllers/nvkecluster_controller.go) rejects
 public access and domains other than `cluster.local`. The NVKE controller selects that domain in
 its [defaults](../../../controller/internal/kubeadmconfig/render.go) and applies it
 to [kubeadm networking](../../../controller/internal/kubeadmconfig/init.go).

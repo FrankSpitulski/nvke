@@ -70,8 +70,6 @@ controller_setup() (
   bash hack/dev.sh up
   connect
   "${state[@]}" create namespace controller-integration --dry-run=client -o yaml | "${state[@]}" apply -f -
-  "${host[@]}" -n "$HOST_NAMESPACE" create configmap management-controller-bindings \
-    --from-file=bindings.json=test/integration/testdata/bindings.json --dry-run=client -o yaml | "${host[@]}" apply -f -
   make -C ../controller clusterctl-install
   ../controller/.local/bin/clusterctl init --kubeconfig "$KUBECONFIG" --kubeconfig-context "$HOST_CONTEXT" \
     --core "cluster-api:$CAPI_VERSION" --bootstrap "kubeadm:$CAPI_VERSION" \

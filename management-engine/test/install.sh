@@ -66,7 +66,7 @@ for verb in create update delete deletecollection; do
 done
 [[ $("${state[@]}" auth can-i get nvkeclusters.internal.nvke.nvidia.com --subresource=status --as="$identity" -n "$org_namespace") == no ]]
 [[ $("${state[@]}" auth can-i update nvkeclusters.internal.nvke.nvidia.com --subresource=finalizers --as="$identity" -n "$org_namespace") == no ]]
-# Credentials and bindings arrive through mounts, so no API access is needed.
+# Credentials arrive through mounts, so no API access is needed.
 for resource in secrets configmaps; do
   for verb in get list watch create update patch delete deletecollection; do
     [[ $("${state[@]}" auth can-i "$verb" "$resource" --as="$identity" -n "$org_namespace") == no ]]
@@ -80,7 +80,7 @@ resources=$("${state[@]}" -n "$org_namespace" get -f "$sample" -o name)
 while IFS= read -r resource; do
   generation=$("${state[@]}" -n "$org_namespace" get "$resource" -o jsonpath='{.metadata.generation}')
   "${state[@]}" -n "$org_namespace" wait "$resource" \
-    --for="jsonpath={.status.observedGeneration}=$generation" --timeout=60s
+    --for="jsonpath={.status.conditions[?(@.type==\"Synced\")].observedGeneration}=$generation" --timeout=60s
   "${state[@]}" -n "$org_namespace" wait "$resource" \
     --for='jsonpath={.status.conditions[?(@.type=="Synced")].reason}=ProvisioningNotConfigured' --timeout=60s
   "${state[@]}" -n "$org_namespace" patch "$resource" --as="$identity" --type=merge --dry-run=server \
