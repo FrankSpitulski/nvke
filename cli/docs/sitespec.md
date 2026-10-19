@@ -71,8 +71,8 @@ is a complete example.
 **This NICo is for bootstrap only.** It is the NICo that allocates the site
 controller's own control-plane machines, through a CAPNICo installed in the
 throwaway Kind cluster. It is not the NICo the finished management cluster uses to
-create tenant clusters; that one is in the stack config the controller stack
-install reads, and may be a different NICo, with different credentials, org and
+create tenant clusters; that one is configured by the controller stack
+install, and may be a different NICo, with different credentials, org and
 site.
 
 The Kind cluster holds the CAPNICo, the `nico-credentials` Secret (the NICo
@@ -176,7 +176,7 @@ whitespace, is the bearer token. A file that carries `tokenURL`, `clientID` or
 `clientSecret` is the OAuth client-credentials form, which is recognised and
 refused for now, because CAPNICo's `nico-credentials` Secret takes only a bearer
 token. The Secret on the site cluster is not created by the bootstrap: the
-controller stack install creates it, from the stack config and
+controller stack install creates it, from its own NICo settings and
 `NVKECTL_NICO_TOKEN`.
 
 The bootstrap installs CAPNICo into its Kind cluster the way the site
@@ -289,9 +289,7 @@ fails, naming `NVKECTL_SPIRE_CA_CERT_FILE`, `NVKECTL_SPIRE_CA_KEY_FILE` and
 The controller stack install reads the site spec too, and changes nothing
 in it: the site name, the control-plane VIP and the SPIRE trust domain are
 the bootstrap's facts the stack must agree with. Everything only the stack
-needs lives in a separate file, the stack config, which starts from
-[`deploy/examples/stack-config.json`](https://github.com/dsx-ai-factory/nvke/blob/main/deploy/examples/stack-config.json);
-[deploy/README.md](https://github.com/dsx-ai-factory/nvke/blob/main/deploy/README.md) lists its keys. The credentials
+needs the install supplies itself. The credentials
 come from the environment (see "Credential handling"), and the nodes'
 architecture is in neither file: the install reads it from the cluster.
 
