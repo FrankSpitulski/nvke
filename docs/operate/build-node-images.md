@@ -6,7 +6,6 @@ NVIDIA Kubernetes Recipes (NVKR) builds the artifacts NVKE runs: the controller 
 
 ## Before you begin
 
-- You have read [Plan your installation](plan-installation.md).
 - You have a published NVKR Release reference, as `<REGISTRY>/<REPOSITORY>@sha256:<DIGEST>`, or a completed local NVKR Run. To produce either, follow the NVKR documentation linked in [Get the artifacts from NVKR](#get-the-artifacts-from-nvkr).
 - You have a checkout of `dsx-ai-factory/nvke` in `nvke/`, at the release you install.
 - You have `nvkectl` on this host, from [Install nvkectl](bootstrap-management-cluster.md#install-nvkectl), to check the release resources before you publish them.

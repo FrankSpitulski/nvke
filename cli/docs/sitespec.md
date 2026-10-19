@@ -299,9 +299,10 @@ architecture is in neither file: the install reads it from the cluster.
 `bootstrap site` reads it and prints `valid`. With `nico`, what only the
 bootstrap host holds, the file `NVKECTL_NICO_CREDENTIALS` names, the release
 manifests, the node login in `NVKECTL_NODE_USER` and `NVKECTL_NODE_PASSWORD`,
-`spire.externalAddress` and the https check on `infra.nico.remote.endpoint`,
-is reported without failing, because the install runs the command
-on the site node, which does not hold them. `--bootstrap-only` fails on them,
+`spire.externalAddress` and the https check on `infra.nico.remote.endpoint`
+are reported without failing when `--bootstrap-only` is not set. The
+controller stack install uses `nvkectl render deploy-path` on the site node;
+it does not run `nvkectl validate sitespec`. `--bootstrap-only` fails on them,
 so a file it passes is one `bootstrap site` accepts on this host; pass
 `--disable-mtls` to it as you will to `bootstrap site`.
 

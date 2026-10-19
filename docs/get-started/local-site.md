@@ -8,7 +8,7 @@ The setup has three parts on your machine:
 - A workspace, `~/nvke-local-site`, with what an operator is handed: the node's `hosts.csv` and SPIRE certificate authority (CA), the stack config naming the controller and profile images built from this checkout, the release set, a tenant request, and `env.sh` with the flow's environment and credentials.
 - mock-NICo (the `nico-sim` process), which answers the NICo API and starts each workload cluster node as a Docker container.
 
-The example credentials, the simulated NICo and the single-node site are for local evaluation only. Do not reuse this setup for a real installation. [Plan your installation](../operate/plan-installation.md) starts the real one; each step below links the page an operator follows there.
+The example credentials, the simulated NICo and the single-node site are for local evaluation only. Do not reuse this setup for a real installation.
 
 ## Before you begin
 
@@ -167,4 +167,3 @@ The command deletes the workload clusters through the NVKE API, stops mock-NICo 
 
 - [Create a workload cluster](../workload-clusters/create.md) with your own request.
 - [Observe NVKE and its clusters](../operate/observe.md).
-- [Plan your installation](../operate/plan-installation.md) for real hardware.
