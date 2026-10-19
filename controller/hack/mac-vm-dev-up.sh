@@ -209,11 +209,17 @@ step "5. Start Tilt" \
   "Watch it at http://localhost:${TILT_PORT} or in ${STATE_DIR#"${CONTROLLER_DIR}/"}/tilt.log."
 pause
 nohup tilt up --stream --port "${TILT_PORT}" >"${STATE_DIR}/tilt.log" 2>&1 &
-echo $! >"${STATE_DIR}/tilt.pid"
+tilt_pid=$!
+echo "${tilt_pid}" >"${STATE_DIR}/tilt.pid"
 for resource in nico-sim capnico-provider cwe; do
   note "waiting for ${resource}"
   # tilt wait fails on a resource the Tiltfile has not registered yet.
-  until tilt get "uiresource/${resource}" --port "${TILT_PORT}" >/dev/null 2>&1; do sleep 2; done
+  deadline=$((SECONDS + 600))
+  until tilt get "uiresource/${resource}" --port "${TILT_PORT}" >/dev/null 2>&1; do
+    kill -0 "${tilt_pid}" 2>/dev/null || die "tilt exited before registering ${resource}; see ${STATE_DIR}/tilt.log"
+    ((SECONDS < deadline)) || die "tilt did not register ${resource} within 10 minutes; see ${STATE_DIR}/tilt.log"
+    sleep 2
+  done
   run tilt wait --port "${TILT_PORT}" --for=condition=Ready "uiresource/${resource}" --timeout=45m
 done
 
@@ -264,7 +270,11 @@ ssh_node "${cp_ip}" bash -s -- "${cp_name}" "${worker}" <<'EOF'
 set -euo pipefail
 k() { sudo kubectl --kubeconfig /etc/kubernetes/admin.conf "$@"; }
 # NVKE reports the cluster provisioned before the worker has joined.
-until k get node "$2" >/dev/null 2>&1; do sleep 5; done
+deadline=$((SECONDS + 600))
+until k get node "$2" >/dev/null 2>&1; do
+  ((SECONDS < deadline)) || { echo "worker $2 did not join within 10 minutes" >&2; exit 1; }
+  sleep 5
+done
 k wait --for=condition=Ready node --all --timeout=5m >/dev/null
 k get nodes -o wide
 k wait -n ovn-kubernetes --for=condition=Ready pod --all --timeout=5m >/dev/null
@@ -276,9 +286,16 @@ k expose pod srv --port=80 --target-port=8080 >/dev/null
 k wait --for=condition=Ready pod/srv --timeout=3m >/dev/null
 ip="$(k get pod srv -o jsonpath='{.status.podIP}')"
 echo
+# Each URL must answer with the server pod's hostname; a failed request fails the pod and the pipeline.
+check='set -e
+for url in "$@"; do
+  h=$(curl -fsS -m5 "${url}")
+  [ "${h}" = srv ] || { echo "${url} answered \"${h}\", want srv" >&2; exit 1; }
+  echo "${url}: ${h}"
+done'
 k run cli --rm -i --restart=Never --image="${img}" \
   --overrides="{\"spec\":{\"nodeName\":\"$1\",\"tolerations\":[{\"operator\":\"Exists\"}]}}" --command -- \
-  sh -c "echo \"pod IP ${ip}: \$(curl -s -m5 http://${ip}:8080/hostname)\"; echo \"service DNS: \$(curl -s -m5 http://srv.default.svc.cluster.local/hostname)\"" |
+  sh -c "${check}" sh "http://${ip}:8080/hostname" http://srv.default.svc.cluster.local/hostname |
   grep -v 'deleted'
 k delete pod srv --wait=false >/dev/null
 k delete svc srv >/dev/null
