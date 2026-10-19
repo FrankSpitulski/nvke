@@ -16,8 +16,8 @@ import (
 // selectedJUnitPath is a JUnit report of the specs the run selected. Ginkgo's
 // own -ginkgo.junit-report lists every spec the label filter left out as
 // skipped, so a run of three specs reports nearly three hundred and a consumer
-// reading the counts, as TestWave does, cannot tell a deliberate skip from one
-// that was never asked for.
+// reading the counts, as a test runner does, cannot tell a deliberate skip
+// from one that was never asked for.
 var selectedJUnitPath string
 
 func init() {

@@ -119,8 +119,9 @@ cd test/e2e
 go run github.com/onsi/ginkgo/v2/ginkgo@v2.27.2 run -v --label-filter=health .
 ```
 
-Only `NVKE_CONTROLLER_EXPECTED_VERSION` and `NVKE_CONTROLLER_HEALTH_TIMEOUT` are specific to the health
-specs; the first four apply everywhere. The `NKE_E2E_*` group configures the
+Only `NVKE_CONTROLLER_EXPECTED_VERSION`, `NVKE_E2E_REQUIRE_EXPECTED_VERSION` and
+`NVKE_CONTROLLER_HEALTH_TIMEOUT` are specific to the health specs; the first four
+apply everywhere. The `NKE_E2E_*` group configures the
 credential `nvke.NewClient` discovers and presents on every ordinary NVKE call,
 not the authentication specs, which build their own token per case.
 
@@ -131,6 +132,7 @@ not the authentication specs, which build their own token per case.
 | `NVKE_CONTROLLER_SERVICE` | Controller Service whose backing pod is port-forwarded to; also the name of its Deployment, container and ServiceAccount. The old names `NKE_CONTROLLER_SERVICE` and `CWE_SERVICE` are deprecated and still read when this is unset, until [nvke#1399](https://github.com/dsx-ai-factory/nvke/issues/1399) removes them. | `nke-controller` |
 | `NVKE_CONTROLLER_SERVICE_PORT` | Controller Service port, by name or number; the pod-side port is resolved from its `targetPort`. The old names `NKE_CONTROLLER_SERVICE_PORT` and `CWE_SERVICE_PORT` are deprecated and still read when this is unset, until [nvke#1399](https://github.com/dsx-ai-factory/nvke/issues/1399) removes them. | `8080` |
 | `NVKE_CONTROLLER_EXPECTED_VERSION` | Required controller version; when unset, the version spec is skipped. The old names `NKE_CONTROLLER_EXPECTED_VERSION` and `CWE_EXPECTED_VERSION` are deprecated and still read when this is unset, until [nvke#1399](https://github.com/dsx-ai-factory/nvke/issues/1399) removes them. | Unset |
+| `NVKE_E2E_REQUIRE_EXPECTED_VERSION` | When true, an unset `NVKE_CONTROLLER_EXPECTED_VERSION` fails the version spec instead of skipping it. The validation image sets it. | Unset |
 | `NVKE_CONTROLLER_HEALTH_TIMEOUT` | Per-spec context timeout. The old names `NKE_CONTROLLER_HEALTH_TIMEOUT` and `CWE_HEALTH_TIMEOUT` are deprecated and still read when this is unset, until [nvke#1399](https://github.com/dsx-ai-factory/nvke/issues/1399) removes them. | `60s` |
 | `NKE_E2E_AUTH_DISABLE` | Turns the token source off, so the suite sends no `Authorization` header. Against an enforcing NVKE every spec then fails with 401. | Unset |
 | `NKE_E2E_AUDIENCE` | Overrides the audience the suite mints for. Normally discovered from the authentication ConfigMap in `NVKE_CONTROLLER_NAMESPACE` -- `nvke-auth-config`, or `nke-auth-config` on a site that pins the older name. | Discovered |
@@ -189,11 +191,11 @@ no Go at all.
 ## Validation image
 
 `Dockerfile` packages the suite as an image that validates a running site from
-a pod inside its cluster, which is how TestWave runs it. The image carries
+a pod inside its cluster, as an in-cluster test runner runs it. The image carries
 every spec and runs those labelled `site-validate`: specs that create, change
 and install nothing on the site. Today that is the health specs. The
 authentication specs are not, because they mint tokens for the scaffolding
-identities in `deploy/k8s/nke-auth-dev.yaml`.
+identities in `deploy/k8s/nvke-auth-dev.yaml`.
 
 ```bash
 make -C controller/test/e2e validate-image   # VALIDATE_IMAGE, VALIDATE_PLATFORM
@@ -201,11 +203,19 @@ make -C controller/test/e2e validate-image   # VALIDATE_IMAGE, VALIDATE_PLATFORM
 
 The pod needs no kubeconfig: with `KUBECONFIG` unset the suite uses its service
 account. In the controller's namespace that account needs `get` on Services,
-`list` on Pods and `create` on `pods/portforward`, and nothing else. Configure it with
-the [health spec variables](#health-specs); `NKE_CONTROLLER_NAMESPACE` matters
-wherever the controller is not installed in `nke-controller`. Set
-`NKE_CONTROLLER_EXPECTED_VERSION`, or the version spec is skipped and the run
-proves only that the controller is up.
+`list` on Pods and both `get` and `create` on `pods/portforward`, and nothing
+else: the port-forward tries websockets first, a `get`, and falls back to SPDY,
+a `create`. Configure it with
+the [health spec variables](#health-specs); `NVKE_CONTROLLER_NAMESPACE` matters
+wherever the controller is not installed in `nke-controller`, and
+`NVKE_CONTROLLER_SERVICE` wherever its release is not named that. Set
+`NVKE_CONTROLLER_EXPECTED_VERSION`: the image sets
+`NVKE_E2E_REQUIRE_EXPECTED_VERSION=true`, so a run without it fails.
+
+Each controller release publishes the image built from the same commit, as
+`nvke-validate:v<version>` beside `nvke-controller` (see
+`.github/workflows/image-validate-nvcr.yml`), so the tests a site runs are the
+tests that shipped with its controller.
 
 Results go to `/artifacts`, which the runner mounts:
 
@@ -214,12 +224,88 @@ Results go to `/artifacts`, which the runner mounts:
 | `junit-test-report.xml` | The selected specs only (`-e2e.junit-report`). Ginkgo's own JUnit report lists every spec the filter left out as skipped. |
 | `report.json` | Ginkgo's JSON report, every spec. |
 
-To run it by hand against the current kube context:
+To run it by hand against the current kube context, as your own user so the
+container can read your kubeconfig and write `artifacts/`:
 
 ```bash
-docker run --rm -v "$PWD/artifacts:/artifacts" -v "$HOME/.kube/config:/kube/config:ro" \
-  -e KUBECONFIG=/kube/config -e NKE_CONTROLLER_EXPECTED_VERSION=v0.1.1 nvke-validate:local
+mkdir -p artifacts
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD/artifacts:/artifacts" -v "$HOME/.kube/config:/kube/config:ro" \
+  -e KUBECONFIG=/kube/config -e NVKE_CONTROLLER_EXPECTED_VERSION=v0.1.1 nvke-validate:local
 ```
+
+### Building the image yourself
+
+The build is reproducible: the same commit built with the same arguments gives
+the published image's digest, so a site can build it in its own pipeline and
+still check it against the release. CI proves this on every change by
+building it twice, the second time with no cache and every file's mtime
+changed.
+
+Build from the release tag of the controller the site runs,
+`controller/v<version>`, the same version the site pins. Never build from
+`main`: its suite tests the next controller, not the one installed.
+
+```bash
+git clone --branch controller/v0.2.0 --depth 1 https://github.com/dsx-ai-factory/nvke.git
+cd nvke
+make -C controller/test/e2e validate-image-oci VALIDATE_VERSION=v0.2.0
+cat controller/test/e2e/bin/validate-image-digest.txt
+```
+
+`validate-image-push VALIDATE_REPO=<repository> VALIDATE_PUSH_TAGS=v0.2.0`
+pushes it instead. Either target derives the rest from the checkout. Compare
+the digest with the published one; when they match, the release's build
+provenance covers this build too:
+
+```bash
+crane digest nvcr.io/<org>/nvke-validate:v0.2.0
+gh attestation verify oci://nvcr.io/<org>/nvke-validate:v0.2.0 --repo dsx-ai-factory/nvke \
+  --signer-workflow dsx-ai-factory/nvke/.github/workflows/image-validate-nvcr.yml
+```
+
+Without a checkout, BuildKit can take the tag as a remote context. Then the
+arguments make derives must be given by hand, from the tagged commit:
+`SOURCE_DATE_EPOCH` is `git log -1 --format=%ct`, `VALIDATE_REVISION` the full
+commit hash. Where cloning the repository needs authentication, give BuildKit
+a token with read access as the `GIT_AUTH_TOKEN` secret; otherwise drop the
+`--secret` line.
+
+```bash
+docker buildx build -f controller/test/e2e/Dockerfile \
+  --platform linux/amd64,linux/arm64 --provenance=false --sbom=false \
+  --build-arg SOURCE_DATE_EPOCH=<commit time> \
+  --build-arg VALIDATE_VERSION=v0.2.0 --build-arg VALIDATE_REVISION=<commit> \
+  --secret id=GIT_AUTH_TOKEN,env=GIT_AUTH_TOKEN \
+  --output type=image,name=<repository>:v0.2.0,push=true,rewrite-timestamp=true \
+  'https://github.com/dsx-ai-factory/nvke.git#controller/v0.2.0'
+```
+
+Arguments that change where things come from, not what, keep the digest:
+
+| Argument | Make variable | Use |
+| --- | --- | --- |
+| `GOPROXY` | `VALIDATE_GOPROXY` | A Go module mirror. `go.sum` still decides the modules. |
+| `GOLANG_IMAGE`, `ALPINE_IMAGE` | (`--build-arg` in `VALIDATE_BUILDX_ARGS`) | A mirror of the base images. Keep the `@sha256:` digests from the Dockerfile; another digest is another image. |
+
+Any other change, such as the platforms or attestations added with
+`--provenance` or `--sbom`, gives a different digest that no release attested.
+
+### Extending the image
+
+To add tools, certificates or wrapper scripts, start from the published image
+rather than editing this Dockerfile, so the suite stays the one that shipped:
+
+```dockerfile
+FROM nvcr.io/<org>/nvke-validate:v0.2.0
+USER 0
+RUN apk add --no-cache curl
+USER 65532:65532
+```
+
+Keep the user, and keep `ENTRYPOINT` or restate it in full: the label filter
+and the report paths a runner reads are in it. Specs cannot be added this
+way; they are compiled into the test binary.
 
 ## Useful Ginkgo CLI Commands
 
