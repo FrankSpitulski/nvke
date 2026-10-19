@@ -91,7 +91,11 @@ type EvidenceStatus struct {
 // Outcome is what a check implementation reports; the engine folds in the
 // registry's ID and severity.
 type Outcome struct {
-	Status   Status
+	Status Status
+	// Reason is required when Status is skip: an implementation-level skip
+	// always means a missing input, and saying so machine-readably is what
+	// lets a consumer policy distinguish it from genuine non-applicability.
+	Reason   SkipReason
 	Evidence string
 }
 
@@ -120,23 +124,34 @@ func (e *Engine) Run(ctx context.Context, reg *Registry, t Target, in Inputs) []
 		switch impl, ok := e.impls[def.ID]; {
 		case !def.AppliesTo.Matches(t):
 			res.Status = StatusSkip
+			res.Reason = SkipNotApplicable
 			res.Evidence = "target outside appliesTo"
 		case def.Method == MethodGuestfs && in.FS == nil:
 			res.Status = StatusSkip
+			res.Reason = SkipTierOff
 			res.Evidence = "guestfs tier not enabled for this run"
 		case def.Method == MethodBoot && in.Boot == nil:
 			res.Status = StatusSkip
+			res.Reason = SkipTierOff
 			res.Evidence = "boot tier not enabled for this run"
 		case !ok:
 			res.Status = StatusError
 			res.Evidence = fmt.Sprintf("no implementation bound for %s", def.ID)
 		default:
 			out, err := impl(ctx, t, in)
-			if err != nil {
+			switch {
+			case err != nil:
 				res.Status = StatusError
 				res.Evidence = err.Error()
-			} else {
+			case out.Status == StatusSkip && out.Reason == "":
+				// A skip with no stated reason cannot be policy-evaluated;
+				// surfacing it as an error keeps "unexplained skip" from ever
+				// reading as acceptable coverage.
+				res.Status = StatusError
+				res.Evidence = fmt.Sprintf("check %s skipped without a reason: %s", def.ID, out.Evidence)
+			default:
 				res.Status = out.Status
+				res.Reason = out.Reason
 				res.Evidence = out.Evidence
 			}
 		}

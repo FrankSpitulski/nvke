@@ -112,3 +112,42 @@ func TestAppliesToMatches(t *testing.T) {
 		})
 	}
 }
+
+func TestEngineSkipReasons(t *testing.T) {
+	reg := &Registry{Version: "t", Checks: []CheckDef{
+		{
+			ID: "NA-001", Severity: SeverityBlocking, Method: MethodStatic, Verifies: "v", Why: "w",
+			AppliesTo: AppliesTo{Variant: []Variant{VariantFDE}},
+		},
+		{ID: "GF-001", Severity: SeverityBlocking, Method: MethodGuestfs, Verifies: "v", Why: "w"},
+		{ID: "BT-001", Severity: SeverityBlocking, Method: MethodBoot, Verifies: "v", Why: "w"},
+		{ID: "IN-001", Severity: SeverityBlocking, Method: MethodStatic, Verifies: "v", Why: "w"},
+		{ID: "UX-001", Severity: SeverityBlocking, Method: MethodStatic, Verifies: "v", Why: "w"},
+	}}
+	impls := map[string]Func{
+		"NA-001": func(context.Context, Target, Inputs) (Outcome, error) { return Outcome{Status: StatusPass}, nil },
+		"IN-001": func(context.Context, Target, Inputs) (Outcome, error) {
+			return Outcome{Status: StatusSkip, Reason: SkipInputMissing, Evidence: "no BOM"}, nil
+		},
+		"UX-001": func(context.Context, Target, Inputs) (Outcome, error) {
+			return Outcome{Status: StatusSkip, Evidence: "shrug"}, nil // no reason given
+		},
+	}
+	results := NewEngine(impls).Run(context.Background(), reg, Target{Variant: VariantNonFDE}, Inputs{})
+	byID := map[string]Result{}
+	for _, r := range results {
+		byID[r.ID] = r
+	}
+
+	assert.Equal(t, StatusSkip, byID["NA-001"].Status)
+	assert.Equal(t, SkipNotApplicable, byID["NA-001"].Reason, "appliesTo exclusion is genuine non-applicability")
+	assert.Equal(t, StatusSkip, byID["GF-001"].Status)
+	assert.Equal(t, SkipTierOff, byID["GF-001"].Reason)
+	assert.Equal(t, StatusSkip, byID["BT-001"].Status)
+	assert.Equal(t, SkipTierOff, byID["BT-001"].Reason)
+	assert.Equal(t, StatusSkip, byID["IN-001"].Status)
+	assert.Equal(t, SkipInputMissing, byID["IN-001"].Reason)
+	assert.Equal(t, StatusError, byID["UX-001"].Status,
+		"a skip with no stated reason cannot be policy-evaluated and must surface as an error")
+	assert.Contains(t, byID["UX-001"].Evidence, "without a reason")
+}

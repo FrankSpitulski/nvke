@@ -256,8 +256,52 @@ func TestRunEmitsSignedVerdict(t *testing.T) {
 			assert.Equal(t, tt.wantOutcome, st.Predicate.Outcome)
 			assert.NotEmpty(t, st.Predicate.CheckSetVersion)
 			assert.NotEmpty(t, st.Predicate.Results)
+
+			// The verdict binds its policy inputs and names its evidence mode.
+			assert.Equal(t, verify.EvidenceModeDigestOnly, st.Predicate.EvidenceMode, "a --checksums run must say so in the verdict")
+			assert.Len(t, st.Predicate.CheckSetSHA256, 64)
+
+			// Omitted validation is machine-readable: this digest-only run
+			// skipped INT-002 for a missing input, and a consumer profile that
+			// requires INT-002 must therefore reject the verdict even though
+			// its outcome is signed and authentic.
+			var int002 verify.CheckResult
+			for _, r := range st.Predicate.Results {
+				if r.ID == "INT-002" {
+					int002 = r
+				}
+			}
+			assert.Equal(t, "skip", int002.Status)
+			assert.Equal(t, "input-missing", int002.Reason)
+			_, err = verify.Verify(envelope, sum, verify.Policy{
+				Keys:           []crypto.PublicKey{&key.PublicKey},
+				RequiredChecks: []string{"INT-001", "INT-002"},
+			}, time.Now())
+			wantProfileErr := "omitted validation" // the pass verdict still skipped INT-002
+			if tt.tampered {
+				wantProfileErr = "status fail" // the fail verdict is rejected for the failed check
+			}
+			require.ErrorContains(t, err, wantProfileErr,
+				"an authentic verdict must not satisfy a qualification profile it does not meet")
 		})
 	}
+}
+
+// TestRunSetupErrorEmitsStructuredReport pins that a run dying before any
+// check still answers the pipeline in the report schema on stdout.
+func TestRunSetupErrorEmitsStructuredReport(t *testing.T) {
+	args := fixture(t, false)
+	args[1] = filepath.Join(t.TempDir(), "missing.qcow2")
+	out := filepath.Join(t.TempDir(), "out.json")
+	f, err := os.Create(out)
+	require.NoError(t, err)
+	assert.Equal(t, report.ExitError, run(append(args, "--format", "json"), f, devNull(t)))
+	require.NoError(t, f.Close())
+	data, err := os.ReadFile(out)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"schemaVersion": "1"`)
+	assert.Contains(t, string(data), `"runError"`)
+	assert.Regexp(t, `"error": 1`, string(data))
 }
 
 func TestRunVerdictFlagsAreRequiredTogether(t *testing.T) {

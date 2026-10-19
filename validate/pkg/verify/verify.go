@@ -69,6 +69,16 @@ type Subject struct {
 	Digest map[string]string `json:"digest"`
 }
 
+// Evidence modes a verdict records: how the release evidence reached the run.
+const (
+	// EvidenceModeBundle: the evidence bundle was verified offline against a
+	// pinned trusted root before any check ran.
+	EvidenceModeBundle = "bundle"
+	// EvidenceModeDigestOnly: a bare checksums file the caller trusted; the
+	// evidence itself was never authenticated.
+	EvidenceModeDigestOnly = "digest-only"
+)
+
 // Predicate is the image-validation verdict: who validated what against which
 // check set, with what outcome. The types mirror the report document but are
 // defined here so a consumer vendors only this package.
@@ -81,6 +91,15 @@ type Predicate struct {
 	Summary             Summary       `json:"summary"`
 	Results             []CheckResult `json:"results"`
 	FinishedAt          time.Time     `json:"finishedAt"`
+	// EvidenceMode says how the release evidence was supplied (bundle |
+	// digest-only). Older verdicts predate the field and carry "".
+	EvidenceMode string `json:"evidenceMode,omitempty"`
+	// CheckSetSHA256 is the sha256 of the checks.yaml that judged the run —
+	// the version string names the policy, this pins its content.
+	CheckSetSHA256 string `json:"checkSetSha256,omitempty"`
+	// BOMSHA256 is the sha256 of the target BOM file; empty when none was
+	// supplied.
+	BOMSHA256 string `json:"bomSha256,omitempty"`
 }
 
 // Tool identifies the validator build that produced the verdict.
@@ -106,13 +125,21 @@ type Summary struct {
 	Error        int `json:"error"`
 }
 
-// CheckResult is one check's outcome as the verdict records it.
+// CheckResult is one check's outcome as the verdict records it. Reason is
+// set on skips and distinguishes genuine non-applicability from omitted
+// validation (tier-off, input-missing).
 type CheckResult struct {
 	ID       string `json:"id"`
 	Status   string `json:"status"`
 	Severity string `json:"severity"`
+	Reason   string `json:"reason,omitempty"`
 	Evidence string `json:"evidence,omitempty"`
 }
+
+// SkipNotApplicable is the one skip reason a required check may carry: the
+// target is genuinely outside the check's scope. Every other skip is omitted
+// validation.
+const SkipNotApplicable = "not-applicable"
 
 // Policy is what a consumer requires of a verdict beyond a valid signature.
 type Policy struct {
@@ -128,6 +155,13 @@ type Policy struct {
 	// MaxAge rejects verdicts whose FinishedAt is older than now-MaxAge;
 	// zero means no age limit.
 	MaxAge time.Duration
+	// RequiredChecks lists check IDs this consumer's qualification profile
+	// demands. Each must appear in the verdict and have passed, or be skipped
+	// as not-applicable (the target is outside the check's scope). A missing
+	// result, a disabled tier or a missing input is omitted validation and
+	// fails verification: an authentic verdict over two checks and fifteen
+	// skips must never satisfy a policy that expected seventeen.
+	RequiredChecks []string
 }
 
 // Verify checks a verdict envelope against the policy and the image digest
@@ -194,7 +228,43 @@ func Verify(envelopeJSON []byte, imageSHA256 string, pol Policy, now time.Time) 
 			return nil, fmt.Errorf("verdict is %s old, policy maximum is %s", age.Round(time.Second), pol.MaxAge)
 		}
 	}
+	if err := requireChecks(st.Predicate.Results, pol.RequiredChecks); err != nil {
+		return nil, err
+	}
 	return &st, nil
+}
+
+// requireChecks enforces the consumer's qualification profile: every required
+// check passed or was skipped as not-applicable. The list is the consumer's
+// policy, deliberately independent of the verdict's own contents — a signer
+// cannot shrink the profile by omitting results.
+func requireChecks(results []CheckResult, required []string) error {
+	if len(required) == 0 {
+		return nil
+	}
+	byID := make(map[string]CheckResult, len(results))
+	for _, r := range results {
+		byID[r.ID] = r
+	}
+	for _, id := range required {
+		r, ok := byID[id]
+		if !ok {
+			return fmt.Errorf("required check %s: the verdict carries no result for it", id)
+		}
+		switch {
+		case r.Status == "pass":
+		case r.Status == "skip" && r.Reason == SkipNotApplicable:
+		case r.Status == "skip":
+			reason := r.Reason
+			if reason == "" {
+				reason = "no reason recorded"
+			}
+			return fmt.Errorf("required check %s was skipped (%s): omitted validation does not satisfy the profile", id, reason)
+		default:
+			return fmt.Errorf("required check %s: status %s (%s)", id, r.Status, r.Evidence)
+		}
+	}
+	return nil
 }
 
 // verifyAnySignature accepts the envelope when any (signature, key) pair

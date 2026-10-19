@@ -100,6 +100,25 @@ threshold, Found: 0" against an envelope whose only flaw was a keyid. The
 cross-verify lane (`hack/cross-verify-cosign.sh`) pins this interoperability:
 cosign must accept our verdicts and reject them against different blob bytes.
 
+## 2026-10 — Completeness is the consumer's policy, and it is enforceable
+
+An authentic signature over a skip-heavy run must never satisfy a gate that
+expected full validation (found by independent review: digest-only mode with
+tiers off yields two passes, fifteen skips, exit 0, a signed pass verdict).
+Three mechanisms close it:
+
+- Skips carry a machine-readable reason: `not-applicable` (the target is
+  outside the check's appliesTo) vs `tier-off` / `input-missing` (omitted
+  validation). An implementation skip without a reason is an engine error.
+- Verdicts bind their policy inputs: `evidenceMode` (bundle vs digest-only),
+  `checkSetSha256`, `bomSha256` — the version string names the policy, the
+  digests pin its content.
+- `verify.Policy.RequiredChecks` (and `nvke-verdict --required-checks`) is the
+  consumer's qualification profile: each listed check must have passed or be
+  not-applicable. The list lives with the consumer, deliberately independent
+  of the verdict's contents — a signer cannot shrink the profile by omitting
+  results.
+
 ## 2026-10 — Deferred, visibly
 
 FDE-004 (grub passphrase stripped after the TPM first-boot bind) needs a
