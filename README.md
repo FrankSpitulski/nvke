@@ -128,6 +128,8 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md); open an issue before substantial
 work so maintainers can agree on the approach.
 
 - **Questions:** [GitHub Discussions](https://github.com/dsx-ai-factory/nvke/discussions/categories/q-a).
+- **Chat:** the `#nvke` channel in the DSX AI Factory Slack.
+  [Get an invite](https://inviter.co/dsx-ai-factory).
 - **Bugs and feature requests:** [GitHub Issues](https://github.com/dsx-ai-factory/nvke/issues).
 - **Security vulnerabilities:** follow [SECURITY.md](SECURITY.md) and report privately.
 - **Community:** [Code of Conduct](CODE_OF_CONDUCT.md), [Governance](GOVERNANCE.md),
