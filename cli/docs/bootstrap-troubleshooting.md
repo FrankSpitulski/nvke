@@ -24,7 +24,16 @@ the cluster and node pool workflows, and their steps. Bootstrap does not
 configure span export for the controller it installs, so these logs are the
 record.
 
-Search the controller logs for it, in the diagnostics directory or in a
+To also send nvkectl's own log records to an OpenTelemetry backend, set
+`OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`) to a
+`host:port` or URL before you run the command. Records are sent over OTLP/gRPC
+with the run's trace ID and span ID, and what appears on stderr does not
+change. An `http://` URL, or `OTEL_EXPORTER_OTLP_INSECURE=true`, sends without
+TLS. `OTEL_EXPORTER_OTLP_HEADERS` supplies headers such as a token; nvkectl
+never logs them. An unreachable endpoint adds one warning and never fails the
+command.
+
+Search the controller logs for the trace ID, in the diagnostics directory or in a
 [retained bootstrap cluster](#the-retained-bootstrap-cluster):
 
 ```bash

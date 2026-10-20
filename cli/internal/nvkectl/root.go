@@ -55,7 +55,15 @@ func NewRootCmd(ver, commit, treeState, date string) *cobra.Command {
 			if !isTraced(cmd) {
 				run = nil
 			}
-			return setupLogging(verbose, jsonLogs, run)
+			exportErr := enableOTLPFromEnv(run)
+			if err := setupLogging(verbose, jsonLogs, run); err != nil {
+				return err
+			}
+			// A misconfigured endpoint never fails the command.
+			if exportErr != nil {
+				slog.Warn("OTLP log export is off", "reason", exportErr.Error())
+			}
+			return nil
 		},
 	}
 
@@ -237,6 +245,20 @@ type tracedError struct {
 
 func (e *tracedError) Error() string { return e.err.Error() + "\nTrace ID: " + e.traceID }
 func (e *tracedError) Unwrap() error { return e.err }
+
+// enableOTLPFromEnv turns on OTLP log export for run when the standard
+// OTEL_EXPORTER_OTLP_* variables name an endpoint. It does nothing for a nil
+// run.
+func enableOTLPFromEnv(run *telemetry.Run) error {
+	if run == nil {
+		return nil
+	}
+	cfg, ok, err := telemetry.OTLPConfigFromEnv()
+	if err != nil || !ok {
+		return err
+	}
+	return run.EnableOTLP(cfg)
+}
 
 // setupLogging installs the default logger. A run that has started adds its
 // trace_id and span_id to every record.

@@ -19,13 +19,79 @@ type logHandler struct {
 // LogHandler wraps inner so each record carries trace_id and span_id: those of
 // the span in the record's context, or else those of the run's root span.
 // Records logged without a context therefore still carry the run's trace ID.
-// It returns inner unchanged if the run has not started.
+// If EnableOTLP was called, each record that inner handles is also exported,
+// with the same trace ID and span ID and with its attributes. Export
+// failures are reported as warnings through inner. It returns inner unchanged
+// if the run has not started.
 func (run *Run) LogHandler(inner slog.Handler) slog.Handler {
 	root := run.SpanContext()
 	if !root.IsValid() {
 		return inner
 	}
-	return &logHandler{Handler: inner, root: root}
+	local := &logHandler{Handler: inner, root: root}
+	exported := run.otlpHandler()
+	if exported == nil {
+		return local
+	}
+	run.mu.Lock()
+	run.warnLogger = slog.New(inner)
+	run.mu.Unlock()
+	return &teeHandler{local: local, exported: &contextHandler{Handler: exported, root: root}}
+}
+
+// contextHandler puts the run's root span context in the context of a record
+// that has none, so the exporter sets the record's trace ID and span ID.
+type contextHandler struct {
+	slog.Handler
+	root trace.SpanContext
+}
+
+// Handle implements slog.Handler.
+func (handler *contextHandler) Handle(ctx context.Context, record slog.Record) error {
+	if !trace.SpanContextFromContext(ctx).IsValid() {
+		ctx = trace.ContextWithSpanContext(ctx, handler.root)
+	}
+	return handler.Handler.Handle(ctx, record)
+}
+
+// WithAttrs implements slog.Handler.
+func (handler *contextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &contextHandler{Handler: handler.Handler.WithAttrs(attrs), root: handler.root}
+}
+
+// WithGroup implements slog.Handler.
+func (handler *contextHandler) WithGroup(name string) slog.Handler {
+	return &contextHandler{Handler: handler.Handler.WithGroup(name), root: handler.root}
+}
+
+// teeHandler sends a record to the local handler and to the exporter. Which
+// levels are logged is the local handler's decision, so the exported records
+// are the ones the operator sees on stderr.
+type teeHandler struct {
+	local    slog.Handler
+	exported slog.Handler
+}
+
+// Enabled implements slog.Handler.
+func (handler *teeHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return handler.local.Enabled(ctx, level)
+}
+
+// Handle implements slog.Handler. The exporter's failure never reaches the
+// caller: a record the operator can read on stderr is not lost with it.
+func (handler *teeHandler) Handle(ctx context.Context, record slog.Record) error {
+	_ = handler.exported.Handle(ctx, record.Clone())
+	return handler.local.Handle(ctx, record)
+}
+
+// WithAttrs implements slog.Handler.
+func (handler *teeHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &teeHandler{local: handler.local.WithAttrs(attrs), exported: handler.exported.WithAttrs(attrs)}
+}
+
+// WithGroup implements slog.Handler.
+func (handler *teeHandler) WithGroup(name string) slog.Handler {
+	return &teeHandler{local: handler.local.WithGroup(name), exported: handler.exported.WithGroup(name)}
 }
 
 // Handle implements slog.Handler.

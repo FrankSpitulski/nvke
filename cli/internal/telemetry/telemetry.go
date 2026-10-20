@@ -6,7 +6,8 @@
 // every request to the site controller, and adds the trace ID to nvkectl's log
 // records.
 //
-// Spans are not exported.
+// Log records are exported over OTLP when EnableOTLP is called; spans are not
+// exported.
 package telemetry
 
 import (
@@ -17,6 +18,7 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/otel/codes"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -39,14 +41,19 @@ const (
 type Run struct {
 	providerOptions []sdktrace.TracerProviderOption
 	userAgent       string
+	version         string
 	logger          *slog.Logger
 
-	mismatchOnce sync.Once // the trace ID mismatch is reported once per run
+	mismatchOnce   sync.Once // the trace ID mismatch is reported once per run
+	exportWarnOnce sync.Once // an export failure is reported once per run
 
 	mu              sync.Mutex
 	tracerProvider  *sdktrace.TracerProvider
 	rootSpan        trace.Span // nil before Start and after Finish
 	rootSpanContext trace.SpanContext
+	handlerBuilt    bool                   // LogHandler has run, so EnableOTLP is too late
+	logProvider     *sdklog.LoggerProvider // nil unless EnableOTLP was called
+	warnLogger      *slog.Logger           // where export warnings go, set by LogHandler
 }
 
 // sanitizeVersion returns version reduced to the characters of an RFC 9110
@@ -87,7 +94,7 @@ func WithLogger(logger *slog.Logger) Option {
 // NewRun returns a Run for an nvkectl build with the given version. Requests
 // sent through Transport carry "User-Agent: nvkectl/<version>".
 func NewRun(version string, options ...Option) *Run {
-	run := &Run{userAgent: "nvkectl/" + sanitizeVersion(version)}
+	run := &Run{userAgent: "nvkectl/" + sanitizeVersion(version), version: version}
 	for _, option := range options {
 		option(run)
 	}
@@ -103,7 +110,9 @@ func (run *Run) Start(ctx context.Context, name string) context.Context {
 	if run.rootSpan != nil {
 		return ContextWithRun(trace.ContextWithSpan(ctx, run.rootSpan), run)
 	}
-	run.tracerProvider = sdktrace.NewTracerProvider(run.providerOptions...)
+	run.tracerProvider = sdktrace.NewTracerProvider(
+		append([]sdktrace.TracerProviderOption{sdktrace.WithResource(run.resource())}, run.providerOptions...)...,
+	)
 	ctx, run.rootSpan = run.tracerProvider.Tracer(tracerName).Start(ctx, name)
 	run.rootSpanContext = run.rootSpan.SpanContext()
 	return ContextWithRun(ctx, run)
@@ -140,14 +149,19 @@ func (run *Run) SpanContext() trace.SpanContext {
 	return run.rootSpanContext
 }
 
-// Finish ends the root span, recording err as its outcome when non-nil. It is
-// a no-op if Start was not called.
+// Finish ends the root span, recording err as its outcome when non-nil, and
+// flushes the log records to the OTLP endpoint, waiting at most two seconds.
+// It is a no-op if Start was not called.
 func (run *Run) Finish(err error) {
 	run.mu.Lock()
-	defer run.mu.Unlock()
-	if run.rootSpan == nil {
+	started := run.rootSpan != nil
+	run.mu.Unlock()
+	if !started {
 		return
 	}
+	defer run.flushLogs()
+	run.mu.Lock()
+	defer run.mu.Unlock()
 	if err != nil {
 		run.rootSpan.RecordError(err)
 		run.rootSpan.SetStatus(codes.Error, err.Error())
