@@ -17,8 +17,8 @@ import (
 	"time"
 )
 
-// These contracts run the real Make target and unchanged entrypoint in a scratch
-// tree. Only supporting tools/preparation are fixtures. They do not run a cluster.
+// TestSuppliedArtifact runs the real Make target and unchanged entrypoint in a
+// scratch tree. Only supporting tools and preparation are fixtures; no cluster runs.
 func TestSuppliedArtifact(t *testing.T) {
 	for _, tc := range []struct {
 		name, binary, expected, prepare string
@@ -34,6 +34,9 @@ func TestSuppliedArtifact(t *testing.T) {
 		{name: "changed bytes and preparation failure", binary: "valid", expected: "candidate", prepare: "printf '# changed\\n' >> \"$NVKECTL\"\n", want: "bytes changed or became unavailable", preflight: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.preflight {
+				requireArtifactTools(t)
+			}
 			f := newArtifactFixture(t, tc.prepare+"exit 19\n")
 			binary := ""
 			if tc.binary != "" {
@@ -70,6 +73,7 @@ func TestSuppliedArtifact(t *testing.T) {
 }
 
 func TestArtifactPreparationPreservesPrimaryStatus(t *testing.T) {
+	requireArtifactTools(t)
 	f := newArtifactFixture(t, "printf '# changed\\n' >> \"$NVKECTL\"\nexit 19\n")
 	binary := filepath.Join(f.cli, "supplied cli")
 	writeArtifactFixture(t, binary, "#!/bin/sh\nprintf 'candidate\\n'\n")
@@ -86,6 +90,7 @@ func TestArtifactPreparationPreservesPrimaryStatus(t *testing.T) {
 }
 
 func TestArtifactPreparationGroupCancellation(t *testing.T) {
+	requireArtifactTools(t)
 	f := newArtifactFixture(t, "touch \"$PREPARING\"\nexec sleep 30\n")
 	binary := filepath.Join(f.cli, "supplied cli")
 	writeArtifactFixture(t, binary, "#!/bin/sh\nprintf 'candidate\\n'\n")
@@ -130,6 +135,7 @@ func TestArtifactPreparationGroupCancellation(t *testing.T) {
 }
 
 func TestArtifactPreflightCancellation(t *testing.T) {
+	requireArtifactTools(t)
 	f := newArtifactFixture(t, "exit 19\n")
 	binary := filepath.Join(f.cli, "supplied cli")
 	writeArtifactFixture(t, binary, "#!/bin/sh\ntouch \"$PREPARING\"\nexec sleep 60\n")
@@ -175,6 +181,7 @@ func TestArtifactPreflightCancellation(t *testing.T) {
 // TestArtifactSuiteFailure reaches the real site-spec invocation, then fails the
 // supplied process. Preparation and teardown commands are controlled doubles.
 func TestArtifactSuiteFailure(t *testing.T) {
+	requireArtifactTools(t)
 	f := newArtifactFixture(t, `touch "$1/nvke-cni-ovn-charts-1.4.0_1.4.0_arm64.deb" "$1/nvke-cni-ovn-images-1.4.0_1.4.0_arm64.deb" "$1/nke-e2e-helm.deb"
 `)
 	root := filepath.Dir(f.cli)
@@ -217,6 +224,7 @@ if [ "$1" = version ]; then echo candidate; else exit 7; fi
 
 // TestArtifactVersionTimeout uses the real timeout utility and its fixed bound.
 func TestArtifactVersionTimeout(t *testing.T) {
+	requireArtifactTools(t)
 	if testing.Short() {
 		t.Skip("real 30-second preflight deadline")
 	}
@@ -346,5 +354,14 @@ trap - EXIT
 				t.Fatalf("owned group not stopped and joined: %v\n%s", err, output)
 			}
 		})
+	}
+}
+
+func requireArtifactTools(t *testing.T) {
+	t.Helper()
+	for _, tool := range []string{"bash", "timeout", "sha256sum"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s required by run.sh", tool)
+		}
 	}
 }
