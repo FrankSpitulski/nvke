@@ -158,6 +158,23 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+// GetNodePool reads the node pool with the given server-assigned UUID.
+func (c *Client) GetNodePool(ctx context.Context, id string) (*api.NodePool, error) {
+	nodePoolID, err := uuid.Parse(id)
+	if err != nil || nodePoolID == uuid.Nil {
+		return nil, errors.New("NVKE controller node pool ID must be a nonzero UUID")
+	}
+	response, err := c.api.GetNodePool(ctx, nodePoolID)
+	var result api.NodePool
+	if err := readResponse(response, err, http.StatusOK, &result); err != nil {
+		return nil, err
+	}
+	if result.ID != nodePoolID || result.ClusterID == uuid.Nil || result.Name == "" {
+		return nil, ErrInvalidResponse
+	}
+	return &result, nil
+}
+
 func readResponse(response *http.Response, requestErr error, expected int, target any) error {
 	if requestErr != nil {
 		if errors.Is(requestErr, context.Canceled) {

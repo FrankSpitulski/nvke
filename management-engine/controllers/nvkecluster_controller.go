@@ -36,6 +36,7 @@ type ControllerClient interface {
 	Get(ctx context.Context, id string) (*api.Cluster, error)
 	Create(ctx context.Context, request api.CreateClusterRequest) (*api.Cluster, error)
 	Delete(ctx context.Context, id string) error
+	GetNodePool(ctx context.Context, id string) (*api.NodePool, error)
 }
 
 // NVKEClusterReconciler coordinates cluster provisioning from declarative intent.
@@ -97,6 +98,23 @@ func (r *NVKEClusterReconciler) reconcileCluster(ctx context.Context, cluster *i
 		Reason: internalv1.ReconcileSucceededReason,
 	})
 	return ctrl.Result{RequeueAfter: r.PollInterval}, nil
+}
+
+func (r *NVKEClusterReconciler) reconcileNodePool(ctx context.Context, cluster *internalv1.NVKECluster, pool *internalv1.NodePool) error {
+	for _, status := range cluster.Status.NodePools {
+		if status.Name != pool.Name || status.ID == "" {
+			continue
+		}
+		observedPool, err := r.NVKEController.GetNodePool(ctx, status.ID)
+		if err != nil {
+			return fmt.Errorf("get nvke controller node pool %q: %w", status.ID, err)
+		}
+		if observedPool.ClusterID.String() != cluster.Status.ID {
+			return fmt.Errorf("node pool %q belongs to cluster %q, expected %q", status.ID, observedPool.ClusterID, cluster.Status.ID)
+		}
+		return nil
+	}
+	return nil
 }
 
 func (r *NVKEClusterReconciler) ensureCluster(ctx context.Context, cluster *internalv1.NVKECluster) (*api.Cluster, error) {

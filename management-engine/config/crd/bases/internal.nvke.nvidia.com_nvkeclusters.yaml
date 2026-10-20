@@ -684,6 +684,10 @@ spec:
                       x-kubernetes-list-map-keys:
                       - type
                       x-kubernetes-list-type: map
+                    id:
+                      description: ID is the NVKE controller's node pool UUID.
+                      format: uuid
+                      type: string
                     name:
                       description: Name identifies the corresponding pool in spec.nodePools.
                       maxLength: 253

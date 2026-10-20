@@ -123,6 +123,30 @@ type NodePoolStatus struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	UpdatedReplicas *int32 `json:"updatedReplicas,omitempty"`
+	// ID is the NVKE controller's node pool UUID.
+	// +optional
+	// +kubebuilder:validation:Format=uuid
+	ID string `json:"id,omitempty"`
+}
+
+// GetConditions returns the pool's conditions for CAPI condition aggregation.
+func (p NodePoolStatus) GetConditions() []metav1.Condition {
+	return p.Conditions
+}
+
+// SetConditions updates the pool's conditions for CAPI condition helpers.
+func (p *NodePoolStatus) SetConditions(conditions []metav1.Condition) {
+	p.Conditions = conditions
+}
+
+// GetName identifies the pool in CAPI aggregate condition messages.
+func (p NodePoolStatus) GetName() string {
+	return string(p.Name)
+}
+
+// GetLabels returns nil because embedded node pool status has no resource labels.
+func (p NodePoolStatus) GetLabels() map[string]string {
+	return nil
 }
 
 // LabelValue follows Kubernetes label value syntax.
