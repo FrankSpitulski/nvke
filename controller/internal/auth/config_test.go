@@ -45,6 +45,23 @@ issuers:
         pathPrefixes: ["/nke-service/"]
 `
 
+// exampleStructConfig is exampleConfig's first issuer built in Go, the shape
+// nvke-controller-config's apiAuth section arrives in: no apiVersion or kind.
+func exampleStructConfig() *auth.Config {
+	return &auth.Config{
+		Audiences: []string{"https://cwe.example.com"},
+		Issuers: []auth.Issuer{{
+			Name:       "k8s",
+			Issuer:     "https://kubernetes.default.svc.cluster.local",
+			JWKS:       &auth.JWKSKeys{URI: "https://kubernetes.default.svc/openid/v1/jwks"},
+			Algorithms: []string{"RS256"},
+			Admit: &auth.Admit{
+				ServiceAccounts: []auth.ServiceAccountRule{{Namespace: "nke-clients"}},
+			},
+		}},
+	}
+}
+
 // The helpers below vary one thing at a time against an otherwise-valid file. A
 // case needing two issuers, or a missing top-level key, writes its own YAML.
 
@@ -532,6 +549,52 @@ func TestValidateDoesNotRequireTypeMeta(t *testing.T) {
 	}
 
 	require.NoError(t, cfg.Validate())
+}
+
+// ValidateStartup is how nvke-controller-config's apiAuth section, which has no
+// file of its own, reaches the rules Load applies. It must refuse what Load
+// refuses, including an issuer with no admit block, which Validate allows.
+func TestValidateStartup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(*auth.Config)
+		wantErr string
+	}{
+		{name: "a valid configuration without apiVersion or kind passes"},
+		{
+			name:    "an issuer without admit is refused",
+			mutate:  func(c *auth.Config) { c.Issuers[0].Admit = nil },
+			wantErr: "issuers[0] (k8s): admit is required",
+		},
+		{
+			name:    "Validate's rules apply too",
+			mutate:  func(c *auth.Config) { c.Issuers = nil },
+			wantErr: "issuers is required",
+		},
+		{
+			name:    "so does the audience rule",
+			mutate:  func(c *auth.Config) { c.Audiences = nil },
+			wantErr: "audiences is required",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := exampleStructConfig()
+			if tt.mutate != nil {
+				tt.mutate(cfg)
+			}
+			err := cfg.ValidateStartup()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
 }
 
 // An empty wantErr means the configuration must load.
