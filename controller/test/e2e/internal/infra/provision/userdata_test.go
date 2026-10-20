@@ -197,7 +197,7 @@ func TestRenderUserDataNodeUser(t *testing.T) {
 }
 
 // The site node runs kind plus the whole stack on one machine, and the
-// 2026-09-29 ytl bootstrap needed this raised by hand before it completed.
+// 2026-09-29 site-2 bootstrap needed this raised by hand before it completed.
 func TestRenderUserDataRaisesInotifyInstances(t *testing.T) {
 	out, err := RenderUserData(completeUserData())
 	if err != nil {

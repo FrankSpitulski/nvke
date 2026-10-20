@@ -326,7 +326,7 @@ is a single node, and the upgrade specs act on a tenant cluster's control-plane
 version through the controller.
 
 **GPUs.** A run names the accelerator its workers need with `-e2e.capabilities
-gpu=<model>`, and the lane has qualified a GB200 tenant at ytl on both amd64
+gpu=<model>`, and the lane has qualified a GB200 tenant at site-2 on both amd64
 and arm64 CPU nodes.
 
 `Resolve` returns two shapes rather than one, so "CPU control plane, GPU

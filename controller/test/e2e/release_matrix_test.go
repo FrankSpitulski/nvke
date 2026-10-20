@@ -39,8 +39,21 @@ type releaseMetadataIndex struct {
 	Profiles map[string]releaseMetadata `json:"profiles"`
 }
 
+// releaseExclusion matches prefix exactly, unless prefix ends in "-", in
+// which case it matches every active release name starting with it: the
+// GB200 releases below vary by site in a trailing component this file does
+// not otherwise name. Every other entry names one release and should keep
+// matching only that one.
 type releaseExclusion struct {
+	prefix string
 	reason string
+}
+
+func (e releaseExclusion) matches(name string) bool {
+	if strings.HasSuffix(e.prefix, "-") {
+		return strings.HasPrefix(name, e.prefix)
+	}
+	return name == e.prefix
 }
 
 const legacyAutoinstallExclusionReason = "profile boots vmlinuz, initrd, and ISO directly; nico-vms currently requires a qcow-imager chain with image_url"
@@ -52,37 +65,27 @@ const legacyAutoinstallExclusionReason = "profile boots vmlinuz, initrd, and ISO
 // active profiles are otherwise required by the matrix, so an unsupported
 // profile must be added here with an explicit reason before the suite will
 // register.
-var nicoVMSReleaseExclusions = map[string]releaseExclusion{
-	"nke-1.29.7-251119": {
-		reason: legacyAutoinstallExclusionReason,
-	},
-	"nke-1.31.12-251029-osmo": {
-		reason: legacyAutoinstallExclusionReason,
-	},
-	"nke-1.34.2-251201-amd64-ytl": {
-		reason: legacyAutoinstallExclusionReason,
-	},
-	"nke-1.34.2-251205-amd64-ytl": {
-		reason: legacyAutoinstallExclusionReason,
-	},
-	"nke-1.34.2-260616-amd64-ytl": {
-		reason: legacyAutoinstallExclusionReason,
-	},
-	"nke-260313-22.04-amd64": {
-		reason: legacyAutoinstallExclusionReason,
-	},
-	"nke-260318-22.04-amd64": {
-		reason: legacyAutoinstallExclusionReason,
-	},
-	"nke-260319-22.04-amd64-osmo": {
-		reason: legacyAutoinstallExclusionReason,
-	},
-	"nke-260511-22.04-amd64": {
-		reason: legacyAutoinstallExclusionReason,
-	},
-	"nvke-local-dev-kindest-arm64": {
-		reason: "local kindest profile is an arm64 development placeholder, not a tenant release",
-	},
+var nicoVMSReleaseExclusions = []releaseExclusion{
+	{prefix: "nke-1.29.7-251119", reason: legacyAutoinstallExclusionReason},
+	{prefix: "nke-1.31.12-251029-osmo", reason: legacyAutoinstallExclusionReason},
+	{prefix: "nke-1.34.2-251201-amd64-", reason: legacyAutoinstallExclusionReason},
+	{prefix: "nke-1.34.2-251205-amd64-", reason: legacyAutoinstallExclusionReason},
+	{prefix: "nke-1.34.2-260616-amd64-", reason: legacyAutoinstallExclusionReason},
+	{prefix: "nke-260313-22.04-amd64", reason: legacyAutoinstallExclusionReason},
+	{prefix: "nke-260318-22.04-amd64", reason: legacyAutoinstallExclusionReason},
+	{prefix: "nke-260319-22.04-amd64-osmo", reason: legacyAutoinstallExclusionReason},
+	{prefix: "nke-260511-22.04-amd64", reason: legacyAutoinstallExclusionReason},
+	{prefix: "nvke-local-dev-kindest-arm64", reason: "local kindest profile is an arm64 development placeholder, not a tenant release"},
+}
+
+// nicoVMSExclusionFor returns the exclusion matching name, or nil.
+func nicoVMSExclusionFor(name string) *releaseExclusion {
+	for i := range nicoVMSReleaseExclusions {
+		if nicoVMSReleaseExclusions[i].matches(name) {
+			return &nicoVMSReleaseExclusions[i]
+		}
+	}
+	return nil
 }
 
 func mustNicoVMSReleaseTableEntries() []ginkgo.TableEntry {
@@ -154,9 +157,21 @@ func nicoVMSReleaseMatrix() ([]nicoVMSReleaseEntry, error) {
 		return nil, err
 	}
 
-	for name := range nicoVMSReleaseExclusions {
-		if _, ok := index.Profiles[name]; !ok {
-			return nil, fmt.Errorf("exclusion %q is not an active release", name)
+	for _, excl := range nicoVMSReleaseExclusions {
+		matches := 0
+		for name := range index.Profiles {
+			if excl.matches(name) {
+				matches++
+			}
+		}
+		// Catches a prefix broadened enough to reach an unrelated release as
+		// well as the one it was written for: a count the exclusion's own
+		// author did not expect, not just a missing one.
+		if matches > 1 {
+			return nil, fmt.Errorf("exclusion %q matches %d active releases, want exactly 1", excl.prefix, matches)
+		}
+		if matches == 0 {
+			return nil, fmt.Errorf("exclusion %q matches no active release", excl.prefix)
 		}
 	}
 
@@ -168,7 +183,7 @@ func nicoVMSReleaseMatrix() ([]nicoVMSReleaseEntry, error) {
 
 	profiles := make([]nicoVMSReleaseEntry, 0, len(names))
 	for _, name := range names {
-		if _, excluded := nicoVMSReleaseExclusions[name]; excluded {
+		if nicoVMSExclusionFor(name) != nil {
 			continue
 		}
 
@@ -198,7 +213,7 @@ func nicoVMSReleaseMatrix() ([]nicoVMSReleaseEntry, error) {
 func otherArchProfiles(index releaseMetadataIndex) int {
 	count := 0
 	for name, metadata := range index.Profiles {
-		if _, excluded := nicoVMSReleaseExclusions[name]; excluded {
+		if nicoVMSExclusionFor(name) != nil {
 			continue
 		}
 		if metadata.Architecture != runtime.GOARCH {
@@ -360,7 +375,13 @@ func TestNicoVMSReleaseMatrix(t *testing.T) {
 		}
 		t.Fatalf("loading active metadata: %v", err)
 	}
-	expectedProfiles := len(index.Profiles) - len(nicoVMSReleaseExclusions) - otherArchProfiles(index)
+	excludedProfiles := 0
+	for name := range index.Profiles {
+		if nicoVMSExclusionFor(name) != nil {
+			excludedProfiles++
+		}
+	}
+	expectedProfiles := len(index.Profiles) - excludedProfiles - otherArchProfiles(index)
 	if len(profiles) != expectedProfiles {
 		t.Fatalf("matrix contains %d profiles, want %d active %s profiles minus exclusions", len(profiles), expectedProfiles, runtime.GOARCH)
 	}
@@ -370,9 +391,9 @@ func TestNicoVMSReleaseMatrix(t *testing.T) {
 		}
 	}
 
-	for name, exclusion := range nicoVMSReleaseExclusions {
+	for _, exclusion := range nicoVMSReleaseExclusions {
 		if exclusion.reason == "" {
-			t.Errorf("exclusion %s must document a reason", name)
+			t.Errorf("exclusion %s must document a reason", exclusion.prefix)
 		}
 	}
 

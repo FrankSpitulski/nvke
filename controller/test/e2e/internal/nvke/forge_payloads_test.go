@@ -309,7 +309,7 @@ func TestBuildForgeNodePayloadsBootParametersFollowTheArch(t *testing.T) {
 			wantAbsent: []string{"ttyAMA0", "ip=dhcp", "fb=false"},
 		},
 		{
-			// Asserted against the ytl GB200 instances rather than against
+			// Asserted against the site-2 GB200 instances rather than against
 			// what the amd64 line suggests, because the two differ in ways no
 			// rule predicts: pci=realloc=off survives, iommu=pt is spelled the
 			// same, and ip=dhcp and fb=false appear only here.
@@ -486,8 +486,8 @@ func TestForgeRequestGivesEachRoleItsOwnPayloads(t *testing.T) {
 	}
 }
 
-// The ytl GB200 instances set no luks-key, so neither does the arm64 script.
-// The amd64 one keeps it, which is what has been booting az61.
+// The site-2 GB200 instances set no luks-key, so neither does the arm64 script.
+// The amd64 one keeps it, which is what has been booting site-1.
 func TestBuildForgeNodePayloadsLuksKeyFollowsTheArch(t *testing.T) {
 	for _, tc := range []struct {
 		arch string

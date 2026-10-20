@@ -325,7 +325,7 @@ func TestValidateCreateNodePoolRequest_UsesConfiguredLabelAllowlist(t *testing.T
 
 func TestValidateCreateNodePoolRequest_NodeNamePrefixLength(t *testing.T) {
 	service := NewNodePoolService(slog.Default(), nil, config.TeleportConfig{}, nil)
-	clusterName := "runtime-dgxc-k8s-forge-ytl-dev1"
+	clusterName := "runtime-dgxc-k8s-forge-site-2-dev1"
 
 	capiNodePoolRequest := func(nodeNamePrefix string) *api.CreateNodePoolRequest {
 		return &api.CreateNodePoolRequest{
@@ -349,7 +349,7 @@ func TestValidateCreateNodePoolRequest_NodeNamePrefixLength(t *testing.T) {
 	t.Run("rejects prefix that exceeds generated node name limit", func(t *testing.T) {
 		err := service.validateCreateNodePoolRequest(
 			cluster,
-			capiNodePoolRequest("runtime-dgxc-k8s-forge-ytl-dev1-cp"),
+			capiNodePoolRequest("runtime-dgxc-k8s-forge-site-2-dev1-cp"),
 		)
 
 		require.Error(t, err)
@@ -359,7 +359,7 @@ func TestValidateCreateNodePoolRequest_NodeNamePrefixLength(t *testing.T) {
 }
 
 func TestValidateCreateClusterRequest_NodeNamePrefixLength(t *testing.T) {
-	clusterName := "runtime-dgxc-k8s-forge-ytl-dev1"
+	clusterName := "runtime-dgxc-k8s-forge-site-2-dev1"
 	svc := clusterService{}
 
 	forgeClusterRequest := func(name, nodeNamePrefix string) *api.CreateClusterRequest {
@@ -395,7 +395,7 @@ func TestValidateCreateClusterRequest_NodeNamePrefixLength(t *testing.T) {
 
 	t.Run("rejects embedded node pool with prefix too long for cluster name", func(t *testing.T) {
 		err := svc.ValidateCreateClusterRequestFields(
-			forgeClusterRequest(clusterName, "runtime-dgxc-k8s-forge-ytl-dev1-cp"),
+			forgeClusterRequest(clusterName, "runtime-dgxc-k8s-forge-site-2-dev1-cp"),
 		)
 
 		require.Error(t, err)

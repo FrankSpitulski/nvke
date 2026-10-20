@@ -50,7 +50,7 @@ RenderUserData returns as soon as one appears, and systemd-resolved can still
 be coming up -- on a node whose clock is at 1970, NTP has not run either. The
 curl then fails with "Could not resolve host", set -e kills the block, and the
 node ends up with no kubeadm, no CNI and no agent args, failing much later with
-nothing pointing back here. Observed on three consecutive az61 runs and
+nothing pointing back here. Observed on three consecutive site-1 runs and
 reproduced by hand. Waiting for the name costs nothing when it already
 resolves.
 

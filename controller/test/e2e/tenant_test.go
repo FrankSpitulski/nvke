@@ -462,7 +462,7 @@ func nicoForgeTenant() testSpec {
 		// Delete is 75 minutes because Forge takes 20 to 40 to actually
 		// release a machine, and sometimes much longer, and the cluster is not
 		// gone until both of its machines are. Run 36051890151 failed the
-		// delete at 30 minutes, and run 38690403898 on az61 L40S still had the
+		// delete at 30 minutes, and run 38690403898 on site-1 L40S still had the
 		// control plane releasing after 45 plus the sweep's 15. It is capped
 		// by the suite's 150-minute -ginkgo.timeout: the delete starts about
 		// 42 minutes in, and the site sweep and release still need about 25
@@ -1493,12 +1493,12 @@ func TestUnit_ForgeControlPlaneConfig(t *testing.T) {
 		site                      forge.Site
 		wantSubnets, wantPrefixes []string
 	}{
-		// az61: attaches by subnet.
+		// site-1: attaches by subnet.
 		"subnet site": {
 			site:        forge.Site{ID: uuid.NewString(), VpcID: uuid.NewString(), SubnetID: subnet, SSHKeyGroupID: keys},
 			wantSubnets: []string{subnet},
 		},
-		// ytl: attaches by VPC prefix and has no subnet, which must stay empty
+		// site-2: attaches by VPC prefix and has no subnet, which must stay empty
 		// rather than become [""].
 		"VPC prefix site": {
 			site:         forge.Site{ID: uuid.NewString(), VpcID: uuid.NewString(), VpcPrefixID: prefix, SSHKeyGroupID: keys},

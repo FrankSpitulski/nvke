@@ -608,7 +608,7 @@ and `TELEPORT_IDENTITY_FILE`, which
 `.github/workflows/qualify-e2e.yml` obtains by joining with the
 repository's GitHub OIDC token — nothing is stored. The bot's login is `root`,
 so the workflow sets `FORGE_TELEPORT_LOGIN=root` and
-`FORGE_YTL_TELEPORT_LOGIN=root`, which each site's `teleportLogin` in
+`FORGE_SITE_2_TELEPORT_LOGIN=root`, which each site's `teleportLogin` in
 `environments/forge.yaml` reads. Unset is tsh's default.
 
 For a site whose jump host is *not* enrolled, set `JUMP_HOST_PASSWORD` and the

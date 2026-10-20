@@ -142,7 +142,7 @@ func RenderUserData(in UserDataInputs) (string, error) {
 	run = append(run,
 		// The site node runs a kind cluster and then the whole NVKE stack on
 		// one machine, and Ubuntu's default of 128 inotify instances is not
-		// enough for that many controllers: the 2026-09-29 ytl bootstrap had
+		// enough for that many controllers: the 2026-09-29 site-2 bootstrap had
 		// to be raised to 1024 by hand before it would complete. Written as a
 		// drop-in rather than set live, so it survives the reboots the
 		// bootstrap performs.

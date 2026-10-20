@@ -1267,7 +1267,7 @@ func expectSucceed2[A, B any](a A, b B, err error, messages ...any) (A, B) {
 // site controller off GPU hardware.
 //
 // A GPU shape provides an architecture as well as a model, so matching on
-// architecture alone is satisfied by one. ytl declares cpu.arm before
+// architecture alone is satisfied by one. site-2 declares cpu.arm before
 // gpu.gb200 and MatchInstanceType takes the first, so the site controller
 // lands on the CPU by declaration order. Reordering that file, or adding a
 // second arm64 GPU above it, would put a GB200 under the site controller.
