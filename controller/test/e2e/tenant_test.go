@@ -21,6 +21,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -74,6 +75,9 @@ type tenantTest struct {
 	// cascadePoolID is set by the node-pool cascade post-create spec and read by
 	// its post-delete counterpart to prove cluster deletion removed the pool.
 	cascadePoolID uuid.UUID
+	// k8sClientset reads what the controller-runtime k8sClient cannot: the log
+	// of a failed verifier pod.
+	k8sClientset kubernetes.Interface
 }
 
 var _ = DescribeTableSubtree("NVKE with backend", withNicoVMSReleaseEntries(
@@ -954,6 +958,11 @@ func setupTenantTest(ctx context.Context, mgmt managementCluster, timeouts nvke.
 		return tenantTest{}, fmt.Errorf("building management cluster client: %w", err)
 	}
 
+	k8sClientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return tenantTest{}, fmt.Errorf("building management cluster clientset: %w", err)
+	}
+
 	controllerClient, err := nvke.NewClient(ctx, restConfig, timeouts)
 	if err != nil {
 		return tenantTest{}, fmt.Errorf("building controller API client: %w", err)
@@ -1008,6 +1017,7 @@ func setupTenantTest(ctx context.Context, mgmt managementCluster, timeouts nvke.
 		lifecycle:     controllerClient,
 		timeouts:      timeouts,
 		trustDomain:   trustDomain,
+		k8sClientset:  k8sClientset,
 	}, nil
 }
 
