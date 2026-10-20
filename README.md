@@ -113,7 +113,7 @@ Before submitting a change, follow [CONTRIBUTING.md](CONTRIBUTING.md) and run
 | Task | Guide |
 |---|---|
 | Prepare nodes and bootstrap the management cluster | [Bootstrap the management cluster](docs/operate/bootstrap-management-cluster.md) |
-| Install NVKE services | [Install management-plane services](docs/operate/install-management-plane-services.md) |
+| Install NVKE services | [Install the management plane from the deploy path](deploy/README.md) |
 | Build node images and supply release artifacts | [Get NVKE artifacts from NVKR](docs/operate/build-node-images.md) |
 | Create and manage customer clusters | [Create a workload cluster](docs/workload-clusters/create.md), [Manage node pools](docs/workload-clusters/node-pools.md) |
 | Give a customer access | [Access a workload cluster](docs/workload-clusters/access.md) |
