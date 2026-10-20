@@ -11,6 +11,12 @@
 # Developers run `make -C controller host-up`. On macOS that pipes this script
 # into the Colima VM. On Linux it runs this script on the host. `--check`
 # verifies the device and does not load the module.
+#
+# When the running kernel's module package is gone from the archive, the
+# script installs the current kernel, which brings the module, prints
+# "ensure-vtpm-proxy: restart required" and exits 3: the machine must boot
+# that kernel and run the script again. colima-start.sh restarts the Colima
+# VM when it sees that line.
 
 set -euo pipefail
 
@@ -19,7 +25,7 @@ for arg in "$@"; do
   case "${arg}" in
     --check|-c) CHECK_ONLY=true ;;
     -h|--help)
-      sed -n '5,13p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '5,19p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -33,6 +39,7 @@ VTPM_MODULE=tpm_vtpm_proxy
 VTPMX_DEVICE=/dev/vtpmx
 VTPMX_SYSFS=/sys/class/misc/vtpmx/dev
 MODULES_LOAD_CONF=/etc/modules-load.d/99-capi-vtpm.conf
+RESTART_LINE="ensure-vtpm-proxy: restart required: boot the newly installed kernel"
 
 die() {
   echo "ensure-vtpm-proxy: $*" >&2
@@ -81,6 +88,20 @@ ensure_linux_vtpmx() {
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq || true
     apt-get install -y -qq "${modules_extra_pkg}" || true
+  fi
+
+  # A machine image older than its archive: Ubuntu keeps the extra modules of
+  # the current kernel only, so the running kernel's package can be gone, as
+  # it is on a fresh Colima VM. The current kernel brings its own; the
+  # machine has to boot it before the module can load.
+  if ! modinfo "${VTPM_MODULE}" >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+    local flavour="${release#*-*-}"
+    if [[ "${flavour}" != "${release}" ]] && apt-get install -y -qq "linux-image-${flavour}" >/dev/null &&
+      find /lib/modules -name "${VTPM_MODULE}.ko*" -not -path "/lib/modules/${release}/*" | grep -q .; then
+      info "installed the current linux-image-${flavour}, which provides ${VTPM_MODULE}; kernel ${release} has no package for it"
+      echo "${RESTART_LINE}"
+      exit 3
+    fi
   fi
 
   if ! modinfo "${VTPM_MODULE}" >/dev/null 2>&1; then

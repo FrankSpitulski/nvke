@@ -110,10 +110,11 @@ check_host() {
   [[ "$(id -u)" == 0 ]] || die "run as root: the node containers need iptables rules and a bridge address (sudo -i)"
   [[ -c /dev/vtpmx ]] || die "/dev/vtpmx is missing; load tpm_vtpm_proxy (make -C controller host-up)"
   local missing=()
-  for tool in nerdctl kind kubectl helm clusterctl oras curl jq python3 go gcc git make docker openssl iptables; do
+  # dpkg-scanpackages (dpkg-dev) indexes the OVN packages the node image carries.
+  for tool in nerdctl kind kubectl helm clusterctl oras curl jq python3 go gcc git make docker openssl iptables dpkg-scanpackages; do
     command -v "${tool}" >/dev/null 2>&1 || missing+=("${tool}")
   done
-  [[ ${#missing[@]} -eq 0 ]] || die "not on PATH: ${missing[*]}"
+  [[ ${#missing[@]} -eq 0 ]] || die "not on PATH: ${missing[*]} (dpkg-scanpackages is in dpkg-dev)"
   containerd_env
   nerdctl info >/dev/null 2>&1 || die "nerdctl cannot reach its containerd; run cli/hack/bootstrap-e2e-host.sh install-runtime and export CONTAINERD_ADDRESS"
   docker info >/dev/null 2>&1 || die "docker cannot reach its daemon; nico-sim runs the tenant nodes on it"
@@ -155,6 +156,12 @@ node_up() {
   if nerdctl inspect "${NODE}" --format '{{.State.Running}}' 2>/dev/null | grep -qx true; then
     log "node ${NODE} is running"
   else
+    cni_packages
+    # The node runs an image derived from NODE_IMAGE, cached by a tag that does
+    # not follow NODE_IMAGE, so both go.
+    if nerdctl image inspect "${NODE_IMAGE}" >/dev/null 2>&1 && ! image_has_cni nerdctl; then
+      die "${NODE_IMAGE} has no ${CNI_CHARTS_PACKAGE}, so the bootstrap would stop at InstallCNI; remove it and the node image built from it (nerdctl rmi ${NODE_IMAGE} \$(nerdctl images --filter reference=nvkectl-e2e/bootstrap-node --format '{{.Repository}}:{{.Tag}}')) and run setup again to rebuild them with the packages"
+    fi
     log "starting the container node (make -C cli nodes-up; the first run builds the node image)"
     NVKECTL_E2E_NODES=1 NVKECTL_E2E_REUSE=1 mk -C cli nodes-up
   fi
@@ -178,6 +185,35 @@ node_up() {
   install -m 0644 "${NVKECTL_E2E_SPIRE_CA_CERT}" "${WORKSPACE}/spire-ca.crt"
   install -m 0600 "${NVKECTL_E2E_SPIRE_CA_KEY}" "${WORKSPACE}/spire-ca.key"
   attach_bootstrap_network
+}
+
+# cni_packages builds the OVN and Helm packages the node image installs for
+# the controller's CNI step, as cli/e2e/bootstrap/run.sh does, and exports
+# the paths `make -C cli nodes-up` builds the image with. Without them the
+# image carries no CNI charts and the bootstrap stops at InstallCNI. They are
+# built once into CNI_BUNDLE_DIR.
+cni_packages() {
+  local arch="${ARCH}"
+  export CAPD_CNI_CHARTS_DEB_PATH="${CNI_BUNDLE_DIR}/${CNI_CHARTS_PACKAGE}_${CNI_STREAM}_${arch}.deb"
+  export CAPD_CNI_IMAGES_DEB_PATH="${CNI_BUNDLE_DIR}/nvke-cni-ovn-images-${CNI_STREAM}_${CNI_STREAM}_${arch}.deb"
+  export CAPD_HELM_DEB_PATH="${CNI_BUNDLE_DIR}/nke-e2e-helm.deb"
+  if [[ -f "${CAPD_CNI_CHARTS_DEB_PATH}" && -f "${CAPD_CNI_IMAGES_DEB_PATH}" && -f "${CAPD_HELM_DEB_PATH}" ]]; then
+    return
+  fi
+  log "building the OVN and Helm packages for the node image (controller/hack/ci/prepare-capd-bundles.sh; minutes, once)"
+  mkdir -p "${CNI_BUNDLE_DIR}"
+  BUNDLE_ARCH="${arch}" bash "${REPO}/controller/hack/ci/prepare-capd-bundles.sh" "${CNI_BUNDLE_DIR}" >"${WORKSPACE}/.cni-packages.log" 2>&1 ||
+    die "building the OVN and Helm packages failed; the log is ${WORKSPACE}/.cni-packages.log"
+  [[ -f "${CAPD_CNI_CHARTS_DEB_PATH}" && -f "${CAPD_CNI_IMAGES_DEB_PATH}" && -f "${CAPD_HELM_DEB_PATH}" ]] ||
+    die "prepare-capd-bundles.sh left no OVN or Helm package in ${CNI_BUNDLE_DIR}; the log is ${WORKSPACE}/.cni-packages.log"
+}
+
+# image_has_cni CLI reports whether NODE_IMAGE, as the nerdctl or docker CLI
+# sees it, carries the CNI charts package: an image built before setup
+# supplied the packages lacks it, and the build is skipped once the image
+# exists.
+image_has_cni() {
+  "$1" run --rm --network none --entrypoint dpkg-query "${NODE_IMAGE}" -W "${CNI_CHARTS_PACKAGE}" >/dev/null 2>&1
 }
 
 # attach_bootstrap_network does what cli/e2e/bootstrap/run.sh does before
@@ -225,10 +261,17 @@ node_has_image() { node_ctr images ls -q </dev/null 2>/dev/null | grep -qx "$1";
 # restart_controller rolls the site's controller onto restaged images. The
 # stack config names them by the same tag whatever the build, so an install
 # renders the same pod template and the old build would keep running until
-# the pod next restarted. Nothing to do before the stack is installed.
+# the pod next restarted. Nothing to do before the stack is installed. It
+# fails when the site cannot be asked, as right after the node restarts, so
+# the caller records the images only once an installed controller runs them.
 restart_controller() {
   [[ -f "${KUBECONFIG_FILE}" ]] || return 0
-  kubectl --kubeconfig "${KUBECONFIG_FILE}" --request-timeout=10s -n nke-controller get deployment nke-controller >/dev/null 2>&1 || return 0
+  local err
+  if ! err="$(kubectl --kubeconfig "${KUBECONFIG_FILE}" --request-timeout=10s -n nke-controller get deployment nke-controller -o name 2>&1 >/dev/null)"; then
+    [[ "${err}" == *NotFound* ]] && return 0
+    log "warning: cannot reach the site to restart the controller on the restaged images; the next setup tries again (${err})"
+    return 1
+  fi
   log "restarting the controller on the restaged images"
   kubectl --kubeconfig "${KUBECONFIG_FILE}" -n nke-controller rollout restart deployment/nke-controller >/dev/null
 }
@@ -255,8 +298,11 @@ stage_images() {
     nerdctl save "${image}" | node_ctr images import - >/dev/null
     node_has_image "${image}" || die "${image} is not in the node's containerd after the import"
   done
-  printf '%s\n' "${ids}" >"${staged}"
-  restart_controller
+  # Recorded only after the restart: an unrecorded restage is staged and
+  # restarted again by the next setup.
+  if restart_controller; then
+    printf '%s\n' "${ids}" >"${staged}"
+  fi
 }
 
 # ---- the files the flow reads -------------------------------------------------------
@@ -325,6 +371,9 @@ unbridge_networks() {
   tenant_br="$(bridge_name docker "${TENANT_NETWORK}" 2>/dev/null)" || return 0
   iptables -D FORWARD -i "${node_br}" -o "${tenant_br}" -j ACCEPT 2>/dev/null || true
   iptables -D FORWARD -i "${tenant_br}" -o "${node_br}" -j ACCEPT 2>/dev/null || true
+  local tenant_cidr
+  tenant_cidr="$(network_cidr docker "${TENANT_NETWORK}")" || return 0
+  [[ -z "${tenant_cidr}" ]] || iptables -t raw -D PREROUTING -i "${node_br}" -d "${tenant_cidr}" -j ACCEPT 2>/dev/null || true
 }
 
 bridge_networks() {
@@ -339,6 +388,14 @@ bridge_networks() {
     set -- ${pair}
     iptables -C FORWARD -i "$1" -o "$2" -j ACCEPT 2>/dev/null || iptables -I FORWARD 1 -i "$1" -o "$2" -j ACCEPT
   done
+  # Docker 28 also drops, in the raw table, a packet for a container's address
+  # that arrives on any interface but its network's bridge, ahead of FORWARD;
+  # the site node's packets arrive on the node bridge.
+  local tenant_cidr
+  tenant_cidr="$(network_cidr docker "${TENANT_NETWORK}")"
+  [[ -n "${tenant_cidr}" ]] || die "cannot read the Docker ${TENANT_NETWORK} subnet"
+  iptables -t raw -C PREROUTING -i "${node_br}" -d "${tenant_cidr}" -j ACCEPT 2>/dev/null ||
+    iptables -t raw -I PREROUTING 1 -i "${node_br}" -d "${tenant_cidr}" -j ACCEPT
 }
 
 # nico_sim_running reports whether the pid file names a live nico-sim, not a
@@ -364,9 +421,11 @@ nico_sim_up() {
     # a down.
     log "building nico-sim (make -C controller/nico-sim build)"
     CGO_ENABLED=1 mk -C controller/nico-sim build >/dev/null
-    if ! docker image inspect cwe-capd-kindest-node:local >/dev/null 2>&1; then
+    # Again when Docker's copy predates the CNI packages: it is this script's
+    # copy of the node image, and a tenant node without them never gets a CNI.
+    if ! docker image inspect "${NODE_IMAGE}" >/dev/null 2>&1 || ! image_has_cni docker; then
       log "copying the node image into Docker for the tenant nodes"
-      nerdctl save cwe-capd-kindest-node:local | docker load >/dev/null
+      nerdctl save "${NODE_IMAGE}" | docker load >/dev/null
     fi
     # nico-sim binds its port last, after its database, seed and Docker
     # checks, so an answer on the port while it starts can be another
@@ -381,7 +440,7 @@ nico_sim_up() {
       # No console SSH server: it takes any client on every interface, and
       # nothing here reads a console.
       export NICO_SIM_LOG_FORMAT=text NICO_VMS_VM_BACKEND=mock NICO_VMS_BGP_ENABLED=false NICO_VMS_CONSOLE_SSH_PORT=-1
-      export NICO_CONTAINERS_ENABLED=true NICO_CONTAINERS_REQUIRE_HEALTHY=true NICO_CONTAINERS_NODE_NETWORK="${TENANT_NETWORK}" NICO_CONTAINERS_NODE_IMAGE=cwe-capd-kindest-node:local
+      export NICO_CONTAINERS_ENABLED=true NICO_CONTAINERS_REQUIRE_HEALTHY=true NICO_CONTAINERS_NODE_NETWORK="${TENANT_NETWORK}" NICO_CONTAINERS_NODE_IMAGE="${NODE_IMAGE}"
       nohup ./bin/nico-sim >"${WORKSPACE}/.nico-sim.log" 2>&1 &
       echo $! >"${pid_file}"
     )
@@ -401,12 +460,18 @@ setup() {
   stage_images
   write_inputs
   nico_sim_up
+  # The site's Kubernetes version is the node's: the node image ships one
+  # kubelet, and a control plane newer than it leaves features the stack
+  # relies on, such as image volumes, off on the node.
+  local k8s_version
+  k8s_version="$(nerdctl exec "${NODE}" kubelet --version 2>/dev/null | awk '{sub(/^v/, "", $2); print $2}')"
+  [[ "${k8s_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "cannot read the node's kubelet version"
   cat <<DONE
 
 The local site is ready for the operator flow. In a root shell:
 
   source ${WORKSPACE}/env.sh
-  nvkectl generate sitespec ${SITE} --nodes hosts.csv --set cluster.podCidr=10.244.0.0/16 --set cluster.kubeletConfig.systemReservedMemory=512Mi --set spire.upstreamCA=true > sitespec.yaml
+  nvkectl generate sitespec ${SITE} --nodes hosts.csv --set cluster.k8sVersion=${k8s_version} --set cluster.podCidr=10.244.0.0/16 --set cluster.kubeletConfig.systemReservedMemory=512Mi --set spire.upstreamCA=true > sitespec.yaml
   nvkectl bootstrap site -f sitespec.yaml --timeout 25m
 
 Then, as docs/get-started/local-site.md lists them: clusterctl init,
@@ -444,15 +509,16 @@ status() {
 }
 
 # sim_instance_ids prints the ids of the instances this workspace's nico-sim
-# created, read from its database; nothing when there is none.
+# created, read from its database; nothing when there is none. It fails when
+# the database cannot be read, so down keeps the only record of those nodes.
 sim_instance_ids() {
   local db="${WORKSPACE}/.nico-sim.db"
   [[ -f "${db}" ]] || return 0
   if ! command -v python3 >/dev/null 2>&1; then
-    log "warning: python3 is missing, so the tenant nodes in ${db} are left in Docker"
-    return 0
+    log "python3 is missing, so the tenant nodes in ${db} cannot be found"
+    return 1
   fi
-  python3 - "${db}" 2>/dev/null <<'PY' || log "warning: cannot read the instances in ${db}; its tenant nodes are left in Docker"
+  python3 - "${db}" <<'PY' || { log "cannot read the instances in ${db}"; return 1; }
 import sqlite3, sys
 for (instance_id,) in sqlite3.connect(sys.argv[1]).execute("SELECT id FROM instances"):
     print(instance_id)
@@ -492,11 +558,15 @@ down() {
   # Only the tenant nodes this workspace's nico-sim created, by the instance
   # ids in its database: every nico-sim on the default seed labels its nodes
   # with the same site, so another one's nodes on the same Docker daemon stay.
+  # A failure keeps the workspace, whose database is the only record of them.
+  # Without the Docker CLI nico-sim started none.
   if command -v docker >/dev/null 2>&1; then
-    local instance
-    for instance in $(sim_instance_ids); do
-      mapfile -t ids < <(docker ps -aq --filter label=nvidia.com/nico-containers.managed=true --filter "label=nvidia.com/nico-containers.instance-id=${instance}" 2>/dev/null || true)
-      [[ ${#ids[@]} -eq 0 ]] || docker rm -f "${ids[@]}" >/dev/null
+    local instances instance out ids
+    instances="$(sim_instance_ids)" || die "cannot tell which tenant nodes are this workspace's; the workspace stays, so run down again once that is fixed"
+    for instance in ${instances}; do
+      out="$(docker ps -aq --filter label=nvidia.com/nico-containers.managed=true --filter "label=nvidia.com/nico-containers.instance-id=${instance}")" ||
+        die "cannot list the tenant nodes in Docker; the workspace stays, so run down again"
+      [[ -z "${out}" ]] || { mapfile -t ids <<<"${out}"; docker rm -f -v "${ids[@]}" >/dev/null; }
     done
   fi
   if command -v nerdctl >/dev/null 2>&1; then
