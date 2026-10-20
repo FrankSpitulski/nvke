@@ -7,11 +7,11 @@
 # caller paths, versions, kubeconfigs and environment values never enter JSON.
 write_bootstrap_report() {
   if [ -z "${NVKECTL_E2E_REPORT:-}" ]; then return 0; fi
-  local status="$1" after="$2" cleanup_status="$3" completed="$4" phase="$5" before="$6" temporary
+  local status="$1" after="$2" cleanup_status="$3" completed="$4" phase="$5" before="$6" nodes="${7:-0}" vip="${8:-false}" temporary
   temporary="$(mktemp "${NVKECTL_E2E_REPORT}.XXXXXX")" || return 1
-  if ! printf '{"apiVersion":"nvke.dev/bootstrap-e2e/v1","suite":"bootstrap","completed":%s,"phase":"%s","exitCode":%d,"artifactSha256Before":"%s","artifactSha256After":"%s","cleanup":"%s"}\n' \
+  if ! printf '{"apiVersion":"nvke.dev/bootstrap-e2e/v1","suite":"bootstrap","completed":%s,"phase":"%s","exitCode":%d,"artifactSha256Before":"%s","artifactSha256After":"%s","cleanup":"%s","nodes":%d,"controlPlaneVip":%s}\n' \
     "${completed}" "${phase}" "${status}" \
-    "${before}" "${after}" "${cleanup_status}" >"${temporary}"; then
+    "${before}" "${after}" "${cleanup_status}" "${nodes}" "${vip}" >"${temporary}"; then
     rm -f "${temporary}"
     return 1
   fi

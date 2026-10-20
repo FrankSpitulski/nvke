@@ -54,6 +54,8 @@ source "${SCRIPT_DIR}/process.sh"
 source "${SCRIPT_DIR}/report.sh"
 bootstrap_completed=false
 bootstrap_phase=preflight
+NODE_COUNT=0
+report_vip=false
 if [ -n "${NVKECTL_E2E_REPORT:-}" ]; then
   if [ -z "${NVKECTL_EXPECTED_VERSION:-}" ] || [ -e "${NVKECTL_E2E_REPORT}" ] || [ -L "${NVKECTL_E2E_REPORT}" ]; then
     printf 'FAIL: report requires an external executable and a new report path\n' >&2
@@ -86,7 +88,7 @@ if [ -n "${NVKECTL_EXPECTED_VERSION:-}" ]; then
     trap '' INT TERM
     stop_owned_group "${version_pid}"
     rm -f "${version_output}"
-    write_bootstrap_report "${status}" unavailable not-started "${bootstrap_completed}" "${bootstrap_phase}" "${ARTIFACT_SHA256}" || true
+    write_bootstrap_report "${status}" unavailable not-started "${bootstrap_completed}" "${bootstrap_phase}" "${ARTIFACT_SHA256}" "${NODE_COUNT:-0}" "${report_vip:-false}" || true
   }
   trap cleanup_version EXIT
   trap 'exit 130' INT
@@ -116,6 +118,13 @@ BOOTSTRAP_CONTROL_PLANE="${BOOTSTRAP_KIND_CLUSTER}-control-plane"
 # private network, named by prefix and index. The defaults here mirror
 # substrate.DefaultConfig; override the same variables to change both.
 NODE_COUNT="${NVKECTL_E2E_NODES:-3}"
+case "${NODE_COUNT}" in
+  ''|*[!0-9]*) printf 'FAIL: NVKECTL_E2E_NODES must be a positive integer\n' >&2; exit 1 ;;
+esac
+if [ "${NODE_COUNT}" -eq 0 ]; then
+  printf 'FAIL: NVKECTL_E2E_NODES must be positive\n' >&2
+  exit 1
+fi
 NODE_PREFIX="${NVKECTL_E2E_NAME_PREFIX:-node}"
 NODE_NETWORK="${NVKECTL_E2E_NETWORK:-nvkectl-e2e-nodes}"
 NODE1="nvkectl-e2e-${NODE_PREFIX}1"
@@ -147,6 +156,8 @@ BOOTSTRAP_LOG="${SCRIPT_DIR}/.bootstrap.log"
 # BGP-learned /32 instead of ARPing for another node's loopback address.
 # An explicit empty value disables the VIP; an unset variable uses the default.
 CONTROL_PLANE_VIP="${NVKECTL_E2E_CONTROL_PLANE_VIP-172.26.1.1}"
+report_vip=false
+if [ -n "${CONTROL_PLANE_VIP}" ]; then report_vip=true; fi
 if [ -z "${CONTROL_PLANE_VIP}" ] && [ "${NODE_COUNT}" -gt 1 ]; then
   printf 'FAIL: NVKECTL_E2E_CONTROL_PLANE_VIP may be empty only when NVKECTL_E2E_NODES=1; multi-node control planes require kube-vip\n' >&2
   exit 1
@@ -249,14 +260,14 @@ cleanup() {
     if [ "${after}" != "${ARTIFACT_SHA256}" ]; then
       log "FAIL: supplied executable bytes changed or became unavailable"
       if [ "${status}" -eq 0 ]; then
-        write_bootstrap_report 1 "${after}" "${cleanup_status}" "${bootstrap_completed}" "${bootstrap_phase}" "${ARTIFACT_SHA256}" || true
+        write_bootstrap_report 1 "${after}" "${cleanup_status}" "${bootstrap_completed}" "${bootstrap_phase}" "${ARTIFACT_SHA256}" "${NODE_COUNT:-0}" "${report_vip:-false}" || true
         exit 1
       fi
     fi
   fi
   # Existing inner teardowns suppress some errors, so absence of an observed
   # failure remains unknown. Never serialize successful teardown from it.
-  if ! write_bootstrap_report "${status}" "${after}" "${cleanup_status}" "${bootstrap_completed}" "${bootstrap_phase}" "${ARTIFACT_SHA256}"; then
+  if ! write_bootstrap_report "${status}" "${after}" "${cleanup_status}" "${bootstrap_completed}" "${bootstrap_phase}" "${ARTIFACT_SHA256}" "${NODE_COUNT:-0}" "${report_vip:-false}"; then
     log "FAIL: could not write the terminal bootstrap report"
     if [ "${status}" -eq 0 ]; then exit 1; fi
   fi

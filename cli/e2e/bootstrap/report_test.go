@@ -61,7 +61,7 @@ func TestBootstrapReportWriter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			report := filepath.Join(t.TempDir(), "terminal.json")
 			hash := strings.Repeat("a", 64)
-			cmd := exec.Command("bash", "-c", `source "$1"; write_bootstrap_report "$2" "$3" "$4" "$5" "$6" "$3"`, "fixture", helper, tc.status, hash, tc.cleanup, tc.completed, tc.phase)
+			cmd := exec.Command("bash", "-c", `source "$1"; write_bootstrap_report "$2" "$3" "$4" "$5" "$6" "$3" 3 true`, "fixture", helper, tc.status, hash, tc.cleanup, tc.completed, tc.phase)
 			cmd.Env = append(os.Environ(), "NVKECTL_E2E_REPORT="+report)
 			if output, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("report: %v %s", err, output)
@@ -132,4 +132,21 @@ func TestBootstrapPreflightFailureReport(t *testing.T) {
 		t.Fatalf("preflight report: %s", raw)
 	}
 	assertArtifactFixtureClean(t, f)
+}
+
+func TestBootstrapInvalidNodeCount(t *testing.T) {
+	for _, count := range []string{"0", "not-a-number", "3 4"} {
+		t.Run(count, func(t *testing.T) {
+			f := newArtifactFixture(t, "exit 19\n")
+			binary := filepath.Join(f.cli, "supplied cli")
+			writeArtifactFixture(t, binary, "#!/bin/sh\necho candidate\n")
+			cmd := exec.Command("bash", filepath.Join(f.cli, "e2e/bootstrap/run.sh"))
+			cmd.Env = append(f.env, "NVKECTL="+binary, "NVKECTL_EXPECTED_VERSION=candidate", "NVKECTL_E2E_NODES="+count)
+			output, err := cmd.CombinedOutput()
+			if err == nil || !strings.Contains(string(output), "NVKECTL_E2E_NODES must") {
+				t.Fatalf("invalid configuration admitted: %v %s", err, output)
+			}
+			assertArtifactFixtureClean(t, f)
+		})
+	}
 }

@@ -43,7 +43,8 @@ errors, so an exit status of zero is not proof of exhaustive teardown. Failed
 runs can retain `cli/cluster-diagnostics`; inspect the host before reuse. This
 interface can write an optional terminal JSON report when `NVKECTL_E2E_REPORT`
 names a new output path. `nvke.dev/bootstrap-e2e/v1` records the phase, exit code,
-before/after executable hashes and whether all upstream assertions reached their
+before/after executable hashes, node count, VIP-check configuration and whether
+all upstream assertions reached their
 terminal marker. `completed=true` is set only after the final assertion and
 happy-path Kind deletion. Existing reports are refused rather than reused.
 
