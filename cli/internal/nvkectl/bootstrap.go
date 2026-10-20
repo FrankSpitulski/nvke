@@ -58,7 +58,7 @@ func newBootstrapCmd() *cobra.Command {
 type bootstrapSiteOptions struct {
 	siteSpec string
 	dryRun   bool
-	// controllerImage and provisionedProviderImage are the --controller-image and
+	// controllerImage and provisionedProviderImage are the --nvke-controller-image and
 	// --provisioned-provider-image flags. A flag wins over its variable.
 	controllerImage          string
 	provisionedProviderImage string
@@ -152,8 +152,8 @@ dispatched or any node is touched.
 The bootstrap side-loads the images this repository builds, nke-controller:latest
 and, with the provisioned provider, cluster-api-provider-provisioned:latest,
 which "make -C cli images" builds. With nico, CAPNICo's image is public and
-pulled by the cluster; --release pins it to an NVKR release's artifact. --controller-image and --provisioned-provider-image, or
-NVKECTL_CONTROLLER_IMAGE and NVKECTL_CAPI_PROVISIONED_IMAGE, name other images, such as
+pulled by the cluster; --release pins it to an NVKR release's artifact. --nvke-controller-image and --provisioned-provider-image, or
+NVKECTL_NVKE_CONTROLLER_IMAGE and NVKECTL_CAPI_PROVISIONED_IMAGE, name other images, such as
 ones pushed to a registry; a flag wins over its variable. cli/README.md lists
 every NVKECTL_* variable.
 
@@ -178,7 +178,7 @@ site spec file format.`,
 
   # Deploy images you pushed to a registry instead of the local build
   nvkectl bootstrap site -f sitespec.yaml \
-    --controller-image nvcr.io/<org>/nvke-controller:edge \
+    --nvke-controller-image nvcr.io/<org>/nvke-controller:edge \
     --provisioned-provider-image nvcr.io/<org>/cluster-api-provider-provisioned:edge`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
@@ -199,8 +199,8 @@ site spec file format.`,
 	_ = cmd.MarkFlagRequired("sitespec")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false,
 		"Load and validate the site spec and print it, but do not dispatch any workflow")
-	cmd.Flags().StringVar(&opts.controllerImage, "controller-image", "",
-		"Controller image to deploy (overrides NVKECTL_CONTROLLER_IMAGE and the manifest default)")
+	cmd.Flags().StringVar(&opts.controllerImage, "nvke-controller-image", "",
+		"NVKE controller image to deploy (overrides NVKECTL_NVKE_CONTROLLER_IMAGE and the manifest default)")
 	cmd.Flags().StringVar(&opts.provisionedProviderImage, "provisioned-provider-image", "",
 		"Provisioned-provider image to deploy (overrides NVKECTL_CAPI_PROVISIONED_IMAGE and the manifest default)")
 	cmd.Flags().StringVar(&opts.release, "release", "",
@@ -245,35 +245,6 @@ func bootstrapSettings() []string {
 	return names
 }
 
-// checkRemovedSettings returns an error naming every NKECTL_CWE_* variable that
-// is set while its replacement is not, and logs a warning for each one whose
-// replacement is set, as a variable or as the flag that overrides it.
-// bootstrap site does not read those names, so without this a value set for
-// nkectl cli/v0.1.x would be dropped without a word.
-func checkRemovedSettings(logger *slog.Logger, opts *bootstrapSiteOptions) error {
-	flags := map[string]struct{ name, value string }{
-		"NVKECTL_CONTROLLER_IMAGE": {"--controller-image", opts.controllerImage},
-	}
-	var unreplaced []string
-	for _, s := range controllerdeploy.RemovedSettings() {
-		replacement := ""
-		if f := flags[s.New]; f.value != "" {
-			replacement = f.name
-		} else if envalias.Get(s.New) != "" {
-			replacement = s.New
-		}
-		if replacement != "" {
-			logger.Warn(s.Old+" is not read; "+replacement+" is set and is used instead", "ignored", s.Old, "replacement", replacement)
-			continue
-		}
-		unreplaced = append(unreplaced, s.Old+" is no longer read; set "+s.New+" instead")
-	}
-	if len(unreplaced) > 0 {
-		return errors.New(strings.Join(unreplaced, "; "))
-	}
-	return nil
-}
-
 // cleanupTimeout bounds each post-failure cleanup step. The steps run on a
 // context detached from the command's, so they need a stop of their own.
 const cleanupTimeout = 2 * time.Minute
@@ -302,9 +273,6 @@ func runBootstrapSite(ctx context.Context, out io.Writer, opts *bootstrapSiteOpt
 	logger := slog.Default().With("component", "bootstrap-site")
 	for _, s := range envalias.Deprecated(bootstrapSettings()...) {
 		logger.Warn(s.Warning(), "deprecated", s.Old, "replacement", s.New)
-	}
-	if err := checkRemovedSettings(logger, opts); err != nil {
-		return err
 	}
 
 	// Step 1: load and validate the sitespec. Fail fast on any problem.
@@ -1068,7 +1036,7 @@ func cweDeployConfig(inv *sitespec.SiteSpec, clusterName string, disableMTLS boo
 	// Both images default to the local build's tag from the bootstrap
 	// manifest, so an empty value means the manifest lacks the entry.
 	if cfg.CWEImage == "" {
-		return cfg, errors.New("--controller-image and NVKECTL_CONTROLLER_IMAGE are not set and the bootstrap manifest carries no default controller image")
+		return cfg, errors.New("--nvke-controller-image and NVKECTL_NVKE_CONTROLLER_IMAGE are not set and the bootstrap manifest carries no default controller image")
 	}
 	cfg.NicoInfrastructure = inv.IsNico()
 	access, err := capnicoAccess(inv)
@@ -1349,7 +1317,7 @@ func requireLocalImages(ctx context.Context, engine *bootstrapengine.Engine, ima
 func missingLocalImageError(image string, err error, out string) error {
 	return fmt.Errorf("image %s is not in the local image store (%w\n%s) and names no registry to pull it from; "+
 		"build it with `make -C cli images`, or name an image the runtime can pull with "+
-		"--controller-image / --provisioned-provider-image or NVKECTL_CONTROLLER_IMAGE / NVKECTL_CAPI_PROVISIONED_IMAGE "+
+		"--nvke-controller-image / --provisioned-provider-image or NVKECTL_NVKE_CONTROLLER_IMAGE / NVKECTL_CAPI_PROVISIONED_IMAGE "+
 		"(for Docker Hub, write docker.io/<org>/<name>)",
 		image, err, strings.TrimSpace(out))
 }
