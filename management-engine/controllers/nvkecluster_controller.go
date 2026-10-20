@@ -85,8 +85,6 @@ func (r *NVKEClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return r.reconcileCluster(ctx, &cluster)
 }
 
-// Cluster reconciliation creates resources or observes them by their stored ID.
-
 func (r *NVKEClusterReconciler) reconcileCluster(ctx context.Context, cluster *internalv1.NVKECluster) (ctrl.Result, error) {
 	observedCluster, err := r.ensureCluster(ctx, cluster)
 	propagateNVKEControllerConditions(cluster, observedCluster)
