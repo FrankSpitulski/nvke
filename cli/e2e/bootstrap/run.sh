@@ -48,7 +48,51 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLI_DIR="$(dirname "$(dirname "${SCRIPT_DIR}")")"
+# shellcheck source=process.sh
+source "${SCRIPT_DIR}/process.sh"
+if [ -n "${NVKECTL_EXPECTED_VERSION:-}" ] && [ -z "${NVKECTL:-}" ]; then
+  printf 'FAIL: NVKECTL is required with NVKECTL_EXPECTED_VERSION\n' >&2
+  exit 1
+fi
 NVKECTL="${NVKECTL:-${CLI_DIR}/bin/nvkectl}"
+# External-artifact callers provide both values. Check the actual executable
+# before fixture preparation; an installed or locally built CLI cannot rescue it.
+# GNU timeout is already required by the Linux bootstrap flow.
+ARTIFACT_SHA256=""
+if [ -n "${NVKECTL_EXPECTED_VERSION:-}" ]; then
+  case "${NVKECTL}" in /*) ;; *) NVKECTL="${PWD}/${NVKECTL}" ;; esac
+  if [ ! -f "${NVKECTL}" ] || [ ! -x "${NVKECTL}" ]; then
+    printf 'FAIL: NVKECTL must be an executable regular file\n' >&2
+    exit 1
+  fi
+  ARTIFACT_SHA256="$(sha256sum "${NVKECTL}" | cut -d' ' -f1)"
+  printf '[nvkectl-bootstrap-e2e] supplied executable: %s (sha256=%s)\n' "${NVKECTL}" "${ARTIFACT_SHA256}"
+  # Keep the timeout process owned while waiting, so a signal to this script
+  # stops and joins its group even before any fixture resources exist.
+  version_output="$(mktemp)"
+  version_pid=""
+  cleanup_version() {
+    trap '' INT TERM
+    stop_owned_group "${version_pid}"
+    rm -f "${version_output}"
+  }
+  trap cleanup_version EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  timeout --kill-after=5s 30s "${NVKECTL}" version -o short >"${version_output}" &
+  version_pid=$!
+  wait "${version_pid}"
+  stop_owned_group "${version_pid}"
+  version_pid=""
+  actual_version="$(cat "${version_output}")"
+  cleanup_version
+  trap - EXIT INT TERM
+  if [ "${actual_version}" != "${NVKECTL_EXPECTED_VERSION}" ]; then
+    printf 'FAIL: supplied executable version does not match NVKECTL_EXPECTED_VERSION\n' >&2
+    exit 1
+  fi
+fi
+readonly NVKECTL
 # The site spec is generated per run by `nvkectl generate sitespec`, so this lane
 # tests the command an operator uses rather than a fixture kept in step with it
 # by hand. Only the cluster name is fixed here.
@@ -155,8 +199,16 @@ fail() {
 DEFERRED=()
 defer() { DEFERRED+=("$*"); }
 
+bootstrap_pid=""
+stop_bootstrap() {
+  stop_owned_group "${bootstrap_pid}"
+  bootstrap_pid=""
+}
+
 cleanup() {
   local status=$? i
+  trap '' INT TERM
+  stop_bootstrap
   if [ "${status}" -ne 0 ] && [ "${nodes_started}" = true ]; then
     collect_diagnostics
   fi
@@ -175,9 +227,23 @@ cleanup() {
 
   rm -f "${TENANT_KUBECONFIG}" "${ETCD_KEY_FILE}" "${BOOTSTRAP_LOG}"
   rm -rf "${KUBECONFIG_DIR}" "${CNI_BUNDLE_DIR}" "${BGP_RENDER_DIR}"
+
+  # Preserve an earlier preparation/suite failure. These are byte observations,
+  # not proof of provenance or exhaustive coverage; teardown above is best effort.
+  if [ -n "${ARTIFACT_SHA256}" ]; then
+    local after
+    after="$(sha256sum "${NVKECTL}" | cut -d' ' -f1)" || after=unavailable
+    log "supplied executable after cleanup: sha256=${after}"
+    if [ "${after}" != "${ARTIFACT_SHA256}" ]; then
+      log "FAIL: supplied executable bytes changed or became unavailable"
+      if [ "${status}" -eq 0 ]; then exit 1; fi
+    fi
+  fi
 }
 nodes_started=false
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # wait_until retries CMD every INTERVAL seconds until it succeeds or DEADLINE
 # seconds have passed. Returns 0 once CMD succeeds, 1 if the deadline passes.
@@ -534,8 +600,7 @@ bootstrap_pid=$!
 # group is signalled and reaped. Otherwise the EXIT trap would delete the
 # cluster the command is still driving.
 abort_bootstrap() {
-  kill -- "-${bootstrap_pid}" 2>/dev/null || kill "${bootstrap_pid}" 2>/dev/null || true
-  wait "${bootstrap_pid}" 2>/dev/null || true
+  stop_bootstrap
   cat "${BOOTSTRAP_LOG}" || true
   exit 1
 }
@@ -652,6 +717,7 @@ fi
 
 status=0
 wait "${bootstrap_pid}" || status=$?
+stop_bootstrap
 cat "${BOOTSTRAP_LOG}"
 output="$(cat "${BOOTSTRAP_LOG}")"
 

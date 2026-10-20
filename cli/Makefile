@@ -78,7 +78,7 @@ NVKECTL_LDFLAGS := \
 	-X 'github.com/dsx-ai-factory/nvke/cli/internal/bootstrap/controllerdeploy.capiVersion=$(CAPI_VERSION)' \
 	$(RELEASE_LDFLAGS)
 
-.PHONY: build build-cross test test-artifact test-e2e-bootstrap fmt lint license file-license-check check-no-docker \
+.PHONY: build build-cross test test-artifact test-e2e-bootstrap test-e2e-bootstrap-artifact fmt lint license file-license-check check-no-docker \
 	ensure-capd-image ensure-provisioned-provider-image images \
 	nodes-up nodes-down nodes-status nodes-hosts nodes-attested
 
@@ -171,6 +171,17 @@ test-artifact: ## Test a supplied NVKECTL binary; requires NVKECTL_EXPECTED_VERS
 # site.
 test-e2e-bootstrap: build
 	./e2e/bootstrap/run.sh
+
+# Producer-neutral external-artifact entrypoint. Supporting fixture builds stay
+# in run.sh; this target must never acquire or build the CLI under test.
+test-e2e-bootstrap-artifact: ## Run bootstrap E2E with supplied NVKECTL and NVKECTL_EXPECTED_VERSION.
+	@test -n "$(NVKECTL)" || { echo "NVKECTL is required" >&2; exit 1; }
+	@test -n "$(NVKECTL_EXPECTED_VERSION)" || { echo "NVKECTL_EXPECTED_VERSION is required" >&2; exit 1; }
+	@binary="$(NVKECTL)"; \
+	case "$$binary" in /*) ;; *) binary="$$PWD/$$binary" ;; esac; \
+	test -f "$$binary" && test -x "$$binary" || { echo "NVKECTL must be an executable regular file" >&2; exit 1; }; \
+	NVKECTL="$$binary" NVKECTL_EXPECTED_VERSION="$(NVKECTL_EXPECTED_VERSION)" \
+		./e2e/bootstrap/run.sh
 
 # Fake-node fixture for the bootstrap e2e suite: nerdctl containers running
 # nvke-agent, standing in for pre-provisioned hardware. cli/e2e/bootstrap/substrate
