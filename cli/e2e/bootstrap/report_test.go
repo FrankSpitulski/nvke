@@ -16,6 +16,7 @@ import (
 )
 
 func TestBootstrapPreparationFailureReport(t *testing.T) {
+	requireArtifactTools(t)
 	f := newArtifactFixture(t, "exit 19\n")
 	binary := filepath.Join(f.cli, "supplied cli")
 	writeArtifactFixture(t, binary, "#!/bin/sh\nprintf 'candidate\\n'\n")
@@ -105,6 +106,7 @@ func TestBootstrapExistingReportIsNotReused(t *testing.T) {
 }
 
 func TestBootstrapPreflightFailureReport(t *testing.T) {
+	requireArtifactTools(t)
 	f := newArtifactFixture(t, "exit 19\n")
 	binary := filepath.Join(f.cli, "broken supplied cli")
 	writeArtifactFixture(t, binary, "#!/bin/sh\nexit 7\n")
@@ -135,6 +137,7 @@ func TestBootstrapPreflightFailureReport(t *testing.T) {
 }
 
 func TestBootstrapInvalidNodeCount(t *testing.T) {
+	requireArtifactTools(t)
 	for _, count := range []string{"0", "not-a-number", "3 4"} {
 		t.Run(count, func(t *testing.T) {
 			f := newArtifactFixture(t, "exit 19\n")
