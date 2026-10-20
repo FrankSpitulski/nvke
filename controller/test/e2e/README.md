@@ -133,13 +133,17 @@ not the authentication specs, which build their own token per case.
 | `NKE_CONTROLLER_EXPECTED_VERSION` | Required controller version; when unset, the version spec is skipped. The old name `CWE_EXPECTED_VERSION` is deprecated and still read when this is unset, until [nvke#1399](https://github.com/dsx-ai-factory/nvke/issues/1399) removes it. | Unset |
 | `NKE_CONTROLLER_HEALTH_TIMEOUT` | Per-spec context timeout. The old name `CWE_HEALTH_TIMEOUT` is deprecated and still read when this is unset, until [nvke#1399](https://github.com/dsx-ai-factory/nvke/issues/1399) removes it. | `60s` |
 | `NKE_E2E_AUTH_DISABLE` | Turns the token source off, so the suite sends no `Authorization` header. Against an enforcing NVKE every spec then fails with 401. | Unset |
-| `NKE_E2E_AUDIENCE` | Overrides the audience the suite mints for. Normally discovered from the `nke-auth-config` ConfigMap in `NKE_CONTROLLER_NAMESPACE`. | Discovered |
+| `NKE_E2E_AUDIENCE` | Overrides the audience the suite mints for. Normally discovered from the authentication ConfigMap in `NKE_CONTROLLER_NAMESPACE` -- `nvke-auth-config`, or `nke-auth-config` on a site that pins the older name. | Discovered |
 | `NKE_E2E_TOKEN_NAMESPACE` | Namespace of the service account the suite presents. | `nke-clients` |
 | `NKE_E2E_TOKEN_SERVICE_ACCOUNT` | Service account the suite presents. Point this pair at `nke-outsiders`/`nke-outsider` for the 403 case. | `nke-client` |
 | `NKE_E2E_TOKEN_TTL` | Minted token lifetime. The apiserver rejects anything under 10m. | `15m` |
 
-When the `nke-auth-config` ConfigMap does not exist, the suite sends no token,
-so an unauthenticated NVKE needs no configuration here.
+The suite sends no token only when *neither* `nvke-auth-config` nor
+`nke-auth-config` exists in that namespace, so an unauthenticated NVKE needs no
+configuration here. A run against a site pinned to the older name still
+discovers its audience and authenticates. A ConfigMap that exists but cannot be
+read is reported rather than treated as absent, so an RBAC gap does not quietly
+turn the authn specs into assertions about an unauthenticated NVKE.
 
 Unfiltered runs, including `make test-e2e`, include the health specs. To exclude
 them, pass `--label-filter='!health'`.
@@ -161,9 +165,9 @@ needs, reading `AUTH_CONFIG_PATH` off the live NVKE Deployment and
 cluster with authentication off produces `SUCCESS! -- 0 Passed | 0 Failed | N
 Skipped`, indistinguishable in a CI log from a suite that never had these specs.
 
-**Prerequisites.** `tilt up` applies `deploy/k8s/nke-auth-dev.yaml` (client
-namespaces, service accounts, token-minter RBAC and the `nke-auth-config`
-ConfigMap) and, for `authn-spire`, `deploy/k8s/nke-spire-client.yaml`. NVKE's
+**Prerequisites.** `tilt up` applies `deploy/k8s/nvke-auth-dev.yaml` (client
+namespaces, service accounts, token-minter RBAC and the `nvke-auth-config`
+ConfigMap) and, for `authn-spire`, `deploy/k8s/nvke-spire-client.yaml`. NVKE's
 permission to read the cluster JWKS comes from the chart
 (`apiAuth.clusterIssuerDiscovery`).
 

@@ -104,13 +104,21 @@ are aliases on `get`, `create`, `patch` and `delete`.
 
 `nvkectl config set-site` command configures the management-cluster kubeconfig with the site.
 nvkectl commands use it to mint an audience-scoped token for the admitted
-identity `nke-clients/nke-client`. The audience comes from ConfigMap
-`nke-auth-config`, looked up in namespace `nke-controller` first and then
-`cloud-workflow-engine`.
+identity `nke-clients/nke-client`. The audience comes from the authentication
+ConfigMap, looked up in namespace `nke-controller` first and then
+`cloud-workflow-engine`, and under two names in each: `nvke-auth-config`, then
+`nke-auth-config` for a site that keeps the older name by pinning
+`apiAuth.configMap.name`.
 
-If neither namespace holds that ConfigMap, the CLI treats authentication as off and sends no
-`Authorization` header — the same as a CWE that was installed with
-`apiAuth.enabled` unset.
+The first *readable* candidate is used: a site whose RBAC grants `get` on its
+pinned name alone answers Forbidden for the other name, and the search moves
+past that denial rather than stopping at it.
+
+Only when neither name is found in either namespace does the CLI treat
+authentication as off and send no `Authorization` header — the same as a CWE
+that was installed with `apiAuth.enabled` unset. A denial is not that: it is
+kept, and reported only if no candidate turns out to be readable, so an RBAC
+problem never arrives as an unexplained 401.
 
 The kubeconfig identity needs:
 

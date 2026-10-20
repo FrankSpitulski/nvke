@@ -124,7 +124,7 @@ names, comma-separated with no spaces:
 | Name | Tag | What GitHub gets when the name is listed |
 |---|---|---|
 | `root` | bare `vX.Y.Z` | the GitHub Release with the product manifest and SBOM |
-| `controller` | `controller/v*` | the GitHub Release, `nke-controller` image and chart on GHCR |
+| `controller` | `controller/v*` | the GitHub Release, the `nke-controller` image and the `charts/nvke-controller` chart on GHCR |
 | `cli` | `cli/v*` | the GitHub Release with the binaries, `cli` binaries on GHCR |
 | `agent` | `agent/v*` | the GitHub Release with the `.deb`s, `agent` and `agent-deb` on GHCR |
 | `cluster-api-provider-provisioned` | `cluster-api-provider-provisioned/v*` | the provider image on GHCR |
@@ -148,7 +148,7 @@ additionally publishes the controller image and Helm chart:
 | Workflow | What it publishes |
 |---|---|
 | `image-nvcr.yml` | multi-arch image to `nvcr.io/<org>/nvke-controller`, promotes that released image to DSX as `nvcr.io/<dsx-org-team>/nvke-controller`, and promotes release tags to `ghcr.io/dsx-ai-factory/nvke/nke-controller` |
-| `chart-publish.yml` | chart to `ghcr.io/dsx-ai-factory/nvke/charts/nke-controller` |
+| `chart-publish.yml` | chart to `ghcr.io/dsx-ai-factory/nvke/charts/nvke-controller` |
 | `chart-publish-nvcr.yml` | chart to `nvcr.io/<org>/nvke-controller-chart` and `nvcr.io/<dsx-org-team>/nvke-controller-chart` |
 
 Every `main` commit already publishes the image and chart to NVCR. GHCR receives
@@ -282,7 +282,7 @@ what a build of this commit ought to select.
 | `nke-controller` image | `controller-sbom-linux-<arch>.spdx.json` | image contents, scanned from the pushed image | workflow artifact on the **Image NVCR** run |
 | `cluster-api-provider-provisioned` image | `cluster-api-provider-provisioned-sbom-linux-<arch>.spdx.json` | image contents, scanned from the pushed image | workflow artifact on the **Image Provisioned NVCR** run |
 
-The Helm charts — `nke-controller` and `nktp` — have no SBOM of their own. A
+The Helm charts — `nvke-controller` and `nktp` — have no SBOM of their own. A
 chart carries no components; it carries a reference to an image that does, and
 that image's SBOM is the row above. An SBOM of the chart archive would list the
 archive.

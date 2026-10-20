@@ -80,7 +80,7 @@ def register(ctx):
               --from-file=ca.crt="${ca_file}" --dry-run=client -o yaml | kubectl apply -f -
           done
         """ % (os.path.join(ctx.main_dir, ".local/dsx-identity-exchange/ca.crt"), DSX_IDENTITY_EXCHANGE_CA_CONFIG_MAP)],
-        resource_deps=["oidc-upstream-ca-ready", "nke-auth-dev"],
+        resource_deps=["oidc-upstream-ca-ready", "nvke-auth-dev"],
     )
 
     local_resource(
@@ -113,7 +113,7 @@ def register(ctx):
             "capi-dsx-identity-exchange-ca",
         ],
         controller_env_overrides={
-            "SSL_CERT_FILE": "/etc/nke/dsx-identity/ca.crt",
+            "SSL_CERT_FILE": "/etc/nvke/dsx-identity/ca.crt",
         },
         controller_chart_flags=[
             "--set-string", "spiffe.jwtExchangeEndpoint=%s" % exchange_endpoint,
@@ -125,7 +125,7 @@ def register(ctx):
             "--set-string", "nvkeOIDCAuth.issuerURL=https://capd.dsx.nvid.id",
             "--set-string", "nvkeOIDCAuth.discoveryURL=https://%s:30444/.well-known/openid-configuration" % site_address,
             "--set-json", 'volumes=[{"name":"dsx-identity-exchange-ca","configMap":{"name":"%s"}}]' % DSX_IDENTITY_EXCHANGE_CA_CONFIG_MAP,
-            "--set-json", 'volumeMounts=[{"name":"dsx-identity-exchange-ca","mountPath":"/etc/nke/dsx-identity/ca.crt","subPath":"ca.crt","readOnly":true}]',
+            "--set-json", 'volumeMounts=[{"name":"dsx-identity-exchange-ca","mountPath":"/etc/nvke/dsx-identity/ca.crt","subPath":"ca.crt","readOnly":true}]',
         ],
     )
 
