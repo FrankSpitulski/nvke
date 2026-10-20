@@ -20,7 +20,7 @@ Use an isolated checkout and a disposable Linux host: the suite uses fixed
 resource names and modifies host forwarding, addresses and routes. The caller
 supplies root access, Go, Make, GNU coreutils/timeout, Kind, kubectl, Helm,
 clusterctl, jq for VIP checks, `/dev/vtpmx`, and nerdctl backed by standalone
-containerd and BuildKit. The controller image named by `NVKECTL_CONTROLLER_IMAGE`
+containerd and BuildKit. The controller image named by `NVKECTL_NVKE_CONTROLLER_IMAGE`
 must already be in that containerd image store. See the repository workflow
 `.github/workflows/nvkectl-bootstrap-e2e.yml` and host installer
 `cli/hack/bootstrap-e2e-host.sh` for the existing upstream preparation.

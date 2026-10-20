@@ -182,7 +182,7 @@ func TestArtifactPreflightCancellation(t *testing.T) {
 // supplied process. Preparation and teardown commands are controlled doubles.
 func TestArtifactSuiteFailure(t *testing.T) {
 	requireArtifactTools(t)
-	f := newArtifactFixture(t, `touch "$1/nvke-cni-ovn-charts-1.4.0_1.4.0_arm64.deb" "$1/nvke-cni-ovn-images-1.4.0_1.4.0_arm64.deb" "$1/nke-e2e-helm.deb"
+	f := newArtifactFixture(t, `touch "$1/nvke-cni-ovn-charts-2.4.2_2.4.2_arm64.deb" "$1/nvke-cni-ovn-images-2.4.2_2.4.2_arm64.deb" "$1/nke-e2e-helm.deb"
 `)
 	root := filepath.Dir(f.cli)
 	tools := filepath.Join(root, "tools")
@@ -290,7 +290,7 @@ func newArtifactFixture(t *testing.T, prepare string) artifactFixture {
 	}
 	f.env = append(f.env, "PATH="+tools+string(os.PathListSeparator)+os.Getenv("PATH"), "TMPDIR="+f.scratch,
 		"PROBE="+f.probe, "PREPARING="+f.preparing, "BUILT="+filepath.Join(root, "built"), "FALLBACK="+filepath.Join(root, "fallback"),
-		"NVKECTL_CONTROLLER_IMAGE=caller-controller:fixture", "NVKECTL_E2E_NODES=1", "NVKECTL_E2E_CONTROL_PLANE_VIP=")
+		"NVKECTL_NVKE_CONTROLLER_IMAGE=caller-controller:fixture", "NVKECTL_E2E_NODES=1", "NVKECTL_E2E_CONTROL_PLANE_VIP=")
 	return f
 }
 
