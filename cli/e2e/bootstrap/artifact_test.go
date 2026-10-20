@@ -260,7 +260,7 @@ func newArtifactFixture(t *testing.T, prepare string) artifactFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"Makefile", "e2e/bootstrap/run.sh", "e2e/bootstrap/process.sh"} {
+	for _, name := range []string{"Makefile", "e2e/bootstrap/run.sh", "e2e/bootstrap/process.sh", "e2e/bootstrap/report.sh"} {
 		raw, err := os.ReadFile(filepath.Join(source, name))
 		if err != nil {
 			t.Fatal(err)

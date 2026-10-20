@@ -41,8 +41,17 @@ process group when cancelling synchronous supporting builds.
 Fixture teardown and diagnostics remain best effort. Some removals suppress
 errors, so an exit status of zero is not proof of exhaustive teardown. Failed
 runs can retain `cli/cluster-diagnostics`; inspect the host before reuse. This
-interface does not yet provide a machine-readable terminal completion/cleanup
-report. All bootstrap assertions remain in `run.sh`.
+interface can write an optional terminal JSON report when `NVKECTL_E2E_REPORT`
+names a new output path. `nvke.dev/bootstrap-e2e/v1` records the phase, exit code,
+before/after executable hashes and whether all upstream assertions reached their
+terminal marker. `completed=true` is set only after the final assertion and
+happy-path Kind deletion. Existing reports are refused rather than reused.
+
+The cleanup field is `unknown` when no outer cleanup failure was observed, or
+`failed` when an outer cleanup command failed. Inner best-effort removals prevent
+a claim of complete resource teardown; `unknown` must remain distinguishable from
+success. Reports contain no kubeconfigs, encryption keys or environment dumps.
+All bootstrap assertions remain in `run.sh`.
 
 `artifact_test.go` exercises input admission, supplied-process failures,
 preparation failure, timeout, cancellation and process-group cleanup with tool

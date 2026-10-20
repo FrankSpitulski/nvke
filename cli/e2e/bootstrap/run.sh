@@ -50,6 +50,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLI_DIR="$(dirname "$(dirname "${SCRIPT_DIR}")")"
 # shellcheck source=process.sh
 source "${SCRIPT_DIR}/process.sh"
+# shellcheck source=report.sh
+source "${SCRIPT_DIR}/report.sh"
+bootstrap_completed=false
+bootstrap_phase=preflight
+if [ -n "${NVKECTL_E2E_REPORT:-}" ]; then
+  if [ -z "${NVKECTL_EXPECTED_VERSION:-}" ] || [ -e "${NVKECTL_E2E_REPORT}" ] || [ -L "${NVKECTL_E2E_REPORT}" ]; then
+    printf 'FAIL: report requires an external executable and a new report path\n' >&2
+    exit 1
+  fi
+fi
 if [ -n "${NVKECTL_EXPECTED_VERSION:-}" ] && [ -z "${NVKECTL:-}" ]; then
   printf 'FAIL: NVKECTL is required with NVKECTL_EXPECTED_VERSION\n' >&2
   exit 1
@@ -65,27 +75,30 @@ if [ -n "${NVKECTL_EXPECTED_VERSION:-}" ]; then
     printf 'FAIL: NVKECTL must be an executable regular file\n' >&2
     exit 1
   fi
-  ARTIFACT_SHA256="$(sha256sum "${NVKECTL}" | cut -d' ' -f1)"
+  ARTIFACT_SHA256="$(sha256sum <"${NVKECTL}" | cut -d' ' -f1)"
   printf '[nvkectl-bootstrap-e2e] supplied executable: %s (sha256=%s)\n' "${NVKECTL}" "${ARTIFACT_SHA256}"
   # Keep the timeout process owned while waiting, so a signal to this script
   # stops and joins its group even before any fixture resources exist.
   version_output="$(mktemp)"
   version_pid=""
   cleanup_version() {
+    local status=$?
     trap '' INT TERM
     stop_owned_group "${version_pid}"
     rm -f "${version_output}"
+    write_bootstrap_report "${status}" unavailable not-started "${bootstrap_completed}" "${bootstrap_phase}" "${ARTIFACT_SHA256}" || true
   }
   trap cleanup_version EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   timeout --kill-after=5s 30s "${NVKECTL}" version -o short >"${version_output}" &
   version_pid=$!
-  wait "${version_pid}"
+  version_status=0
+  wait "${version_pid}" || { version_status=$?; exit "${version_status}"; }
   stop_owned_group "${version_pid}"
   version_pid=""
   actual_version="$(cat "${version_output}")"
-  cleanup_version
+  rm -f "${version_output}"
   trap - EXIT INT TERM
   if [ "${actual_version}" != "${NVKECTL_EXPECTED_VERSION}" ]; then
     printf 'FAIL: supplied executable version does not match NVKECTL_EXPECTED_VERSION\n' >&2
@@ -206,14 +219,14 @@ stop_bootstrap() {
 }
 
 cleanup() {
-  local status=$? i
+  local status=$? i cleanup_status=unknown after=unavailable
   trap '' INT TERM
   stop_bootstrap
   if [ "${status}" -ne 0 ] && [ "${nodes_started}" = true ]; then
     collect_diagnostics
   fi
   for ((i = ${#DEFERRED[@]} - 1; i >= 0; i--)); do
-    eval "${DEFERRED[$i]}" || true
+    eval "${DEFERRED[$i]}" || cleanup_status=failed
   done
 
   # Same cause as the KUBECONFIG scratch path above: under `sudo -E` nvkectl
@@ -231,13 +244,21 @@ cleanup() {
   # Preserve an earlier preparation/suite failure. These are byte observations,
   # not proof of provenance or exhaustive coverage; teardown above is best effort.
   if [ -n "${ARTIFACT_SHA256}" ]; then
-    local after
-    after="$(sha256sum "${NVKECTL}" | cut -d' ' -f1)" || after=unavailable
+    after="$(sha256sum <"${NVKECTL}" | cut -d' ' -f1)" || after=unavailable
     log "supplied executable after cleanup: sha256=${after}"
     if [ "${after}" != "${ARTIFACT_SHA256}" ]; then
       log "FAIL: supplied executable bytes changed or became unavailable"
-      if [ "${status}" -eq 0 ]; then exit 1; fi
+      if [ "${status}" -eq 0 ]; then
+        write_bootstrap_report 1 "${after}" "${cleanup_status}" "${bootstrap_completed}" "${bootstrap_phase}" "${ARTIFACT_SHA256}" || true
+        exit 1
+      fi
     fi
+  fi
+  # Existing inner teardowns suppress some errors, so absence of an observed
+  # failure remains unknown. Never serialize successful teardown from it.
+  if ! write_bootstrap_report "${status}" "${after}" "${cleanup_status}" "${bootstrap_completed}" "${bootstrap_phase}" "${ARTIFACT_SHA256}"; then
+    log "FAIL: could not write the terminal bootstrap report"
+    if [ "${status}" -eq 0 ]; then exit 1; fi
   fi
 }
 nodes_started=false
@@ -394,6 +415,7 @@ collect_diagnostics() {
 
 # ── Stage 1: fake nodes ──────────────────────────────────────────────────
 
+bootstrap_phase=preparation
 log "building the OVN packages for post-init CNI"
 BUNDLE_ARCH="$(go env GOARCH)"
 export BUNDLE_ARCH
@@ -479,6 +501,7 @@ if [ -n "${CONTROL_PLANE_VIP}" ]; then
   vip_set=(--set "cluster.controlPlaneVIP=${CONTROL_PLANE_VIP}")
 fi
 
+bootstrap_phase=site-spec
 log "generating the site spec: nvkectl generate sitespec ${E2E_CLUSTER_NAME} --nodes ${NVKECTL_E2E_HOSTS_CSV}"
 RENDERED_SITESPEC="${SCRIPT_DIR}/.sitespec.rendered.yaml"
 "${NVKECTL}" generate sitespec "${E2E_CLUSTER_NAME}" \
@@ -590,6 +613,7 @@ defer teardown_bootstrap_cluster
 # setsid makes nvkectl a process-group leader so abort_bootstrap can signal the
 # kind, nerdctl and helm it drives as one group; nvkectl does not forward
 # signals to its children.
+bootstrap_phase=bootstrap
 setsid "${NVKECTL}" bootstrap site -f "${RENDERED_SITESPEC}" --keep-bootstrap-cluster \
   --timeout 15m --kubeconfig-out "${TENANT_KUBECONFIG}" \
   --encryption-key-out "${ETCD_KEY_FILE}" >"${BOOTSTRAP_LOG}" 2>&1 &
@@ -738,6 +762,7 @@ if [[ -n "${NVKECTL_SPIRE_CA_CERT_FILE:-}" ]] && ! grep -q "SPIRE upstream CA fr
 fi
 log "PASS: bootstrap site created the site cluster through the controller API"
 
+bootstrap_phase=assertions
 # The controller reached this point by answering /readyz through its Service
 # and the host through its external NodePort. What that does not show is that
 # it runs under the name greenfield sites use, as the ServiceAccount its
@@ -1015,3 +1040,7 @@ if kind_lists_bootstrap_cluster; then
   fail "kind cluster ${BOOTSTRAP_KIND_CLUSTER} is still registered after this suite deleted it"
 fi
 log "PASS: this suite's teardown left no ${BOOTSTRAP_KIND_CLUSTER} cluster behind"
+
+# Set only after every assertion and the happy-path Kind deletion above.
+bootstrap_phase=complete
+bootstrap_completed=true
