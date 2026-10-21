@@ -290,7 +290,7 @@ Configure it with the [health spec variables](#health-specs) and these:
 | `NKE_SITE_NAMESPACES` | Comma-separated namespaces that must each run a ready pod, replacing the default list: `kube-system`, `cert-manager`, `capi-system` and those `deploy/nico` installs into. | The `deploy/nico` list |
 | `NKE_SITE_PROBE_NAMESPACE` | Where the probe pods and every `creates` object go. | The pod's own namespace, else `default` |
 | `NKE_SITE_PROBE_IMAGE` | The probe and server pods' image, which needs `sh`, `nslookup`, `wget`, `curl` and `nc`. Point it at a mirror on a site without internet access. | The suite's kubectl image |
-| `NKE_SITE_COMPONENTS` | Optional components the site runs, comma-separated, each `name` or `name=namespace`: `argocd` (default namespace `argocd`), `cnpg` (`cnpg-system`), `teleport` (`teleport-agent`), `kube-vip` (`kube-system`). | Unset |
+| `NKE_SITE_COMPONENTS` | Optional components the site runs, comma-separated, each `name` or `name=namespace`: `argocd` (default namespace `argocd`), `cnpg` (`cnpg-system`), `teleport` (`teleport-agent`), `kube-vip` (`kube-system`), and `cert-manager` (`cert-manager`), which every site runs and only a tenant need list. | Unset |
 | `NKE_SITE_REQUIRED_WORKLOADS` | `namespace/workload`, comma-separated: a Deployment, StatefulSet or DaemonSet that must exist and run a ready pod. | Unset |
 | `NKE_SITE_WORKLOAD_VERSIONS` | `namespace/workload=version`, comma-separated: a Deployment, StatefulSet or DaemonSet one of whose containers runs an image tagged `version`, with or without a leading `v`. | Unset |
 | `NKE_SITE_APISERVER_FLAGS` | Flags every API server runs, `name=value` separated by semicolons, because values hold commas. Added to those kubeadm-config sets; a conflict between the two fails. | Unset |
@@ -309,6 +309,71 @@ both to one the site's controller authorizes to list clusters.
 named that. Set `NKE_CONTROLLER_EXPECTED_VERSION` and
 `NKE_SITE_KUBERNETES_VERSION`: the image sets
 `NKE_E2E_REQUIRE_EXPECTED_VERSION=true`, so a run without either fails.
+
+### Tenant checks
+
+With `NKE_TENANT_CLUSTER` set, the image also validates that tenant, found by
+name through the controller API. The tenant specs are labeled
+`tenant-validate` as well as `site-validate`: `tenant-validate` runs them alone,
+and `site-validate && !tenant-validate` leaves them out. They are the site
+checks that hold on any Kubernetes cluster, run against the tenant, with
+these differences:
+
+- the namespaces that must run a ready pod are `kube-system` unless
+  `NKE_TENANT_NAMESPACES` names others
+- the Kubernetes version is the one the controller records for the tenant's
+  control plane, unless `NKE_TENANT_KUBERNETES_VERSION` overrides it
+- encryption at rest is required where the controller records it, and
+  kube-vip where it records a control-plane VIP
+- the cert-manager checks run only where `NKE_TENANT_COMPONENTS` lists
+  `cert-manager`; the controller API check does not run
+- every conditional check reads its `NKE_TENANT_*` counterpart:
+  `NKE_TENANT_COMPONENTS`, `NKE_TENANT_REQUIRED_WORKLOADS`,
+  `NKE_TENANT_WORKLOAD_VERSIONS`, `NKE_TENANT_APISERVER_FLAGS`,
+  `NKE_TENANT_ETCD_ENCRYPTED`, `NKE_TENANT_RESERVED_MEMORY`,
+  `NKE_TENANT_STORAGE_CLASSES` and `NKE_TENANT_PVC_STORAGE_CLASS`
+
+and these besides, which compare the tenant with the controller's record of
+it:
+
+- the tenant's nodes and the controller's are the same set, in the same
+  roles, each joined, Ready and running a healthy node agent
+- every node carries its node pool's labels and taints
+- every node holds back at least its pool's system and kube reserved memory;
+  skipped where no pool reserves any
+- NodeLocal DNS running on every Ready node
+- `NKE_TENANT_GPU_NODES` nodes advertising `nvidia.com/gpu`, and none labeled
+  `nvidia.com/gpu.present` advertising none; skipped when unset
+- a pod given one GPU listing it with `nvidia-smi -L`; labeled `creates`, and
+  skipped when `NKE_TENANT_GPU_NODES` is unset or `0`
+
+The suite reaches the tenant as a ServiceAccount the runner provisions in it,
+NVKE's [tenant automation](../../../docs/tenant-clusters/kubernetes-api-access.md)
+path, and never reads the kubeconfig the controller publishes, which with OIDC
+off is an admin credential. In the tenant, that ServiceAccount needs:
+
+- the cluster-wide reads the site checks need, listed above, without the
+  controller's namespace or the token request
+- in `NKE_TENANT_NAMESPACE`, the rights the probe namespace needs on the site
+
+On the site, the suite's own account also needs `get` on the Secret named by
+`NKE_TENANT_TOKEN_SECRET`, in its own namespace. The runner writes the
+ServiceAccount's token to it under `token` and the tenant's CA under `ca.crt`,
+as a `kubernetes.io/service-account-token` Secret in the tenant carries them,
+and the API server URL under `server` where the tenant has no control-plane
+VIP or is reached some other way. Without `server`, the suite uses
+`https://<control-plane VIP>:6443`.
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `NKE_TENANT_CLUSTER` | The tenant to validate, by name. Unset skips every tenant check. | Unset |
+| `NKE_TENANT_TOKEN_SECRET` | The Secret, in the suite's namespace on the site, that holds the tenant credential. | `nke-validate-<cluster>` |
+| `NKE_TENANT_NAMESPACE` | The tenant namespace the probe pods and every `creates` object go in. Its pods are left out of the pod check. | `nke-validate` |
+| `NKE_TENANT_KUBERNETES_VERSION` | Overrides the version the controller records. | The record's |
+| `NKE_TENANT_NAMESPACES` | Comma-separated namespaces that must each run a ready pod. | `kube-system` |
+| `NKE_TENANT_PROBE_IMAGE` | As `NKE_SITE_PROBE_IMAGE`, in the tenant. | The suite's kubectl image |
+| `NKE_TENANT_GPU_NODES` | How many nodes must advertise GPUs. | Unset |
+| `NKE_TENANT_GPU_IMAGE` | The GPU pod's image, which needs `sh`; the NVIDIA container runtime supplies `nvidia-smi`. | `nvcr.io/nvidia/cuda:12.9.1-base-ubuntu24.04` |
 
 Each controller release publishes the image built from the same commit, as
 `nvke-validate:v<version>` beside `nvke-controller` (see

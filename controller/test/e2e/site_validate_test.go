@@ -84,7 +84,7 @@ func siteValidateFromEnv(getenv func(string) string, namespaceFile string) (site
 		probeImage = kube.KubectlImage
 	}
 
-	expect, err := siteExpectationsFromEnv(getenv)
+	expect, err := siteExpectationsFromEnv(getenv, sitePrefix)
 	if err != nil {
 		return siteValidateSettings{}, err
 	}
@@ -97,6 +97,7 @@ func siteValidateFromEnv(getenv func(string) string, namespaceFile string) (site
 			probeNamespace:   probeNamespace,
 			probeImage:       probeImage,
 			excusedNamespace: probeNamespace,
+			certManager:      true,
 		},
 		expect: expect,
 	}, nil

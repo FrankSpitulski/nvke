@@ -103,6 +103,15 @@ type siteChecks struct {
 	// excusedNamespace is left out of the pod check: the runner's own, where
 	// an earlier run's pods may be left Failed or not Ready. "" excuses none.
 	excusedNamespace string
+	// restConfig, when set, reaches the cluster to check in place of the
+	// site's kubeconfig or the suite's in-cluster config.
+	restConfig func() (*rest.Config, error)
+	// tenant marks the cluster as a tenant: the specs that only a site
+	// controller can pass skip.
+	tenant bool
+	// certManager requires cert-manager: its Certificates checked, and an
+	// Issuer tried.
+	certManager bool
 }
 
 // siteLaneChecks are the site lane's: the stack's namespaces, and fail fast
@@ -112,6 +121,7 @@ var siteLaneChecks = siteChecks{
 	failFast:       true,
 	probeNamespace: "default",
 	probeImage:     kube.KubectlImage,
+	certManager:    true,
 }
 
 // validateSitePostDeploy asserts on a site controller after the stack is
@@ -149,7 +159,11 @@ func validateSitePostDeploy(resolve func() (site.Cluster, site.Spec, bool), chec
 		if c != nil {
 			return
 		}
-		restConfig = expectSucceed(kube.RESTConfigWithInClusterFallback(cluster.Kubeconfig, ""))
+		if checks.restConfig != nil {
+			restConfig = expectSucceed(checks.restConfig())
+		} else {
+			restConfig = expectSucceed(kube.RESTConfigWithInClusterFallback(cluster.Kubeconfig, ""))
+		}
 		c = expectSucceed(siteClient(restConfig))
 	}
 
@@ -160,7 +174,7 @@ func validateSitePostDeploy(resolve func() (site.Cluster, site.Spec, bool), chec
 			if err := c.List(ctx, &nodes); err != nil {
 				return err
 			}
-			return joinProblems("nodes", nodeProblems(nodes.Items))
+			return joinProblems("nodes", nodeProblems(nodes.Items, !checks.tenant))
 		}).WithContext(ctx).WithTimeout(siteCheck).WithPolling(sitePoll).Should(Succeed())
 	}, Label("readiness", "site-software"), NodeTimeout(siteCheck+time.Minute))
 
@@ -206,6 +220,9 @@ func validateSitePostDeploy(resolve func() (site.Cluster, site.Spec, bool), chec
 
 	It("has issued every cert-manager certificate", func(ctx SpecContext) {
 		connect()
+		if !checks.certManager {
+			Skip("the cluster is not expected to run cert-manager")
+		}
 		Eventually(func(ctx context.Context) error {
 			certificates := &unstructured.UnstructuredList{}
 			certificates.SetGroupVersionKind(schema.GroupVersionKind{Group: "cert-manager.io", Version: "v1", Kind: "CertificateList"})
@@ -218,6 +235,9 @@ func validateSitePostDeploy(resolve func() (site.Cluster, site.Spec, bool), chec
 
 	It("lists clusters through the controller API", func(ctx SpecContext) {
 		connect()
+		if checks.tenant {
+			Skip("a tenant runs no controller")
+		}
 		var clusters int
 		Eventually(func(ctx context.Context) error {
 			api, err := nvke.NewClient(ctx, restConfig, nvke.Options{Poll: sitePoll})
@@ -321,13 +341,17 @@ func joinProblems(what string, problems []string) error {
 // controlPlaneTaint is the taint kubeadm puts on a control-plane node.
 const controlPlaneTaint = "node-role.kubernetes.io/control-plane"
 
-func nodeProblems(nodes []corev1.Node) []string {
+// nodeProblems reports nodes not Ready or cordoned and, with taints, nodes
+// carrying a taint that keeps pods off them. A tenant's node pools taint
+// their nodes by design, and the tenant checks compare those taints with the
+// pool's, so a tenant passes taints false.
+func nodeProblems(nodes []corev1.Node, taints bool) []string {
 	if len(nodes) == 0 {
 		return []string{"the cluster has no nodes"}
 	}
 	var problems []string
 	for _, node := range nodes {
-		if !nodeConditionTrue(node, corev1.NodeReady) {
+		if !nodeReady(node) {
 			problems = append(problems, node.Name+": not Ready")
 		}
 		if node.Spec.Unschedulable {
@@ -338,7 +362,7 @@ func nodeProblems(nodes []corev1.Node) []string {
 		// Where another node takes the work, the taint is kubeadm's normal
 		// state.
 		for _, taint := range node.Spec.Taints {
-			if !hardTaint(taint) {
+			if !taints || !hardTaint(taint) {
 				continue
 			}
 			if taint.Key == controlPlaneTaint && schedulableOtherThan(nodes, node.Name) {
@@ -394,7 +418,7 @@ func hardTaint(taint corev1.Taint) bool {
 // uncordoned and carries no taint that keeps pods off it.
 func schedulableOtherThan(nodes []corev1.Node, name string) bool {
 	for _, node := range nodes {
-		if node.Name == name || node.Spec.Unschedulable || !nodeConditionTrue(node, corev1.NodeReady) ||
+		if node.Name == name || node.Spec.Unschedulable || !nodeReady(node) ||
 			slices.ContainsFunc(node.Spec.Taints, hardTaint) {
 			continue
 		}
@@ -403,9 +427,9 @@ func schedulableOtherThan(nodes []corev1.Node, name string) bool {
 	return false
 }
 
-func nodeConditionTrue(node corev1.Node, condition corev1.NodeConditionType) bool {
+func nodeReady(node corev1.Node) bool {
 	for _, c := range node.Status.Conditions {
-		if c.Type == condition {
+		if c.Type == corev1.NodeReady {
 			return c.Status == corev1.ConditionTrue
 		}
 	}

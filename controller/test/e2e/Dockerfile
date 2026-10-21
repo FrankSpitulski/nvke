@@ -4,8 +4,9 @@
 # The E2E suite as an image, for validating a running site from inside its
 # cluster, under an in-cluster test runner. It carries the whole suite; the
 # entrypoint selects site-validate, the specs that install and change nothing
-# lasting on the site. Those labeled creates, and the DNS probe, make
-# short-lived objects in the probe namespace and delete them.
+# lasting on the site or, given NKE_TENANT_CLUSTER, on that tenant. Those
+# labeled creates, and the DNS probe, make short-lived objects in the probe
+# namespace and delete them.
 #
 # Build from the REPOSITORY ROOT, so the context includes controller/api,
 # which go.mod replaces with a relative path:
