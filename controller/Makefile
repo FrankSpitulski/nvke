@@ -267,6 +267,18 @@ test-e2e-core-capd: ## Run the bounded CAPD create, readiness, and delete lifecy
 test-e2e-core-nico-containers: ## Run the bounded NICo containers create, readiness, and delete lifecycle.
 	make test-e2e ARGS='--fail-on-empty --label-filter="core-nico"'
 
+ACCELERATED_OVN_K8S_SIM_DIR := hack/accelerated-ovn-k8s-sim
+
+.PHONY: prepare-accelerated-ovn-k8s-sim test-accelerated-ovn-k8s-sim-chart test-accelerated-ovn-k8s-sim-traffic
+prepare-accelerated-ovn-k8s-sim: ## Build nvke-accelerated-ovn-k8s-sim from pinned upstream OVN inputs.
+	$(MAKE) -C $(ACCELERATED_OVN_K8S_SIM_DIR) build
+
+test-accelerated-ovn-k8s-sim-chart: ## Render the host, DPU, and primary OVN roles for nvke-accelerated-ovn-k8s-sim.
+	$(MAKE) -C $(ACCELERATED_OVN_K8S_SIM_DIR) chart-check
+
+test-accelerated-ovn-k8s-sim-traffic: ## Provision both clusters through NVKE and test routed upstream OVN traffic.
+	$(MAKE) -C $(ACCELERATED_OVN_K8S_SIM_DIR) create CAPNICO_CHART="$(CAPNICO_CHART)"
+
 test-e2e-happy-path: ## Run CAPD and NICo VMs happy-path e2e tests
 	make test-e2e ARGS='--label-filter="happy-path && (lifecycle || readiness) && !scale && !upgrade && !reboot"'
 
