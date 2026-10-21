@@ -151,3 +151,32 @@ func TestEngineSkipReasons(t *testing.T) {
 		"a skip with no stated reason cannot be policy-evaluated and must surface as an error")
 	assert.Contains(t, byID["UX-001"].Evidence, "without a reason")
 }
+
+// TestEngineRejectsOutOfVocabularyOutcomes pins the vocabulary boundary: an
+// implementation returning a status or skip reason outside the enums yields
+// StatusError naming the bogus word, never a copied-through result that a
+// consumer's exact-match policy would misread (or a signed verdict would
+// launder into "not a fail").
+func TestEngineRejectsOutOfVocabularyOutcomes(t *testing.T) {
+	reg := testRegistry(t, twoChecks)
+	bogusStatus := func(context.Context, Target, Inputs) (Outcome, error) {
+		return Outcome{Status: Status("passed"), Evidence: "typo'd vocabulary"}, nil
+	}
+	bogusReason := func(context.Context, Target, Inputs) (Outcome, error) {
+		return Outcome{Status: StatusSkip, Reason: SkipReason("not-applicable-ish"), Evidence: "invented taxonomy"}, nil
+	}
+	pass := func(context.Context, Target, Inputs) (Outcome, error) {
+		return Outcome{Status: StatusPass, Evidence: "ok"}, nil
+	}
+
+	results := NewEngine(map[string]Func{"T-001": bogusStatus, "T-002": pass}).Run(context.Background(), reg, Target{Variant: VariantFDE}, Inputs{})
+	require.Len(t, results, 2)
+	assert.Equal(t, StatusError, results[0].Status)
+	assert.Contains(t, results[0].Evidence, `unknown status "passed"`)
+
+	results = NewEngine(map[string]Func{"T-001": bogusReason, "T-002": pass}).Run(context.Background(), reg, Target{Variant: VariantFDE}, Inputs{})
+	require.Len(t, results, 2)
+	assert.Equal(t, StatusError, results[0].Status)
+	assert.Empty(t, results[0].Reason, "a rejected outcome must not carry the invented reason forward")
+	assert.Contains(t, results[0].Evidence, `unknown reason "not-applicable-ish"`)
+}
