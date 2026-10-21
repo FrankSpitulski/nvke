@@ -6,8 +6,7 @@
 // every request to the site controller, and adds the trace ID to nvkectl's log
 // records.
 //
-// Log records are exported over OTLP when EnableOTLP is called; spans are not
-// exported.
+// Log records and spans are exported over OTLP when EnableOTLP is called.
 package telemetry
 
 import (
@@ -16,6 +15,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel/codes"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -47,6 +47,8 @@ type Run struct {
 	mismatchOnce   sync.Once // the trace ID mismatch is reported once per run
 	exportWarnOnce sync.Once // an export failure is reported once per run
 
+	exporterMisconfigured atomic.Bool // the global error handler saw an exporter configuration error
+
 	mu              sync.Mutex
 	tracerProvider  *sdktrace.TracerProvider
 	rootSpan        trace.Span // nil before Start and after Finish
@@ -54,6 +56,8 @@ type Run struct {
 	handlerBuilt    bool                   // LogHandler has run, so EnableOTLP is too late
 	logProvider     *sdklog.LoggerProvider // nil unless EnableOTLP was called
 	warnLogger      *slog.Logger           // where export warnings go, set by LogHandler
+	otlpConfig      OTLPConfig             // what EnableOTLP accepted
+	otlpEnabled     bool
 }
 
 // sanitizeVersion returns version reduced to the characters of an RFC 9110
@@ -150,25 +154,23 @@ func (run *Run) SpanContext() trace.SpanContext {
 }
 
 // Finish ends the root span, recording err as its outcome when non-nil, and
-// flushes the log records to the OTLP endpoint, waiting at most two seconds.
-// It is a no-op if Start was not called.
+// flushes the spans and log records to the OTLP endpoint, waiting at most two
+// seconds for both. It is a no-op if Start was not called.
 func (run *Run) Finish(err error) {
 	run.mu.Lock()
-	started := run.rootSpan != nil
-	run.mu.Unlock()
-	if !started {
+	if run.rootSpan == nil {
+		run.mu.Unlock()
 		return
 	}
-	defer run.flushLogs()
-	run.mu.Lock()
-	defer run.mu.Unlock()
 	if err != nil {
 		run.rootSpan.RecordError(err)
 		run.rootSpan.SetStatus(codes.Error, err.Error())
 	}
 	run.rootSpan.End()
-	_ = run.tracerProvider.Shutdown(context.Background())
-	run.rootSpan, run.tracerProvider = nil, nil
+	tracerProvider, logProvider := run.tracerProvider, run.logProvider
+	run.rootSpan, run.tracerProvider, run.logProvider = nil, nil, nil
+	run.mu.Unlock()
+	run.shutdownProviders(tracerProvider, logProvider)
 }
 
 // checkResponseTraceID warns, once per run, when response carries an X-Trace-ID

@@ -2153,3 +2153,46 @@ func TestDumpDiagnostics_WhatAlreadyHasTheFinalName(t *testing.T) {
 		}
 	})
 }
+
+// A tracing endpoint turns on the controller's own span export in the chart;
+// without one none of the tracing values are set.
+func TestDeploy_TracingValues(t *testing.T) {
+	tests := []struct {
+		name    string
+		tracing TracingConfig
+		want    []string
+	}{
+		{
+			name:    "secure endpoint",
+			tracing: TracingConfig{Endpoint: "collector.example:4317"},
+			want:    []string{"--set tracing.enabled=true", "--set-string tracing.endpoint=collector.example:4317", "--set tracing.insecure=false"},
+		},
+		{
+			name:    "insecure endpoint",
+			tracing: TracingConfig{Endpoint: "collector.example:4317", Insecure: true},
+			want:    []string{"--set tracing.enabled=true", "--set-string tracing.endpoint=collector.example:4317", "--set tracing.insecure=true"},
+		},
+		{name: "zero value", tracing: TracingConfig{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &fakeRunner{}
+			cfg := testConfig(t)
+			cfg.Tracing = tt.tracing
+
+			if err := New(runner, nil).Deploy(context.Background(), "/tmp/kubeconfig", cfg); err != nil {
+				t.Fatalf("Deploy: %v", err)
+			}
+
+			all := strings.Join(helmCalls(runner), "\n")
+			for _, want := range tt.want {
+				if !strings.Contains(all, want) {
+					t.Errorf("calls = %q, want %q", all, want)
+				}
+			}
+			if len(tt.want) == 0 && strings.Contains(all, "tracing.") {
+				t.Errorf("calls = %q, want no tracing values", all)
+			}
+		})
+	}
+}

@@ -203,6 +203,15 @@ type oidcProviders struct {
 	Providers []sitespec.OIDCProvider `yaml:"providers"`
 }
 
+// TracingConfig points the controller's own OpenTelemetry export at a collector.
+// The zero value leaves it off, which is the chart's default.
+type TracingConfig struct {
+	// Endpoint is the collector's OTLP/gRPC host:port. Empty turns export off.
+	Endpoint string
+	// Insecure sends without TLS.
+	Insecure bool
+}
+
 // Config describes a controller deployment.
 type Config struct {
 	// CWEImage is the image reference to deploy. Defaults to nke-controller:latest,
@@ -328,6 +337,9 @@ type Config struct {
 	// OCI reference or a local path. Empty uses the spiffe.github.io hardened
 	// chart repo.
 	SPIRECRDsChartRef string
+
+	// Tracing exports the controller's spans to a collector the operator named.
+	Tracing TracingConfig
 }
 
 // TPMAttestorEnabled reports whether the bootstrap SPIRE server attests hosts
@@ -706,6 +718,13 @@ func (e *Engine) Deploy(ctx context.Context, kubeconfigPath string, cfg Config) 
 		"--set", fmt.Sprintf("service.port=%d", cwePort),
 	}
 	cweArgs = append(cweArgs, cweEnvArgs(cfg)...)
+	if cfg.Tracing.Endpoint != "" {
+		cweArgs = append(cweArgs,
+			"--set", "tracing.enabled=true",
+			"--set-string", "tracing.endpoint="+cfg.Tracing.Endpoint,
+			"--set", fmt.Sprintf("tracing.insecure=%t", cfg.Tracing.Insecure),
+		)
+	}
 	if cfg.NicoInfrastructure {
 		cweArgs = append(cweArgs, "--set-string", "secrets.dgxcTenantCredSecretName="+dgxcTenantSecret)
 	}

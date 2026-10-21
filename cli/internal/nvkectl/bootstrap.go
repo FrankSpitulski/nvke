@@ -179,7 +179,10 @@ site spec file format.`,
   # Deploy images you pushed to a registry instead of the local build
   nvkectl bootstrap site -f sitespec.yaml \
     --nvke-controller-image nvcr.io/<org>/nvke-controller:edge \
-    --provisioned-provider-image nvcr.io/<org>/cluster-api-provider-provisioned:edge`,
+    --provisioned-provider-image nvcr.io/<org>/cluster-api-provider-provisioned:edge
+
+  # Export this run's spans and log records to a collector the cluster can reach
+  nvkectl bootstrap site -f sitespec.yaml --otlp-endpoint collector.example.com:4317`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -203,6 +206,11 @@ site spec file format.`,
 		"NVKE controller image to deploy (overrides NVKECTL_NVKE_CONTROLLER_IMAGE and the manifest default)")
 	cmd.Flags().StringVar(&opts.provisionedProviderImage, "provisioned-provider-image", "",
 		"Provisioned-provider image to deploy (overrides NVKECTL_CAPI_PROVISIONED_IMAGE and the manifest default)")
+	// resolveOTLP reads these two through the flag set, before RunE; they have no field.
+	cmd.Flags().String(otlpEndpointFlag, "",
+		"OTLP/gRPC endpoint, a host:port or an http(s):// URL (http implies --"+otlpInsecureFlag+"), that receives this run's spans and log records. "+
+			"The temporary controller in the bootstrap cluster exports there too, so a loopback address is rejected")
+	cmd.Flags().Bool(otlpInsecureFlag, false, "Send to --"+otlpEndpointFlag+" without TLS")
 	cmd.Flags().StringVar(&opts.release, "release", "",
 		"NVKR release description whose "+controllerdeploy.CAPNICoArtifact+" artifact replaces the bootstrap CAPNICo image "+
 			"with its pinned digest, as \"render deploy-path --release\" does for the management cluster's CAPNICo. "+
@@ -342,6 +350,7 @@ func runBootstrapSite(ctx context.Context, out io.Writer, opts *bootstrapSiteOpt
 	}
 
 	cweCfg.CAPNICoImage = capnicoImage
+	cweCfg.Tracing = controllerTracing(ctx, logger)
 
 	// The controller API has to be reachable from this host: this command deploys it
 	// and then calls it. A host port mapping rather than the node container's
@@ -1011,6 +1020,30 @@ func envOrDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// controllerTracing points the temporary controller at the collector this run
+// exports to, if any. A loopback endpoint, which can come from the environment,
+// is not reachable from the bootstrap cluster; that is said once. The
+// controller reads no headers from nvkectl, so ones set for the run are not
+// passed on, and that is said once too.
+func controllerTracing(ctx context.Context, logger *slog.Logger) controllerdeploy.TracingConfig {
+	run := telemetry.RunFrom(ctx)
+	if run == nil {
+		return controllerdeploy.TracingConfig{}
+	}
+	otlp, ok := run.OTLP()
+	if !ok {
+		return controllerdeploy.TracingConfig{}
+	}
+	if telemetry.RejectLoopback(otlp.Endpoint) != nil {
+		logger.Warn("the controller in the bootstrap cluster cannot reach " + otlp.Endpoint + "; its spans are not exported")
+		return controllerdeploy.TracingConfig{}
+	}
+	if len(otlp.Headers) > 0 {
+		logger.Warn("OTLP headers are set; the controller's spans are exported without them")
+	}
+	return controllerdeploy.TracingConfig{Endpoint: otlp.Endpoint, Insecure: otlp.Insecure}
 }
 
 // cweDeployConfig assembles everything the controller deploy needs into one value,
