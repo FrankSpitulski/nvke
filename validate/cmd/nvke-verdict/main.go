@@ -45,6 +45,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	maxAge := fs.Duration("max-age", 0, "Reject verdicts older than this (0 = no limit)")
 	requiredChecks := fs.String("required-checks", "", "Comma-separated check IDs the qualification profile demands: each must have passed or be skipped as not-applicable — a disabled tier or missing input does not count (e.g. INT-001,INT-002,INT-004,HARD-001)")
 	checkSetSHA256 := fs.String("check-set-sha256", "", "Comma-separated sha256 digests of approved checks.yaml contents; without it, applicability is whatever registry the signer chose")
+	trustedRootSHA256 := fs.String("trusted-root-sha256", "", "Comma-separated sha256 digests of approved trusted roots the run may have verified evidence against; a digest-only verdict (no evidence verified) fails this pin")
 	expectVariant := fs.String("target-variant", "", "Variant the verdict must have been validated as (fde | non-fde)")
 	expectArch := fs.String("target-arch", "", "Architecture the verdict must have been validated as")
 	expectUbuntu := fs.String("target-ubuntu", "", "Ubuntu release the verdict must have been validated as")
@@ -101,14 +102,25 @@ func run(args []string, stdout, stderr *os.File) int {
 			approvedCheckSets = append(approvedCheckSets, d)
 		}
 	}
-	pinFlagGiven := false
+	var approvedRoots []string
+	for _, d := range strings.Split(*trustedRootSHA256, ",") {
+		if d = strings.TrimSpace(d); d != "" {
+			approvedRoots = append(approvedRoots, d)
+		}
+	}
+	givenEmptyPin := ""
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "check-set-sha256" {
-			pinFlagGiven = true
+		// A pin flag that was given but parsed to nothing is a usage error: it
+		// looks like policy and enforces nothing.
+		if f.Name == "check-set-sha256" && len(approvedCheckSets) == 0 {
+			givenEmptyPin = f.Name
+		}
+		if f.Name == "trusted-root-sha256" && len(approvedRoots) == 0 {
+			givenEmptyPin = f.Name
 		}
 	})
-	if pinFlagGiven && len(approvedCheckSets) == 0 {
-		fmt.Fprintln(stderr, "nvke-verdict: --check-set-sha256 was given but holds no digests")
+	if givenEmptyPin != "" {
+		fmt.Fprintf(stderr, "nvke-verdict: --%s was given but holds no digests\n", givenEmptyPin)
 		return exitCannot
 	}
 	st, err := verify.Verify(envelope, subject, verify.Policy{
@@ -118,6 +130,7 @@ func run(args []string, stdout, stderr *os.File) int {
 		RequiredChecks:     required,
 		CheckSetSHA256:     approvedCheckSets,
 		ExpectedTarget:     verify.Target{Variant: *expectVariant, Arch: *expectArch, Ubuntu: *expectUbuntu},
+		TrustedRootSHA256:  approvedRoots,
 	}, time.Now())
 	if err != nil {
 		fmt.Fprintf(stderr, "nvke-verdict: %v\n", err)

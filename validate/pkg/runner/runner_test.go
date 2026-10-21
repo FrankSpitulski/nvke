@@ -123,3 +123,27 @@ func writeSigningKey(t *testing.T) string {
 	require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600))
 	return path
 }
+
+// TestBundleModeRequiresTrustedRoot pins the out-of-band trust-root contract
+// at the runner boundary: bundle mode without a pinned root is a usage error
+// before any work, and a root supplied to a digest-only run (which verifies
+// no evidence) is one too.
+func TestBundleModeRequiresTrustedRoot(t *testing.T) {
+	opts := fixtureOptions(t)
+	opts.BundleDir = filepath.Dir(opts.ChecksumsPath)
+	opts.ChecksumsPath = ""
+
+	exit, err := Run(context.Background(), opts, sink(t))
+	assert.Equal(t, report.ExitError, exit)
+	require.ErrorContains(t, err, "trusted root")
+	require.ErrorContains(t, err, "out-of-band")
+}
+
+func TestTrustedRootRejectedInDigestOnlyMode(t *testing.T) {
+	opts := fixtureOptions(t)
+	opts.TrustedRootPath = filepath.Join(t.TempDir(), "root.json")
+
+	exit, err := Run(context.Background(), opts, sink(t))
+	assert.Equal(t, report.ExitError, exit)
+	require.ErrorContains(t, err, "only applies to bundle mode")
+}

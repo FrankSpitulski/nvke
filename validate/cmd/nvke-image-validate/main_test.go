@@ -135,7 +135,12 @@ func TestRunJSONFormat(t *testing.T) {
 	assert.Contains(t, string(data), `"INT-001"`)
 }
 
-const realBundle = "../../testdata/release-v0.2.0-rc.1"
+const (
+	realBundle = "../../testdata/release-v0.2.0-rc.1"
+	// realTrustedRoot is the test's out-of-band pin; production never
+	// discovers it inside the evidence directory.
+	realTrustedRoot = realBundle + "/trusted-root.json"
+)
 
 // TestRunBundleMode exercises the evidence-verifying path against the vendored
 // real release bundle: the evidence verifies (INT-002 pass), while a wrong
@@ -150,6 +155,7 @@ func TestRunBundleMode(t *testing.T) {
 	code := run([]string{
 		"--image", image,
 		"--bundle", realBundle,
+		"--trusted-root", realTrustedRoot,
 		"--checks", filepath.Join("..", "..", "checks.yaml"),
 		"--target-variant", "fde", "--target-arch", "amd64", "--target-ubuntu", "24.04.5",
 		"--format", "json",
@@ -178,6 +184,23 @@ func TestRunRequiresExactlyOneEvidenceSource(t *testing.T) {
 	assert.Equal(t, report.ExitError, run(neither, sink, sink))
 }
 
+// TestRunBundleModeRequiresTrustedRoot pins the out-of-band contract: bundle
+// mode without an operator-pinned root is a usage error before any work, and
+// the root is never discovered inside the evidence directory (the vendored
+// fixture dir contains a trusted-root.json that must NOT satisfy this).
+func TestRunBundleModeRequiresTrustedRoot(t *testing.T) {
+	image := filepath.Join(t.TempDir(), artifact)
+	require.NoError(t, os.WriteFile(image, []byte("wrong bytes"), 0o644))
+	sink := devNull(t)
+	code := run([]string{
+		"--image", image,
+		"--bundle", realBundle,
+		"--checks", filepath.Join("..", "..", "checks.yaml"),
+		"--target-variant", "fde", "--target-arch", "amd64", "--target-ubuntu", "24.04.5",
+	}, sink, sink)
+	assert.Equal(t, report.ExitError, code)
+}
+
 // TestRunTargetBOM exercises --target-bom against the vendored real SBOM:
 // COMPAT-002 passes when the BOM names the versions the release SBOM records
 // and fails naming the drifted component otherwise — without any image
@@ -200,6 +223,7 @@ func TestRunTargetBOM(t *testing.T) {
 			code := run([]string{
 				"--image", image,
 				"--bundle", realBundle,
+				"--trusted-root", realTrustedRoot,
 				"--checks", filepath.Join("..", "..", "checks.yaml"),
 				"--target-variant", "fde", "--target-arch", "amd64", "--target-ubuntu", "24.04.5",
 				"--target-bom", bomPath,

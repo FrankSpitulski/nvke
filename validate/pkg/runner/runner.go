@@ -84,6 +84,12 @@ type Options struct {
 	Format string
 	// ValidatorVersion is stamped into emitted verdicts.
 	ValidatorVersion string
+	// TrustedRootPath is the operator-pinned trusted root that authenticates
+	// the evidence bundle's attestation (one JSON root per line, the format
+	// `gh attestation trusted-root` emits). Required with BundleDir, and
+	// deliberately never read from the evidence directory: a root that
+	// travels with the evidence it authenticates could be replaced with it.
+	TrustedRootPath string
 }
 
 // Run executes one validation run, writing the report to stdout: exit 0 pass,
@@ -101,6 +107,12 @@ func Run(ctx context.Context, opts Options, stdout io.Writer) (int, error) {
 	}
 	if (opts.BundleDir == "") == (opts.ChecksumsPath == "") {
 		return report.ExitError, fmt.Errorf("exactly one of the evidence bundle and the checksums file is required")
+	}
+	if opts.BundleDir != "" && opts.TrustedRootPath == "" {
+		return report.ExitError, fmt.Errorf("bundle mode requires the operator-pinned trusted root (--trusted-root): the root must arrive out-of-band from the evidence it authenticates")
+	}
+	if opts.BundleDir == "" && opts.TrustedRootPath != "" {
+		return report.ExitError, fmt.Errorf("the trusted root only applies to bundle mode: a digest-only run verifies no evidence")
 	}
 	if (opts.EmitVerdictPath == "") != (opts.SignKeyPath == "") {
 		return report.ExitError, fmt.Errorf("verdict emission needs both the output path and the signing key")
@@ -142,11 +154,22 @@ func Run(ctx context.Context, opts Options, stdout io.Writer) (int, error) {
 	var sums map[string]string
 	var evidence checks.EvidenceStatus
 	var evidenceBundle *bundle.Bundle
+	trustedRootSHA256 := ""
 	if opts.BundleDir != "" {
 		b, err := bundle.Load(opts.BundleDir)
 		if err != nil {
 			return report.ExitError, err
 		}
+		// The root is read from the operator-pinned path and hashed from the
+		// same bytes that are parsed, like every other policy input.
+		rootRaw, err := os.ReadFile(opts.TrustedRootPath)
+		if err != nil {
+			return report.ExitError, fmt.Errorf("reading trusted root: %w", err)
+		}
+		if err := b.PinTrustedRoot(rootRaw); err != nil {
+			return report.ExitError, fmt.Errorf("trusted root %s: %w", opts.TrustedRootPath, err)
+		}
+		trustedRootSHA256 = sha256Hex(rootRaw)
 		sums = b.Checksums
 		evidenceBundle = b
 		evidence.Checked = true
@@ -279,7 +302,7 @@ func Run(ctx context.Context, opts Options, stdout io.Writer) (int, error) {
 
 	rep := report.New(reg, target, digest, results, time.Now())
 	if opts.EmitVerdictPath != "" {
-		if err := writeVerdict(opts, rep, checkSetSHA256, bomSHA256, stdout); err != nil {
+		if err := writeVerdict(opts, rep, checkSetSHA256, bomSHA256, trustedRootSHA256, stdout); err != nil {
 			// The signing failure rides the one report document, never a
 			// second JSON object.
 			rep.RunError = fmt.Sprintf("emitting verdict: %v", err)
@@ -338,7 +361,7 @@ func sha256Hex(raw []byte) string {
 // writeVerdict signs the run's result as an in-toto attestation over the
 // image's digest. A failing or erroring run still emits its verdict: the
 // signed outcome is the evidence a consumer enforces on.
-func writeVerdict(opts Options, rep report.Report, checkSetSHA256, bomSHA256 string, reportSink io.Writer) error {
+func writeVerdict(opts Options, rep report.Report, checkSetSHA256, bomSHA256, trustedRootSHA256 string, reportSink io.Writer) error {
 	keyPEM, err := os.ReadFile(opts.SignKeyPath)
 	if err != nil {
 		return fmt.Errorf("reading signing key: %w", err)
@@ -380,11 +403,12 @@ func writeVerdict(opts Options, rep report.Report, checkSetSHA256, bomSHA256 str
 				Pass: rep.Summary.Pass, Fail: rep.Summary.Fail, BlockingFail: rep.Summary.BlockingFail,
 				WarnFail: rep.Summary.WarnFail, Skip: rep.Summary.Skip, Error: rep.Summary.Error,
 			},
-			Results:        results,
-			FinishedAt:     rep.GeneratedAt,
-			EvidenceMode:   evidenceMode,
-			CheckSetSHA256: checkSetSHA256,
-			BOMSHA256:      bomSHA256,
+			Results:           results,
+			FinishedAt:        rep.GeneratedAt,
+			EvidenceMode:      evidenceMode,
+			CheckSetSHA256:    checkSetSHA256,
+			BOMSHA256:         bomSHA256,
+			TrustedRootSHA256: trustedRootSHA256,
 		},
 	}
 	payload, err := json.Marshal(statement)

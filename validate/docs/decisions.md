@@ -19,9 +19,11 @@ milliseconds — never the image.
 ## 2026-10 — Offline is a contract, not a mode
 
 No package in this module opens a network connection. The sigstore trusted
-root is pinned and travels in the evidence bundle; verification uses observer
-timestamps, not Rekor lookups. This is also why the module avoids any client
-SDK that assumes registry or transparency-log reachability.
+root is pinned by the operator out-of-band (`--trusted-root`) — deliberately
+never read from the evidence directory, whose contents are exactly what the
+root is needed to authenticate; verification uses observer timestamps, not
+Rekor lookups. This is also why the module avoids any client SDK that assumes
+registry or transparency-log reachability.
 
 ## 2026-10 — Checks are data; implementations bind by ID
 

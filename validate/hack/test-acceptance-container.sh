@@ -99,7 +99,7 @@ echo "   profile: $ALL_CHECKS"
 run() { local want=$1; shift; local got=0; "$@" || got=$?; [ "$got" = "$want" ] || { echo "FATAL: expected exit $want got $got: $*" >&2; exit 1; }; echo "   => exit $got (expected $want)" >&2; }
 
 echo "=== POSITIVE: full-tier validation of the real image ==="
-time run 0 $VALIDATE --image "/in/$ARTIFACT" --name "$ARTIFACT" --bundle /in/bundle \
+time run 0 $VALIDATE --image "/in/$ARTIFACT" --name "$ARTIFACT" --bundle /in/bundle --trusted-root /in/bundle/trusted-root.json \
   --checks /in/checks.yaml "${TARGET[@]}" \
   --inspect on --boot on --boot-timeout 30m --luks-passphrase-file luks.pass \
   --target-bom bom.yaml --emit-verdict verdict.json --sign-key sign.key \
@@ -120,19 +120,19 @@ run 0 $VERDICT --attestation verdict.json --key verdict.pub --image "/in/$ARTIFA
 
 echo "=== NEGATIVE: tampered bytes fail INT-001, named ==="
 cp "/in/$ARTIFACT" tampered.qcow2 && printf 'X' >> tampered.qcow2
-run 1 $VALIDATE --image tampered.qcow2 --name "$ARTIFACT" --bundle /in/bundle \
+run 1 $VALIDATE --image tampered.qcow2 --name "$ARTIFACT" --bundle /in/bundle --trusted-root /in/bundle/trusted-root.json \
   --checks /in/checks.yaml "${TARGET[@]}" --inspect off --format json > /out/tampered-report.json
 python3 -c 'import json,sys; r=[x for x in json.load(open("/out/tampered-report.json"))["results"] if x["id"]=="INT-001"][0]; assert r["status"]=="fail", r; print("   asserted: INT-001 fail named")' 
 
 echo "=== NEGATIVE: wrong target fails COMPAT-001 ==="
 WRONG=amd64; [ "$ARCH" = amd64 ] && WRONG=arm64
-run 1 $VALIDATE --image "/in/$ARTIFACT" --name "$ARTIFACT" --bundle /in/bundle \
+run 1 $VALIDATE --image "/in/$ARTIFACT" --name "$ARTIFACT" --bundle /in/bundle --trusted-root /in/bundle/trusted-root.json \
   --checks /in/checks.yaml --target-variant "$VARIANT" --target-arch "$WRONG" \
   --target-ubuntu "$UBUNTU" --inspect off --format json > /out/wrong-target-report.json
 python3 -c 'import json; r=[x for x in json.load(open("/out/wrong-target-report.json"))["results"] if x["id"]=="COMPAT-001"][0]; assert r["status"]=="fail", r; print("   asserted: COMPAT-001 fail named")' 
 
 echo "=== NEGATIVE: an omitted-tier verdict cannot satisfy the profile ==="
-run 0 $VALIDATE --image "/in/$ARTIFACT" --name "$ARTIFACT" --bundle /in/bundle \
+run 0 $VALIDATE --image "/in/$ARTIFACT" --name "$ARTIFACT" --bundle /in/bundle --trusted-root /in/bundle/trusted-root.json \
   --checks /in/checks.yaml "${TARGET[@]}" --inspect off \
   --emit-verdict lazy.json --sign-key sign.key >/dev/null
 run 2 $VERDICT --attestation lazy.json --key verdict.pub --image "/in/$ARTIFACT" \

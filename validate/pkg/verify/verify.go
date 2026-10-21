@@ -100,6 +100,10 @@ type Predicate struct {
 	// BOMSHA256 is the sha256 of the target BOM file; empty when none was
 	// supplied.
 	BOMSHA256 string `json:"bomSha256,omitempty"`
+	// TrustedRootSHA256 is the sha256 of the operator-pinned trusted root the
+	// run verified the release evidence against; empty on digest-only runs
+	// (no evidence was verified) and on verdicts that predate the field.
+	TrustedRootSHA256 string `json:"trustedRootSha256,omitempty"`
 }
 
 // Tool identifies the validator build that produced the verdict.
@@ -164,6 +168,11 @@ type Policy struct {
 	CheckSetSHA256 []string
 	// ExpectedTarget: non-empty fields must equal the verdict's target.
 	ExpectedTarget Target
+	// TrustedRootSHA256 pins the trusted root(s) the run may have verified
+	// evidence against (bare hex, any match). A verdict that records no
+	// trusted root — a digest-only run, or one predating the field — fails
+	// the pin: the consumer asked for authenticated evidence provenance.
+	TrustedRootSHA256 []string
 }
 
 // Verify checks a verdict envelope against the policy and the image digest
@@ -230,23 +239,11 @@ func Verify(envelopeJSON []byte, imageSHA256 string, pol Policy, now time.Time) 
 			return nil, fmt.Errorf("verdict is %s old, policy maximum is %s", age.Round(time.Second), pol.MaxAge)
 		}
 	}
-	if len(pol.CheckSetSHA256) > 0 {
-		got := strings.ToLower(st.Predicate.CheckSetSHA256)
-		approved := false
-		for _, want := range pol.CheckSetSHA256 {
-			want = strings.ToLower(want)
-			if !isSHA256Hex(want) {
-				// A pin that can never match is a policy defect, not a
-				// silently inert entry.
-				return nil, fmt.Errorf("policy pin %q is not a bare-hex sha256", want)
-			}
-			if got == want {
-				approved = true
-			}
-		}
-		if !approved {
-			return nil, fmt.Errorf("the verdict's check set (sha256 %q) is not an approved one", st.Predicate.CheckSetSHA256)
-		}
+	if err := approvedDigest("check set", st.Predicate.CheckSetSHA256, pol.CheckSetSHA256); err != nil {
+		return nil, err
+	}
+	if err := approvedDigest("trusted root", st.Predicate.TrustedRootSHA256, pol.TrustedRootSHA256); err != nil {
+		return nil, err
 	}
 	if err := matchTarget(st.Predicate.Target, pol.ExpectedTarget); err != nil {
 		return nil, err
@@ -265,6 +262,33 @@ func Verify(envelopeJSON []byte, imageSHA256 string, pol Policy, now time.Time) 
 		return nil, err
 	}
 	return &st, nil
+}
+
+// approvedDigest enforces a content pin: with no pins it is inert, and with
+// pins the verdict's recorded digest must match one of them. A verdict that
+// records nothing fails a given pin — absence never satisfies a content
+// requirement.
+func approvedDigest(what, got string, pins []string) error {
+	if len(pins) == 0 {
+		return nil
+	}
+	got = strings.ToLower(got)
+	approved := false
+	for _, want := range pins {
+		want = strings.ToLower(want)
+		if !isSHA256Hex(want) {
+			// A pin that can never match is a policy defect, not a
+			// silently inert entry.
+			return fmt.Errorf("policy pin %q is not a bare-hex sha256", want)
+		}
+		if got == want {
+			approved = true
+		}
+	}
+	if !approved {
+		return fmt.Errorf("the verdict's %s (sha256 %q) is not an approved one", what, got)
+	}
+	return nil
 }
 
 func isSHA256Hex(s string) bool {

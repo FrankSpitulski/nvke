@@ -30,7 +30,8 @@ func run(args []string, stdout, stderr *os.File) int {
 	fs.SetOutput(stderr)
 	versionFlag := fs.Bool("version", false, "Print the version and exit")
 	image := fs.String("image", "", "Path to the qcow2 under validation")
-	bundleDir := fs.String("bundle", "", "Path to the release evidence bundle directory (checksums.txt + checksums.txt.sigstore.json + trusted-root.json); verifies the evidence before any check runs")
+	bundleDir := fs.String("bundle", "", "Path to the release evidence bundle directory (checksums.txt + checksums.txt.sigstore.json); verifies the evidence before any check runs (requires --trusted-root)")
+	trustedRoot := fs.String("trusted-root", "", "Path to the operator-pinned trusted root that authenticates the evidence (bundle mode); pinned out-of-band, never read from the evidence directory")
 	certIssuer := fs.String("cert-issuer", runner.DefaultCertIssuer, "OIDC issuer the evidence signer's certificate must carry (bundle mode)")
 	certSANRegex := fs.String("cert-san-regex", runner.DefaultCertSANRegex, "Regex the evidence signer's SubjectAlternativeName must match (bundle mode)")
 	checksums := fs.String("checksums", "", "Path to a bare checksums.txt: digest-only mode, no evidence verification — INT-002 reports a skip")
@@ -69,6 +70,11 @@ func run(args []string, stdout, stderr *os.File) int {
 		fs.Usage()
 		return report.ExitError
 	}
+	if *bundleDir != "" && *trustedRoot == "" {
+		fmt.Fprintln(stderr, "nvke-image-validate: --bundle requires --trusted-root (the root is pinned out-of-band from the evidence it authenticates)")
+		fs.Usage()
+		return report.ExitError
+	}
 	if (*emitVerdict == "") != (*signKey == "") {
 		fmt.Fprintln(stderr, "nvke-image-validate: --emit-verdict and --sign-key are required together")
 		fs.Usage()
@@ -95,6 +101,7 @@ func run(args []string, stdout, stderr *os.File) int {
 		SignKeyPath:        *signKey,
 		Format:             *format,
 		ValidatorVersion:   version,
+		TrustedRootPath:    *trustedRoot,
 	}, stdout)
 	if err != nil {
 		// Runner contract: err != nil means nothing reached stdout, so this

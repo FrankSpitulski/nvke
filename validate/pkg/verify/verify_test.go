@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"strings"
@@ -346,4 +347,62 @@ func TestMalformedPolicyPinIsAnError(t *testing.T) {
 	_, err = Verify(env, testDigest, Policy{Keys: []crypto.PublicKey{pub}, CheckSetSHA256: []string{"not-a-digest"}}, testFinished)
 	require.ErrorContains(t, err, "not a bare-hex sha256",
 		"a pin that can never match is a policy defect, not an inert entry")
+}
+
+// TestPolicyPinsTrustedRoot mirrors the check-set pin for the evidence trust
+// root: a consumer can demand that the verdict's run verified its evidence
+// against an approved root, and absence (a digest-only run, or a pre-field
+// verdict) never satisfies the pin.
+func TestPolicyPinsTrustedRoot(t *testing.T) {
+	signer, pub := ed25519Signer(t)
+	keys := []crypto.PublicKey{pub}
+	approved := strings.Repeat("b", 64)
+
+	goodEnv, err := Sign(testStatement(t, func(st *Statement) { st.Predicate.TrustedRootSHA256 = approved }), signer)
+	require.NoError(t, err)
+	otherEnv, err := Sign(testStatement(t, func(st *Statement) { st.Predicate.TrustedRootSHA256 = strings.Repeat("c", 64) }), signer)
+	require.NoError(t, err)
+	absentEnv, err := Sign(testStatement(t, nil), signer)
+	require.NoError(t, err)
+
+	// Without the pin, the field is informational.
+	_, err = Verify(otherEnv, testDigest, Policy{Keys: keys}, testFinished)
+	require.NoError(t, err)
+
+	// The approved root passes, case-insensitively.
+	_, err = Verify(goodEnv, testDigest, Policy{Keys: keys, TrustedRootSHA256: []string{strings.ToUpper(approved)}}, testFinished)
+	require.NoError(t, err)
+
+	// A different root does not.
+	_, err = Verify(otherEnv, testDigest, Policy{Keys: keys, TrustedRootSHA256: []string{approved}}, testFinished)
+	require.ErrorContains(t, err, "trusted root")
+	require.ErrorContains(t, err, "not an approved one")
+
+	// Absence never satisfies a content pin.
+	_, err = Verify(absentEnv, testDigest, Policy{Keys: keys, TrustedRootSHA256: []string{approved}}, testFinished)
+	require.ErrorContains(t, err, "not an approved one")
+
+	// A malformed pin is a policy defect, not an inert entry.
+	_, err = Verify(goodEnv, testDigest, Policy{Keys: keys, TrustedRootSHA256: []string{"sha256:" + approved}}, testFinished)
+	require.ErrorContains(t, err, "not a bare-hex sha256")
+}
+
+// TestPredicateCarriesTrustedRootSHA256 pins the field's JSON name and
+// round-trip, so a consumer-side rename cannot silently detach the pin.
+func TestPredicateCarriesTrustedRootSHA256(t *testing.T) {
+	signer, pub := ed25519Signer(t)
+	root := strings.Repeat("d", 64)
+	env, err := Sign(testStatement(t, func(st *Statement) { st.Predicate.TrustedRootSHA256 = root }), signer)
+	require.NoError(t, err)
+	st, err := Verify(env, testDigest, Policy{Keys: []crypto.PublicKey{pub}}, testFinished)
+	require.NoError(t, err)
+	assert.Equal(t, root, st.Predicate.TrustedRootSHA256)
+
+	var decoded struct {
+		Payload string `json:"payload"`
+	}
+	require.NoError(t, json.Unmarshal(env, &decoded))
+	payload, err := base64.StdEncoding.DecodeString(decoded.Payload)
+	require.NoError(t, err)
+	assert.Contains(t, string(payload), `"trustedRootSha256":"`+root+`"`)
 }
