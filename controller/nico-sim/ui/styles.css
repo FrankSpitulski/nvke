@@ -352,6 +352,11 @@ tr.expandable { cursor: pointer; }
     overflow-y: auto;
 }
 
+.detail-field pre.error-reason {
+    color: var(--nvidia-error);
+    border-color: rgba(255, 85, 85, 0.3);
+}
+
 .empty-state {
     text-align: center;
     color: var(--nvidia-text-dim);

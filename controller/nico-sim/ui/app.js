@@ -219,10 +219,24 @@ function detectLang(text) {
     return 'shell';
 }
 
+function getErrorReason(inst) {
+    var history = inst.statusHistory || [];
+    // Status history is chronological, so search backward for the newest message.
+    for (var i = history.length - 1; i >= 0; i--) {
+        if (history[i].message) return history[i].message;
+    }
+    return '';
+}
+
 function buildDetailHtml(inst) {
     var ipxe = inst.ipxeScript || '';
     var userData = inst.userData || '';
+    var errorReason = getErrorReason(inst);
     var html = '<div class="detail-content">';
+    if (errorReason) {
+        html += '<div class="detail-field"><label>Error Reason</label><pre class="error-reason"><code>' +
+            escapeHtml(errorReason) + '</code></pre></div>';
+    }
     if (ipxe) html += '<div class="detail-field"><label>iPXE Script</label><pre><code class="language-shell">' + escapeHtml(ipxe) + '</code></pre></div>';
     if (userData) {
         html += '<div class="detail-field"><label>User Data</label><pre><code class="language-' + detectLang(userData) + '">' + escapeHtml(userData) + '</code></pre></div>';
@@ -251,6 +265,11 @@ function updateRow(tr, inst) {
     tds[6].innerHTML = cells.created;
     tds[0].title = inst.id;
     tds[6].title = inst.created || '';
+    var detail = tr.nextElementSibling;
+    if (detail && detail.classList.contains('detail-row')) {
+        detail.children[0].innerHTML = buildDetailHtml(inst);
+        detail.querySelectorAll('pre code').forEach(function(block) { hljs.highlightElement(block); });
+    }
 }
 
 function createInstanceRow(inst) {
