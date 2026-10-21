@@ -87,5 +87,6 @@ keeps its page, carrying its deprecation notice, for as long as it still runs.
     - [`nvkectl patch cluster`](nvkectl_patch_cluster.md) — Patch a tenant cluster
     - [`nvkectl patch nodepool`](nvkectl_patch_nodepool.md) — Patch a node pool
   - [`nvkectl validate`](nvkectl_validate.md) — Validate a file before acting on it
+    - [`nvkectl validate image`](nvkectl_validate_image.md) — Check a node image against its release evidence
     - [`nvkectl validate sitespec`](nvkectl_validate_sitespec.md) — Check a site spec the way nvkectl bootstrap site reads it
   - [`nvkectl version`](nvkectl_version.md) — Print version information
