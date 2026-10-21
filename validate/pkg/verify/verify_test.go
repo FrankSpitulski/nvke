@@ -406,3 +406,31 @@ func TestPredicateCarriesTrustedRootSHA256(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(payload), `"trustedRootSha256":"`+root+`"`)
 }
+
+// TestVerifyRejectsFutureDatedVerdicts pins the forward-dating hole: a
+// finishedAt in the future yields a negative age that passes any MaxAge
+// forever, so it is rejected outright — with or without an age policy —
+// while ordinary clock drift inside MaxClockSkew stays acceptable.
+func TestVerifyRejectsFutureDatedVerdicts(t *testing.T) {
+	signer, pub := ed25519Signer(t)
+	pol := Policy{Keys: []crypto.PublicKey{pub}}
+
+	farFuture, err := Sign(testStatement(t, func(st *Statement) {
+		st.Predicate.FinishedAt = testFinished.Add(24 * time.Hour)
+	}), signer)
+	require.NoError(t, err)
+
+	_, err = Verify(farFuture, testDigest, pol, testFinished)
+	require.ErrorContains(t, err, "in the future", "rejected even with no MaxAge set")
+
+	pol.MaxAge = time.Hour
+	_, err = Verify(farFuture, testDigest, pol, testFinished)
+	require.ErrorContains(t, err, "in the future", "a negative age must not satisfy MaxAge")
+
+	withinSkew, err := Sign(testStatement(t, func(st *Statement) {
+		st.Predicate.FinishedAt = testFinished.Add(MaxClockSkew - time.Second)
+	}), signer)
+	require.NoError(t, err)
+	_, err = Verify(withinSkew, testDigest, pol, testFinished)
+	require.NoError(t, err, "ordinary clock drift within MaxClockSkew is not forgery")
+}

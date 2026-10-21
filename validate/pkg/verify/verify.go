@@ -144,6 +144,11 @@ type CheckResult struct {
 // every other skip is omitted validation.
 const SkipNotApplicable = "not-applicable"
 
+// MaxClockSkew is how far in the future a verdict's finishedAt may sit before
+// verification rejects it outright: enough for ordinary clock drift between
+// signer and verifier, far too little to matter against MaxAge.
+const MaxClockSkew = 5 * time.Minute
+
 // Policy is what a consumer requires of a verdict beyond a valid signature.
 type Policy struct {
 	// Keys are the accepted verification keys (ed25519.PublicKey or
@@ -156,7 +161,10 @@ type Policy struct {
 	// (dotted-numeric compare); empty means no floor.
 	MinCheckSetVersion string
 	// MaxAge rejects verdicts whose FinishedAt is older than now-MaxAge;
-	// zero means no age limit.
+	// zero means no age limit. FinishedAt is asserted by the signer, so this
+	// bounds staleness only under an honest signer clock: it is freshness
+	// hygiene, not revocation. A compromised signing key is withdrawn by
+	// removing it from Keys, never by trusting the ages its verdicts claim.
 	MaxAge time.Duration
 	// RequiredChecks is the qualification profile: each listed ID must have
 	// passed or be skipped not-applicable. A missing result, disabled tier or
@@ -230,6 +238,14 @@ func Verify(envelopeJSON []byte, imageSHA256 string, pol Policy, now time.Time) 
 		if older {
 			return nil, fmt.Errorf("check-set version %s is below the required minimum %s", st.Predicate.CheckSetVersion, pol.MinCheckSetVersion)
 		}
+	}
+	if !st.Predicate.FinishedAt.IsZero() && st.Predicate.FinishedAt.After(now.Add(MaxClockSkew)) {
+		// Rejected regardless of MaxAge: a forward-dated verdict would carry
+		// a negative age past any maximum, forever. The signer controls
+		// FinishedAt, so this closes only the clumsy forgery — see MaxAge's
+		// honest-clock caveat for what age checks can and cannot promise.
+		return nil, fmt.Errorf("verdict finishedAt %s is in the future (now %s, allowed skew %s)",
+			st.Predicate.FinishedAt.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339), MaxClockSkew)
 	}
 	if pol.MaxAge > 0 {
 		if st.Predicate.FinishedAt.IsZero() {
