@@ -356,6 +356,11 @@ e2e_write_tilt_config "${tilt_config}" \
   "${LOCAL_CWE_IMAGE:-}" "${management_vip}" "${BGP_CONTAINER_NAME:-bgp-containers}"
 tilt_config_staged=true
 
+# `|` makes go fall back to a direct fetch on any proxy error; the default
+# `,` only does so on 404/410. Set before `tilt ci`: its cwe-compile resource
+# compiles the controller. See the same block in hack/ci/backend-e2e.sh.
+export GOPROXY="${GOPROXY:-https://proxy.golang.org|direct}"
+
 log "deploying local controller through Tilt"
 TILT_DISABLE_ANALYTICS=1 tilt ci \
   --port=0 \
@@ -381,9 +386,6 @@ if [[ "${LOCAL_NKE_E2E_BUILD_TAGS:-}" =~ (^|[[:space:],])oidc_acceptance($|[[:sp
 fi
 
 log "compiling the E2E suite for linux/${host_arch}"
-# `|` makes go fall back to a direct fetch on any proxy error; the default
-# `,` only does so on 404/410. See the same block in hack/ci/backend-e2e.sh.
-export GOPROXY="${GOPROXY:-https://proxy.golang.org|direct}"
 e2e_built=false
 e2e_build_flags=()
 if [[ -n "${LOCAL_NKE_E2E_BUILD_TAGS:-}" ]]; then
