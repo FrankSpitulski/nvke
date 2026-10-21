@@ -11,12 +11,6 @@
 # Developers run `make -C controller host-up`. On macOS that pipes this script
 # into the Colima VM. On Linux it runs this script on the host. `--check`
 # verifies the device and does not load the module.
-#
-# When the running kernel's module package is gone from the archive, the
-# script installs the current kernel, which brings the module, prints
-# "ensure-vtpm-proxy: restart required" and exits 3: the machine must boot
-# that kernel and run the script again. colima-start.sh restarts the Colima
-# VM when it sees that line.
 
 set -euo pipefail
 
@@ -25,7 +19,7 @@ for arg in "$@"; do
   case "${arg}" in
     --check|-c) CHECK_ONLY=true ;;
     -h|--help)
-      sed -n '5,19p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '5,13p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -39,7 +33,6 @@ VTPM_MODULE=tpm_vtpm_proxy
 VTPMX_DEVICE=/dev/vtpmx
 VTPMX_SYSFS=/sys/class/misc/vtpmx/dev
 MODULES_LOAD_CONF=/etc/modules-load.d/99-capi-vtpm.conf
-RESTART_LINE="ensure-vtpm-proxy: restart required: boot the newly installed kernel"
 
 die() {
   echo "ensure-vtpm-proxy: $*" >&2
@@ -88,32 +81,6 @@ ensure_linux_vtpmx() {
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq || true
     apt-get install -y -qq "${modules_extra_pkg}" || true
-  fi
-
-  # A machine image older than its archive: Ubuntu keeps the extra modules of
-  # the current kernel only, so the running kernel's package can be gone, as
-  # it is on a fresh Colima VM. The current kernel brings its own; the
-  # machine has to boot it before the module can load.
-  if ! modinfo "${VTPM_MODULE}" >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
-    # The running kernel's series: on an Ubuntu HWE kernel that is its own
-    # metapackage, since linux-image-<flavour> is the older GA series.
-    local flavour="${release#*-*-}" image_pkg hwe_pkg newest
-    image_pkg="linux-image-${flavour}"
-    # shellcheck source=/dev/null
-    hwe_pkg="${image_pkg}-hwe-$(. /etc/os-release && echo "${VERSION_ID:-}")"
-    if dpkg -s "${hwe_pkg}" 2>/dev/null | grep -qx 'Status: install ok installed'; then
-      image_pkg="${hwe_pkg}"
-    fi
-    if [[ "${flavour}" != "${release}" ]] && apt-get install -y -qq "${image_pkg}" >/dev/null; then
-      # The boot loader starts the newest kernel: a restart helps only when
-      # that is not the running one and it carries the module.
-      newest="$(find /lib/modules -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -V | tail -n 1)"
-      if [[ "${newest}" != "${release}" ]] && find "/lib/modules/${newest}" -name "${VTPM_MODULE}.ko*" | grep -q .; then
-        info "installed the current ${image_pkg}, kernel ${newest}, which provides ${VTPM_MODULE}; kernel ${release} has no package for it"
-        echo "${RESTART_LINE}"
-        exit 3
-      fi
-    fi
   fi
 
   if ! modinfo "${VTPM_MODULE}" >/dev/null 2>&1; then

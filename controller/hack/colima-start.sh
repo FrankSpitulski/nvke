@@ -110,18 +110,7 @@ ensure_colima_vtpm_proxy() {
     local script
     script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ensure-vtpm-proxy.sh"
     [[ -f "${script}" ]] || fail "missing ${script}"
-    # colima ssh reports every failure as exit 1, so the script's request to
-    # boot a new kernel is read from its output, not its status.
-    local out rc=0
-    out="$(colima ssh --profile "${COLIMA_PROFILE}" -- sudo bash -s <"${script}" 2>&1)" || rc=$?
-    printf '%s\n' "${out}"
-    if grep -q '^ensure-vtpm-proxy: restart required' <<<"${out}"; then
-        echo "colima-start: restarting the VM to boot the kernel that has tpm_vtpm_proxy"
-        colima restart --profile "${COLIMA_PROFILE}" || return 1
-        colima ssh --profile "${COLIMA_PROFILE}" -- sudo bash -s <"${script}"
-        return
-    fi
-    return "${rc}"
+    colima ssh --profile "${COLIMA_PROFILE}" -- sudo bash -s <"${script}"
 }
 
 # Colima ignores --cpu and --memory when the profile already exists, so a VM
