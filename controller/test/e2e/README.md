@@ -259,8 +259,8 @@ the digest with the published one; when they match, the release's build
 provenance covers this build too:
 
 ```bash
-crane digest nvcr.io/<org>/nvke-validate:v0.2.0
-gh attestation verify oci://nvcr.io/<org>/nvke-validate:v0.2.0 --repo dsx-ai-factory/nvke \
+crane digest nvcr.io/<dsx-org-team>/nvke-validate:v0.2.0
+gh attestation verify oci://nvcr.io/<dsx-org-team>/nvke-validate:v0.2.0 --repo dsx-ai-factory/nvke \
   --signer-workflow dsx-ai-factory/nvke/.github/workflows/image-validate-nvcr.yml
 ```
 
@@ -297,7 +297,7 @@ To add tools, certificates or wrapper scripts, start from the published image
 rather than editing this Dockerfile, so the suite stays the one that shipped:
 
 ```dockerfile
-FROM nvcr.io/<org>/nvke-validate:v0.2.0
+FROM nvcr.io/<dsx-org-team>/nvke-validate:v0.2.0
 USER 0
 RUN apk add --no-cache curl
 USER 65532:65532

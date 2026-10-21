@@ -172,7 +172,7 @@ VALIDATE_DIGEST_FILE ?= bin/validate-image-digest.txt
 VALIDATE_OCI ?= bin/validate-image.oci.tar
 
 # --provenance=false and --sbom=false: an attestation adds an unknown/unknown
-# entry to the index, which the DSX promotion's architecture check and the NGC
+# entry to the index, which the publish job's architecture check and the NGC
 # UI do not expect, and it records the build's time and builder, which would
 # make every build's digest different.
 VALIDATE_BUILD_FLAGS = -f Dockerfile \
