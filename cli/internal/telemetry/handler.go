@@ -36,32 +36,7 @@ func (run *Run) LogHandler(inner slog.Handler) slog.Handler {
 	run.mu.Lock()
 	run.warnLogger = slog.New(inner)
 	run.mu.Unlock()
-	return &teeHandler{local: local, exported: &contextHandler{Handler: exported, root: root}}
-}
-
-// contextHandler puts the run's root span context in the context of a record
-// that has none, so the exporter sets the record's trace ID and span ID.
-type contextHandler struct {
-	slog.Handler
-	root trace.SpanContext
-}
-
-// Handle implements slog.Handler.
-func (handler *contextHandler) Handle(ctx context.Context, record slog.Record) error {
-	if !trace.SpanContextFromContext(ctx).IsValid() {
-		ctx = trace.ContextWithSpanContext(ctx, handler.root)
-	}
-	return handler.Handler.Handle(ctx, record)
-}
-
-// WithAttrs implements slog.Handler.
-func (handler *contextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &contextHandler{Handler: handler.Handler.WithAttrs(attrs), root: handler.root}
-}
-
-// WithGroup implements slog.Handler.
-func (handler *contextHandler) WithGroup(name string) slog.Handler {
-	return &contextHandler{Handler: handler.Handler.WithGroup(name), root: handler.root}
+	return &teeHandler{local: local, exported: exported, root: root}
 }
 
 // teeHandler sends a record to the local handler and to the exporter. Which
@@ -70,6 +45,7 @@ func (handler *contextHandler) WithGroup(name string) slog.Handler {
 type teeHandler struct {
 	local    slog.Handler
 	exported slog.Handler
+	root     trace.SpanContext
 }
 
 // Enabled implements slog.Handler.
@@ -77,21 +53,26 @@ func (handler *teeHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return handler.local.Enabled(ctx, level)
 }
 
-// Handle implements slog.Handler. The exporter's failure never reaches the
-// caller: a record the operator can read on stderr is not lost with it.
+// Handle implements slog.Handler. The exporter takes a record's trace ID and
+// span ID from its context, so a record logged without a span gets the run's
+// root span there. The exporter's failure never reaches the caller: a record
+// the operator can read on stderr is not lost with it.
 func (handler *teeHandler) Handle(ctx context.Context, record slog.Record) error {
+	if !trace.SpanContextFromContext(ctx).IsValid() {
+		ctx = trace.ContextWithSpanContext(ctx, handler.root)
+	}
 	_ = handler.exported.Handle(ctx, record.Clone())
 	return handler.local.Handle(ctx, record)
 }
 
 // WithAttrs implements slog.Handler.
 func (handler *teeHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &teeHandler{local: handler.local.WithAttrs(attrs), exported: handler.exported.WithAttrs(attrs)}
+	return &teeHandler{local: handler.local.WithAttrs(attrs), exported: handler.exported.WithAttrs(attrs), root: handler.root}
 }
 
 // WithGroup implements slog.Handler.
 func (handler *teeHandler) WithGroup(name string) slog.Handler {
-	return &teeHandler{local: handler.local.WithGroup(name), exported: handler.exported.WithGroup(name)}
+	return &teeHandler{local: handler.local.WithGroup(name), exported: handler.exported.WithGroup(name), root: handler.root}
 }
 
 // Handle implements slog.Handler.
