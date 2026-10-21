@@ -80,7 +80,7 @@ Install the other tools in the machine with its package manager and from each to
    nvkectl generate sitespec local-site --nodes hosts.csv --set cluster.k8sVersion=1.34.8 --set cluster.podCidr=10.244.0.0/16 --set cluster.kubeletConfig.systemReservedMemory=512Mi --set spire.upstreamCA=true > sitespec.yaml
    ```
 
-   One node and no virtual IP address: the node's own address is the API endpoint. The Kubernetes version is the container node's, which `make local-site-setup` prints in this command: the node has one kubelet, and a newer control plane leaves image volumes, which the management plane's Cluster API controllers use, switched off on it. The pod network moves off `192.168.0.0/16`, which the lab's DNS sits in; `512Mi` is the system reservation for a container node. Real hardware: [Bootstrap the management cluster](../operate/bootstrap-management-cluster.md).
+   Run the command as `make local-site-setup` printed it: it sets the Kubernetes version to the container node's, `1.34.8` when this page was written. One node and no virtual IP address: the node's own address is the API endpoint. The version is the node's because the node has one kubelet, and a newer control plane leaves image volumes, which the management plane's Cluster API controllers use, switched off on it. The pod network moves off `192.168.0.0/16`, which the lab's DNS sits in; `512Mi` is the system reservation for a container node. Real hardware: [Bootstrap the management cluster](../operate/bootstrap-management-cluster.md).
 
 2. Bootstrap the cluster.
 

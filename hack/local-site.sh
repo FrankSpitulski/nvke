@@ -153,14 +153,18 @@ node_up() {
   # and its bridge is stable.
   nerdctl network inspect "${TENANT_NETWORK}" >/dev/null 2>&1 ||
     nerdctl network create --driver bridge --subnet "${KIND_NETWORK_SUBNET}" "${TENANT_NETWORK}" >/dev/null
+  # A node image from a setup before the CNI packages has none, and the
+  # bootstrap would stop at InstallCNI. The node runs an image derived from
+  # NODE_IMAGE, cached by a tag that does not follow NODE_IMAGE, so both go.
+  local rmi="nerdctl rmi ${NODE_IMAGE} \$(nerdctl images --filter reference=nvkectl-e2e/bootstrap-node --format '{{.Repository}}:{{.Tag}}')"
   if nerdctl inspect "${NODE}" --format '{{.State.Running}}' 2>/dev/null | grep -qx true; then
     log "node ${NODE} is running"
+    nerdctl exec "${NODE}" dpkg-query -W "${CNI_CHARTS_PACKAGE}" >/dev/null 2>&1 ||
+      die "the running node ${NODE} has no ${CNI_CHARTS_PACKAGE}, so the bootstrap would stop at InstallCNI; run make local-site-down, remove its images (${rmi}) and run setup again to rebuild them with the packages"
   else
     cni_packages
-    # The node runs an image derived from NODE_IMAGE, cached by a tag that does
-    # not follow NODE_IMAGE, so both go.
     if nerdctl image inspect "${NODE_IMAGE}" >/dev/null 2>&1 && ! image_has_cni nerdctl; then
-      die "${NODE_IMAGE} has no ${CNI_CHARTS_PACKAGE}, so the bootstrap would stop at InstallCNI; remove it and the node image built from it (nerdctl rmi ${NODE_IMAGE} \$(nerdctl images --filter reference=nvkectl-e2e/bootstrap-node --format '{{.Repository}}:{{.Tag}}')) and run setup again to rebuild them with the packages"
+      die "${NODE_IMAGE} has no ${CNI_CHARTS_PACKAGE}, so the bootstrap would stop at InstallCNI; remove it and the node image built from it (${rmi}) and run setup again to rebuild them with the packages"
     fi
     log "starting the container node (make -C cli nodes-up; the first run builds the node image)"
     NVKECTL_E2E_NODES=1 NVKECTL_E2E_REUSE=1 mk -C cli nodes-up
@@ -261,19 +265,26 @@ node_has_image() { node_ctr images ls -q </dev/null 2>/dev/null | grep -qx "$1";
 # restart_controller rolls the site's controller onto restaged images. The
 # stack config names them by the same tag whatever the build, so an install
 # renders the same pod template and the old build would keep running until
-# the pod next restarted. Nothing to do before the stack is installed. It
-# fails when the site cannot be asked, as right after the node restarts, so
-# the caller records the images only once an installed controller runs them.
+# the pod next restarted. Nothing to do before the stack is installed. A site
+# that does not answer, or a rollout that does not finish, stops setup; the
+# caller records the images after this, so the next setup restarts again.
 restart_controller() {
   [[ -f "${KUBECONFIG_FILE}" ]] || return 0
-  local err
-  if ! err="$(kubectl --kubeconfig "${KUBECONFIG_FILE}" --request-timeout=10s -n nke-controller get deployment nke-controller -o name 2>&1 >/dev/null)"; then
+  local err answered=false deadline=$((SECONDS + 120))
+  # The node may have just started, and its API server takes a minute.
+  while ((SECONDS < deadline)); do
+    if err="$(kubectl --kubeconfig "${KUBECONFIG_FILE}" --request-timeout=10s -n nke-controller get deployment nke-controller -o name 2>&1 >/dev/null)"; then
+      answered=true
+      break
+    fi
     [[ "${err}" == *NotFound* ]] && return 0
-    log "warning: cannot reach the site to restart the controller on the restaged images; the next setup tries again (${err})"
-    return 1
-  fi
+    sleep 5
+  done
+  [[ "${answered}" == true ]] || die "the site did not answer for two minutes, so the controller still runs the old images; run setup again once it does (${err})"
   log "restarting the controller on the restaged images"
   kubectl --kubeconfig "${KUBECONFIG_FILE}" -n nke-controller rollout restart deployment/nke-controller >/dev/null
+  kubectl --kubeconfig "${KUBECONFIG_FILE}" -n nke-controller rollout status deployment/nke-controller --timeout=5m >/dev/null ||
+    die "the controller did not come up on the restaged images (kubectl -n nke-controller get pods); run setup again to restart it"
 }
 
 # stage_images stages the two images into the node, and again whenever the
@@ -298,11 +309,10 @@ stage_images() {
     nerdctl save "${image}" | node_ctr images import - >/dev/null
     node_has_image "${image}" || die "${image} is not in the node's containerd after the import"
   done
-  # Recorded only after the restart: an unrecorded restage is staged and
-  # restarted again by the next setup.
-  if restart_controller; then
-    printf '%s\n' "${ids}" >"${staged}"
-  fi
+  # Recorded only after the restart: a setup it stops leaves them unrecorded,
+  # and the next one stages and restarts again.
+  restart_controller
+  printf '%s\n' "${ids}" >"${staged}"
 }
 
 # ---- the files the flow reads -------------------------------------------------------

@@ -95,12 +95,24 @@ ensure_linux_vtpmx() {
   # it is on a fresh Colima VM. The current kernel brings its own; the
   # machine has to boot it before the module can load.
   if ! modinfo "${VTPM_MODULE}" >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
-    local flavour="${release#*-*-}"
-    if [[ "${flavour}" != "${release}" ]] && apt-get install -y -qq "linux-image-${flavour}" >/dev/null &&
-      find /lib/modules -name "${VTPM_MODULE}.ko*" -not -path "/lib/modules/${release}/*" | grep -q .; then
-      info "installed the current linux-image-${flavour}, which provides ${VTPM_MODULE}; kernel ${release} has no package for it"
-      echo "${RESTART_LINE}"
-      exit 3
+    # The running kernel's series: on an Ubuntu HWE kernel that is its own
+    # metapackage, since linux-image-<flavour> is the older GA series.
+    local flavour="${release#*-*-}" image_pkg hwe_pkg newest
+    image_pkg="linux-image-${flavour}"
+    # shellcheck source=/dev/null
+    hwe_pkg="${image_pkg}-hwe-$(. /etc/os-release && echo "${VERSION_ID:-}")"
+    if dpkg -s "${hwe_pkg}" 2>/dev/null | grep -qx 'Status: install ok installed'; then
+      image_pkg="${hwe_pkg}"
+    fi
+    if [[ "${flavour}" != "${release}" ]] && apt-get install -y -qq "${image_pkg}" >/dev/null; then
+      # The boot loader starts the newest kernel: a restart helps only when
+      # that is not the running one and it carries the module.
+      newest="$(find /lib/modules -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -V | tail -n 1)"
+      if [[ "${newest}" != "${release}" ]] && find "/lib/modules/${newest}" -name "${VTPM_MODULE}.ko*" | grep -q .; then
+        info "installed the current ${image_pkg}, kernel ${newest}, which provides ${VTPM_MODULE}; kernel ${release} has no package for it"
+        echo "${RESTART_LINE}"
+        exit 3
+      fi
     fi
   fi
 
