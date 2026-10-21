@@ -564,6 +564,14 @@ if [ ! -f "${CAPD_CNI_CHARTS_DEB_PATH}" ] || [ ! -f "${CAPD_CNI_IMAGES_DEB_PATH}
   fail "OVN packages were not built"
 fi
 
+# The nodes' openvswitch-switch unit loads the openvswitch module from the
+# host tree mounted into them, which works only against the running kernel's
+# own build. Without the module the controller's Open vSwitch step fails on
+# every node and the site cluster sits in Provisioning until its timeout.
+if [ ! -e /sys/module/openvswitch ]; then
+  fail "the host has not loaded the openvswitch kernel module; load it before starting the fake nodes"
+fi
+
 log "starting fake node containers"
 # `nodes-up` can fail after creating some containers; `nodes-down` is safe
 # against a partial or nonexistent fixture, and diagnostics are only worth

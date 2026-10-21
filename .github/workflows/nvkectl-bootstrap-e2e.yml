@@ -275,10 +275,14 @@ jobs:
 
       # The fake nodes emulate a TPM with swtpm, which asks the host kernel for
       # a device through /dev/vtpmx. That comes from tpm_vtpm_proxy, built per
-      # kernel version, so install the matching extra-modules package and prove
-      # the device appears. Done here, not in run.sh, so a runner image that
-      # stops shipping it fails on this line rather than ten minutes later.
-      - name: Load the vTPM proxy driver
+      # kernel version. Their Open vSwitch needs the openvswitch module too, and
+      # a node can only load it from a module tree that matches the host kernel:
+      # the ARC arm64 image boots a Jammy backport build while apt serves the
+      # Noble build of the same version (see backend-e2e.yml and #1574), so
+      # stage the exact host build and load both modules from it here. Done
+      # here, not in run.sh, so a runner image that stops shipping them fails
+      # on this line rather than fifteen minutes later.
+      - name: Load the vTPM proxy and Open vSwitch drivers
         run: |
           echo "CPU count: $(nproc)"
           free -h
@@ -289,10 +293,13 @@ jobs:
             grep '^CONFIG_TCG_VTPM_PROXY=' "${config}"
           fi
           sudo apt-get update
-          sudo apt-get install -y --allow-change-held-packages \
-            jq "linux-modules-extra-$(uname -r)"
-          sudo modprobe tpm_vtpm_proxy
-          modinfo tpm_vtpm_proxy
+          sudo apt-get install -y --allow-change-held-packages jq kmod
+          modules="${RUNNER_TEMP}/nvke-host-kernel-modules"
+          sudo bash controller/hack/ci/prepare-host-kernel-modules.sh "${modules}"
+          sudo modprobe -d "${modules}" tpm_vtpm_proxy
+          sudo modprobe -d "${modules}" openvswitch
+          modinfo -b "${modules}" tpm_vtpm_proxy
+          test -e /sys/module/openvswitch
           # -c, not -e: it has to be the character device swtpm opens.
           test -c /dev/vtpmx
 
