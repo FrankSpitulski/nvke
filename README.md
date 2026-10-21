@@ -135,6 +135,8 @@ work so maintainers can agree on the approach.
 - **Community:** [Code of Conduct](CODE_OF_CONDUCT.md), [Governance](GOVERNANCE.md),
   [Maintainers](MAINTAINERS.md) and [Support](SUPPORT.md).
 - **Releases:** [Changelog](CHANGELOG.md) and [release process](RELEASE.md).
+- **CI health:** the [CI dashboard](https://dsx-ai-factory.github.io/nvke/)
+  shows the last thirty runs of every workflow and refreshes hourly.
 
 ## Trademarks
 
