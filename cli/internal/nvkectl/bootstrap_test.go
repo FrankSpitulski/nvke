@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	goruntime "runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -927,6 +928,92 @@ func TestRunBootstrapSiteRefusesMissingLocalImageBeforeCreate(t *testing.T) {
 	if runner.sawArgs("create", "cluster") {
 		t.Errorf("a missing local image should be caught before the cluster is built; calls: %v", runner.calls)
 	}
+}
+
+// TestRunBootstrapSiteRefusesAMissingProfilesImageWithItsOwnRemedy: the profiles
+// image is not one `make -C cli images` builds, so the error says which variable
+// sets it and does not send the operator to that target.
+func TestRunBootstrapSiteRefusesAMissingProfilesImageWithItsOwnRemedy(t *testing.T) {
+	const profiles = "example-profiles:e2e"
+	t.Setenv(controllerdeploy.ProfilesImageEnv, profiles)
+
+	inner := runnerFunc(func(ctx context.Context, env map[string]string, name string, args ...string) (string, error) {
+		if len(args) >= 3 && args[0] == "image" && args[1] == "inspect" && args[2] == profiles {
+			return "no such image: " + args[2], errors.New("exit status 1")
+		}
+		return fakeBootstrapRunner{}.Run(ctx, env, name, args...)
+	})
+	runner := &recordingRunner{next: inner}
+	err := runBootstrapSite(context.Background(), io.Discard, &bootstrapSiteOptions{
+		siteSpec:            writeSiteSpec(t, validSiteSpec),
+		bootstrapRunner:     runner,
+		cweRunner:           newFakeCWERunner(t),
+		lookPath:            runtimeOnPath,
+		dialContext:         refuseDial,
+		untaintControlPlane: skipUntaint,
+		encryptionKeyOut:    filepath.Join(t.TempDir(), "key.json"),
+	})
+	if err == nil {
+		t.Fatal("expected an error when the profiles image is not in the store")
+	}
+	for _, want := range []string{profiles, controllerdeploy.ProfilesImageEnv, "other than latest"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
+	}
+	for _, reject := range []string{"make -C cli images", "--controller-image", "NVKECTL_CONTROLLER_IMAGE"} {
+		if strings.Contains(err.Error(), reject) {
+			t.Errorf("error %q sends the operator to %q, which does not apply to the profiles image", err, reject)
+		}
+	}
+	if runner.sawArgs("create", "cluster") {
+		t.Errorf("a missing profiles image should be caught before the cluster is built; calls: %v", runner.calls)
+	}
+}
+
+// TestRunBootstrapSiteRefusesAProfilesImageTheDeployWouldRefuse: a latest or
+// untagged profiles image is refused by the dry run, which stands nothing up, and
+// by a real run before it builds a cluster. The deploy refuses it too, but only
+// after the Kind cluster, the side-load and several installs.
+func TestRunBootstrapSiteRefusesAProfilesImageTheDeployWouldRefuse(t *testing.T) {
+	for name, image := range map[string]string{
+		"an explicit latest tag":       "example-profiles:latest",
+		"an untagged reference":        "example-profiles",
+		"a registry image with latest": "registry.example.com/team/profiles:latest",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(controllerdeploy.ProfilesImageEnv, image)
+			spec := writeSiteSpec(t, validSiteSpec)
+
+			err := runBootstrapSite(context.Background(), io.Discard, &bootstrapSiteOptions{siteSpec: spec, dryRun: true})
+			if err == nil || !strings.Contains(err.Error(), "other than latest") || !strings.Contains(err.Error(), controllerdeploy.ProfilesImageEnv) {
+				t.Errorf("dry run error = %v, want one naming %s and the latest tag", err, controllerdeploy.ProfilesImageEnv)
+			}
+
+			runner := &recordingRunner{next: fakeBootstrapRunner{}}
+			err = runBootstrapSite(context.Background(), io.Discard, &bootstrapSiteOptions{
+				siteSpec:         spec,
+				bootstrapRunner:  runner,
+				cweRunner:        newFakeCWERunner(t),
+				lookPath:         runtimeOnPath,
+				dialContext:      refuseDial,
+				encryptionKeyOut: filepath.Join(t.TempDir(), "key.json"),
+			})
+			if err == nil || !strings.Contains(err.Error(), "other than latest") {
+				t.Errorf("real run error = %v, want the latest tag refused", err)
+			}
+			if len(runner.calls) != 0 {
+				t.Errorf("a refused profiles image must stand nothing up; calls: %v", runner.calls)
+			}
+		})
+	}
+
+	t.Run("a tagged image passes the dry run", func(t *testing.T) {
+		t.Setenv(controllerdeploy.ProfilesImageEnv, "example-profiles:e2e")
+		if err := runBootstrapSite(context.Background(), io.Discard, &bootstrapSiteOptions{siteSpec: writeSiteSpec(t, validSiteSpec), dryRun: true}); err != nil {
+			t.Errorf("dry run with a tagged profiles image: %v", err)
+		}
+	})
 }
 
 // TestMakefileImageTagsMatchTheManifest: the tags `make -C cli images` builds
@@ -2189,9 +2276,28 @@ func TestCapnicoReleaseImage(t *testing.T) {
 	}
 }
 
-// TestRunBootstrapSiteWarnsAboutOldSettingNames: an NKECTL_* name set without
-// its NVKECTL_* replacement is logged as a warning naming the replacement,
-// before anything else runs; a setting under its new name is not.
+// TestCapnicoReleaseImage_DefaultsToTheHostArchitecture: an empty architecture,
+// the flag's default, picks the artifact for the machine the bootstrap runs on.
+func TestCapnicoReleaseImage_DefaultsToTheHostArchitecture(t *testing.T) {
+	const release = "../../../deploy/testdata/nvkr-release/valid.json"
+	nico := &sitespec.SiteSpec{Infra: sitespec.Infra{Provider: sitespec.ProviderNico}}
+
+	got, err := capnicoReleaseImage(nico, release, "")
+	if err != nil {
+		t.Fatalf("capnicoReleaseImage with no architecture: %v", err)
+	}
+	want, err := capnicoReleaseImage(nico, release, "linux/"+goruntime.GOARCH)
+	if err != nil {
+		t.Fatalf("capnicoReleaseImage for the host architecture: %v", err)
+	}
+	if got != want {
+		t.Fatalf("an empty architecture gave %q, want the host's %q", got, want)
+	}
+}
+
+// TestRunBootstrapSiteWarnsAboutOldSettingNames: an old NKECTL_CWE_* name set
+// without its replacement is logged as a warning naming the replacement, before
+// anything else runs; a setting under its new name is not.
 func TestRunBootstrapSiteWarnsAboutOldSettingNames(t *testing.T) {
 	t.Setenv("NVKECTL_CAPI_PROVISIONED_IMAGE", "")
 	t.Setenv("NKECTL_CAPI_PROVISIONED_IMAGE", "old.example/p:old")
@@ -2264,16 +2370,19 @@ func TestBootstrapSite_ArchNeedsARelease(t *testing.T) {
 
 func TestNvkeImages(t *testing.T) {
 	tests := []struct {
-		name string
-		nico bool
-		want []string
+		name     string
+		nico     bool
+		profiles string
+		want     []string
 	}{
-		{"provisioned loads both images", false, []string{"cwe:1", "prov:1"}},
-		{"nico loads only the CWE image", true, []string{"cwe:1"}},
+		{"provisioned loads both images", false, "", []string{"cwe:1", "prov:1"}},
+		{"nico loads only the CWE image", true, "", []string{"cwe:1"}},
+		{"a profiles image is loaded too", false, "profiles:e2e", []string{"cwe:1", "prov:1", "profiles:e2e"}},
+		{"nico with profiles loads the CWE and profiles images", true, "profiles:e2e", []string{"cwe:1", "profiles:e2e"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := controllerdeploy.Config{CWEImage: "cwe:1", ProvisionedProviderImage: "prov:1", NicoInfrastructure: tt.nico}
+			cfg := controllerdeploy.Config{CWEImage: "cwe:1", ProvisionedProviderImage: "prov:1", NicoInfrastructure: tt.nico, ProfilesImage: tt.profiles}
 			if got := nvkeImages(cfg); !slices.Equal(got, tt.want) {
 				t.Errorf("nvkeImages = %v, want %v", got, tt.want)
 			}

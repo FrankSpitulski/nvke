@@ -214,9 +214,9 @@ site spec file format.`,
 			"with its pinned digest, as \"render deploy-path --release\" does for the management cluster's CAPNICo. "+
 			"The release description is not verified: run \"nvkr release verify\" on the same reference first. "+
 			"Only with infra.provider nico.")
-	cmd.Flags().StringVar(&opts.arch, "arch", "linux/"+runtime.GOARCH,
-		"Architecture of the release artifact to use: the bootstrap host's, since the bootstrap CAPNICo runs in its Kind cluster. "+
-			"Only with --release.")
+	cmd.Flags().StringVar(&opts.arch, "arch", "",
+		"Architecture of the release artifact to use, linux/amd64 or linux/arm64; default: the bootstrap host's, "+
+			"since the bootstrap CAPNICo runs in its Kind cluster. Only with --release.")
 	cmd.Flags().StringVar(&opts.diagnosticsDir, "diagnostics-dir",
 		envOrDefault("NVKECTL_BOOTSTRAP_DIAGNOSTICS_DIR", "cluster-diagnostics"),
 		"Directory a failed bootstrap writes cluster diagnostics to before tearing the cluster down. "+
@@ -318,6 +318,12 @@ func runBootstrapSite(ctx context.Context, out io.Writer, opts *bootstrapSiteOpt
 			logger.Warn("spire.trustDomain is not set; derived from the bootstrap cluster name. Set spire.trustDomain to this value before the controller stack install, whose default differs",
 				"trustDomain", inv.EffectiveTrustDomain(bootstrapCluster), "installDefault", inv.EffectiveTrustDomain(sitespec.DefaultBootstrapClusterName))
 		}
+	}
+
+	// Before the dry-run return, so a profiles image the deploy would refuse
+	// fails here and not minutes into a real run, after the Kind cluster exists.
+	if err := controllerdeploy.ValidateProfilesImage(os.Getenv(controllerdeploy.ProfilesImageEnv)); err != nil {
+		return err
 	}
 
 	if opts.dryRun {
@@ -1153,10 +1159,14 @@ func deployAndWaitForCWE(
 // into the Kind cluster. The provisioned provider is among them only when it is
 // the infrastructure provider in use.
 func nvkeImages(cfg controllerdeploy.Config) []string {
-	if cfg.NicoInfrastructure {
-		return []string{cfg.CWEImage}
+	images := []string{cfg.CWEImage}
+	if !cfg.NicoInfrastructure {
+		images = append(images, cfg.ProvisionedProviderImage)
 	}
-	return []string{cfg.CWEImage, cfg.ProvisionedProviderImage}
+	if cfg.ProfilesImage != "" {
+		images = append(images, cfg.ProfilesImage)
+	}
+	return images
 }
 
 // capnicoAccess resolves the site spec's infra.nico into the values the
@@ -1196,6 +1206,11 @@ func capnicoAccess(inv *sitespec.SiteSpec) (controllerdeploy.CAPNICoAccess, erro
 func capnicoReleaseImage(inv *sitespec.SiteSpec, releasePath, arch string) (string, error) {
 	if releasePath == "" {
 		return "", nil
+	}
+	// The flag's default is empty, not the host's architecture, so the generated
+	// command reference does not change with the machine that generates it.
+	if arch == "" {
+		arch = "linux/" + runtime.GOARCH
 	}
 	if !inv.IsNico() {
 		return "", errors.New("--release only applies with infra.provider nico: it replaces the bootstrap CAPNICo image, and no other provider installs one")
@@ -1324,8 +1339,15 @@ func requireLocalImages(ctx context.Context, engine *bootstrapengine.Engine, ima
 }
 
 // missingLocalImageError names the build command and the flags and variables
-// that replace a local build, and keeps the inspect failure.
+// that replace a local build, and keeps the inspect failure. The profiles image
+// is not one `make -C cli images` builds, and only its own variable sets it.
 func missingLocalImageError(image string, err error, out string) error {
+	if image == os.Getenv(controllerdeploy.ProfilesImageEnv) {
+		return fmt.Errorf("the profiles image %s is not in the local image store (%w\n%s) and names no registry to pull it from; "+
+			"build it and tag it with something other than latest, or name an image the runtime can pull in %s "+
+			"(for Docker Hub, write docker.io/<org>/<name>)",
+			image, err, strings.TrimSpace(out), controllerdeploy.ProfilesImageEnv)
+	}
 	return fmt.Errorf("image %s is not in the local image store (%w\n%s) and names no registry to pull it from; "+
 		"build it with `make -C cli images`, or name an image the runtime can pull with "+
 		"--nvke-controller-image / --provisioned-provider-image or NVKECTL_NVKE_CONTROLLER_IMAGE / NVKECTL_CAPI_PROVISIONED_IMAGE "+

@@ -114,6 +114,10 @@ REPO_ROOT="$(dirname "${CLI_DIR}")"
 BGP_FILES_DIR="${REPO_ROOT}/controller/hack/bgp-containers"
 # Scratch dir for the rendered FRR config, bind-mounted into the container.
 BGP_RENDER_DIR="${SCRIPT_DIR}/.bgp"
+# shellcheck source=bgp-lib.sh
+source "${SCRIPT_DIR}/bgp-lib.sh"
+# shellcheck source=etcd-lib.sh
+source "${SCRIPT_DIR}/etcd-lib.sh"
 : "${NVKECTL_NVKE_CONTROLLER_IMAGE:?NVKECTL_NVKE_CONTROLLER_IMAGE must name the controller image to deploy, already present in containerd (see comment above)}"
 export NVKECTL_NVKE_CONTROLLER_IMAGE
 
@@ -425,14 +429,6 @@ remove_spire_vip() {
 remove_vip_forward_rule() {
   iptables -D FORWARD -i "$1" -o "$1" -j ACCEPT 2>/dev/null || true
 }
-teardown_bgp_speaker() {
-  # Let zebra withdraw its routes before removing the container.
-  log "stopping the FRR BGP speaker ${BGP_CONTAINER}"
-  nerdctl stop --time 10 "${BGP_CONTAINER}" >/dev/null 2>&1 || true
-  nerdctl rm -f "${BGP_CONTAINER}" >/dev/null 2>&1 || true
-  # Remove routes left behind if FRR could not withdraw them.
-  ip route del "${CONTROL_PLANE_VIP}/32" 2>/dev/null || true
-}
 
 # check_api_server accepts a VIP, server URL, and whitespace-separated node IPs.
 # Without a VIP, any control-plane node may be the API endpoint.
@@ -451,13 +447,6 @@ check_api_server() {
   return 1
 }
 
-# bgp_vip_nexthops prints sorted, unique next-hop IPs for the VIP /32.
-bgp_vip_nexthops() {
-  local out
-  out="$(nerdctl exec "${BGP_CONTAINER}" vtysh -c \
-    "show bgp ipv4 unicast ${CONTROL_PLANE_VIP}/32 json" 2>/dev/null)" || return 0
-  printf '%s' "${out}" | jq -r '.paths[]?.nexthops[]?.ip // empty' 2>/dev/null | sort -u || true
-}
 
 # Which registry each side's pulls resolve to. A pull that falls through to
 # upstream is the difference between a 30 second install and a helm timeout,
@@ -676,59 +665,6 @@ if [ -n "${CONTROL_PLANE_VIP}" ]; then
 fi
 log "allowlisting ${expected_nodes} EK thumbprint(s)"
 
-# Start before bootstrap so joining nodes can reach the VIP through BGP.
-start_bgp_speaker() {
-  local router_id listen_range
-
-  # kube-vip peers with the default gateway. Read it and the node subnet from
-  # the live network, skipping IPv6 entries that may have no gateway.
-  router_id="$(nerdctl network inspect "${NODE_NETWORK}" \
-    --format '{{range .IPAM.Config}}{{.Gateway}} {{end}}' \
-    | awk '{for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+(\.[0-9]+){3}$/) {print $i; exit}}')"
-  listen_range="$(nerdctl network inspect "${NODE_NETWORK}" \
-    --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' \
-    | awk '{for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+(\.[0-9]+){3}\/[0-9]+$/) {print $i; exit}}')"
-  [ -n "${router_id}" ] || { log "FAIL: could not read the ${NODE_NETWORK} gateway for the FRR router-id"; return 1; }
-  [ -n "${listen_range}" ] || { log "FAIL: could not read the ${NODE_NETWORK} subnet for the FRR listen range"; return 1; }
-  log "FRR router-id=${router_id} listen-range=${listen_range} (node network ${NODE_NETWORK})"
-
-  # Reuse the controller's FRR fixture with this network's addresses.
-  rm -rf "${BGP_RENDER_DIR}"
-  mkdir -p "${BGP_RENDER_DIR}"
-  # Called as `start_bgp_speaker || exit 1`, so errexit is off for this body
-  # and each step reports its own failure. FRR starts on an empty frr.conf.
-  sed -e "s|@ROUTER_ID@|${router_id}|g" \
-      -e "s|@LISTEN_RANGE@|${listen_range}|g" \
-      "${BGP_FILES_DIR}/frr.conf.tmpl" > "${BGP_RENDER_DIR}/frr.conf" ||
-    { log "FAIL: could not render frr.conf from ${BGP_FILES_DIR}/frr.conf.tmpl"; return 1; }
-  [ -s "${BGP_RENDER_DIR}/frr.conf" ] ||
-    { log "FAIL: rendered frr.conf is empty"; return 1; }
-  cp "${BGP_FILES_DIR}/vtysh.conf" "${BGP_RENDER_DIR}/vtysh.conf" ||
-    { log "FAIL: could not copy vtysh.conf from ${BGP_FILES_DIR}"; return 1; }
-  cp "${BGP_FILES_DIR}/daemons" "${BGP_RENDER_DIR}/daemons" ||
-    { log "FAIL: could not copy daemons from ${BGP_FILES_DIR}"; return 1; }
-
-  # A leftover container from an aborted run would make `run` fail on the name.
-  nerdctl rm -f "${BGP_CONTAINER}" >/dev/null 2>&1 || true
-
-  # Host networking lets zebra install routes used by both nerdctl bridges.
-  # Capabilities match controller/hack/bgp-containers/up.sh.
-  defer teardown_bgp_speaker
-  nerdctl run -d --name "${BGP_CONTAINER}" \
-    --net host \
-    --cap-add NET_ADMIN --cap-add SYS_ADMIN --cap-add NET_BIND_SERVICE \
-    -v "${BGP_RENDER_DIR}/frr.conf:/etc/frr/frr.conf" \
-    -v "${BGP_RENDER_DIR}/vtysh.conf:/etc/frr/vtysh.conf" \
-    -v "${BGP_RENDER_DIR}/daemons:/etc/frr/daemons" \
-    "${FRR_IMAGE}" >/dev/null || { log "FAIL: could not start the FRR BGP speaker"; return 1; }
-
-  if ! wait_until 30 1 nerdctl exec "${BGP_CONTAINER}" vtysh -c 'show version' >/dev/null 2>&1; then
-    log "FAIL: FRR (${BGP_CONTAINER}) did not become ready within 30s"
-    nerdctl logs "${BGP_CONTAINER}" 2>&1 | sed 's/^/  /' || true
-    return 1
-  fi
-  log "PASS: FRR BGP speaker ${BGP_CONTAINER} is up (image ${FRR_IMAGE}, pulled from quay.io)"
-}
 
 if [ -n "${CONTROL_PLANE_VIP}" ]; then
   log "starting the FRR BGP speaker for control-plane VIP ${CONTROL_PLANE_VIP}"
@@ -1067,61 +1003,13 @@ fi
 
 # ── Stage 4b: etcd data is encrypted, and the saved key is the nodes' key ──
 #
-# Two checks. The first reads a Secret straight out of etcd and looks at the
-# bytes: secretbox envelope present, plaintext absent. It is the only way to
-# tell "encryption configured" from "data encrypted". The second compares the
-# key `bootstrap site` saved with the one each control-plane node runs on, by
-# digest: the file is what an operator keeps, and it has to be the right key.
-# Neither check prints key material or ciphertext.
-log "checking that etcd data is encrypted at rest"
-[ -f "${ETCD_KEY_FILE}" ] || fail "bootstrap site did not write ${ETCD_KEY_FILE}"
-key_mode=$(stat -c '%a' "${ETCD_KEY_FILE}")
-[ "${key_mode}" = "600" ] || fail "${ETCD_KEY_FILE} has mode ${key_mode}, want 600"
-
-probe_name="nvkectl-e2e-encryption-probe"
-plaintext_marker="nvkectl-e2e-plaintext-marker-$(date +%s)"
-kubectl --kubeconfig "${TENANT_KUBECONFIG}" -n default create secret generic "${probe_name}" \
-  --from-literal=probe="${plaintext_marker}" >/dev/null
-etcd_pod=$(kubectl --kubeconfig "${TENANT_KUBECONFIG}" -n kube-system get pods -l component=etcd \
-  -o jsonpath='{.items[0].metadata.name}')
-[ -n "${etcd_pod}" ] || fail "no etcd pod found in kube-system"
-# The raw value goes to a file, not a variable, so its bytes never reach the
-# log. Removed on exit like everything else this suite creates.
-raw_value=$(mktemp)
-defer rm -f "${raw_value}"
-kubectl --kubeconfig "${TENANT_KUBECONFIG}" -n kube-system exec "${etcd_pod}" -c etcd -- \
-  etcdctl --endpoints=https://127.0.0.1:2379 \
-    --cacert=/etc/kubernetes/pki/etcd/ca.crt \
-    --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt \
-    --key=/etc/kubernetes/pki/etcd/healthcheck-client.key \
-    get "/registry/secrets/default/${probe_name}" --print-value-only >"${raw_value}" 2>/dev/null ||
-  fail "could not read the probe Secret out of etcd"
-# Positive control first: an empty read would pass the plaintext check for the
-# wrong reason.
-[ -s "${raw_value}" ] || fail "the probe Secret's etcd value is empty"
-! grep -a -F -q "${plaintext_marker}" "${raw_value}" ||
-  fail "the probe Secret is stored in etcd as plaintext"
-grep -a -q 'k8s:enc:secretbox:v1:' "${raw_value}" ||
-  fail "the probe Secret's etcd value does not carry the secretbox envelope"
-rm -f "${raw_value}"
-kubectl --kubeconfig "${TENANT_KUBECONFIG}" -n default delete secret "${probe_name}" >/dev/null
-log "PASS: Secrets are stored in etcd under the secretbox envelope"
-
-log "checking that the saved key is the key every control-plane node runs on"
-# The manifest is what `bootstrap site` wrote, so its shape is known: the key
-# is the base64 "active" field. Digests are compared, never values.
-saved_active=$(sed -n 's/.*"active": "\([^"]*\)".*/\1/p' "${ETCD_KEY_FILE}" | head -1)
-[ -n "${saved_active}" ] || fail "${ETCD_KEY_FILE} carries no active key"
-saved_digest=$(printf '%s' "${saved_active}" | base64 -d | sha256sum | cut -d' ' -f1)
+# The checks are in etcd-lib.sh, shared with run-nico.sh.
+check_etcd_encrypted_at_rest "${TENANT_KUBECONFIG}" "${ETCD_KEY_FILE}"
+control_plane_containers=()
 for ((i = 1; i <= NODE_COUNT; i++)); do
-  node="nvkectl-e2e-${NODE_PREFIX}${i}"
-  node_digest=$(nerdctl exec "${node}" \
-    awk '/secret:/ {printf "%s", $2; exit}' /etc/kubernetes/kube-api-encryption/encryption-config.yaml \
-    | sha256sum | cut -d' ' -f1)
-  [ "${node_digest}" = "${saved_digest}" ] ||
-    fail "${node} runs a different etcd encryption key than ${ETCD_KEY_FILE} holds"
+  control_plane_containers+=("nvkectl-e2e-${NODE_PREFIX}${i}")
 done
-log "PASS: the saved etcd encryption key matches all ${NODE_COUNT} control-plane nodes"
+check_saved_key_matches_nodes "${ETCD_KEY_FILE}" "${control_plane_containers[@]}"
 
 # hello_world_served is the stage 5 condition. whoami answers with the request
 # it received, so "Hostname:" in the body is the pod talking, not Traefik's own
