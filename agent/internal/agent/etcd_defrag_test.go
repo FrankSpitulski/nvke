@@ -61,6 +61,7 @@ func TestEtcdDefragPreflight(t *testing.T) {
 			client: fakeEtcdMemberClient{
 				members:     testEtcdMembersThree(),
 				localID:     2,
+				leaderID:    1,
 				dbSize:      500 * mib,
 				dbSizeInUse: 100 * mib,
 			},
@@ -71,6 +72,7 @@ func TestEtcdDefragPreflight(t *testing.T) {
 			client: fakeEtcdMemberClient{
 				members:     testEtcdMembersThree(),
 				localID:     2,
+				leaderID:    1,
 				dbSize:      150 * mib,
 				dbSizeInUse: 100 * mib,
 			},
@@ -89,6 +91,7 @@ spec:
 			client: fakeEtcdMemberClient{
 				members:     testEtcdMembersThree(),
 				localID:     2,
+				leaderID:    1,
 				dbSize:      500 * mib,
 				dbSizeInUse: 100 * mib,
 			},
@@ -101,6 +104,7 @@ spec:
 			client: fakeEtcdMemberClient{
 				members:     testEtcdMembers(), // two voters
 				localID:     2,
+				leaderID:    1,
 				dbSize:      500 * mib,
 				dbSizeInUse: 100 * mib,
 			},
@@ -117,6 +121,7 @@ spec:
 					{ID: 3, Name: "learner", IsLearner: true},
 				},
 				localID:     2,
+				leaderID:    1,
 				dbSize:      500 * mib,
 				dbSizeInUse: 100 * mib,
 			},
@@ -127,17 +132,51 @@ spec:
 			wantReason:  "1 of 2 voting members are available, need 3",
 		},
 		{
-			name:     "refuses an unhealthy local member",
+			name:     "refuses a local member carrying its own alarm",
 			manifest: etcdManifestThreshold100MiB,
 			client: fakeEtcdMemberClient{
-				members:      testEtcdMembersThree(),
-				localID:      2,
-				dbSize:       500 * mib,
-				dbSizeInUse:  100 * mib,
-				statusErrors: []string{"NOSPACE"},
+				members:     testEtcdMembersThree(),
+				localID:     2,
+				leaderID:    1,
+				dbSize:      500 * mib,
+				dbSizeInUse: 100 * mib,
+				alarms: []*etcdserverpb.AlarmMember{
+					{MemberID: 2, Alarm: etcdserverpb.AlarmType_NOSPACE},
+				},
 			},
 			wantRefused: true,
 			wantReason:  "unhealthy",
+		},
+		{
+			// Alarms are replicated by raft, so every member reports the whole
+			// cluster's set and only the MemberID says whose it is. Charging a
+			// peer's alarm to this member refused the very defragmentation
+			// NOSPACE calls for.
+			name:     "proceeds when the alarm belongs to another member",
+			manifest: etcdManifestThreshold100MiB,
+			client: fakeEtcdMemberClient{
+				members:     testEtcdMembersThree(),
+				localID:     2,
+				leaderID:    1,
+				dbSize:      500 * mib,
+				dbSizeInUse: 100 * mib,
+				alarms: []*etcdserverpb.AlarmMember{
+					{MemberID: 3, Alarm: etcdserverpb.AlarmType_NOSPACE},
+				},
+			},
+		},
+		{
+			name:     "refuses a cluster with no leader",
+			manifest: etcdManifestThreshold100MiB,
+			client: fakeEtcdMemberClient{
+				members:     testEtcdMembersThree(),
+				localID:     2,
+				leaderID:    0,
+				dbSize:      500 * mib,
+				dbSizeInUse: 100 * mib,
+			},
+			wantRefused: true,
+			wantReason:  "no leader",
 		},
 		{
 			// etcd treats a threshold of zero as disabled. Reporting it as
@@ -158,6 +197,7 @@ spec:
 			client: fakeEtcdMemberClient{
 				members:     testEtcdMembersThree(),
 				localID:     2,
+				leaderID:    1,
 				dbSize:      500 * mib,
 				dbSizeInUse: 100 * mib,
 			},
@@ -173,6 +213,7 @@ spec:
 			client: fakeEtcdMemberClient{
 				members:          testEtcdMembersThree(),
 				localID:          2,
+				leaderID:         1,
 				dbSize:           500 * mib,
 				dbSizeInUse:      100 * mib,
 				unavailablePeers: map[string]bool{"https://cp-3:2379": true},

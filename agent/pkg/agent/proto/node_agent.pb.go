@@ -7882,7 +7882,12 @@ type GetEtcdStatusResponse struct {
 	VotingMemberCount int32 `protobuf:"varint,6,opt,name=voting_member_count,json=votingMemberCount,proto3" json:"voting_member_count,omitempty"`
 	// Hexadecimal ID of the local member.
 	MemberId string `protobuf:"bytes,7,opt,name=member_id,json=memberId,proto3" json:"member_id,omitempty"`
-	// Whether the local member currently reports healthy.
+	// Whether the local member is answering, can see a leader, and is carrying no
+	// alarm OF ITS OWN. Alarms are cluster-wide - the store is replicated by raft,
+	// so every member reports the whole set and only the member ID attached to an
+	// alarm says who raised it. A member here reads healthy while a peer is in
+	// NOSPACE, which is deliberate: that is the member a caller can still
+	// defragment.
 	Healthy bool `protobuf:"varint,8,opt,name=healthy,proto3" json:"healthy,omitempty"`
 }
 

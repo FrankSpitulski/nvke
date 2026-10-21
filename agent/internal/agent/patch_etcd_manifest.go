@@ -126,7 +126,7 @@ func (s *NodeAgentServer) waitForLocalEtcdHealthy(
 		probeCtx, cancel := s.etcdCallContext(ctx)
 		st, err := client.Status(probeCtx, etcdLocalEndpoint)
 		cancel()
-		lastErr := etcdStatusHealthError(st, err)
+		lastErr := s.localEtcdHealthError(ctx, client, st, err)
 		if lastErr == nil {
 			return st, nil
 		}
@@ -228,7 +228,7 @@ func (s *NodeAgentServer) PatchEtcdManifest(
 	preStatusCtx, cancelPreStatus := s.etcdCallContext(ctx)
 	preStatus, statusErr := client.Status(preStatusCtx, etcdLocalEndpoint)
 	cancelPreStatus()
-	if healthErr := etcdStatusHealthError(preStatus, statusErr); healthErr != nil {
+	if healthErr := s.localEtcdHealthError(ctx, client, preStatus, statusErr); healthErr != nil {
 		return s.etcdPatchCleanFailure("", fmt.Sprintf("local etcd member is not healthy before patch: %v", healthErr)), nil
 	}
 	sizeBefore := preStatus.DbSize

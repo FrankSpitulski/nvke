@@ -410,7 +410,7 @@ func (s *NodeAgentServer) etcdDefragPreflight(
 	statusCtx, cancelStatus := s.etcdCallContext(ctx)
 	localStatus, statusErr := client.Status(statusCtx, etcdLocalEndpoint)
 	cancelStatus()
-	if healthErr := etcdStatusHealthError(localStatus, statusErr); healthErr != nil {
+	if healthErr := s.localEtcdHealthError(ctx, client, localStatus, statusErr); healthErr != nil {
 		return etcdStatusDbSize(localStatus), nil, fmt.Errorf("local etcd member is unhealthy: %w", healthErr)
 	}
 	sizeBefore := localStatus.DbSize

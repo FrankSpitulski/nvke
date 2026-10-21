@@ -370,13 +370,44 @@ func TestGetEtcdStatus(t *testing.T) {
 		assert.False(t, resp.GetIsLeader())
 	})
 
-	t.Run("status errors mark the member unhealthy", func(t *testing.T) {
+	t.Run("this member's own alarm marks it unhealthy", func(t *testing.T) {
 		s := writeEtcdManifest(t, etcdManifestWithFlags)
 		s.etcdClient = &fakeEtcdMemberClient{
-			members:      testEtcdMembers(),
-			localID:      2,
-			statusErrors: []string{"NOSPACE"},
+			members:  testEtcdMembers(),
+			localID:  2,
+			leaderID: 1,
+			alarms: []*etcdserverpb.AlarmMember{
+				{MemberID: 2, Alarm: etcdserverpb.AlarmType_NOSPACE},
+			},
 		}
+
+		resp, err := s.GetEtcdStatus(context.Background(), &pb.GetEtcdStatusRequest{})
+		require.NoError(t, err)
+		assert.False(t, resp.GetHealthy())
+	})
+
+	t.Run("another member's alarm leaves this one healthy", func(t *testing.T) {
+		// AlarmList returns the whole replicated set from any member, so an
+		// alarm raised by cp-1 arrives here too. Reporting cp-2 unhealthy for
+		// it would hide the one member a caller could still defragment.
+		s := writeEtcdManifest(t, etcdManifestWithFlags)
+		s.etcdClient = &fakeEtcdMemberClient{
+			members:  testEtcdMembers(),
+			localID:  2,
+			leaderID: 1,
+			alarms: []*etcdserverpb.AlarmMember{
+				{MemberID: 1, Alarm: etcdserverpb.AlarmType_NOSPACE},
+			},
+		}
+
+		resp, err := s.GetEtcdStatus(context.Background(), &pb.GetEtcdStatusRequest{})
+		require.NoError(t, err)
+		assert.True(t, resp.GetHealthy())
+	})
+
+	t.Run("a member that cannot see a leader is unhealthy", func(t *testing.T) {
+		s := writeEtcdManifest(t, etcdManifestWithFlags)
+		s.etcdClient = &fakeEtcdMemberClient{members: testEtcdMembers(), localID: 2, leaderID: 0}
 
 		resp, err := s.GetEtcdStatus(context.Background(), &pb.GetEtcdStatusRequest{})
 		require.NoError(t, err)

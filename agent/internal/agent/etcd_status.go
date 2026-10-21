@@ -134,14 +134,15 @@ func etcdQuotaBackendBytes(st *clientv3.StatusResponse, manifestJSON []byte) (in
 }
 
 // etcdStatusHealthError reports why a Status response does not describe a
-// healthy local member, or nil when it does.
+// usable member, or nil when it does.
 //
 // Every RPC that gates on member health shares it so the gates cannot drift.
-// They did: the pre-patch check once accepted a status carrying an alarm that
-// the post-restart wait rejected, so a member already reporting NOSPACE was
-// taken down, waited on for the full health timeout, rolled back and waited on
-// again, before failing for a condition that predated the call. A restart does
-// not clear an alarm, so such a member has to read as unhealthy up front.
+//
+// It deliberately does not look at StatusResponse.Errors. That field flattens
+// two unlike things into strings: whether the responding member can see a
+// leader, and the cluster's alarms, which do not belong to the responding
+// member at all. Both are read structurally, in localEtcdHealthError and
+// localEtcdAlarmError, and only of the local member.
 func etcdStatusHealthError(st *clientv3.StatusResponse, err error) error {
 	switch {
 	case err != nil:
@@ -150,11 +151,72 @@ func etcdStatusHealthError(st *clientv3.StatusResponse, err error) error {
 		return errors.New("etcd returned no status")
 	case st.Header == nil:
 		return errors.New("etcd status has no header")
-	case len(st.Errors) > 0:
-		return fmt.Errorf("etcd reports errors: %v", st.Errors)
 	default:
 		return nil
 	}
+}
+
+// localEtcdAlarmError reports alarms raised BY the local member, or nil when it
+// has none of its own.
+//
+// Alarms are cluster-wide. The alarm store is replicated by raft, which is why
+// NOSPACE puts every member into a read-only state rather than just the one
+// that filled its backend, and why AlarmList returns the same set whichever
+// member answers. Only AlarmMember.MemberID says whose alarm it is.
+//
+// StatusResponse.Errors carries those same alarms as strings with the member
+// attribution dissolved, so gating on it made one alarmed member read as
+// unhealthy from every member. Through the shared gate that reached the peer
+// probes too, and a cluster carrying a single alarm reported that none of its
+// voting members were available - naming the wrong fault, and refusing the
+// defragmentation that NOSPACE calls for in the first place.
+func (s *NodeAgentServer) localEtcdAlarmError(ctx context.Context, client etcdMemberClient, memberID uint64) error {
+	alarmCtx, cancel := s.etcdCallContext(ctx)
+	resp, err := client.AlarmList(alarmCtx)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("list etcd alarms: %w", err)
+	}
+	if resp == nil {
+		return nil
+	}
+	var raised []string
+	for _, alarm := range resp.Alarms {
+		if alarm.GetMemberID() != memberID {
+			continue
+		}
+		raised = append(raised, alarm.GetAlarm().String())
+	}
+	if len(raised) > 0 {
+		return fmt.Errorf("etcd member %x reports alarms: %v", memberID, raised)
+	}
+	return nil
+}
+
+// localEtcdHealthError is the gate every RPC applies to the member it is about
+// to take down: the structural checks, a leader to rejoin, and the alarms that
+// are actually this member's own.
+//
+// Peer probes use etcdStatusHealthError on its own. Leaderlessness is a
+// property of the cluster rather than of the peer, so charging it to each peer
+// in turn would report every member as unavailable for one cluster-wide fault;
+// and a peer's alarm does not stop it counting toward the quorum a restart has
+// to preserve.
+func (s *NodeAgentServer) localEtcdHealthError(
+	ctx context.Context,
+	client etcdMemberClient,
+	st *clientv3.StatusResponse,
+	statusErr error,
+) error {
+	if err := etcdStatusHealthError(st, statusErr); err != nil {
+		return err
+	}
+	if st.Leader == 0 {
+		// What etcd reports in Errors as "etcdserver: no leader". Stopping a
+		// member in the middle of an election is the worst available moment.
+		return errors.New("etcd reports no leader")
+	}
+	return s.localEtcdAlarmError(ctx, client, st.Header.MemberId)
 }
 
 // etcdStatusDbSize is the backend size from a possibly-absent status, so a
@@ -340,6 +402,10 @@ func (s *NodeAgentServer) GetEtcdStatus(
 		IsLeader:              localStatus.Leader != 0 && localStatus.Leader == localStatus.Header.MemberId,
 		VotingMemberCount:     votingMemberCount(members),
 		MemberId:              fmt.Sprintf("%x", localStatus.Header.MemberId),
-		Healthy:               len(localStatus.Errors) == 0,
+		// Scoped to this member's own alarms. Reading Errors here would have
+		// reported every member of an alarmed cluster as unhealthy, which is
+		// the opposite of what a caller polling for a defragmentation
+		// candidate needs to see.
+		Healthy: s.localEtcdHealthError(ctx, client, localStatus, nil) == nil,
 	}, nil
 }

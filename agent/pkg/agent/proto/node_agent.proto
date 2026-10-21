@@ -1261,7 +1261,12 @@ message GetEtcdStatusResponse {
   int32 voting_member_count = 6;
   // Hexadecimal ID of the local member.
   string member_id = 7;
-  // Whether the local member currently reports healthy.
+  // Whether the local member is answering, can see a leader, and is carrying no
+  // alarm OF ITS OWN. Alarms are cluster-wide - the store is replicated by raft,
+  // so every member reports the whole set and only the member ID attached to an
+  // alarm says who raised it. A member here reads healthy while a peer is in
+  // NOSPACE, which is deliberate: that is the member a caller can still
+  // defragment.
   bool healthy = 8;
 }
 
@@ -1327,9 +1332,9 @@ message StartEtcdDefragRequest {
   // There is deliberately no min_voting_members here, unlike on
   // PatchEtcdManifestRequest. The floor is a property of the cluster, so the
   // agent derives it from the membership: it probes each voting member and
-  // requires registered_voters/2 + 2 of them to answer, which is what leaves a
-  // quorum once this member goes down. Defragmentation is optional, so no
-  // caller has a reason to lower that, and the derived floor already refuses
+  // requires max(3, registered_voters/2 + 2) of them to answer, which is what
+  // leaves a quorum once this member goes down. Defragmentation is optional, so
+  // no caller has a reason to lower that, and the derived floor already refuses
   // the one- and two-member topologies where no value could preserve a quorum.
 }
 

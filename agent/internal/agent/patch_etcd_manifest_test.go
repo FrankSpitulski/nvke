@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -221,15 +222,17 @@ func TestPatchEtcdManifestPreconditions(t *testing.T) {
 		assert.Equal(t, "2048", patchedThreshold(t, s))
 	})
 
-	t.Run("a member already reporting an alarm is refused before the write", func(t *testing.T) {
+	t.Run("a member already carrying its own alarm is refused before the write", func(t *testing.T) {
 		// A restart does not clear an alarm, so proceeding would bounce the
 		// member, wait out the health timeout, roll it back, wait again, and
 		// then fail for a condition that predated the call.
 		client := &fakeEtcdMemberClient{
-			members:      testEtcdMembersThree(),
-			localID:      2,
-			leaderID:     1,
-			statusErrors: []string{"NOSPACE"},
+			members:  testEtcdMembersThree(),
+			localID:  2,
+			leaderID: 1,
+			alarms: []*etcdserverpb.AlarmMember{
+				{MemberID: 2, Alarm: etcdserverpb.AlarmType_NOSPACE},
+			},
 		}
 		s, runner := patchEtcdTestServer(t, client)
 
@@ -242,6 +245,44 @@ func TestPatchEtcdManifestPreconditions(t *testing.T) {
 		assert.Contains(t, resp.GetErrorMessage(), "NOSPACE")
 		assert.Equal(t, "200", patchedThreshold(t, s), "a refusal must not write the manifest")
 		assert.Zero(t, runner.calls, "etcd must not be restarted for a pre-existing alarm")
+	})
+
+	t.Run("another member's alarm does not refuse this one", func(t *testing.T) {
+		// The alarm store is replicated, so Status on a healthy member reports
+		// its alarmed peer's NOSPACE too. Reading that as local made every
+		// member of an alarmed cluster unpatchable.
+		client := &fakeEtcdMemberClient{
+			members:  testEtcdMembersThree(),
+			localID:  2,
+			leaderID: 1,
+			alarms: []*etcdserverpb.AlarmMember{
+				{MemberID: 3, Alarm: etcdserverpb.AlarmType_NOSPACE},
+			},
+		}
+		s, _ := patchEtcdTestServer(t, client)
+
+		resp, err := s.PatchEtcdManifest(context.Background(), &pb.PatchEtcdManifestRequest{
+			FlagOps: setBootstrapDefragOp("2048"),
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, pb.PatchEtcdManifestResponse_OUTCOME_APPLIED, resp.GetOutcome())
+		assert.Equal(t, "2048", patchedThreshold(t, s))
+	})
+
+	t.Run("a cluster with no leader is refused before the write", func(t *testing.T) {
+		client := &fakeEtcdMemberClient{members: testEtcdMembersThree(), localID: 2, leaderID: 0}
+		s, runner := patchEtcdTestServer(t, client)
+
+		resp, err := s.PatchEtcdManifest(context.Background(), &pb.PatchEtcdManifestRequest{
+			FlagOps: setBootstrapDefragOp("2048"),
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, pb.PatchEtcdManifestResponse_OUTCOME_FAILED_RESTORED, resp.GetOutcome())
+		assert.Contains(t, resp.GetErrorMessage(), "no leader")
+		assert.Equal(t, "200", patchedThreshold(t, s), "a refusal must not write the manifest")
+		assert.Zero(t, runner.calls, "etcd must not be restarted while the cluster has no leader")
 	})
 
 	t.Run("an absent status header is refused rather than read as healthy", func(t *testing.T) {
