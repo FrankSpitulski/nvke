@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/google/uuid"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -37,13 +38,14 @@ type ControllerClient interface {
 	Create(ctx context.Context, request api.CreateClusterRequest) (*api.Cluster, error)
 	Delete(ctx context.Context, id string) error
 	GetNodePool(ctx context.Context, id string) (*api.NodePool, error)
+	CreateNodePool(ctx context.Context, request api.CreateNodePoolRequest) (*api.NodePool, error)
 }
 
 // NVKEClusterReconciler coordinates cluster provisioning from declarative intent.
 type NVKEClusterReconciler struct {
 	client.Client
-	NVKEController ControllerClient
-	PollInterval   time.Duration
+	NVKEClient   ControllerClient
+	PollInterval time.Duration
 }
 
 // +kubebuilder:rbac:groups=internal.nvke.nvidia.com,resources=nvkeclusters,verbs=get;list;watch;patch
@@ -71,7 +73,7 @@ func (r *NVKEClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}()
 
-	if r.NVKEController == nil {
+	if r.NVKEClient == nil {
 		propagateNVKEControllerConditions(&cluster, nil)
 		return ctrl.Result{}, nil
 	}
@@ -101,25 +103,42 @@ func (r *NVKEClusterReconciler) reconcileCluster(ctx context.Context, cluster *i
 }
 
 func (r *NVKEClusterReconciler) reconcileNodePool(ctx context.Context, cluster *internalv1.NVKECluster, pool *internalv1.NodePool) error {
-	for _, status := range cluster.Status.NodePools {
-		if status.Name != pool.Name || status.ID == "" {
-			continue
+	var status *internalv1.NodePoolStatus
+	for i := range cluster.Status.NodePools {
+		if cluster.Status.NodePools[i].Name == pool.Name {
+			status = &cluster.Status.NodePools[i]
+			break
 		}
-		observedPool, err := r.NVKEController.GetNodePool(ctx, status.ID)
+	}
+	if status == nil {
+		cluster.Status.NodePools = append(cluster.Status.NodePools, internalv1.NodePoolStatus{Name: pool.Name})
+		status = &cluster.Status.NodePools[len(cluster.Status.NodePools)-1]
+	}
+	if status.ID == "" {
+		request, err := resolveNodePoolRequest(cluster, pool)
 		if err != nil {
-			return fmt.Errorf("get nvke controller node pool %q: %w", status.ID, err)
+			return fmt.Errorf("resolve node pool %q request: %w", pool.Name, err)
 		}
-		if observedPool.ClusterID.String() != cluster.Status.ID {
-			return fmt.Errorf("node pool %q belongs to cluster %q, expected %q", status.ID, observedPool.ClusterID, cluster.Status.ID)
+		observedPool, err := r.NVKEClient.CreateNodePool(ctx, request)
+		if err != nil {
+			return fmt.Errorf("create nvke controller node pool %q: %w", pool.Name, err)
 		}
+		status.ID = observedPool.ID.String()
 		return nil
+	}
+	observedPool, err := r.NVKEClient.GetNodePool(ctx, status.ID)
+	if err != nil {
+		return fmt.Errorf("get nvke controller node pool %q: %w", status.ID, err)
+	}
+	if observedPool.ClusterID.String() != cluster.Status.ID {
+		return fmt.Errorf("node pool %q belongs to cluster %q, expected %q", status.ID, observedPool.ClusterID, cluster.Status.ID)
 	}
 	return nil
 }
 
 func (r *NVKEClusterReconciler) ensureCluster(ctx context.Context, cluster *internalv1.NVKECluster) (*api.Cluster, error) {
 	if cluster.Status.ID != "" {
-		observedCluster, err := r.NVKEController.Get(ctx, cluster.Status.ID)
+		observedCluster, err := r.NVKEClient.Get(ctx, cluster.Status.ID)
 		if err != nil {
 			return nil, fmt.Errorf("get nvke controller cluster %q: %w", cluster.Status.ID, err)
 		}
@@ -136,7 +155,7 @@ func (r *NVKEClusterReconciler) ensureCluster(ctx context.Context, cluster *inte
 		})
 		return nil, fmt.Errorf("resolve controller request: %w", err)
 	}
-	observedCluster, err := r.NVKEController.Create(ctx, request)
+	observedCluster, err := r.NVKEClient.Create(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("create cluster: %w", err)
 	}
@@ -159,7 +178,7 @@ func (r *NVKEClusterReconciler) reconcileDelete(ctx context.Context, cluster *in
 		return ctrl.Result{}, nil
 	}
 
-	observedCluster, err := r.NVKEController.Get(ctx, cluster.Status.ID)
+	observedCluster, err := r.NVKEClient.Get(ctx, cluster.Status.ID)
 	propagateNVKEControllerConditions(cluster, observedCluster)
 	if errors.Is(err, nvkecontroller.ErrNotFound) {
 		controllerutil.RemoveFinalizer(cluster, nvkeClusterFinalizer)
@@ -171,7 +190,7 @@ func (r *NVKEClusterReconciler) reconcileDelete(ctx context.Context, cluster *in
 	}
 
 	if observedCluster.Conditions.Deleting.Status != api.ConditionStatus("True") {
-		if err := r.NVKEController.Delete(ctx, cluster.Status.ID); err != nil && !errors.Is(err, nvkecontroller.ErrNotFound) {
+		if err := r.NVKEClient.Delete(ctx, cluster.Status.ID); err != nil && !errors.Is(err, nvkecontroller.ErrNotFound) {
 			return ctrl.Result{}, fmt.Errorf("delete nvke controller cluster %q: %w", cluster.Status.ID, err)
 		}
 	}
@@ -211,6 +230,41 @@ func resolveControllerRequest(cluster *internalv1.NVKECluster) (api.CreateCluste
 		return empty, fmt.Errorf("resolve service network: %w", err)
 	}
 	request.Network = &api.ClusterNetworkCreateConfig{PodCIDR: pod, ServiceCIDR: service}
+	return request, nil
+}
+
+// resolveNodePoolRequest uses a paused DockerMachineTemplate until worker configuration resolution is implemented.
+func resolveNodePoolRequest(cluster *internalv1.NVKECluster, pool *internalv1.NodePool) (api.CreateNodePoolRequest, error) {
+	var request api.CreateNodePoolRequest
+	clusterID, err := uuid.Parse(cluster.Status.ID)
+	if err != nil || clusterID == uuid.Nil {
+		return request, invalidControllerRequest("A persisted cluster ID is required before creating node pools")
+	}
+	if pool.Replicas == nil || *pool.Replicas < 0 {
+		return request, invalidControllerRequest("Node pool replicas must be a nonnegative count")
+	}
+	request = api.CreateNodePoolRequest{
+		ClusterID:                   clusterID,
+		Name:                        string(pool.Name),
+		DesiredNodeCount:            int(*pool.Replicas),
+		Infra:                       &api.InfraNodePoolProvider{MachineTemplate: pausedDockerMachineTemplate()},
+		NodeNamePrefix:              string(pool.Name),
+		ProvisioningMonitorDisabled: new(true),
+	}
+	if params := pool.UserParams; params != nil {
+		request.NodeLabels = make(map[string]string, len(params.Labels))
+		for key, value := range params.Labels {
+			request.NodeLabels[key] = string(value)
+		}
+		request.NodeTaints = make([]api.NodeTaint, 0, len(params.Taints))
+		for _, taint := range params.Taints {
+			request.NodeTaints = append(request.NodeTaints, api.NodeTaint{
+				Key:    string(taint.Key),
+				Effect: api.NodeTaintEffect(taint.Effect),
+				Value:  string(taint.Value),
+			})
+		}
+	}
 	return request, nil
 }
 
@@ -310,7 +364,41 @@ func setNVKEControllerCondition(cluster *internalv1.NVKECluster, conditionType s
 	})
 }
 
+func setNodePoolConditions(pool *internalv1.NodePoolStatus, generation int64) error {
+	ready, err := conditions.NewSummaryCondition(
+		pool,
+		internalv1.ReadyCondition,
+		conditions.ForConditionTypes{
+			internalv1.NVKEControllerProvisionedCondition,
+			internalv1.NVKEControllerProvisioningCondition,
+			internalv1.NVKEControllerDeletingCondition,
+		},
+		conditions.NegativePolarityConditionTypes(nvkeControllerNegativeConditionTypes),
+		conditions.CustomMergeStrategy{
+			MergeStrategy: conditions.DefaultMergeStrategy(
+				conditions.GetPriorityFunc(conditions.GetDefaultMergePriorityFunc(nvkeControllerNegativeConditionTypes...)),
+				conditions.ComputeReasonFunc(conditions.GetDefaultComputeMergeReasonFunc(
+					clusterv1.NotReadyReason,
+					clusterv1.ReadyUnknownReason,
+					clusterv1.ReadyReason,
+				)),
+			),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("summarize node pool %q Ready condition: %w", pool.Name, err)
+	}
+	ready.ObservedGeneration = generation
+	conditions.Set(pool, *ready)
+	return nil
+}
+
 func setNVKEClusterConditions(cluster *internalv1.NVKECluster) error {
+	for i := range cluster.Status.NodePools {
+		if err := setNodePoolConditions(&cluster.Status.NodePools[i], cluster.Generation); err != nil {
+			return err
+		}
+	}
 	if cluster.DeletionTimestamp.IsZero() {
 		conditions.Set(cluster, metav1.Condition{
 			Type:   clusterv1.DeletingCondition,
@@ -409,22 +497,26 @@ func setNVKEClusterConditions(cluster *internalv1.NVKECluster) error {
 	return nil
 }
 
+func pausedDockerMachineTemplate() map[string]any {
+	return map[string]any{
+		"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta2",
+		"kind":       "DockerMachineTemplate",
+		"spec": map[string]any{
+			"template": map[string]any{
+				"metadata": map[string]any{"annotations": map[string]any{clusterv1.PausedAnnotation: "true"}},
+				"spec":     map[string]any{},
+			},
+		},
+	}
+}
+
 func resolveControllerClass(class internalv1.ResourceName, request *api.CreateClusterRequest) error {
 	_ = class
 	request.ControlPlaneKubernetesVersion = "1.36.1"
 	request.ControlPlaneConfig = &api.CreateClusterControlPlaneConfig{
 		DesiredCount:                1,
 		ProvisioningMonitorDisabled: new(true),
-		Infra: &api.InfraControlPlaneProvider{MachineTemplate: map[string]any{
-			"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta2",
-			"kind":       "DockerMachineTemplate",
-			"spec": map[string]any{
-				"template": map[string]any{
-					"metadata": map[string]any{"annotations": map[string]any{clusterv1.PausedAnnotation: "true"}},
-					"spec":     map[string]any{},
-				},
-			},
-		}},
+		Infra:                       &api.InfraControlPlaneProvider{MachineTemplate: pausedDockerMachineTemplate()},
 	}
 	request.Infra = &api.InfraClusterProvider{Cluster: map[string]any{
 		"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta2",

@@ -151,8 +151,8 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 
 	if err := (&controllers.NVKEClusterReconciler{
-		Client:         mgr.GetClient(),
-		NVKEController: controllerClient,
+		Client:     mgr.GetClient(),
+		NVKEClient: controllerClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NVKECluster")
 		os.Exit(1)

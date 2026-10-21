@@ -175,6 +175,22 @@ func (c *Client) GetNodePool(ctx context.Context, id string) (*api.NodePool, err
 	return &result, nil
 }
 
+// CreateNodePool creates a worker pool and validates its returned identity.
+func (c *Client) CreateNodePool(ctx context.Context, request api.CreateNodePoolRequest) (*api.NodePool, error) {
+	if request.ClusterID == uuid.Nil || request.Name == "" {
+		return nil, errors.New("NVKE controller cluster ID and node pool name are required")
+	}
+	response, err := c.api.CreateNodePool(ctx, request)
+	var result api.NodePool
+	if err := readResponse(response, err, http.StatusCreated, &result); err != nil {
+		return nil, err
+	}
+	if result.ID == uuid.Nil || result.ClusterID != request.ClusterID || result.Name != request.Name || result.ControlPlane {
+		return nil, ErrInvalidResponse
+	}
+	return &result, nil
+}
+
 func readResponse(response *http.Response, requestErr error, expected int, target any) error {
 	if requestErr != nil {
 		if errors.Is(requestErr, context.Canceled) {
