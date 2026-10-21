@@ -84,6 +84,10 @@ LABEL org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.source="https://github.com/dsx-ai-factory/nvke" \
       org.opencontainers.image.description="NVKE Cloud Workflow Engine"
 
+# The nonroot uid distroless images use. The chart sets the same uid and
+# runAsNonRoot, which the kubelet can only verify against a numeric USER.
+USER 65532:65532
+
 EXPOSE 8080
 
 CMD ["controller"]

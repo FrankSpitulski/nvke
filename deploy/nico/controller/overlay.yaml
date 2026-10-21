@@ -145,10 +145,6 @@ image:
 # in nke-controller, supplied with --values-for.
 imagePullSecrets: []
 
-podSecurityContext: null
-securityContext:
-  readOnlyRootFilesystem: false
-
 # Telemetry to the nktp item, which installs before this one: its node
 # Collectors scrape the ServiceMonitor, the metrics NetworkPolicy admits their
 # namespace, and traces go to the node Collector on the controller's node. The

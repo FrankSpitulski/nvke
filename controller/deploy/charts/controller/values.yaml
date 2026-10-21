@@ -217,17 +217,24 @@ podLabels:
   project: nvke
   team: nvke
 
+# The uid is set here rather than left to the image so that every container in
+# the pod runs unprivileged, including the materialize-profiles init container,
+# whose operator-built content image usually has no USER of its own. 65532 is
+# the controller image's USER.
 podSecurityContext:
   runAsNonRoot: true
-  # fsGroup: 2000
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
 
 securityContext:
   readOnlyRootFilesystem: true
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # runAsNonRoot: true
-  # runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
 
 # This is for setting up a service.
 # https://kubernetes.io/docs/concepts/services-networking/service/
