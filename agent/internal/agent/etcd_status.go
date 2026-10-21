@@ -34,12 +34,14 @@ const (
 	// alarm and goes read-only when the file reaches it.
 	etcdQuotaBackendBytesFlag = "quota-backend-bytes"
 
-	// The bootstrap-defrag threshold flag was renamed upstream when it
-	// graduated. etcd 3.5 (Kubernetes <= 1.33) only accepts the experimental
-	// spelling; etcd 3.6+ (Kubernetes >= 1.34) accepts the stable one. Readers
-	// must check both, since a node can be running either.
-	etcdBootstrapDefragFlag             = "bootstrap-defrag-threshold-megabytes"
-	etcdExperimentalBootstrapDefragFlag = "experimental-bootstrap-defrag-threshold-megabytes"
+	// The stable spelling, as of etcd 3.6 (Kubernetes >= 1.34). etcd 3.5 took
+	// it as --experimental-bootstrap-defrag-threshold-megabytes, which is
+	// deliberately not read here: the only thing that sets this flag is kubeadm
+	// when a node is provisioned, and nothing provisions a node old enough to
+	// need the experimental name. Reading one spelling is also what keeps a
+	// manifest from ever carrying both, which would raise a precedence question
+	// this code is in no position to answer.
+	etcdBootstrapDefragFlag = "bootstrap-defrag-threshold-megabytes"
 
 	// mebibyte converts the threshold flag's megabyte unit to the bytes the
 	// sizing fields are expressed in. etcd treats the flag as mebibytes.
@@ -68,33 +70,31 @@ func (s *NodeAgentServer) readEtcdManifest() ([]byte, []byte, error) {
 }
 
 // etcdBootstrapDefragThresholdBytes returns the configured bootstrap-defrag
-// threshold in bytes, accepting either spelling of the flag.
+// threshold in bytes.
 //
-// found=false means no restart would defragment at any size, which covers two
-// cases that have to behave identically: the flag being absent, and the flag
-// being present but set to zero or less. etcd treats a threshold of zero as
+// found=false means no restart would defragment at any size, which covers three
+// cases that have to behave identically: the flag being absent, the flag being
+// present but set to zero or less, and the flag carrying the pre-3.6
+// experimental name this does not read. etcd treats a threshold of zero as
 // disabled, so reporting it as configured would make the preflight comparison
 // "reclaimable < 0" - never true - and the member would be restarted for a
 // defragmentation that etcd was never going to perform.
 func etcdBootstrapDefragThresholdBytes(manifestJSON []byte) (int64, bool, error) {
-	for _, flag := range []string{etcdBootstrapDefragFlag, etcdExperimentalBootstrapDefragFlag} {
-		raw, found, err := readFlagValue(manifestJSON, etcdContainerName, flag)
-		if err != nil {
-			return 0, false, err
-		}
-		if !found {
-			continue
-		}
-		megabytes, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil {
-			return 0, false, fmt.Errorf("parse --%s value %q: %w", flag, raw, err)
-		}
-		if megabytes <= 0 {
-			return 0, false, nil
-		}
-		return megabytes * mebibyte, true, nil
+	raw, found, err := readFlagValue(manifestJSON, etcdContainerName, etcdBootstrapDefragFlag)
+	if err != nil {
+		return 0, false, err
 	}
-	return 0, false, nil
+	if !found {
+		return 0, false, nil
+	}
+	megabytes, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, false, fmt.Errorf("parse --%s value %q: %w", etcdBootstrapDefragFlag, raw, err)
+	}
+	if megabytes <= 0 {
+		return 0, false, nil
+	}
+	return megabytes * mebibyte, true, nil
 }
 
 // etcdQuotaBackendBytes resolves the backend quota, preferring what the server

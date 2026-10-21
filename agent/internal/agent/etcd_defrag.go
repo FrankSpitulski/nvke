@@ -401,8 +401,8 @@ func (s *NodeAgentServer) etcdDefragPreflight(
 	}
 	if !found {
 		return 0, nil, fmt.Errorf(
-			"etcd manifest sets neither --%s nor --%s to a positive value, so a restart would not defragment at any size",
-			etcdBootstrapDefragFlag, etcdExperimentalBootstrapDefragFlag,
+			"etcd manifest does not set --%s to a positive value, so a restart would not defragment at any size",
+			etcdBootstrapDefragFlag,
 		)
 	}
 

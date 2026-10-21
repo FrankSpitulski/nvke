@@ -62,7 +62,7 @@ spec:
       command:
         - etcd
         - --quota-backend-bytes=17179869184
-        - --experimental-bootstrap-defrag-threshold-megabytes=2048
+        - --bootstrap-defrag-threshold-megabytes=2048
 `
 
 func TestReadFlagValue(t *testing.T) {
@@ -151,13 +151,13 @@ func TestEtcdBootstrapDefragThresholdBytes(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name:      "experimental spelling is accepted",
+			name:      "the stable flag is read",
 			manifest:  etcdManifestWithFlags,
 			wantBytes: 2048 * 1024 * 1024,
 			wantFound: true,
 		},
 		{
-			name: "stable spelling is accepted",
+			name: "a value given as an arg rather than in the command is read",
 			manifest: `apiVersion: v1
 kind: Pod
 spec:
@@ -169,13 +169,29 @@ spec:
 			wantFound: true,
 		},
 		{
-			name: "neither spelling present",
+			name: "no flag present",
 			manifest: `apiVersion: v1
 kind: Pod
 spec:
   containers:
     - name: etcd
       command: ["etcd"]
+`,
+			wantFound: false,
+		},
+		{
+			// etcd 3.5's spelling. Nothing provisions a node that old any more,
+			// and reading it would reintroduce the question of which name wins
+			// when a manifest carries both. Reporting it as unconfigured is the
+			// safe direction: the defragmentation is refused rather than a
+			// member being restarted for a defragmentation that will not run.
+			name: "the pre-3.6 experimental spelling is not read",
+			manifest: `apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: etcd
+      command: ["etcd", "--experimental-bootstrap-defrag-threshold-megabytes=2048"]
 `,
 			wantFound: false,
 		},
