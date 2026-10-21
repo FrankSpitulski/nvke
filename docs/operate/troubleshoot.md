@@ -6,7 +6,7 @@ This page lists the failures you are most likely to meet when you install NVIDIA
 
 ### Bootstrap diagnostics
 
-When `nvkectl bootstrap site` fails, it writes diagnostics from the seed cluster to `cluster-diagnostics/`, or to the directory `--diagnostics-dir` names: one directory per namespace with object state and every pod's log (the management plane's under `nke-controller/`), plus `all-resources.txt`, `pods-described.txt` and `helm-releases.txt`.
+When `nvkectl bootstrap site` fails, it writes diagnostics from the seed cluster to `cluster-diagnostics/`, or to the directory `--diagnostics-dir` names: one directory per namespace with object state and every pod's log (the management plane's under `nvke-controller/`), plus `all-resources.txt`, `pods-described.txt` and `helm-releases.txt`.
 
 If the run failed after it requested the cluster, `nvkectl` keeps the seed cluster, and its NVKE API answers on the bootstrap host without authentication. List the management cluster's nodes and the step each one is on:
 
@@ -25,7 +25,7 @@ KIND_EXPERIMENTAL_PROVIDER=nerdctl kind get kubeconfig --name nvkectl-bootstrap 
 Show the warnings and errors from the last hour:
 
 ```bash
-kubectl logs deployment/nke-controller -n nke-controller --since=1h \
+kubectl logs deployment/nvke-controller -n nvke-controller --since=1h \
   | jq -cR 'fromjson? | select(.level == "WARN" or .level == "ERROR")'
 ```
 
@@ -91,7 +91,7 @@ curl -s http://<MANAGEMENT_ADDRESS>:30080/api/version
 ```
 
 ```bash
-kubectl get deployment nke-controller -n nke-controller -o jsonpath='{.spec.template.spec.containers[0].image}'
+kubectl get deployment nvke-controller -n nvke-controller -o jsonpath='{.spec.template.spec.containers[0].image}'
 ```
 
 ## Building artifacts
@@ -263,7 +263,7 @@ The install stops at the component that failed. Fix the cause and run the same c
 |---|---|---|
 | `nvkectl` fails with `minting token for nke-clients/nke-client`. | `nvkectl` uses the management cluster's admin kubeconfig after authentication is configured. | Use an OpenID Connect (OIDC) kubeconfig, as in [With nvkectl](api-authentication.md#with-nvkectl). |
 | `401`, or `403` with `Not admitted: the authenticated identity matches no admission rule.` | Enforcing mode rejected the token or the caller. | Search the management-plane log for `rejected request` in enforcing mode, or `authentication would have rejected this request` in permissive mode, then see [Find callers that enforcing mode would reject](api-authentication.md#find-callers-that-enforcing-mode-would-reject). |
-| The `nke-controller` pod does not become ready, and logs `Failed to set up API authentication`. | In enforcing mode NVKE cannot fetch an issuer's signing keys at startup. | Fix the issuer setting the error names, or return to permissive mode until the log shows `fetched issuer signing keys` for each issuer. |
+| The `nvke-controller` pod does not become ready, and logs `Failed to set up API authentication`. | In enforcing mode NVKE cannot fetch an issuer's signing keys at startup. | Fix the issuer setting the error names, or return to permissive mode until the log shows `fetched issuer signing keys` for each issuer. |
 | A change to `apiAuth.config` has no effect, or authentication is off after you re-run the install. | NVKE reads the configuration only at startup, and the install's values turn authentication off. | See [Switch to enforcing mode](api-authentication.md#switch-to-enforcing-mode). |
 
 ## Creating clusters
