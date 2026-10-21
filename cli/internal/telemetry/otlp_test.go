@@ -194,6 +194,51 @@ func TestEnableOTLPRejectsBadUse(t *testing.T) {
 	assert.Error(t, run.EnableOTLP(OTLPConfig{Endpoint: "localhost:4317"}), "after the handler was built")
 }
 
+// The signal-specific variables the OTLP exporter library would read on its own.
+const (
+	logsEndpointVar = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
+	logsHeadersVar  = "OTEL_EXPORTER_OTLP_LOGS_HEADERS"
+	logsInsecureVar = "OTEL_EXPORTER_OTLP_LOGS_INSECURE"
+)
+
+// The exporter library fills a setting nobody passed from its own environment,
+// so these tests set the signal-specific variables and check that none of them
+// changes where the records go, what is sent with them, or whether TLS is used.
+// They set variables, so neither is parallel.
+func TestOTLPExporterIgnoresSignalSpecificVariables(t *testing.T) {
+	collector := newFakeCollector(t)
+	t.Setenv(logsEndpointVar, "127.0.0.1:1")
+	t.Setenv(logsHeadersVar, "x-leaked=yes")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_COMPRESSION", "gzip")
+
+	run := NewRun("dev")
+	require.NoError(t, run.EnableOTLP(OTLPConfig{Endpoint: collector.addr, Insecure: true}))
+	run.Start(context.Background(), "nvkectl get clusters")
+	slog.New(run.LogHandler(slog.NewTextHandler(&lockedBuffer{}, nil))).Info("hello")
+	run.Finish(nil)
+
+	require.Len(t, collector.received(), 1, "the records went to the configured endpoint")
+	collector.mu.Lock()
+	defer collector.mu.Unlock()
+	assert.Empty(t, collector.metadata.Get("x-leaked"), "no header from OTEL_EXPORTER_OTLP_LOGS_HEADERS")
+	assert.Empty(t, collector.metadata.Get("grpc-encoding"), "no compression from OTEL_EXPORTER_OTLP_LOGS_COMPRESSION")
+}
+
+func TestOTLPSecureConfigIgnoresTheInsecureLogsVariable(t *testing.T) {
+	collector := newFakeCollector(t) // serves plaintext, so a TLS client cannot reach it
+	t.Setenv(logsInsecureVar, "true")
+	stderr := &lockedBuffer{}
+
+	run := NewRun("dev")
+	require.NoError(t, run.EnableOTLP(OTLPConfig{Endpoint: collector.addr}))
+	run.Start(context.Background(), "nvkectl get clusters")
+	slog.New(run.LogHandler(slog.NewTextHandler(stderr, nil))).Info("hello")
+	run.Finish(nil)
+
+	assert.Empty(t, collector.received(), "the connection used TLS, as configured")
+	assert.Contains(t, stderr.String(), "could not export telemetry")
+}
+
 func TestOTLPConfigFromEnv(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -227,10 +272,14 @@ func TestOTLPConfigFromEnv(t *testing.T) {
 			wantOK: true,
 		},
 		{
-			name:   "logs endpoint wins",
-			env:    map[string]string{envEndpoint: "general:4317", envLogsEndpoint: "logs:4317"},
-			want:   OTLPConfig{Endpoint: "logs:4317", Headers: map[string]string{}},
+			name:   "signal-specific variables are ignored",
+			env:    map[string]string{envEndpoint: "general:4317", logsEndpointVar: "logs:4317", logsHeadersVar: "x-logs=1", logsInsecureVar: "true"},
+			want:   OTLPConfig{Endpoint: "general:4317", Headers: map[string]string{}},
 			wantOK: true,
+		},
+		{
+			name: "only a signal-specific endpoint is no endpoint",
+			env:  map[string]string{logsEndpointVar: "logs:4317"},
 		},
 		{
 			name: "headers",
@@ -247,7 +296,7 @@ func TestOTLPConfigFromEnv(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for _, name := range []string{envEndpoint, envLogsEndpoint, envInsecure, envHeaders, envLogsHeaders} {
+			for _, name := range []string{envEndpoint, envInsecure, envHeaders, logsEndpointVar, logsHeadersVar, logsInsecureVar} {
 				t.Setenv(name, tt.env[name])
 			}
 			got, ok, err := OTLPConfigFromEnv()
@@ -261,7 +310,6 @@ func TestOTLPConfigFromEnv(t *testing.T) {
 }
 
 func TestOTLPConfigFromEnvRejectsAnUnparsableEndpoint(t *testing.T) {
-	t.Setenv(envLogsEndpoint, "")
 	t.Setenv(envEndpoint, "http://")
 	_, ok, err := OTLPConfigFromEnv()
 	assert.Error(t, err)

@@ -5,6 +5,7 @@ package telemetry
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,14 +20,14 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
-	envEndpoint     = "OTEL_EXPORTER_OTLP_ENDPOINT"
-	envLogsEndpoint = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
-	envInsecure     = "OTEL_EXPORTER_OTLP_INSECURE"
-	envHeaders      = "OTEL_EXPORTER_OTLP_HEADERS"
-	envLogsHeaders  = "OTEL_EXPORTER_OTLP_LOGS_HEADERS"
+	envEndpoint = "OTEL_EXPORTER_OTLP_ENDPOINT"
+	envInsecure = "OTEL_EXPORTER_OTLP_INSECURE"
+	envHeaders  = "OTEL_EXPORTER_OTLP_HEADERS"
 
 	// flushTimeout bounds how long Finish waits for buffered records to reach
 	// the endpoint, so an unreachable endpoint cannot hang a command.
@@ -46,17 +47,18 @@ type OTLPConfig struct {
 	Headers map[string]string
 }
 
-// OTLPConfigFromEnv reads the standard OTEL_EXPORTER_OTLP_* variables. The
-// signal-specific OTEL_EXPORTER_OTLP_LOGS_ENDPOINT and
-// OTEL_EXPORTER_OTLP_LOGS_HEADERS take precedence over the general ones. An
+// OTLPConfigFromEnv reads OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_INSECURE
+// and OTEL_EXPORTER_OTLP_HEADERS, and no other OTLP variable. The signal-specific
+// ones, such as OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, are ignored so that one
+// endpoint and one set of headers apply to everything nvkectl exports. An
 // endpoint is a host:port or a URL; the http scheme implies Insecure, as does
 // OTEL_EXPORTER_OTLP_INSECURE=true. It returns false when no endpoint is set.
 func OTLPConfigFromEnv() (OTLPConfig, bool, error) {
-	raw := firstNonEmpty(os.Getenv(envLogsEndpoint), os.Getenv(envEndpoint))
+	raw := os.Getenv(envEndpoint)
 	if raw == "" {
 		return OTLPConfig{}, false, nil
 	}
-	cfg := OTLPConfig{Endpoint: raw, Headers: parseHeaders(firstNonEmpty(os.Getenv(envLogsHeaders), os.Getenv(envHeaders)))}
+	cfg := OTLPConfig{Endpoint: raw, Headers: parseHeaders(os.Getenv(envHeaders))}
 	if strings.Contains(raw, "://") {
 		u, err := url.Parse(raw)
 		if err != nil || u.Host == "" {
@@ -69,15 +71,6 @@ func OTLPConfigFromEnv() (OTLPConfig, bool, error) {
 		cfg.Insecure = true
 	}
 	return cfg, true, nil
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // parseHeaders parses the "key=value,key=value" form of OTEL_EXPORTER_OTLP_HEADERS.
@@ -111,8 +104,22 @@ func (run *Run) EnableOTLP(cfg OTLPConfig) error {
 	if run.handlerBuilt {
 		return errors.New("OTLP export must be enabled before the log handler is built")
 	}
+	// The exporter fills every setting left unset from its own OTEL_EXPORTER_OTLP_*
+	// and OTEL_EXPORTER_OTLP_LOGS_* variables. Each one is set here, so the
+	// configuration is cfg alone.
+	creds := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
+	if cfg.Insecure {
+		creds = insecure.NewCredentials()
+	}
+	headers := cfg.Headers
+	if headers == nil {
+		headers = map[string]string{}
+	}
 	opts := []otlploggrpc.Option{
 		otlploggrpc.WithEndpoint(cfg.Endpoint),
+		otlploggrpc.WithTLSCredentials(creds),
+		otlploggrpc.WithHeaders(headers),
+		otlploggrpc.WithCompressor("none"),
 		otlploggrpc.WithTimeout(flushTimeout),
 		otlploggrpc.WithRetry(otlploggrpc.RetryConfig{
 			Enabled:         true,
@@ -120,12 +127,6 @@ func (run *Run) EnableOTLP(cfg OTLPConfig) error {
 			MaxInterval:     500 * time.Millisecond,
 			MaxElapsedTime:  flushTimeout / 2,
 		}),
-	}
-	if cfg.Insecure {
-		opts = append(opts, otlploggrpc.WithInsecure())
-	}
-	if len(cfg.Headers) > 0 {
-		opts = append(opts, otlploggrpc.WithHeaders(cfg.Headers))
 	}
 	exporter, err := otlploggrpc.New(context.Background(), opts...)
 	if err != nil {

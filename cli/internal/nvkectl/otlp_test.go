@@ -33,7 +33,6 @@ func TestOTLPEndpointNeverFailsTheCommand(t *testing.T) {
 	for name, endpoint := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-			t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
 			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
 			root := NewRootCmd("test", "test", "test", "test")
 			root.AddCommand(&cobra.Command{
