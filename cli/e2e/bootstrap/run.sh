@@ -62,6 +62,8 @@ NVKECTL="${NVKECTL:-${CLI_DIR}/bin/nvkectl}"
 E2E_CLUSTER_NAME="nke-e2e"
 BOOTSTRAP_KIND_CLUSTER="${NVKECTL_BOOTSTRAP_CLUSTER_NAME:-nvkectl-bootstrap}"
 BOOTSTRAP_CONTROL_PLANE="${BOOTSTRAP_KIND_CLUSTER}-control-plane"
+# The namespace and Deployment `bootstrap site` installs the controller under.
+CONTROLLER_NAME=nke-controller
 # The fake-node fixture, as the substrate package names it: N containers on one
 # private network, named by prefix and index. The defaults here mirror
 # substrate.DefaultConfig; override the same variables to change both.
@@ -492,17 +494,25 @@ collect_diagnostics() {
     fi
   } > "${DIAGNOSTICS_DIR}/host-network.txt" 2>&1 || true
 
-  log "collecting kubelet, containerd, nvke-agent and spire-agent diagnostics from ${NODE_COUNT} fake node(s)"
+  log "collecting kubelet, containerd, nvke-agent, spire-agent and Open vSwitch diagnostics from ${NODE_COUNT} fake node(s)"
   for ((i = 1; i <= NODE_COUNT; i++)); do
     node="nvkectl-e2e-${NODE_PREFIX}${i}"
     output="${DIAGNOSTICS_DIR}/host-diagnostics-${NODE_PREFIX}${i}.txt"
     {
-      printf '### journalctl: kubelet, containerd, nvke-agent, spire-agent\n'
-      nerdctl exec "${node}" journalctl -u kubelet -u containerd -u nvke-agent -u spire-agent \
+      printf '### journalctl: kubelet, containerd, nvke-agent, spire-agent, openvswitch-switch\n'
+      nerdctl exec "${node}" journalctl -u kubelet -u containerd -u nvke-agent -u spire-agent -u openvswitch-switch \
         --boot --no-pager --output=short-iso-precise --lines=10000 || true
 
       printf '\n### systemctl status\n'
-      nerdctl exec "${node}" systemctl status kubelet containerd --no-pager || true
+      nerdctl exec "${node}" systemctl status kubelet containerd openvswitch-switch --no-pager || true
+
+      # The controller's Open vSwitch step fails inside the node when
+      # openvswitch-switch does not come up, and its daemons log only here.
+      printf '\n### ovs-vsctl show\n'
+      nerdctl exec "${node}" ovs-vsctl show || true
+
+      printf '\n### /var/log/openvswitch (tail 200 each)\n'
+      nerdctl exec "${node}" sh -c 'tail -n 200 /var/log/openvswitch/*.log' || true
 
       printf '\n### crictl ps -a\n'
       nerdctl exec "${node}" crictl ps -a || true
@@ -523,6 +533,21 @@ collect_diagnostics() {
       nerdctl exec "${node}" ls -la /etc/cni/net.d /opt/cni/bin || true
     } >"${output}" 2>&1
   done
+
+  # nvkectl keeps the bootstrap kind cluster after a failure past site cluster
+  # creation, and its controller log names the provisioning step that stalled.
+  if kind_lists_bootstrap_cluster; then
+    log "collecting the controller logs from the kept bootstrap kind cluster"
+    local kubeconfig
+    kubeconfig="$(mktemp)"
+    if KIND_EXPERIMENTAL_PROVIDER=nerdctl kind get kubeconfig --name "${BOOTSTRAP_KIND_CLUSTER}" >"${kubeconfig}" 2>/dev/null; then
+      kubectl --kubeconfig "${kubeconfig}" -n "${CONTROLLER_NAME}" logs "deployment/${CONTROLLER_NAME}" \
+        --all-containers --tail=5000 >"${DIAGNOSTICS_DIR}/controller.log" 2>&1 || true
+      kubectl --kubeconfig "${kubeconfig}" -n provisioned-system logs deployment/provisioned-controller-manager \
+        --all-containers --tail=2000 >"${DIAGNOSTICS_DIR}/provisioned-controller.log" 2>&1 || true
+    fi
+    rm -f "${kubeconfig}"
+  fi
 }
 
 # ── Stage 1: fake nodes ──────────────────────────────────────────────────
@@ -903,7 +928,6 @@ log "PASS: a successful run wrote its diagnostics bundle for the credential scan
 # and the host through its external NodePort. What that does not show is that
 # it runs under the name greenfield sites use, as the ServiceAccount its
 # SPIFFE ID names, with SPIRE registered to issue that ID.
-CONTROLLER_NAME=nke-controller
 bootstrap_kubeconfig="$(mktemp)"
 KIND_EXPERIMENTAL_PROVIDER=nerdctl kind get kubeconfig --name "${BOOTSTRAP_KIND_CLUSTER}" \
   > "${bootstrap_kubeconfig}" || fail "could not read the bootstrap cluster's kubeconfig"
