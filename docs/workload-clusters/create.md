@@ -176,6 +176,20 @@ curl -X POST http://<MANAGEMENT_ADDRESS>:30080/api/clusters \
 
    `STATUS` reads `Provisioned`.
 
+3. Check the cluster's NICo resources on the management cluster. NVKE creates them in the `nvke-system` namespace: a Cluster API `Cluster` and a `NicoCluster` named after the workload cluster, and a `NicoMachine` for each node, named after the node.
+
+   ```bash
+   kubectl --kubeconfig <CLUSTER_NAME>.kubeconfig -n nvke-system get nicoclusters <WORKLOAD_CLUSTER>
+   ```
+
+   `AVAILABLE` reads `True`, `PROVISIONED` reads `true` and `SITE` is the cluster's `nico.siteID`.
+
+   ```bash
+   kubectl --kubeconfig <CLUSTER_NAME>.kubeconfig -n nvke-system get nicomachines -l cluster.x-k8s.io/cluster-name=<WORKLOAD_CLUSTER>
+   ```
+
+   The output has one line for each node, each with `AVAILABLE` `True` and the NICo instance ID under `INSTANCE`, which identifies the node's machine in NICo. For a line without `True`, the `MachineProvisioned` condition's reason in `kubectl --kubeconfig <CLUSTER_NAME>.kubeconfig -n nvke-system describe nicomachine <NODE_NAME>` says why, such as `InstanceTypeUnavailable`; see [Troubleshoot](../operate/troubleshoot.md).
+
 ## Change cluster settings after creation
 
 You change three cluster settings after creation with `nvkectl patch cluster`, which sends a patch document in YAML or JSON to `PATCH /api/clusters/<CLUSTER_ID>`. Fields you leave out keep their values.
