@@ -88,9 +88,19 @@ func TestValidateImageFailureIsAnErrorNamingTheReason(t *testing.T) {
 
 func TestValidateImageEvidenceFlagsAreExclusiveAndRequired(t *testing.T) {
 	args := imageFixture(t, false)
-	_, _, err := runValidateImageCmd(t, append(args, "--bundle", t.TempDir())...)
+	bundleDir := t.TempDir()
+	root := filepath.Join(bundleDir, "root.json")
+	if err := os.WriteFile(root, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := runValidateImageCmd(t, append(args, "--bundle", bundleDir, "--trusted-root", root)...)
 	if err == nil || !strings.Contains(err.Error(), "none of the others can be") {
 		t.Errorf("bundle and checksums together must be rejected by the flag marker, got: %v", err)
+	}
+
+	_, _, err = runValidateImageCmd(t, append(args, "--bundle", bundleDir)...)
+	if err == nil || !strings.Contains(err.Error(), "must all be set") {
+		t.Errorf("bundle without the operator-pinned trusted root must be rejected by the flag marker, got: %v", err)
 	}
 
 	var withoutEvidence []string

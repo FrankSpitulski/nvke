@@ -17,6 +17,10 @@ At least one of `--bundle`, `--checksums` is required.
 
 `--bundle`, `--checksums` may not be used together.
 
+`--trusted-root`, `--checksums` may not be used together.
+
+`--bundle`, `--trusted-root` must be used together.
+
 `--emit-verdict`, `--sign-key` must be used together.
 
 ### Synopsis
@@ -43,7 +47,7 @@ nvkectl validate image [flags]
 
 ```
   nvkectl validate image --image nvke-node-fde-ubuntu-26.04.1-amd64.qcow2 \
-    --bundle release-evidence/ --checks checks.yaml \
+    --bundle release-evidence/ --trusted-root /etc/nvke/trusted-root.json --checks checks.yaml \
     --target-variant fde --target-arch amd64 --target-ubuntu 26.04.1
   nvkectl validate image --image img.qcow2 --checksums checksums.txt --checks checks.yaml \
     --target-variant non-fde --target-arch arm64 --target-ubuntu 26.04.1 --format json
@@ -54,7 +58,7 @@ nvkectl validate image [flags]
 ```
       --boot string                   boot tier (boots a throwaway copy under QEMU, minutes): on | off (default "off")
       --boot-timeout duration         Wait bound for the boot tier's probe channel (0 = default)
-      --bundle string                 Release evidence bundle directory; verifies the evidence before any check runs
+      --bundle string                 Release evidence bundle directory; verifies the evidence before any check runs (requires --trusted-root)
       --cert-issuer string            OIDC issuer the evidence signer's certificate must carry (bundle mode) (default "https://token.actions.githubusercontent.com")
       --cert-san-regex string         Regex the evidence signer's SubjectAlternativeName must match (bundle mode) (default "^https://github\\.com/dsx-ai-factory/nvke/\\.github/workflows/os-image-artifact\\.yml@.+$")
       --checks string                 Path to checks.yaml (required)
@@ -71,6 +75,7 @@ nvkectl validate image [flags]
       --target-bom string             Target BOM YAML (components: {name: version}); omitted, the BOM-driven COMPAT checks report a skip
       --target-ubuntu string          Target Ubuntu release, e.g. 26.04.1 (required)
       --target-variant string         Target variant: fde | non-fde (required)
+      --trusted-root string           Operator-pinned trusted root that authenticates the evidence (bundle mode); pinned out-of-band, never read from the evidence directory
 ```
 
 ### Options inherited from parent commands

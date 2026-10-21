@@ -16,6 +16,7 @@ import (
 type validateImageOptions struct {
 	image              string
 	bundle             string
+	trustedRoot        string
 	checksums          string
 	certIssuer         string
 	certSANRegex       string
@@ -53,7 +54,7 @@ both share the same engine and flags.
 attestation over the image's digest, which downstream gates re-check with
 nvke-verdict instead of ever re-reading the image.`,
 		Example: `  nvkectl validate image --image nvke-node-fde-ubuntu-26.04.1-amd64.qcow2 \
-    --bundle release-evidence/ --checks checks.yaml \
+    --bundle release-evidence/ --trusted-root /etc/nvke/trusted-root.json --checks checks.yaml \
     --target-variant fde --target-arch amd64 --target-ubuntu 26.04.1
   nvkectl validate image --image img.qcow2 --checksums checksums.txt --checks checks.yaml \
     --target-variant non-fde --target-arch arm64 --target-ubuntu 26.04.1 --format json`,
@@ -64,7 +65,8 @@ nvke-verdict instead of ever re-reading the image.`,
 		},
 	}
 	cmd.Flags().StringVar(&opts.image, "image", "", "Path to the qcow2 under validation (required)")
-	cmd.Flags().StringVar(&opts.bundle, "bundle", "", "Release evidence bundle directory; verifies the evidence before any check runs")
+	cmd.Flags().StringVar(&opts.bundle, "bundle", "", "Release evidence bundle directory; verifies the evidence before any check runs (requires --trusted-root)")
+	cmd.Flags().StringVar(&opts.trustedRoot, "trusted-root", "", "Operator-pinned trusted root that authenticates the evidence (bundle mode); pinned out-of-band, never read from the evidence directory")
 	cmd.Flags().StringVar(&opts.checksums, "checksums", "", "Bare checksums.txt: digest-only mode, the unverified evidence reports as a skip")
 	cmd.Flags().StringVar(&opts.certIssuer, "cert-issuer", runner.DefaultCertIssuer, "OIDC issuer the evidence signer's certificate must carry (bundle mode)")
 	cmd.Flags().StringVar(&opts.certSANRegex, "cert-san-regex", runner.DefaultCertSANRegex, "Regex the evidence signer's SubjectAlternativeName must match (bundle mode)")
@@ -86,6 +88,8 @@ nvke-verdict instead of ever re-reading the image.`,
 	}
 	cmd.MarkFlagsOneRequired("bundle", "checksums")
 	cmd.MarkFlagsMutuallyExclusive("bundle", "checksums")
+	cmd.MarkFlagsMutuallyExclusive("trusted-root", "checksums")
+	cmd.MarkFlagsRequiredTogether("bundle", "trusted-root")
 	cmd.MarkFlagsRequiredTogether("emit-verdict", "sign-key")
 	return cmd
 }
@@ -115,6 +119,7 @@ func runValidateImage(cmd *cobra.Command, opts *validateImageOptions, ver string
 		SignKeyPath:        opts.signKey,
 		Format:             opts.format,
 		ValidatorVersion:   "nvkectl " + ver,
+		TrustedRootPath:    opts.trustedRoot,
 	}, cmd.OutOrStdout())
 	if err != nil {
 		return err
