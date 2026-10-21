@@ -79,6 +79,7 @@ func NewServer(
 	strictHandler := api.NewStrictHandlerWithOptions(serverImpl, nil, api.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.Error("OpenAPI StrictServer request error", "error", err)
+			recordRejectionReason(w, rejectionReasonRequestParsingFailed)
 			handleError(w, logger, err.Error(), http.StatusBadRequest)
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -100,13 +101,20 @@ func NewServer(
 				Options: openapi3filter.Options{AuthenticationFunc: openapi3filter.NoopAuthenticationFunc},
 				ErrorHandler: func(w http.ResponseWriter, message string, statusCode int) {
 					logger.Error("OpenAPI middleware validation error", "message", message)
+					if statusCode >= http.StatusBadRequest && statusCode < http.StatusInternalServerError {
+						recordRejectionReason(w, rejectionReasonRequestValidationFailed)
+					}
 					handleError(w, logger, message, statusCode)
 				},
 			}),
 		},
 		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.Error("OpenAPI StdServer error", "error", err)
-			handleError(w, logger, err.Error(), stdServerErrorStatus(err))
+			statusCode := stdServerErrorStatus(err)
+			if statusCode >= http.StatusBadRequest && statusCode < http.StatusInternalServerError {
+				recordRejectionReason(w, rejectionReasonRequestParsingFailed)
+			}
+			handleError(w, logger, err.Error(), statusCode)
 		},
 	})
 
@@ -153,13 +161,15 @@ func NewServer(
 	// produced, so the order below is the reverse of the order a request meets.
 	// A request runs
 	//
-	//	tracing -> logging -> authentication -> managed-by -> mux
+	//	request log state -> tracing -> logging -> authentication -> managed-by -> mux
 	//
 	// Authentication precedes managed-by so an unauthenticated caller never
 	// reaches it, and follows logging so a rejection still produces the usual
-	// request/response pair. Tracing stays outermost so a rejected request is
-	// still a span. TestDisabledServerLogsTheManagedByRejection pins the logging
-	// and managed-by order.
+	// request/response pair. Tracing still wraps request handling, so rejected
+	// requests are spans. Request log state is added before tracing so logging can pass
+	// the instrumented request directly to the mux, preserving its matched route
+	// for the HTTP span name. TestDisabledServerLogsTheManagedByRejection pins the
+	// logging and managed-by order.
 	handler := managedByMiddleware(cfg.ManagedByK8sPlatform, logger)(m)
 	if authn != nil {
 		handler = authn.Wrap(handler)
@@ -173,6 +183,7 @@ func NewServer(
 			return !isOperationalPath(pathpkg.Clean(r.URL.Path))
 		}),
 	)
+	handler = requestLogStateMiddleware(handler)
 
 	srv := &http.Server{
 		Addr:              cfg.ServerListenAddress,
