@@ -4,12 +4,39 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"strings"
 	"testing"
 
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
+
+func TestAuditLoggerMirrorsStructuredRecords(t *testing.T) {
+	t.Parallel()
+
+	var fileOutput bytes.Buffer
+	var serviceOutput bytes.Buffer
+	logger := newAuditLogger(&fileOutput, &serviceOutput)
+
+	logger.Info("audit event", "rpc_method", "/nvke.NodeAgent/NodePreflight")
+
+	if !bytes.Equal(fileOutput.Bytes(), serviceOutput.Bytes()) {
+		t.Fatalf("audit outputs differ:\nfile: %s\nservice: %s", fileOutput.Bytes(), serviceOutput.Bytes())
+	}
+
+	var record map[string]any
+	if err := json.Unmarshal(fileOutput.Bytes(), &record); err != nil {
+		t.Fatalf("audit output is not JSON: %v", err)
+	}
+	if got := record["msg"]; got != "audit event" {
+		t.Errorf("msg = %v, want %q", got, "audit event")
+	}
+	if got := record["rpc_method"]; got != "/nvke.NodeAgent/NodePreflight" {
+		t.Errorf("rpc_method = %v, want %q", got, "/nvke.NodeAgent/NodePreflight")
+	}
+}
 
 // The authorizer is the whole of this agent's access control, so these pin what it
 // refuses as much as what it admits.

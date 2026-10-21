@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net"
@@ -398,6 +399,12 @@ func RunNodeStartup(cfg AgentConfig) (*server.NodeAgentServer, error) {
 	return agentServer, nil
 }
 
+// newAuditLogger mirrors audit records to their durable file and the service
+// output collected by journald.
+func newAuditLogger(fileOutput, serviceOutput io.Writer) *slog.Logger {
+	return slog.New(slog.NewJSONHandler(io.MultiWriter(fileOutput, serviceOutput), nil))
+}
+
 func main() {
 	disableMLX5Rescan := flag.Bool("disable-mlx5-rescan", false, "Disable mlx5 rescan (disables the init routine mlx5 reset proc)")
 	disableMTLS := flag.Bool("disable-mtls", false, "Disable mTLS / use plaintext gRPC (development only)")
@@ -465,7 +472,7 @@ func main() {
 		log.Fatalf("failed to open script execution log file: %v", err)
 	}
 	// Create audit logger, script execution logger, and default logger
-	auditLogger := slog.New(slog.NewJSONHandler(auditFile, nil))
+	auditLogger := newAuditLogger(auditFile, os.Stdout)
 	scriptExecutionLogger := slog.New(slog.NewJSONHandler(scriptExecLogFile, nil))
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
