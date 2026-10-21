@@ -39,7 +39,6 @@ const (
 	NodeAgent_GetKubernetesCertificateRenewalStatus_FullMethodName        = "/proto.NodeAgent/GetKubernetesCertificateRenewalStatus"
 	NodeAgent_RemoveEtcdMember_FullMethodName                             = "/proto.NodeAgent/RemoveEtcdMember"
 	NodeAgent_GetEtcdStatus_FullMethodName                                = "/proto.NodeAgent/GetEtcdStatus"
-	NodeAgent_PatchEtcdManifest_FullMethodName                            = "/proto.NodeAgent/PatchEtcdManifest"
 	NodeAgent_StartEtcdDefrag_FullMethodName                              = "/proto.NodeAgent/StartEtcdDefrag"
 	NodeAgent_GetEtcdDefragStatus_FullMethodName                          = "/proto.NodeAgent/GetEtcdDefragStatus"
 	NodeAgent_StartK8SControlPlaneNodeGracefulShutdown_FullMethodName     = "/proto.NodeAgent/StartK8sControlPlaneNodeGracefulShutdown"
@@ -146,34 +145,6 @@ type NodeAgentClient interface {
 	// figure to gate on, not db_total_size: a large file backed by live data is
 	// not reclaimable and defragmentation would not shrink it.
 	GetEtcdStatus(ctx context.Context, in *GetEtcdStatusRequest, opts ...grpc.CallOption) (*GetEtcdStatusResponse, error)
-	// PatchEtcdManifest applies convergent flag operations to the local etcd
-	// static-pod manifest, following the same two-lane contract as
-	// PatchAPIServerManifest: APPLIED / UNCHANGED / FAILED_RESTORED /
-	// FAILED_NOT_RESTORED ride on the response with a NIL gRPC error.
-	//
-	// Unlike the apiserver RPC the pod restart is the point, not a side effect:
-	// etcd evaluates its bootstrap-defrag threshold only at startup, so writing
-	// the flag and letting kubelet swap the pod is what causes an offline
-	// defragmentation. Re-running against an already-configured manifest returns
-	// OUTCOME_UNCHANGED and does not restart etcd.
-	//
-	// Before the write the agent verifies that the local member is healthy and
-	// that enough voting members answer a probe to keep a quorum once this one
-	// restarts: max(min_voting_members, registered_voters/2 + 2). Afterwards it
-	// verifies local member health only, because a restarted member rejoining is
-	// what the caller needs to know and a peer count cannot distinguish a peer
-	// that this call disturbed from one that was already gone.
-	//
-	// Callers remain responsible for serialization: the voting-member count is a
-	// snapshot, so two agents can each see a healthy quorum and restart together.
-	// The agent cannot see whether a peer is mid-restart.
-	//
-	// Callers are also responsible for steering API traffic away from this node
-	// first. kubeadm points each kube-apiserver at its own etcd over localhost,
-	// so while etcd is down this node's apiserver cannot serve, yet kube-vip
-	// keeps advertising the control-plane VIP toward it. Drain kube-vip before
-	// this call and restore it after.
-	PatchEtcdManifest(ctx context.Context, in *PatchEtcdManifestRequest, opts ...grpc.CallOption) (*PatchEtcdManifestResponse, error)
 	// StartEtcdDefrag starts an asynchronous offline defragmentation of the local
 	// etcd member by restarting it so etcd defragments during bootstrap. It never
 	// calls `etcdctl defrag`, which blocks the member while it runs.
@@ -187,8 +158,8 @@ type NodeAgentClient interface {
 	// anything, the agent reads it from the manifest and refuses up front when
 	// reclaimable_bytes is below it, reporting OUTCOME_REFUSED without touching
 	// etcd. A restart that cannot defragment is pure downtime, so it is not
-	// attempted. Raising the persistent threshold is PatchEtcdManifest's job; this
-	// RPC never edits it, so the caller's configured value is always honoured.
+	// attempted. The agent never edits the threshold - it is set by kubeadm when
+	// the node is provisioned - so the configured value is always honoured.
 	//
 	// The agent performs the full per-node sequence: health preflight, voting
 	// member check, leadership transfer away from the local member if it is
@@ -201,10 +172,11 @@ type NodeAgentClient interface {
 	// OUTCOME_FAILED_NOT_RESTORED and needs an operator: no agent-side action
 	// recovers an etcd that will not start from its own unmodified manifest.
 	//
-	// As with PatchEtcdManifest, the caller must steer API traffic away from this
-	// node first. This node's kube-apiserver reaches etcd over localhost and
-	// cannot serve while it is down, but kube-vip keeps advertising the VIP
-	// toward it. Drain kube-vip before this call and restore it after.
+	// The caller must steer API traffic away from this node first, as it must
+	// for PatchAPIServerManifest. This node's kube-apiserver reaches etcd over
+	// localhost and cannot serve while it is down, but kube-vip keeps
+	// advertising the VIP toward it. Drain kube-vip before this call and restore
+	// it after.
 	//
 	// The operation_id is an idempotency key; retrying with the same operation_id
 	// returns the existing operation instead of restarting etcd a second time.
@@ -514,16 +486,6 @@ func (c *nodeAgentClient) GetEtcdStatus(ctx context.Context, in *GetEtcdStatusRe
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetEtcdStatusResponse)
 	err := c.cc.Invoke(ctx, NodeAgent_GetEtcdStatus_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *nodeAgentClient) PatchEtcdManifest(ctx context.Context, in *PatchEtcdManifestRequest, opts ...grpc.CallOption) (*PatchEtcdManifestResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PatchEtcdManifestResponse)
-	err := c.cc.Invoke(ctx, NodeAgent_PatchEtcdManifest_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -979,34 +941,6 @@ type NodeAgentServer interface {
 	// figure to gate on, not db_total_size: a large file backed by live data is
 	// not reclaimable and defragmentation would not shrink it.
 	GetEtcdStatus(context.Context, *GetEtcdStatusRequest) (*GetEtcdStatusResponse, error)
-	// PatchEtcdManifest applies convergent flag operations to the local etcd
-	// static-pod manifest, following the same two-lane contract as
-	// PatchAPIServerManifest: APPLIED / UNCHANGED / FAILED_RESTORED /
-	// FAILED_NOT_RESTORED ride on the response with a NIL gRPC error.
-	//
-	// Unlike the apiserver RPC the pod restart is the point, not a side effect:
-	// etcd evaluates its bootstrap-defrag threshold only at startup, so writing
-	// the flag and letting kubelet swap the pod is what causes an offline
-	// defragmentation. Re-running against an already-configured manifest returns
-	// OUTCOME_UNCHANGED and does not restart etcd.
-	//
-	// Before the write the agent verifies that the local member is healthy and
-	// that enough voting members answer a probe to keep a quorum once this one
-	// restarts: max(min_voting_members, registered_voters/2 + 2). Afterwards it
-	// verifies local member health only, because a restarted member rejoining is
-	// what the caller needs to know and a peer count cannot distinguish a peer
-	// that this call disturbed from one that was already gone.
-	//
-	// Callers remain responsible for serialization: the voting-member count is a
-	// snapshot, so two agents can each see a healthy quorum and restart together.
-	// The agent cannot see whether a peer is mid-restart.
-	//
-	// Callers are also responsible for steering API traffic away from this node
-	// first. kubeadm points each kube-apiserver at its own etcd over localhost,
-	// so while etcd is down this node's apiserver cannot serve, yet kube-vip
-	// keeps advertising the control-plane VIP toward it. Drain kube-vip before
-	// this call and restore it after.
-	PatchEtcdManifest(context.Context, *PatchEtcdManifestRequest) (*PatchEtcdManifestResponse, error)
 	// StartEtcdDefrag starts an asynchronous offline defragmentation of the local
 	// etcd member by restarting it so etcd defragments during bootstrap. It never
 	// calls `etcdctl defrag`, which blocks the member while it runs.
@@ -1020,8 +954,8 @@ type NodeAgentServer interface {
 	// anything, the agent reads it from the manifest and refuses up front when
 	// reclaimable_bytes is below it, reporting OUTCOME_REFUSED without touching
 	// etcd. A restart that cannot defragment is pure downtime, so it is not
-	// attempted. Raising the persistent threshold is PatchEtcdManifest's job; this
-	// RPC never edits it, so the caller's configured value is always honoured.
+	// attempted. The agent never edits the threshold - it is set by kubeadm when
+	// the node is provisioned - so the configured value is always honoured.
 	//
 	// The agent performs the full per-node sequence: health preflight, voting
 	// member check, leadership transfer away from the local member if it is
@@ -1034,10 +968,11 @@ type NodeAgentServer interface {
 	// OUTCOME_FAILED_NOT_RESTORED and needs an operator: no agent-side action
 	// recovers an etcd that will not start from its own unmodified manifest.
 	//
-	// As with PatchEtcdManifest, the caller must steer API traffic away from this
-	// node first. This node's kube-apiserver reaches etcd over localhost and
-	// cannot serve while it is down, but kube-vip keeps advertising the VIP
-	// toward it. Drain kube-vip before this call and restore it after.
+	// The caller must steer API traffic away from this node first, as it must
+	// for PatchAPIServerManifest. This node's kube-apiserver reaches etcd over
+	// localhost and cannot serve while it is down, but kube-vip keeps
+	// advertising the VIP toward it. Drain kube-vip before this call and restore
+	// it after.
 	//
 	// The operation_id is an idempotency key; retrying with the same operation_id
 	// returns the existing operation instead of restarting etcd a second time.
@@ -1230,9 +1165,6 @@ func (UnimplementedNodeAgentServer) RemoveEtcdMember(context.Context, *RemoveEtc
 }
 func (UnimplementedNodeAgentServer) GetEtcdStatus(context.Context, *GetEtcdStatusRequest) (*GetEtcdStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetEtcdStatus not implemented")
-}
-func (UnimplementedNodeAgentServer) PatchEtcdManifest(context.Context, *PatchEtcdManifestRequest) (*PatchEtcdManifestResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method PatchEtcdManifest not implemented")
 }
 func (UnimplementedNodeAgentServer) StartEtcdDefrag(context.Context, *StartEtcdDefragRequest) (*StartEtcdDefragResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StartEtcdDefrag not implemented")
@@ -1648,24 +1580,6 @@ func _NodeAgent_GetEtcdStatus_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(NodeAgentServer).GetEtcdStatus(ctx, req.(*GetEtcdStatusRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _NodeAgent_PatchEtcdManifest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PatchEtcdManifestRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(NodeAgentServer).PatchEtcdManifest(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: NodeAgent_PatchEtcdManifest_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeAgentServer).PatchEtcdManifest(ctx, req.(*PatchEtcdManifestRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2349,10 +2263,6 @@ var NodeAgent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEtcdStatus",
 			Handler:    _NodeAgent_GetEtcdStatus_Handler,
-		},
-		{
-			MethodName: "PatchEtcdManifest",
-			Handler:    _NodeAgent_PatchEtcdManifest_Handler,
 		},
 		{
 			MethodName: "StartEtcdDefrag",

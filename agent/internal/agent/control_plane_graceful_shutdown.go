@@ -464,7 +464,7 @@ func (s *NodeAgentServer) restoreStaticPod(
 	// gate; returning here would skip the rename entirely and leave a manifest
 	// that was moved aside parked, with nothing scheduled to put it back. For
 	// etcd that is the difference between a failed defragmentation and a member
-	// that stays down. PatchEtcdManifest's rollback already reasons this way.
+	// that stays down.
 	var baseline staticPodBaseline
 	containerIDs, err := listStaticPodContainerIDs(runner, spec.containerName)
 	if err != nil {

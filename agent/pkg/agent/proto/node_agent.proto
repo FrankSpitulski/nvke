@@ -92,35 +92,6 @@ service NodeAgent {
   // not reclaimable and defragmentation would not shrink it.
   rpc GetEtcdStatus(GetEtcdStatusRequest) returns (GetEtcdStatusResponse) {}
 
-  // PatchEtcdManifest applies convergent flag operations to the local etcd
-  // static-pod manifest, following the same two-lane contract as
-  // PatchAPIServerManifest: APPLIED / UNCHANGED / FAILED_RESTORED /
-  // FAILED_NOT_RESTORED ride on the response with a NIL gRPC error.
-  //
-  // Unlike the apiserver RPC the pod restart is the point, not a side effect:
-  // etcd evaluates its bootstrap-defrag threshold only at startup, so writing
-  // the flag and letting kubelet swap the pod is what causes an offline
-  // defragmentation. Re-running against an already-configured manifest returns
-  // OUTCOME_UNCHANGED and does not restart etcd.
-  //
-  // Before the write the agent verifies that the local member is healthy and
-  // that enough voting members answer a probe to keep a quorum once this one
-  // restarts: max(min_voting_members, registered_voters/2 + 2). Afterwards it
-  // verifies local member health only, because a restarted member rejoining is
-  // what the caller needs to know and a peer count cannot distinguish a peer
-  // that this call disturbed from one that was already gone.
-  //
-  // Callers remain responsible for serialization: the voting-member count is a
-  // snapshot, so two agents can each see a healthy quorum and restart together.
-  // The agent cannot see whether a peer is mid-restart.
-  //
-  // Callers are also responsible for steering API traffic away from this node
-  // first. kubeadm points each kube-apiserver at its own etcd over localhost,
-  // so while etcd is down this node's apiserver cannot serve, yet kube-vip
-  // keeps advertising the control-plane VIP toward it. Drain kube-vip before
-  // this call and restore it after.
-  rpc PatchEtcdManifest(PatchEtcdManifestRequest) returns (PatchEtcdManifestResponse) {}
-
   // StartEtcdDefrag starts an asynchronous offline defragmentation of the local
   // etcd member by restarting it so etcd defragments during bootstrap. It never
   // calls `etcdctl defrag`, which blocks the member while it runs.
@@ -134,8 +105,8 @@ service NodeAgent {
   // anything, the agent reads it from the manifest and refuses up front when
   // reclaimable_bytes is below it, reporting OUTCOME_REFUSED without touching
   // etcd. A restart that cannot defragment is pure downtime, so it is not
-  // attempted. Raising the persistent threshold is PatchEtcdManifest's job; this
-  // RPC never edits it, so the caller's configured value is always honoured.
+  // attempted. The agent never edits the threshold - it is set by kubeadm when
+  // the node is provisioned - so the configured value is always honoured.
   //
   // The agent performs the full per-node sequence: health preflight, voting
   // member check, leadership transfer away from the local member if it is
@@ -148,10 +119,11 @@ service NodeAgent {
   // OUTCOME_FAILED_NOT_RESTORED and needs an operator: no agent-side action
   // recovers an etcd that will not start from its own unmodified manifest.
   //
-  // As with PatchEtcdManifest, the caller must steer API traffic away from this
-  // node first. This node's kube-apiserver reaches etcd over localhost and
-  // cannot serve while it is down, but kube-vip keeps advertising the VIP
-  // toward it. Drain kube-vip before this call and restore it after.
+  // The caller must steer API traffic away from this node first, as it must
+  // for PatchAPIServerManifest. This node's kube-apiserver reaches etcd over
+  // localhost and cannot serve while it is down, but kube-vip keeps
+  // advertising the VIP toward it. Drain kube-vip before this call and restore
+  // it after.
   //
   // The operation_id is an idempotency key; retrying with the same operation_id
   // returns the existing operation instead of restarting etcd a second time.
@@ -1256,8 +1228,8 @@ message GetEtcdStatusResponse {
   bool is_leader = 5;
   // Voting (non-learner) members REGISTERED in the cluster. This is membership,
   // not liveness: an offline voter is still counted, so this must not be used
-  // on its own to decide a restart is safe. Both restart paths probe each
-  // member separately and gate on how many answer.
+  // on its own to decide a restart is safe. StartEtcdDefrag probes each member
+  // separately and gates on how many answer.
   int32 voting_member_count = 6;
   // Hexadecimal ID of the local member.
   string member_id = 7;
@@ -1270,72 +1242,17 @@ message GetEtcdStatusResponse {
   bool healthy = 8;
 }
 
-message PatchEtcdManifestRequest {
-  // Convergent operations on the etcd flag list (container command/args).
-  // Typically a SetFlag for the version-appropriate bootstrap-defrag threshold
-  // flag. At least one op is required.
-  //
-  // The flag name is the caller's choice because it changed upstream: etcd 3.5
-  // (Kubernetes <= 1.33) uses
-  // experimental-bootstrap-defrag-threshold-megabytes and etcd 3.6+
-  // (Kubernetes >= 1.34) uses bootstrap-defrag-threshold-megabytes. The agent
-  // does not infer it, so one agent build serves both.
-  repeated FlagOp flag_ops = 1;
-  // A floor on how many voting members must be REACHABLE, not merely
-  // registered, before the restart is allowed. The agent probes each peer and
-  // enforces max(min_voting_members, registered_voters/2 + 2), so the effective
-  // requirement can exceed this value: on a five-voter cluster a setting of 3
-  // still requires 4 reachable voters, because a quorum of 3 has to survive
-  // this member going down.
-  //
-  // Zero means the agent's default of 3, the smallest topology in which
-  // restarting one member still leaves a quorum.
-  //
-  // Set it to 1 to patch a single-member or two-member control plane, where no
-  // value can preserve quorum and the restart is a deliberate brief outage.
-  // Passing 1 also disables the quorum term above. That is an explicit caller
-  // decision because, unlike StartEtcdDefrag, this RPC is a configuration path
-  // that has to work on every topology.
-  int32 min_voting_members = 2;
-}
-
-message PatchEtcdManifestResponse {
-  enum Outcome {
-    OUTCOME_UNSPECIFIED = 0;
-    // The manifest changed and etcd verified healthy again after the restart.
-    OUTCOME_APPLIED = 1;
-    // The manifest already matched; nothing was written and etcd was not
-    // restarted.
-    OUTCOME_UNCHANGED = 2;
-    // The apply failed, the manifest was restored from the snapshot, and etcd
-    // was re-verified healthy. The node is back in its pre-call state.
-    OUTCOME_FAILED_RESTORED = 3;
-    // The apply failed and the restore could not be confirmed. This member may
-    // be down and needs intervention; do not proceed to another member.
-    OUTCOME_FAILED_NOT_RESTORED = 4;
-  }
-  Outcome outcome = 1;
-  // Populated only on FAILED_* outcomes.
-  string error_message = 2;
-  // Path of the retained pre-mutation manifest snapshot, for forensics.
-  string backup_manifest_path = 3;
-  // Backend size before and after. On OUTCOME_APPLIED these differ when the
-  // restart crossed etcd's bootstrap-defrag threshold.
-  int64 db_total_size_bytes_before = 4;
-  int64 db_total_size_bytes_after = 5;
-}
-
 message StartEtcdDefragRequest {
   // Idempotency key. Retrying with the same value returns the in-flight or
   // completed operation rather than restarting etcd again.
   string operation_id = 1;
-  // There is deliberately no min_voting_members here, unlike on
-  // PatchEtcdManifestRequest. The floor is a property of the cluster, so the
-  // agent derives it from the membership: it probes each voting member and
-  // requires max(3, registered_voters/2 + 2) of them to answer, which is what
-  // leaves a quorum once this member goes down. Defragmentation is optional, so
-  // no caller has a reason to lower that, and the derived floor already refuses
-  // the one- and two-member topologies where no value could preserve a quorum.
+  // There is deliberately no min_voting_members here. The floor is a property
+  // of the cluster, so the agent derives it from the membership: it probes each
+  // voting member and requires max(3, registered_voters/2 + 2) of them to
+  // answer, which is what leaves a quorum once this member goes down.
+  // Defragmentation is optional, so no caller has a reason to lower that, and
+  // the derived floor already refuses the one- and two-member topologies where
+  // no value could preserve a quorum.
 }
 
 message StartEtcdDefragResponse {

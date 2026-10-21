@@ -670,7 +670,7 @@ func TestRunEtcdDefragPutsTheManifestBackWhenCrictlFailsAfterTheMove(t *testing.
 // operation framework's deadline-free background context. One call against a
 // member that never serves blocked forever while holding staticPodMutationMu,
 // leaving the operation RUNNING and every other static-pod transaction -
-// certificate renewal, kube-vip restore, PatchEtcdManifest - stuck behind it
+// certificate renewal, kube-vip restore, apiserver patching - stuck behind it
 // until the agent restarted. The health wait's own limit does not help, because
 // it is only consulted after a call returns.
 func TestRunEtcdDefragDoesNotBlockOnAnUnresponsiveMember(t *testing.T) {

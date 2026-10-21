@@ -194,8 +194,7 @@ func (s *NodeAgentServer) GetEtcdDefragStatus(
 // mistake that for a clean stop.
 //
 // The context here comes from the operation framework, not from the RPC, so
-// unlike PatchEtcdManifest this sequence is already immune to the caller
-// disconnecting partway through.
+// this sequence is already immune to the caller disconnecting partway through.
 func (s *NodeAgentServer) runEtcdDefrag(
 	ctx context.Context,
 	progress nodeAgentOperationProgress,
@@ -539,7 +538,7 @@ func (s *NodeAgentServer) recordEtcdDefragRefusal(
 // operation successfully. The attempt failed and nothing was defragmented, but
 // the member is verifiably back on its original manifest, so this is a clean
 // stop rather than a node needing intervention - the same reasoning that has
-// PatchEtcdManifest return FAILED_RESTORED with a nil error.
+// PatchAPIServerManifest return FAILED_RESTORED with a nil error.
 func recordEtcdDefragRestored(
 	progress nodeAgentOperationProgress,
 	reason string,
