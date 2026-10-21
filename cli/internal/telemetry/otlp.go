@@ -48,12 +48,13 @@ type OTLPConfig struct {
 }
 
 // OTLPConfigFromEnv reads OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_INSECURE
-// and OTEL_EXPORTER_OTLP_HEADERS, and no other OTLP variable. The signal-specific
-// ones, such as OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, are ignored so that one
-// endpoint and one set of headers apply to everything nvkectl exports. An
-// endpoint is a host:port or a URL; the http scheme implies Insecure, as does
-// OTEL_EXPORTER_OTLP_INSECURE=true. It returns false when no endpoint is set.
+// and OTEL_EXPORTER_OTLP_HEADERS, and no other OTLP variable. The endpoint is a
+// host:port or a URL; the http scheme implies Insecure, as does
+// OTEL_EXPORTER_OTLP_INSECURE=true. It returns false when no endpoint is set,
+// and an error when the endpoint cannot be parsed.
 func OTLPConfigFromEnv() (OTLPConfig, bool, error) {
+	// Variables for one signal, such as OTEL_EXPORTER_OTLP_LOGS_ENDPOINT, are not
+	// read: this endpoint and these headers serve every signal nvkectl exports.
 	raw := os.Getenv(envEndpoint)
 	if raw == "" {
 		return OTLPConfig{}, false, nil
@@ -194,9 +195,8 @@ func (run *Run) warnExport(err error) {
 	})
 }
 
-// guardedExporter keeps an export failure from reaching the OpenTelemetry error
-// handler, which would print it for every batch. The failure is reported once
-// through warn instead.
+// guardedExporter is an sdklog.Exporter whose Export never returns an error. It
+// passes an export failure to warn.
 type guardedExporter struct {
 	sdklog.Exporter
 	warn func(error)
@@ -204,6 +204,8 @@ type guardedExporter struct {
 
 // Export implements sdklog.Exporter.
 func (e *guardedExporter) Export(ctx context.Context, records []sdklog.Record) error {
+	// An error returned here reaches the OpenTelemetry error handler, which
+	// prints it for every batch.
 	if err := e.Exporter.Export(ctx, records); err != nil {
 		e.warn(err)
 	}

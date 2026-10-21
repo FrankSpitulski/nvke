@@ -39,9 +39,9 @@ func (run *Run) LogHandler(inner slog.Handler) slog.Handler {
 	return &teeHandler{local: local, exported: exported, root: root}
 }
 
-// teeHandler sends a record to the local handler and to the exporter. Which
-// levels are logged is the local handler's decision, so the exported records
-// are the ones the operator sees on stderr.
+// teeHandler sends each record to the local handler and to the exporter. It
+// logs the levels the local handler logs, so the exporter receives the records
+// that appear on stderr.
 type teeHandler struct {
 	local    slog.Handler
 	exported slog.Handler
@@ -53,11 +53,10 @@ func (handler *teeHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return handler.local.Enabled(ctx, level)
 }
 
-// Handle implements slog.Handler. The exporter takes a record's trace ID and
-// span ID from its context, so a record logged without a span gets the run's
-// root span there. The exporter's failure never reaches the caller: a record
-// the operator can read on stderr is not lost with it.
+// Handle implements slog.Handler. It exports a copy of record and writes record
+// to the local handler. An export error is not returned.
 func (handler *teeHandler) Handle(ctx context.Context, record slog.Record) error {
+	// The exporter reads a record's trace ID and span ID from its context.
 	if !trace.SpanContextFromContext(ctx).IsValid() {
 		ctx = trace.ContextWithSpanContext(ctx, handler.root)
 	}
