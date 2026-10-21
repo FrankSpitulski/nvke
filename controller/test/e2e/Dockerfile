@@ -3,7 +3,9 @@
 
 # The E2E suite as an image, for validating a running site from inside its
 # cluster, under an in-cluster test runner. It carries the whole suite; the
-# entrypoint selects site-validate, the specs that change nothing on the site.
+# entrypoint selects site-validate, the specs that install and change nothing
+# lasting on the site. Those labeled creates, and the DNS probe, make
+# short-lived objects in the probe namespace and delete them.
 #
 # Build from the REPOSITORY ROOT, so the context includes controller/api,
 # which go.mod replaces with a relative path:
@@ -60,8 +62,10 @@ WORKDIR /e2e
 USER 65532:65532
 
 # A run that names no expected version fails rather than skipping the check,
-# which a report would show as a pass.
-ENV NKE_E2E_REQUIRE_EXPECTED_VERSION=true
+# which a report would show as a pass. NKE_SITE_VALIDATE turns on the site
+# checks, which skip in any run that does not set it.
+ENV NKE_E2E_REQUIRE_EXPECTED_VERSION=true \
+    NKE_SITE_VALIDATE=true
 
 # Build args rather than --label, so a rebuild that passes the same values
 # writes the same config, and so the same digest.

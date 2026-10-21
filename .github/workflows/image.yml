@@ -398,8 +398,10 @@ jobs:
             nvke/nvke-validate:ci -ginkgo.dry-run
           test -s "${RUNNER_TEMP}/artifacts/junit-test-report.xml"
           test -s "${RUNNER_TEMP}/artifacts/report.json"
-          grep -q 'site-validate' "${RUNNER_TEMP}/artifacts/junit-test-report.xml" \
-            || { echo "::error::the JUnit report selected no site-validate spec"; exit 1; }
+          for group in 'controller management-plane health' 'site validation'; do
+            grep -q "${group}" "${RUNNER_TEMP}/artifacts/junit-test-report.xml" \
+              || { echo "::error::the JUnit report selected no '${group}' spec"; exit 1; }
+          done
 
 # Not built here: controller/hack/Dockerfile.controller.tilt — it only copies a
 # prebuilt binary, so it has nothing to verify without a preceding build.
