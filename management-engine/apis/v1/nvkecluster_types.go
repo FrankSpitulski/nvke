@@ -34,6 +34,11 @@ type NVKEClusterSpec struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=64
 	NodePools []NodePool `json:"nodePools,omitempty"`
+	// SiteID identifies the infrastructure site for this cluster.
+	// +optional
+	// +kubebuilder:validation:Format=uuid
+	// +kubebuilder:validation:MaxLength=36
+	SiteID string `json:"siteID,omitempty"`
 }
 
 // Network identifies the existing VPC used by the node pools.

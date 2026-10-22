@@ -28,6 +28,16 @@ type NodePool struct {
 	// Rollout configures node replacement when the node profile changes.
 	// +optional
 	Rollout *Rollout `json:"rollout,omitempty"`
+	// VPCPrefixID identifies an existing VPC prefix for this pool's nodes.
+	// +optional
+	// +kubebuilder:validation:Format=uuid
+	// +kubebuilder:validation:MaxLength=36
+	VPCPrefixID string `json:"vpcPrefixID,omitempty"`
+	// SSHKeyGroupID selects the SSH key group allowed to access this pool's nodes.
+	// +optional
+	// +kubebuilder:validation:Format=uuid
+	// +kubebuilder:validation:MaxLength=36
+	SSHKeyGroupID string `json:"sshKeyGroupID,omitempty"`
 }
 
 // Rollout configures how changes are applied to nodes.
@@ -109,7 +119,7 @@ type NodePoolStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	// +kubebuilder:validation:MaxItems=32
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Conditions []NodePoolCondition `json:"conditions,omitempty"`
 	// Replicas is the observed number of nodes in the pool. Omitted means unknown.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
@@ -129,14 +139,51 @@ type NodePoolStatus struct {
 	ID string `json:"id,omitempty"`
 }
 
+// NodePoolCondition reports pool state without a transition timestamp.
+type NodePoolCondition struct {
+	// +kubebuilder:validation:MaxLength=316
+	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
+	Type string `json:"type"`
+	// +kubebuilder:validation:Enum=True;False;Unknown
+	Status metav1.ConditionStatus `json:"status"`
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// +kubebuilder:validation:MaxLength=1024
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern=`^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$`
+	Reason string `json:"reason"`
+	// +kubebuilder:validation:MaxLength=32768
+	Message string `json:"message"`
+}
+
 // GetConditions returns the pool's conditions for CAPI condition aggregation.
 func (p NodePoolStatus) GetConditions() []metav1.Condition {
-	return p.Conditions
+	conditions := make([]metav1.Condition, len(p.Conditions))
+	for i, condition := range p.Conditions {
+		conditions[i] = metav1.Condition{
+			Type:               condition.Type,
+			Status:             condition.Status,
+			ObservedGeneration: condition.ObservedGeneration,
+			Reason:             condition.Reason,
+			Message:            condition.Message,
+		}
+	}
+	return conditions
 }
 
 // SetConditions updates the pool's conditions for CAPI condition helpers.
 func (p *NodePoolStatus) SetConditions(conditions []metav1.Condition) {
-	p.Conditions = conditions
+	p.Conditions = make([]NodePoolCondition, len(conditions))
+	for i, condition := range conditions {
+		p.Conditions[i] = NodePoolCondition{
+			Type:               condition.Type,
+			Status:             condition.Status,
+			ObservedGeneration: condition.ObservedGeneration,
+			Reason:             condition.Reason,
+			Message:            condition.Message,
+		}
+	}
 }
 
 // GetName identifies the pool in CAPI aggregate condition messages.

@@ -11,13 +11,11 @@ import (
 	"fmt"
 	"os"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -55,6 +53,7 @@ func main() {
 	var enableHTTP2 bool
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var controllerEndpoint, controllerTokenFile string
+	var infraTemplateConfigMapName string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metric endpoint binds to; 0 disables it.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -92,6 +91,13 @@ func main() {
 		"File containing the NVKE controller bearer token",
 	)
 
+	flag.StringVar(
+		&infraTemplateConfigMapName,
+		"infra-template-configmap",
+		"",
+		"ConfigMap name for the infrastructure request body template",
+	)
+
 	zapOpts := zap.Options{}
 	zapOpts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -121,6 +127,11 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
 
+	if infraTemplateConfigMapName == "" {
+		setupLog.Error(nil, "--infra-template-configmap is required")
+		os.Exit(1)
+	}
+
 	controllerClient, err := configureController(controllerEndpoint, controllerTokenFile)
 	if err != nil {
 		setupLog.Error(err, "configure NVKE controller access")
@@ -140,9 +151,6 @@ func main() {
 		LeaderElectionNamespace: leaderElectionNamespace,
 		LeaderElectionID:        "management-engine.nke.nvidia.com",
 		Cache:                   cache.Options{DefaultNamespaces: watchNamespaces},
-		Client: client.Options{
-			Cache: &client.CacheOptions{DisableFor: []client.Object{&corev1.Secret{}}},
-		},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -151,8 +159,9 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 
 	if err := (&controllers.NVKEClusterReconciler{
-		Client:     mgr.GetClient(),
-		NVKEClient: controllerClient,
+		Client:                     mgr.GetClient(),
+		NVKEClient:                 controllerClient,
+		InfraTemplateConfigMapName: infraTemplateConfigMapName,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NVKECluster")
 		os.Exit(1)

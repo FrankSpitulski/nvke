@@ -158,21 +158,30 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 	return err
 }
 
-// GetNodePool reads the node pool with the given server-assigned UUID.
-func (c *Client) GetNodePool(ctx context.Context, id string) (*api.NodePool, error) {
-	nodePoolID, err := uuid.Parse(id)
-	if err != nil || nodePoolID == uuid.Nil {
-		return nil, errors.New("NVKE controller node pool ID must be a nonzero UUID")
+// FindNodePool finds a worker pool by its exact name within the named cluster.
+func (c *Client) FindNodePool(ctx context.Context, clusterName, name string) (*api.NodePool, error) {
+	if clusterName == "" || name == "" {
+		return nil, errors.New("NVKE controller cluster and node pool names are required")
 	}
-	response, err := c.api.GetNodePool(ctx, nodePoolID)
-	var result api.NodePool
+	response, err := c.api.ListNodePools(ctx, &api.ListNodePoolsParams{ClusterName: &clusterName, Name: &name})
+	var result api.ListNodePoolsResponse
 	if err := readResponse(response, err, http.StatusOK, &result); err != nil {
 		return nil, err
 	}
-	if result.ID != nodePoolID || result.ClusterID == uuid.Nil || result.Name == "" {
+	if result.NodePools == nil {
 		return nil, ErrInvalidResponse
 	}
-	return &result, nil
+	if len(result.NodePools) == 0 {
+		return nil, ErrNotFound
+	}
+	if len(result.NodePools) != 1 {
+		return nil, ErrInvalidResponse
+	}
+	pool := result.NodePools[0]
+	if pool.ID == uuid.Nil || pool.ClusterID == uuid.Nil || pool.Name != name || pool.ControlPlane {
+		return nil, ErrInvalidResponse
+	}
+	return &pool, nil
 }
 
 // CreateNodePool creates a worker pool and validates its returned identity.
@@ -189,6 +198,36 @@ func (c *Client) CreateNodePool(ctx context.Context, request api.CreateNodePoolR
 		return nil, ErrInvalidResponse
 	}
 	return &result, nil
+}
+
+// UpdateNodePool patches the supplied fields on a worker pool and validates its returned identity.
+func (c *Client) UpdateNodePool(ctx context.Context, id string, request api.UpdateNodePoolRequest) (*api.NodePool, error) {
+	nodePoolID, err := parseNodePoolID(id)
+	if err != nil {
+		return nil, err
+	}
+	response, err := c.api.UpdateNodePool(ctx, nodePoolID, request)
+	var result api.NodePool
+	if err := readResponse(response, err, http.StatusOK, &result); err != nil {
+		return nil, err
+	}
+	if result.ID != nodePoolID || result.ClusterID == uuid.Nil || result.Name == "" || result.ControlPlane {
+		return nil, ErrInvalidResponse
+	}
+	return &result, nil
+}
+
+func (c *Client) DeleteNodePool(ctx context.Context, id string) error {
+	nodePoolID, err := parseNodePoolID(id)
+	if err != nil {
+		return err
+	}
+	response, err := c.api.DeleteNodePool(ctx, nodePoolID)
+	err = readResponse(response, err, http.StatusAccepted, nil)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	return err
 }
 
 func readResponse(response *http.Response, requestErr error, expected int, target any) error {
@@ -222,6 +261,14 @@ func parseID(id string) (uuid.UUID, error) {
 	parsed, err := uuid.Parse(id)
 	if err != nil || parsed == uuid.Nil {
 		return uuid.Nil, errors.New("NVKE controller cluster ID must be a nonzero UUID")
+	}
+	return parsed, nil
+}
+
+func parseNodePoolID(id string) (uuid.UUID, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil || parsed == uuid.Nil {
+		return uuid.Nil, errors.New("NVKE controller node pool ID must be a nonzero UUID")
 	}
 	return parsed, nil
 }

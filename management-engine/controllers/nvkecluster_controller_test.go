@@ -9,6 +9,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -30,6 +31,7 @@ var _ = fixture.DescribeCaseSet(controllerCaseSet(
 				g.Expect(cluster.Generation).To(gomega.Equal(int64(1)))
 				synced := conditions.Get(cluster, internalv1.SyncedCondition)
 				g.Expect(synced).NotTo(gomega.BeNil())
+				g.Expect(synced.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
 				g.Expect(synced.ObservedGeneration).To(gomega.Equal(cluster.Generation))
 			}).WithContext(ctx).WithTimeout(timeout).WithPolling(pollInterval).Should(gomega.Succeed())
 		})
@@ -50,6 +52,7 @@ var _ = fixture.DescribeCaseSet(controllerCaseSet(
 				g.Expect(cluster.Generation).To(gomega.Equal(int64(1)))
 				synced := conditions.Get(cluster, internalv1.SyncedCondition)
 				g.Expect(synced).NotTo(gomega.BeNil())
+				g.Expect(synced.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
 				g.Expect(synced.ObservedGeneration).To(gomega.Equal(cluster.Generation))
 			}).WithContext(ctx).WithTimeout(timeout).WithPolling(pollInterval).Should(gomega.Succeed())
 		})
@@ -63,6 +66,7 @@ var _ = fixture.DescribeCaseSet(controllerCaseSet(
 				g.Expect(cluster.Generation).To(gomega.Equal(int64(2)))
 				synced := conditions.Get(cluster, internalv1.SyncedCondition)
 				g.Expect(synced).NotTo(gomega.BeNil())
+				g.Expect(synced.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
 				g.Expect(synced.ObservedGeneration).To(gomega.Equal(cluster.Generation))
 			}).WithContext(ctx).WithTimeout(timeout).WithPolling(pollInterval).Should(gomega.Succeed())
 		})
@@ -82,6 +86,7 @@ var _ = fixture.DescribeCaseSet(controllerCaseSet(
 				g.Expect(cluster.Generation).To(gomega.Equal(int64(1)))
 				synced := conditions.Get(cluster, internalv1.SyncedCondition)
 				g.Expect(synced).NotTo(gomega.BeNil())
+				g.Expect(synced.Status).NotTo(gomega.Equal(metav1.ConditionUnknown))
 				g.Expect(synced.ObservedGeneration).To(gomega.Equal(cluster.Generation))
 			}).WithContext(ctx).WithTimeout(timeout).WithPolling(pollInterval).Should(gomega.Succeed())
 		})

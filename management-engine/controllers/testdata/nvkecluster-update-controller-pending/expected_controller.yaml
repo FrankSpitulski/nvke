@@ -22,4 +22,72 @@ clusters:
   network:
     podCIDR: ""
     serviceCIDR: ""
-requests: []
+nodePools:
+- autoModeDisabled: false
+  autoProvisionDisabled: false
+  clusterID: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+  conditions:
+    deleting:
+      lastTransitionTime: "0001-01-01T00:00:00Z"
+      message: ""
+      status: "False"
+    provisioned:
+      lastTransitionTime: "0001-01-01T00:00:00Z"
+      message: ""
+      status: "False"
+    provisioning:
+      lastTransitionTime: "0001-01-01T00:00:00Z"
+      message: ""
+      status: "True"
+  controlPlane: false
+  currentNodeSetID: null
+  desiredNodeCount: 1
+  id: bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb
+  infra:
+    machineTemplate:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+      kind: DockerMachineTemplate
+      spec:
+        template:
+          metadata:
+            annotations:
+              cluster.x-k8s.io/paused: "true"
+            labels:
+              instance-type: 33333333-3333-4333-8333-333333333333
+              site-id: 11111111-1111-4111-8111-111111111111
+              ssh-key-group-id: 66666666-6666-4666-8666-666666666666
+              vpc-id: 22222222-2222-4222-8222-222222222222
+              vpc-prefix-id: 55555555-5555-4555-8555-555555555555
+          spec: {}
+  kubernetesVersion: ""
+  name: workers
+  nodeLabels: null
+  nodeNamePrefix: workers
+  nodeTaints: null
+  provisioningMonitorDisabled: true
+  recycleBudget: 0
+requests:
+- createNodePool:
+    clusterID: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+    desiredNodeCount: 1
+    infra:
+      machineTemplate:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta2
+        kind: DockerMachineTemplate
+        spec:
+          template:
+            metadata:
+              annotations:
+                cluster.x-k8s.io/paused: "true"
+              labels:
+                instance-type: 33333333-3333-4333-8333-333333333333
+                site-id: 11111111-1111-4111-8111-111111111111
+                ssh-key-group-id: 66666666-6666-4666-8666-666666666666
+                vpc-id: 22222222-2222-4222-8222-222222222222
+                vpc-prefix-id: 55555555-5555-4555-8555-555555555555
+            spec: {}
+    name: workers
+    nodeNamePrefix: workers
+    provisioningMonitorDisabled: true
+  method: POST
+  path: /api/nodePools

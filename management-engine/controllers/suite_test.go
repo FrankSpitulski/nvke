@@ -108,7 +108,12 @@ func setupWithManager(ctx SpecContext, tc *fixture.Case, controllerClient Contro
 		Controller: config.Controller{SkipNameValidation: new(true)},
 	})
 	Expect(err).NotTo(HaveOccurred())
-	reconciler := &NVKEClusterReconciler{Client: mgr.GetClient(), NVKEClient: controllerClient, PollInterval: pollInterval}
+	reconciler := &NVKEClusterReconciler{
+		Client:                     mgr.GetClient(),
+		NVKEClient:                 controllerClient,
+		PollInterval:               pollInterval,
+		InfraTemplateConfigMapName: "infra-template",
+	}
 	Expect(reconciler.SetupWithManager(mgr)).To(Succeed())
 	tc.StartManager(ctx, mgr)
 }
