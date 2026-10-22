@@ -27,11 +27,14 @@ const (
 )
 
 // validationLabelFilter is the label filter the switches choose. It returns
-// "" when neither is set, as in any run outside the image, so the suite runs
-// as it always has. A run that sets both false validates nothing and fails.
-func validationLabelFilter(getenv func(string) string) (string, error) {
-	rawSite, rawTenant := getenv(siteValidateEnv), getenv(tenantValidateEnv)
-	if strings.TrimSpace(rawSite) == "" && strings.TrimSpace(rawTenant) == "" {
+// "" when neither is present, as in any run outside the image, so the suite
+// runs as it always has. A switch that is present but blank reads as false:
+// a run that blanks both validates nothing and fails, rather than running
+// the whole suite, specs that change the cluster included.
+func validationLabelFilter(lookupEnv func(string) (string, bool)) (string, error) {
+	rawSite, siteSet := lookupEnv(siteValidateEnv)
+	rawTenant, tenantSet := lookupEnv(tenantValidateEnv)
+	if !siteSet && !tenantSet {
 		return "", nil
 	}
 	site, err := parseRequireEnv(siteValidateEnv, rawSite)

@@ -197,7 +197,7 @@ validate-image-push: ## Build the validation image for VALIDATE_PLATFORMS and pu
 	@mkdir -p $(dir $(VALIDATE_DIGEST_FILE))
 	docker buildx build $(VALIDATE_BUILD_FLAGS) \
 	  $(foreach t,$(VALIDATE_PUSH_TAGS),--tag $(VALIDATE_REPO):$(t)) \
-	  --output type=image,push=true,rewrite-timestamp=true \
+	  --output type=image,push=true,oci-mediatypes=true,rewrite-timestamp=true \
 	  --metadata-file $(VALIDATE_DIGEST_FILE).json \
 	  "$(REPO_ROOT)"
 	$(validate_read_digest)

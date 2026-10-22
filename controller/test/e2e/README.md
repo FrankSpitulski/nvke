@@ -287,7 +287,7 @@ docker buildx build -f controller/test/e2e/Dockerfile \
   --build-arg SOURCE_DATE_EPOCH=<commit time> \
   --build-arg VALIDATE_VERSION=v0.2.0 --build-arg VALIDATE_REVISION=<commit> \
   --secret id=GIT_AUTH_TOKEN,env=GIT_AUTH_TOKEN \
-  --output type=image,name=<repository>:v0.2.0,push=true,rewrite-timestamp=true \
+  --output type=image,name=<repository>:v0.2.0,push=true,oci-mediatypes=true,rewrite-timestamp=true \
   'https://github.com/dsx-ai-factory/nvke.git#controller/v0.2.0'
 ```
 

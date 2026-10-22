@@ -221,7 +221,7 @@ func TestE2E(t *testing.T) {
 
 	suiteConfig, reporterConfig := GinkgoConfiguration()
 	if !labelFilterGiven() {
-		filter, err := validationLabelFilter(os.Getenv)
+		filter, err := validationLabelFilter(os.LookupEnv)
 		if err != nil {
 			t.Fatal(err)
 		}
