@@ -141,8 +141,9 @@ func envOrDefault(key, def string) string {
 // site: specs that create, change and install nothing, so they can run under a
 // read-only identity. The authn specs are not among them because they mint
 // tokens for the scaffolding identities in deploy/k8s/nvke-auth-dev.yaml, which
-// a site does not install.
-var _ = Describe("controller management-plane health", Label("health", "site-validate"), func() {
+// a site does not install. tenant-validate too: a tenant has no controller of
+// its own, so a run for a tenant alone checks the site's.
+var _ = Describe("controller management-plane health", Label("health", siteValidateLabel, tenantValidateLabel), func() {
 	var (
 		hc        healthConfig
 		forwarder *kube.ServiceForwarder

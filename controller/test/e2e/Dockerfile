@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # The E2E suite as an image, for validating a running site from inside its
-# cluster, under an in-cluster test runner. It carries the whole suite; the
-# entrypoint selects site-validate, the specs that change nothing on the site.
+# cluster, under an in-cluster test runner. It carries the whole suite and runs
+# the specs NVKE_SITE_VALIDATE and NVKE_TENANT_VALIDATE select, the site's by
+# default: specs that change nothing on the site.
 #
 # Build from the REPOSITORY ROOT, so the context includes controller/api,
 # which go.mod replaces with a relative path:
@@ -60,8 +61,12 @@ WORKDIR /e2e
 USER 65532:65532
 
 # A run that names no expected version fails rather than skipping the check,
-# which a report would show as a pass.
-ENV NVKE_E2E_REQUIRE_EXPECTED_VERSION=true
+# which a report would show as a pass. The two switches choose the specs, the
+# site's alone unless a run turns on its tenant's; an explicit
+# -ginkgo.label-filter overrides them.
+ENV NVKE_E2E_REQUIRE_EXPECTED_VERSION=true \
+    NVKE_SITE_VALIDATE=true \
+    NVKE_TENANT_VALIDATE=false
 
 # Build args rather than --label, so a rebuild that passes the same values
 # writes the same config, and so the same digest.
@@ -74,17 +79,16 @@ LABEL org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${VALIDATE_VERSION}" \
       org.opencontainers.image.revision="${VALIDATE_REVISION}"
 
-# The label filter and report paths are in ENTRYPOINT so that arguments a
-# caller adds, such as -e2e.versions, extend the run rather than replace it.
-# The filter is not the guard: the identity the image runs as is what keeps a
-# mutating spec from running.
+# The report paths are in ENTRYPOINT so that arguments a caller adds, such as
+# -e2e.versions, extend the run rather than replace it. Spec selection is not
+# the guard: the identity the image runs as is what keeps a mutating spec from
+# running.
 #
 # -test.run because the binary also carries the module's unit tests, some of
 # which need a git checkout. The JUnit report is the suite's, which lists only
 # the selected specs; report.json is Ginkgo's, with every spec.
 ENTRYPOINT ["/usr/local/bin/e2e.test", \
     "-test.run=^TestE2E$", \
-    "-ginkgo.label-filter=site-validate", \
     "-e2e.junit-report=/artifacts/junit-test-report.xml", \
     "-ginkgo.json-report=/artifacts/report.json", \
     "-ginkgo.silence-skips", \

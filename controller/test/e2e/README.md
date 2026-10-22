@@ -192,10 +192,20 @@ no Go at all.
 
 `Dockerfile` packages the suite as an image that validates a running site from
 a pod inside its cluster, as an in-cluster test runner runs it. The image carries
-every spec and runs those labelled `site-validate`: specs that create, change
+every spec and runs those its two switches select: specs that create, change
 and install nothing on the site. Today that is the health specs. The
 authentication specs are not, because they mint tokens for the scaffolding
 identities in `deploy/k8s/nvke-auth-dev.yaml`.
+
+| Run | `NVKE_SITE_VALIDATE` | `NVKE_TENANT_VALIDATE` | Specs labelled |
+| --- | --- | --- | --- |
+| The site (the image's default) | `true` | `false` | `site-validate` |
+| The site and a tenant | `true` | `true` | `site-validate` or `tenant-validate` |
+| A tenant alone | `false` | `true` | `tenant-validate` |
+
+The health specs carry both labels, so every run checks the controller: a
+tenant has none of its own. Both `false` fails the run, which would validate
+nothing. An explicit `-ginkgo.label-filter` argument overrides the switches.
 
 ```bash
 make -C controller/test/e2e validate-image   # VALIDATE_IMAGE, VALIDATE_PLATFORM
@@ -303,8 +313,8 @@ RUN apk add --no-cache curl
 USER 65532:65532
 ```
 
-Keep the user, and keep `ENTRYPOINT` or restate it in full: the label filter
-and the report paths a runner reads are in it. Specs cannot be added this
+Keep the user, the `ENV` switches, and `ENTRYPOINT` or restate it in full:
+the report paths a runner reads are in it. Specs cannot be added this
 way; they are compiled into the test binary.
 
 ## Useful Ginkgo CLI Commands
