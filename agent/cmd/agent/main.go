@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
@@ -342,7 +343,7 @@ func newGRPCServerOptions(auditLogger *slog.Logger) []grpc.ServerOption {
 	return []grpc.ServerOption{
 		grpc.StatsHandler(otelgrpc.NewServerHandler(
 			otelgrpc.WithPropagators(propagation.TraceContext{}),
-			otelgrpc.WithTracerProvider(trace.NewNoopTracerProvider()),
+			otelgrpc.WithTracerProvider(noop.NewTracerProvider()),
 		)),
 		grpc.UnaryInterceptor(newAuditLogInterceptor(auditLogger)),
 	}
