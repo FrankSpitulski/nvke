@@ -170,6 +170,33 @@ def main():
                 print(f"ERROR: empty additional RBAC must allow {override}\n{result.stderr}", file=sys.stderr)
                 return 1
 
+    for api_version, kind, invalid_field in (
+        ("v1", "Secret", "kind"),
+        ("v1", "ConfigMap", "kind"),
+        ("rbac.authorization.k8s.io/v1", None, "kind"),
+        ("example.test/v1", "Role", "apiVersion"),
+        ("rbac.authorization.k8s.io/v1beta1", "ClusterRole", "apiVersion"),
+        (None, "RoleBinding", "apiVersion"),
+    ):
+        obj = {"metadata": {"name": "invalid-object", "namespace": "tenant-a"}}
+        if api_version is not None:
+            obj["apiVersion"] = api_version
+        if kind is not None:
+            obj["kind"] = kind
+        if kind == "Secret":
+            obj["stringData"] = {"marker": "not-a-credential"}
+        result = subprocess.run(
+            [*command, "--values", "-"],
+            input=yaml.safe_dump({"tenantAccess": {"additionalRBAC": [obj]}}),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        expected = f"tenantAccess.additionalRBAC[0]: {invalid_field} must be"
+        if result.returncode == 0 or expected not in result.stderr:
+            print(f"ERROR: expected render rejection: {expected}\n{result.stderr}", file=sys.stderr)
+            return 1
+
     invalid_cases = [[document] for document in inner]
     for obj in additional_rbac + scoped_rbac:
         invalid_cases.append([obj, obj])
@@ -177,6 +204,14 @@ def main():
         if document["kind"] in ("ClusterRole", "ClusterRoleBinding"):
             obj = copy.deepcopy(document)
             obj["metadata"]["namespace"] = "invalid-for-cluster-scoped-rbac"
+            invalid_cases.append([obj])
+    for kind in ("Role", "RoleBinding"):
+        for namespace in (None, ""):
+            obj = copy.deepcopy(next(document for document in scoped_rbac if document["kind"] == kind))
+            if namespace is None:
+                obj["metadata"].pop("namespace")
+            else:
+                obj["metadata"]["namespace"] = namespace
             invalid_cases.append([obj])
     for additional in invalid_cases:
         result = subprocess.run(
@@ -192,6 +227,8 @@ def main():
         expected = f"tenantAccess.additionalRBAC[{len(additional) - 1}]: duplicate RBAC object {identity}"
         if obj["kind"] in ("ClusterRole", "ClusterRoleBinding") and obj["metadata"].get("namespace"):
             expected = f"tenantAccess.additionalRBAC[0]: {obj['kind']} must not set metadata.namespace"
+        elif obj["kind"] in ("Role", "RoleBinding") and not obj["metadata"].get("namespace"):
+            expected = f"tenantAccess.additionalRBAC[0]: {obj['kind']} must set metadata.namespace"
         if result.returncode == 0 or expected not in result.stderr:
             print(f"ERROR: expected render rejection: {expected}\n{result.stderr}", file=sys.stderr)
             return 1
