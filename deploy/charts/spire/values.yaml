@@ -48,7 +48,7 @@ global:
 # ---------------------------------------------------------------------------
 # helm --create-namespace creates the release namespace only, and the SPIRE
 # subcharts deliberately land in two others. Turn this off where something
-# else owns them — in the nvke-nico-stack umbrella, or under GitOps.
+# else owns them — a cluster installer, or GitOps.
 namespaces:
   create: true
   # Where spire-server, the controller manager and the OIDC discovery provider
@@ -70,7 +70,7 @@ namespaces:
 # cert-manager's --cluster-resource-namespace instead.
 #
 # Needs cert-manager in the cluster. It is NOT installed here — a seed gets it
-# from `clusterctl init`, and the nvke-nico-stack umbrella can install it.
+# from `clusterctl init`.
 oidcUpstreamCA:
   create: true
   # The Certificate, and the Secret it writes. spire.spiffe-oidc-discovery-provider

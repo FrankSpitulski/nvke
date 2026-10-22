@@ -18,8 +18,8 @@
 # end-to-end lane runs, so it is the one known to come up on kind.
 #
 # The controller does block on "no identity issued" until SPIRE has issued its
-# SVID, so install the SPIRE chart as well — or the nvke-nico-stack umbrella, which
-# installs both.
+# SVID, so install ../spire first and wait for it. That is step 1 of the
+# sequence; this chart is step 2.
 
 postgresql:
   primary:

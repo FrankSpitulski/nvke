@@ -77,9 +77,9 @@ The default version is `LOCAL_PATH_PROVISIONER_VERSION` from
 ## Namespace
 
 The vendored chart takes its namespace from the release namespace, with no
-override. Inside the `nvke-nico-stack` umbrella the provisioner therefore runs
-in the umbrella's namespace. That is harmless: the StorageClass is
-cluster-scoped and the provisioner does not care where it runs.
+override, so the provisioner runs in whichever namespace this chart is
+released into. That is harmless: the StorageClass is cluster-scoped and the
+provisioner does not care where it runs.
 
 ## Values worth knowing
 

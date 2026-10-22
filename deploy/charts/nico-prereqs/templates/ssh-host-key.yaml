@@ -16,7 +16,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: {{ .Values.sshHostKey.name }}
-  namespace: {{ .Values.namespaces.nico }}
+  namespace: {{ .Release.Namespace }}
   annotations:
     # Keep the key across an uninstall, for the same reason it is not
     # generated here.
