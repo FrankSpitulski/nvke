@@ -44,13 +44,13 @@ func TestJSONContractUsesOnlySnakeCase(t *testing.T) {
 		`{"release":{"channel":{"name":"one","name":"two"}}}`,
 		`{"cluster_network":{"pods":{"cidrBlocks":["10.0.0.0/8"]}}}`,
 	} {
-		require.Error(t, protojson.Unmarshal([]byte(input), &clusterv1.CreateClusterSpec{}))
+		require.Error(t, protojson.Unmarshal([]byte(input), &clusterv1.CreateClusterSpec{}), "input: %s", input)
 	}
 	for _, input := range []string{
 		`{"cluster_network":{}}`,
 		`{"api_server_access":{}}`,
 	} {
-		require.Error(t, protojson.Unmarshal([]byte(input), &clusterv1.ReplaceClusterSpec{}))
+		require.Error(t, protojson.Unmarshal([]byte(input), &clusterv1.ReplaceClusterSpec{}), "input: %s", input)
 	}
 }
 
@@ -400,7 +400,7 @@ func TestStatusEnumJSONContract(t *testing.T) {
 		for _, input := range []string{
 			`{"status":{"state":"STATE_READY"}}`, `{"status":{"state":999}}`,
 		} {
-			require.Error(t, protojson.Unmarshal([]byte(input), request))
+			require.Error(t, protojson.Unmarshal([]byte(input), request), "%s input: %s", request.ProtoReflect().Descriptor().FullName(), input)
 		}
 		require.Nil(t, request.ProtoReflect().Descriptor().Fields().ByName("status"))
 	}
@@ -444,8 +444,8 @@ func TestEnvelopeFieldNumbersAreStable(t *testing.T) {
 	} {
 		for i, name := range test.names {
 			field := test.message.Fields().ByName(name)
-			require.NotNil(t, field)
-			require.Equal(t, protoreflect.FieldNumber(i+1), field.Number())
+			require.NotNil(t, field, "%s.%s", test.message.FullName(), name)
+			require.Equal(t, protoreflect.FieldNumber(i+1), field.Number(), "%s.%s", test.message.FullName(), name)
 		}
 	}
 }
