@@ -28,6 +28,22 @@ Run `helm dependency build deploy/charts/nico` before building the umbrella.
 {{- fail "nico.enabled is true but the NICo chart is not in charts/. Run `helm repo add nico <your NICo chart repository>` and `helm dependency build deploy/charts/nico` — and, when installing through nvke-nico-stack, build that chart's dependencies again afterwards so it packages this one with its own charts/." }}
 {{- end }}
 
+{{- /*
+NICo's chart runs its config ConfigMap and its schema migration Job as
+pre-install/pre-upgrade hooks, and helm applies hooks before every regular
+manifest in the release -- a Namespace included. So the namespace NICo lands
+in has to exist before this release is applied, and this chart cannot create
+it.
+
+The lookup reads the live cluster, so it is empty during `helm template` and
+`--dry-run`. This guards an install, not a render.
+*/ -}}
+{{- if and .Values.nico.enabled (ne .Values.namespaces.nico .Release.Namespace) }}
+{{- if not (lookup "v1" "Namespace" "" .Values.namespaces.nico) }}
+{{- fail (printf "the namespace %q does not exist. NICo's chart uses pre-install hooks, which helm applies before every manifest in this release, so this release cannot create it. Run `kubectl create namespace %s` first, or release this chart on its own into %s with --create-namespace." .Values.namespaces.nico .Values.namespaces.nico .Values.namespaces.nico) }}
+{{- end }}
+{{- end }}
+
 {{- if .Values.nico.enabled }}
 {{- if not .Values.nico.global.image.repository }}
 {{- fail "nico.global.image.repository is required: the NICo chart names no registry and renders invalid manifests without it." }}

@@ -18,9 +18,25 @@
 # Namespaces
 # ---------------------------------------------------------------------------
 namespaces:
-  create: true
   # Where NICo lands. The NICo chart's own default, and the name its Secrets
   # are prefixed with.
+  #
+  # THIS CHART DOES NOT CREATE IT, and cannot. The NICo chart runs its config
+  # ConfigMap and its schema migration Job as pre-install/pre-upgrade hooks,
+  # and helm applies hooks before every regular manifest in the release --
+  # including a Namespace. A Namespace declared here is therefore created
+  # after the hooks that need it:
+  #
+  #   Hook pre-upgrade .../nico-api/templates/configmap.yaml failed:
+  #   namespaces "forge-system" not found
+  #
+  # Released on its own into this namespace, `--create-namespace` handles it,
+  # because helm creates the release namespace before anything else. Inside an
+  # umbrella released elsewhere, create it first:
+  #
+  #   kubectl create namespace forge-system
+  #
+  # templates/validate.yaml refuses an install when it is missing.
   nico: forge-system
 
 # ---------------------------------------------------------------------------
@@ -150,6 +166,24 @@ postgresql:
     secretKeys:
       adminPasswordKey: postgres-password
       userPasswordKey: password
+
+    # INERT. Not a credential, and never written anywhere.
+    #
+    # The Bitnami chart refuses an UPGRADE when auth.username is not
+    # `postgres` and auth.password is empty, because it cannot tell whether it
+    # is about to rotate a password it manages:
+    #
+    #   'global.postgresql.auth.password' must not be empty
+    #
+    # It does not manage this one. auth.existingSecret above is set, so
+    # postgresql.v1.createSecret is false and the chart writes no Secret of its
+    # own; every credential comes from templates/database-secret.yaml, which
+    # builds it from database.password. auth.password is read nowhere else.
+    #
+    # Without this, enabling NICo on an existing release fails to render while
+    # a fresh install of the same values succeeds -- the validation only runs
+    # on upgrade. Changing this value changes nothing.
+    password: "unused-see-comment-above"
 
   primary:
     persistence:

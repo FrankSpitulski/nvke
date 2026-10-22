@@ -74,6 +74,30 @@ then be in one namespace and the services that mount them in another.
 `templates/validate.yaml` refuses an install where any subchart disagrees with
 `namespaces.nico`, so this cannot drift silently.
 
+## NICo cannot share a release with its namespace or its database
+
+NICo's chart runs its config ConfigMap and its schema migration Job as
+`pre-install,pre-upgrade` hooks. Helm applies hooks **before every regular
+manifest in the release**, so anything those hooks depend on has to exist
+before the release is applied. Two things do:
+
+**The namespace.** A `Namespace` declared in this release is created after the
+hooks that need it, so this chart does not declare one.
+`templates/validate.yaml` refuses the install when it is missing. Released on
+its own, `--create-namespace` covers it. Inside an umbrella released elsewhere,
+run `kubectl create namespace forge-system` first.
+
+**PostgreSQL.** The migration Job connects to the database. With
+`postgresql.enabled=true` that database is a StatefulSet in this same release,
+applied only after the hook has already failed. For a single `helm` apply, set
+`postgresql.enabled=false` and point `database.host` at a PostgreSQL that
+already exists. With `postgresql.enabled=true`, install this chart as its own
+release so the database is in place before NICo's hooks run on a later upgrade.
+
+This is how upstream runs it too: NICo's own `setup.sh` installs PostgreSQL
+from a separate release before the NICo chart, and the NICo chart ships no
+database of its own.
+
 ## NICo's Temporal
 
 `temporal.enabled` is off by default, and **refused inside the `nvke-nico-stack`

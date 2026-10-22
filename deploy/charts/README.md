@@ -232,6 +232,39 @@ issue them. NICo cannot tell the difference: it only ever names the issuer.
 revocation, no audit trail, no rotation story, and the CA private key is a
 Secret in the cluster.
 
+## NICo and the single apply
+
+NVKE, SPIRE and the StorageClass install as one `helm upgrade --install`.
+NICo does not, unless two things already exist.
+
+NICo's chart runs its config ConfigMap and its schema migration Job as
+`pre-install,pre-upgrade` hooks, and helm applies hooks **before every regular
+manifest in the release**. So the `forge-system` namespace and NICo's
+PostgreSQL both have to be in place before the release is applied — a
+`Namespace` or a `StatefulSet` declared in the same release is created too
+late:
+
+```
+Hook pre-upgrade .../nico-api/templates/configmap.yaml failed:
+namespaces "forge-system" not found
+```
+
+For one apply including NICo:
+
+```bash
+kubectl create namespace forge-system
+helm upgrade --install nvke-nico-stack deploy/charts/nvke-nico-stack \
+  --namespace nvke-system --create-namespace \
+  --set nvke-nico.enabled=true \
+  --set nvke-nico.postgresql.enabled=false \
+  --set nvke-nico.database.host=<an existing PostgreSQL> \
+  ...
+```
+
+Otherwise install [`nico/`](nico/) as its own release, after the umbrella.
+Upstream does the same: NICo's `setup.sh` installs PostgreSQL from a separate
+release first, and the NICo chart ships no database of its own.
+
 ## What Helm does and does not sequence
 
 One Helm release is one apply. Helm sorts by kind and waits for workloads, and

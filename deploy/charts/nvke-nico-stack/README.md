@@ -56,6 +56,21 @@ cluster that has neither, or every PostgreSQL PVC sits `Pending`.
 off; the chart itself refuses to install beside an existing default. See
 [`../storage/README.md`](../storage/README.md).
 
+## NICo needs two things outside this release
+
+`nvke-nico.enabled=true` is not enough for a single apply. NICo's chart uses
+`pre-install,pre-upgrade` hooks, and helm applies hooks before every manifest
+in the release, so both of these must already exist:
+
+```bash
+kubectl create namespace forge-system        # the hooks run before a Namespace in this release
+--set nvke-nico.postgresql.enabled=false     # and before a StatefulSet in it
+--set nvke-nico.database.host=<existing-postgres-host>
+```
+
+With `nvke-nico.postgresql.enabled=true`, install [`../nico`](../nico/) as its
+own release instead. See [`../nico/README.md`](../nico/README.md#nico-cannot-share-a-release-with-its-namespace-or-its-database).
+
 ## NICo is off by default
 
 `nvke-nico.enabled` ships false. Turn it on once the `nico` repository alias is
