@@ -4,7 +4,7 @@ Installs the NVKE management plane onto a site cluster that `nvkectl bootstrap s
 
 Two scripts: `check-site.sh` reports what the site still needs, `nvke-deploy.sh` installs the deploy path. `nvke-deploy-local.sh` wraps the second for the local site of [Run NVKE end to end on one machine](../docs/get-started/local-site.md): the lab StorageClass before, the inputs from the environment, the SPIRE exec-auth patch after. Read them before you run them.
 
-[`charts/`](charts/) is a second way in, with `helm` alone and none of these scripts: one chart each for NVKE, SPIRE and NICo, and an umbrella that installs the three together. It renders no per-site values, pins nothing to a release digest and imports no images, so it does not replace the deploy path — use it for a development cluster, or where a GitOps tool already drives Helm. It is also the only path here that installs NICo itself rather than CAPNICo, the Cluster API provider for it.
+[`charts/`](charts/) is a second way in, with `helm` alone and none of these scripts: one chart each for NVKE, SPIRE, CAPNICo and NICo, and the `nvke-nico-stack` umbrella that installs NVKE, SPIRE and NICo together. It renders no per-site values, pins nothing to a release digest and imports no images, so it does not replace the deploy path — use it for a development cluster, or where a GitOps tool already drives Helm. It is also the only path here that installs NICo itself, not just CAPNICo, the Cluster API provider for it.
 
 ## Inputs
 

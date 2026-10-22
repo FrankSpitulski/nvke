@@ -15,12 +15,16 @@
 #
 # `clusterctl init` installs cert-manager too, so a seed that has run it
 # already has one.
+#
+# CAPNICo is a separate release, not a subchart here: its published chart
+# hardcodes .Release.Namespace and creates it unconditionally, so it can only
+# be released into the namespace it lives in. See ../capnico.
 
 global:
   # Read by nvke-nico, which refuses to install a second Temporal while this is
   # set. Temporal's chart has no namespaceOverride, so two Temporals in one
   # release land in one namespace and take each other's Service names.
-  nvkeStack: true
+  nvkeNicoStack: true
 
 # ---------------------------------------------------------------------------
 # The three charts

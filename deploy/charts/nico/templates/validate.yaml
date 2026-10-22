@@ -12,12 +12,12 @@ namespaceOverride, so there is no way to separate them from inside the umbrella
 — and both default to Services named temporal-frontend, temporal-history and so
 on, so the second release silently takes the first one's names.
 */ -}}
-{{- if and .Values.temporal.enabled (dig "nvkeStack" false (.Values.global | default dict)) }}
-{{- fail "temporal.enabled is not supported inside the nvke-stack umbrella: Temporal's chart has no namespaceOverride, so NICo's Temporal and the NVKE controller's would land in the same namespace and collide. Release this chart on its own, into its own namespace, to give NICo a Temporal of its own." }}
+{{- if and .Values.temporal.enabled (dig "nvkeNicoStack" false (.Values.global | default dict)) }}
+{{- fail "temporal.enabled is not supported inside the nvke-nico-stack umbrella: Temporal's chart has no namespaceOverride, so NICo's Temporal and the NVKE controller's would land in the same namespace and collide. Release this chart on its own, into its own namespace, to give NICo a Temporal of its own." }}
 {{- end }}
 
 {{- /*
-`helm dependency build` on the nvke-stack umbrella packages THIS chart as it
+`helm dependency build` on the nvke-nico-stack umbrella packages THIS chart as it
 finds it on disk. If charts/ has not been built here first, the NICo umbrella
 is simply absent from the archive — and nico.enabled stays true, so the
 prerequisites install and NICo itself silently does not.
@@ -25,7 +25,7 @@ prerequisites install and NICo itself silently does not.
 Run `helm dependency build deploy/charts/nico` before building the umbrella.
 */ -}}
 {{- if and .Values.nico.enabled (not (hasKey .Subcharts "nico")) }}
-{{- fail "nico.enabled is true but the NICo chart is not in charts/. Run `helm repo add nico <your NICo chart repository>` and `helm dependency build deploy/charts/nico` — and, when installing through nvke-stack, build that chart's dependencies again afterwards so it packages this one with its own charts/." }}
+{{- fail "nico.enabled is true but the NICo chart is not in charts/. Run `helm repo add nico <your NICo chart repository>` and `helm dependency build deploy/charts/nico` — and, when installing through nvke-nico-stack, build that chart's dependencies again afterwards so it packages this one with its own charts/." }}
 {{- end }}
 
 {{- if .Values.nico.enabled }}

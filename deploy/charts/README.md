@@ -1,16 +1,23 @@
 # Helm charts
 
-Four charts that install NVKE, SPIRE and NICo with `helm` alone.
+Five charts that install NVKE, SPIRE, CAPNICo and NICo with `helm` alone.
 
-| Chart | Installs |
-|---|---|
-| [`nvke/`](nvke/) | The NVKE controller, with the PostgreSQL and Temporal it runs on |
-| [`spire/`](spire/) | SPIRE, the OIDC upstream CA chain and the two NodePorts |
-| [`nico/`](nico/) | NICo, with the prerequisites its own chart expects to find already in place |
-| [`nvke-stack/`](nvke-stack/) | The three above, in one release |
+| Chart | Installs | In the umbrella |
+|---|---|---|
+| [`nvke/`](nvke/) | The NVKE controller, with the PostgreSQL and Temporal it runs on | yes |
+| [`spire/`](spire/) | SPIRE, the OIDC upstream CA chain and the two NodePorts | yes |
+| [`nico/`](nico/) | NICo, with the prerequisites its own chart expects to find already in place | yes, off by default |
+| [`capnico/`](capnico/) | CAPNICo, the Cluster API provider **for** NICo, with the credentials Secret it reads | **no** — see below |
+| [`nvke-nico-stack/`](nvke-nico-stack/) | The first three, in one release | — |
 
-Each chart stands on its own. `nvke-stack` is for the common case — one
+Each chart stands on its own. `nvke-nico-stack` is for the common case — one
 release, one namespace, one command.
+
+**CAPNICo is a separate release, and it needs helm 4.** Its published chart
+takes every object's namespace from `{{ .Release.Namespace }}` and declares
+that namespace itself, so it can only be released into the namespace it lives
+in — which rules out being a subchart of an umbrella released elsewhere. See
+[`capnico/README.md`](capnico/README.md). The other four work on helm 3.
 
 These charts are an alternative to the [deploy path](../nico/), not a
 replacement for it. The deploy path renders per-cluster values and credentials
@@ -26,8 +33,9 @@ Helm.
 |---|---|
 | cert-manager | Every chart here creates `Certificate` and `Issuer` objects, so their CRDs have to exist first. `clusterctl init` installs cert-manager, so a seed that has run it is ready |
 | A default StorageClass | PostgreSQL and SPIRE both take a PVC. Without a default they sit `Pending` forever. kind ships the rancher local-path provisioner |
-| Cluster API, through `clusterctl init` | Only for driving real clusters. The NVKE controller starts and answers without it, and logs that `cluster.x-k8s.io` kinds are missing |
-| A `nico` chart repository | Only for the NICo chart. NICo is published separately from NVKE, so neither `nico/` nor `nvke-stack/` names a registry: `helm repo add nico <your NICo chart repository>` |
+| Cluster API, through `clusterctl init` | For driving real clusters, and for CAPNICo to reconcile anything. The NVKE controller starts and answers without it, and logs that `cluster.x-k8s.io` kinds are missing |
+| helm 4 | Only for the CAPNICo chart. NVKE pins `v4.2.4` in `make/tool-versions.mk`. The other four charts work on helm 3 |
+| A `nico` chart repository | Only for the NICo chart. NICo is published separately from NVKE, so neither `nico/` nor `nvke-nico-stack/` names a registry: `helm repo add nico <your NICo chart repository>` |
 
 ```bash
 helm repo add jetstack https://charts.jetstack.io
@@ -52,11 +60,11 @@ EOF
 
 helm dependency build deploy/charts/spire
 helm dependency build deploy/charts/nvke
-helm dependency build deploy/charts/nvke-stack
+helm dependency build deploy/charts/nvke-nico-stack
 
-helm upgrade --install nvke-stack deploy/charts/nvke-stack \
+helm upgrade --install nvke-nico-stack deploy/charts/nvke-nico-stack \
   --namespace nvke-system --create-namespace \
-  --values deploy/charts/nvke-stack/values-kind.yaml \
+  --values deploy/charts/nvke-nico-stack/values-kind.yaml \
   --set nvke.database.password=<pick one> \
   --set nvke.nvke-controller.profiles.image.repository=<repo> \
   --set nvke.nvke-controller.profiles.image.tag=<tag> \
@@ -99,6 +107,33 @@ to render without one. `--set nvke.nvke-controller.profiles.image.enabled=false`
 leaves it out, which is enough to bring the controller up; `/api/releases` then
 returns 500 and nothing can be provisioned.
 
+## Adding CAPNICo
+
+CAPNICo reconciles `NicoCluster` and `NicoMachine` objects against a NICo API
+that already exists. It is not NICo. Its chart and image are both public, so
+it needs no repository alias — but it does need helm 4 and a release of its
+own:
+
+```bash
+helm dependency build deploy/charts/capnico
+helm upgrade --install capnico deploy/charts/capnico \
+  --namespace capnico-system --create-namespace \
+  --set credentials.create=true \
+  --set credentials.endpoint=<nico-api-base-url> \
+  --set credentials.orgID=<org> \
+  --set credentials.apiName=<api> \
+  --set credentials.token=<token>
+```
+
+Pick **one** way to install CAPNICo and stay with it: this chart, its published
+chart directly, or `clusterctl init --infrastructure nico`. All three create
+the same `capnico-system/controller-manager` Deployment under the same names,
+and two of them do not give two installs — they give two things claiming the
+same objects.
+
+CAPNICo also needs Cluster API, which `clusterctl init` brings. Without it the
+manager runs and reconciles nothing.
+
 ## Adding NICo
 
 NICo needs its chart repository and images, and both are published separately
@@ -107,16 +142,16 @@ from NVKE:
 ```bash
 helm repo add nico <your NICo chart repository>
 
-# In this order: building nvke-stack packages the nico chart as it finds it on
+# In this order: building nvke-nico-stack packages the nico chart as it finds it on
 # disk, so that chart's own dependencies have to be in place first.
 helm dependency build deploy/charts/nico
-helm dependency build deploy/charts/nvke-stack
+helm dependency build deploy/charts/nvke-nico-stack
 
 ssh-keygen -t ed25519 -f ./ssh_host_ed25519_key -N ""
 
-helm upgrade --install nvke-stack deploy/charts/nvke-stack \
+helm upgrade --install nvke-nico-stack deploy/charts/nvke-nico-stack \
   --namespace nvke-system \
-  --values deploy/charts/nvke-stack/values-kind.yaml \
+  --values deploy/charts/nvke-nico-stack/values-kind.yaml \
   --set nvke.database.password=<pick one> \
   --set nvke-nico.enabled=true \
   --set nvke-nico.database.password=<pick one> \
@@ -158,7 +193,7 @@ blocks admission while it is starting.
 **Temporal's namespace.** Temporal's chart has no `namespaceOverride` — its
 templates follow `.Release.Namespace` — so it lands wherever its chart is
 released. That is why the commands above use `--namespace nvke-system`, and why
-`nvke-stack` refuses to install a second Temporal for NICo: two of them in one
+`nvke-nico-stack` refuses to install a second Temporal for NICo: two of them in one
 release would take each other's Service names. To give NICo a Temporal of its
 own, release `nico/` on its own, into its own namespace, with
 `temporal.enabled=true`.
@@ -181,9 +216,13 @@ run.
   global that sets them all. `nico/templates/validate.yaml` refuses an install
   where one of them disagrees with `namespaces.nico`, so it cannot drift
   silently.
-- **`helm dependency build` does not recurse.** Building `nvke-stack` packages
+- **CAPNICo cannot join the umbrella without an upstream change.** Its chart
+  would need a `namespaceOverride` threaded through its 29 direct
+  `{{ .Release.Namespace }}` references, and its `Namespace` object made
+  conditional. Both changes belong to `cluster-api-provider-nico`, not here.
+- **`helm dependency build` does not recurse.** Building `nvke-nico-stack` packages
   `nico/` exactly as it finds it on disk, so `nico/`'s own dependencies have to
   be built FIRST — otherwise the NICo umbrella is absent from the archive and
   only its prerequisites install. `nico/templates/validate.yaml` refuses that
   render rather than letting it pass. Build in this order:
-  `nico/`, then `nvke-stack/`.
+  `nico/`, then `nvke-nico-stack/`.

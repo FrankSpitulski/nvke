@@ -19,7 +19,7 @@ dependencies:
   # The NICo umbrella chart, by local repository ALIAS rather than by URL.
   # NICo is published separately from NVKE, so this chart does not name a
   # registry — add the repository under the name `nico` once, and both
-  # `helm dependency build` here and in ../nvke-stack resolve it:
+  # `helm dependency build` here and in ../nvke-nico-stack resolve it:
   #
   #   helm repo add nico <your NICo chart repository>
   #
@@ -38,7 +38,7 @@ dependencies:
     condition: postgresql.enabled
 
   # NICo's Temporal, which is NOT the NVKE controller's. Off by default, and
-  # refused inside the nvke-stack umbrella: Temporal's chart has no
+  # refused inside the nvke-nico-stack umbrella: Temporal's chart has no
   # namespaceOverride, so two of them in one release land in one namespace and
   # collide. See templates/validate.yaml.
   - name: temporal

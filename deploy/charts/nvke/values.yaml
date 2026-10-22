@@ -20,9 +20,6 @@ namespaces:
   controller: nke-controller
   system: nvke-system
   postgres: postgres
-  # CAPNICo's own default: it reads `nico-credentials` from this namespace and
-  # the name is not configurable on its side.
-  capnico: capnico-system
 
 # ---------------------------------------------------------------------------
 # The database
@@ -82,18 +79,9 @@ tenantCredentials:
   user: ""
   password: ""
 
-# What CAPNICo authenticates to the NICo API with. The name, namespace and the
-# four keys are CAPNICo's own defaults and are not configurable on its side.
-#
-# Off by default: a cluster that is not driving NICo hardware does not need it,
-# and CAPNICo itself is not installed by this chart.
-nicoCredentials:
-  create: false
-  name: nico-credentials
-  endpoint: ""
-  orgID: ""
-  apiName: ""
-  token: ""
+# CAPNICo's credentials Secret is NOT here. It belongs with CAPNICo, which
+# reads it and whose chart creates the namespace it goes in — see
+# ../capnico.
 
 # ---------------------------------------------------------------------------
 # PostgreSQL

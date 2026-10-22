@@ -10,9 +10,6 @@ and claiming it here would fight that.
 {{- if .Values.postgresql.enabled }}
 {{- $wanted = append $wanted .Values.namespaces.postgres }}
 {{- end }}
-{{- if .Values.nicoCredentials.create }}
-{{- $wanted = append $wanted .Values.namespaces.capnico }}
-{{- end }}
 {{- range $ns := ($wanted | uniq) }}
 {{- if ne $ns $.Release.Namespace }}
 ---

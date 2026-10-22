@@ -1,4 +1,4 @@
-nvke-stack is installed in {{ .Release.Namespace }}.
+nvke-nico-stack is installed in {{ .Release.Namespace }}.
 
 {{- if (index .Values "nvke-spire").enabled }}
   SPIRE        {{ (index .Values "nvke-spire").namespaces.server }}, {{ (index .Values "nvke-spire").namespaces.system }}
@@ -30,6 +30,15 @@ has no namespaceOverride, so it landed here — and
 nvke.nvke-controller.temporal.host still points at
 {{ (index .Values.nvke "nvke-controller").temporal.host }}. The controller will
 not reach Temporal until the two agree.
+{{- end }}
+{{- if not (lookup "apps/v1" "Deployment" "capnico-system" "controller-manager") }}
+
+CAPNICo is not installed. It is a separate release, because its chart can only
+be released into the namespace it lives in:
+
+  helm upgrade --install capnico deploy/charts/capnico --namespace capnico-system
+
+Do not pass --create-namespace: CAPNICo's chart creates capnico-system itself.
 {{- end }}
 {{- if not (index .Values "nvke-nico").enabled }}
 

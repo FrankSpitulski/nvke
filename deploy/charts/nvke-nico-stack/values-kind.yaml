@@ -4,9 +4,9 @@
 # What a kind cluster changes, for all three charts at once. It is each
 # chart's own values-kind.yaml re-keyed, and nothing more.
 #
-#   helm upgrade --install nvke-stack deploy/charts/nvke-stack \
+#   helm upgrade --install nvke-nico-stack deploy/charts/nvke-nico-stack \
 #     --namespace nvke-system --create-namespace \
-#     --values deploy/charts/nvke-stack/values-kind.yaml \
+#     --values deploy/charts/nvke-nico-stack/values-kind.yaml \
 #     --set nvke.database.password=<pick one> \
 #     --set nvke.nvke-controller.profiles.image.repository=<repo> \
 #     --set nvke.nvke-controller.profiles.image.tag=<tag>

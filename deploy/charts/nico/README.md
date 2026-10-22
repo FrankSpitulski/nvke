@@ -67,7 +67,7 @@ pass it with `--set-file`. The Secret carries
 Each NICo subchart resolves its namespace from its own `namespaceOverride`, and
 there is no global that sets them all — so `values.yaml` pins every one of them
 to `namespaces.nico`. Without that, NICo lands in whichever namespace this
-chart is released into, which inside the `nvke-stack` umbrella is the
+chart is released into, which inside the `nvke-nico-stack` umbrella is the
 umbrella's namespace rather than NICo's; the Secrets this chart writes would
 then be in one namespace and the services that mount them in another.
 
@@ -76,7 +76,7 @@ then be in one namespace and the services that mount them in another.
 
 ## NICo's Temporal
 
-`temporal.enabled` is off by default, and **refused inside the `nvke-stack`
+`temporal.enabled` is off by default, and **refused inside the `nvke-nico-stack`
 umbrella**. Temporal's chart has no `namespaceOverride`, so NICo's Temporal and
 the NVKE controller's would land in the same namespace and take each other's
 Service names. To give NICo one of its own, release this chart on its own, into

@@ -12,7 +12,7 @@
 # NICo's prerequisites are listed in the NICo chart's own PREREQUISITES.md.
 # Everything in sections 2, 3, 4 and 5 of that document is created here; the
 # cluster operators in section 1 are not, because a seed already has
-# cert-manager and the nvke-stack umbrella can install it.
+# cert-manager and the nvke-nico-stack umbrella can install it.
 
 # ---------------------------------------------------------------------------
 # Namespaces
@@ -187,7 +187,7 @@ postgresql:
 # Temporal's chart has no namespaceOverride — its templates follow
 # .Release.Namespace — so this one lands wherever THIS chart is released.
 # Release this chart on its own, into its own namespace, to use it. Inside the
-# nvke-stack umbrella it is refused outright, because there the two would land
+# nvke-nico-stack umbrella it is refused outright, because there the two would land
 # together.
 temporal:
   enabled: false
@@ -283,7 +283,7 @@ nico:
   # Each NICo subchart resolves its namespace as its OWN namespaceOverride,
   # else the release namespace — there is no global that sets them all. Without
   # these, NICo lands in whichever namespace this chart is released into, which
-  # inside the nvke-stack umbrella is the umbrella's namespace rather than
+  # inside the nvke-nico-stack umbrella is the umbrella's namespace rather than
   # NICo's. The prerequisite Secrets this chart writes would then be in one
   # namespace and the services that mount them in another.
   #

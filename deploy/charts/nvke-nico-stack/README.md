@@ -1,13 +1,13 @@
-# nvke-stack
+# nvke-nico-stack
 
 NVKE, SPIRE and NICo in one release — the three charts beside this one,
 installed together.
 
 ```bash
-helm dependency build deploy/charts/nvke-stack
-helm upgrade --install nvke-stack deploy/charts/nvke-stack \
+helm dependency build deploy/charts/nvke-nico-stack
+helm upgrade --install nvke-nico-stack deploy/charts/nvke-nico-stack \
   --namespace nvke-system --create-namespace \
-  --values deploy/charts/nvke-stack/values-kind.yaml \
+  --values deploy/charts/nvke-nico-stack/values-kind.yaml \
   --set nvke.database.password=<pick one> \
   --wait --timeout 12m
 ```
@@ -61,7 +61,7 @@ than letting it pass.
 ```bash
 helm repo add nico <your NICo chart repository>
 helm dependency build deploy/charts/nico        # first
-helm dependency build deploy/charts/nvke-stack  # then this
+helm dependency build deploy/charts/nvke-nico-stack  # then this
 ```
 
 Without NICo, leave `nvke-nico.enabled` false. This chart still builds and
@@ -84,6 +84,6 @@ all of NICo's. Two keys are read by more than one chart:
 | Key | Read by |
 |---|---|
 | `global.imagePullSecrets` | NICo's subcharts and Bitnami's PostgreSQL |
-| `global.nvkeStack` | `nvke-nico`, to refuse a second Temporal |
+| `global.nvkeNicoStack` | `nvke-nico`, to refuse a second Temporal |
 
 Everything else is namespaced by owner and does not collide.

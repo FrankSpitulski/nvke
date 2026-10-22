@@ -44,7 +44,6 @@ instead is a one-line change to `repository` in `Chart.yaml`.
 | `nke-controller` | The NVKE controller |
 | `nvke-system` | Objects the controller owns |
 | `postgres` | PostgreSQL |
-| `capnico-system` | The `nico-credentials` Secret, when `nicoCredentials.create` is on. CAPNICo itself is not installed here |
 
 `helm --create-namespace` creates the release namespace only, so this chart
 creates the rest. Turn that off with `namespaces.create=false` where something
@@ -60,7 +59,8 @@ reader looks for.
 
 ## What this chart does not install
 
-Cluster API and cert-manager, both of which `clusterctl init` brings; CAPNICo;
-SPIRE, which is [`../spire`](../spire/); and NKTP, so the ServiceMonitor,
+Cluster API and cert-manager, both of which `clusterctl init` brings; CAPNICo,
+which is [`../capnico`](../capnico/), along with the `nico-credentials` Secret
+it reads; SPIRE, which is [`../spire`](../spire/); and NKTP, so the ServiceMonitor,
 metrics NetworkPolicy and tracing are off by default — they need the Prometheus
 operator CRDs.
