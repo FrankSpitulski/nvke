@@ -399,10 +399,30 @@ func RunNodeStartup(cfg AgentConfig) (*server.NodeAgentServer, error) {
 	return agentServer, nil
 }
 
+type fanoutWriter []io.Writer
+
+// Write attempts every output even if an earlier one fails. Returning the full
+// input length prevents callers from retrying and duplicating a record in the
+// outputs that succeeded; the joined error still reports any failed copies.
+func (w fanoutWriter) Write(p []byte) (int, error) {
+	var errs []error
+	for i, output := range w {
+		n, err := output.Write(p)
+		if err == nil && n != len(p) {
+			err = io.ErrShortWrite
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("write audit output %d: %w", i, err))
+		}
+	}
+
+	return len(p), errors.Join(errs...)
+}
+
 // newAuditLogger mirrors audit records to their durable file and the service
 // output collected by journald.
 func newAuditLogger(fileOutput, serviceOutput io.Writer) *slog.Logger {
-	return slog.New(slog.NewJSONHandler(io.MultiWriter(fileOutput, serviceOutput), nil))
+	return slog.New(slog.NewJSONHandler(fanoutWriter{fileOutput, serviceOutput}, nil))
 }
 
 func main() {

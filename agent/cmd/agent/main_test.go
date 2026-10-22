@@ -6,12 +6,20 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) {
+	return f(p)
+}
 
 func TestAuditLoggerMirrorsStructuredRecords(t *testing.T) {
 	t.Parallel()
@@ -35,6 +43,42 @@ func TestAuditLoggerMirrorsStructuredRecords(t *testing.T) {
 	}
 	if got := record["rpc_method"]; got != "/nvke.NodeAgent/NodePreflight" {
 		t.Errorf("rpc_method = %v, want %q", got, "/nvke.NodeAgent/NodePreflight")
+	}
+}
+
+func TestFanoutWriterAttemptsEveryOutput(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("audit file unavailable")
+	var serviceOutput bytes.Buffer
+	errorWriter := writerFunc(func([]byte) (int, error) { return 0, wantErr })
+	writer := fanoutWriter{errorWriter, &serviceOutput}
+	input := []byte("audit record")
+
+	n, err := writer.Write(input)
+
+	if n != len(input) {
+		t.Errorf("Write() count = %d, want %d", n, len(input))
+	}
+	if !errors.Is(err, wantErr) {
+		t.Errorf("Write() error = %v, want an error wrapping %v", err, wantErr)
+	}
+	if !bytes.Equal(serviceOutput.Bytes(), input) {
+		t.Errorf("service output = %q, want %q", serviceOutput.Bytes(), input)
+	}
+}
+
+func TestFanoutWriterReportsShortWrite(t *testing.T) {
+	t.Parallel()
+
+	shortWriter := writerFunc(func([]byte) (int, error) { return 0, nil })
+	writer := fanoutWriter{io.Discard, shortWriter}
+	input := []byte("audit record")
+
+	_, err := writer.Write(input)
+
+	if !errors.Is(err, io.ErrShortWrite) {
+		t.Errorf("Write() error = %v, want an error wrapping %v", err, io.ErrShortWrite)
 	}
 }
 
