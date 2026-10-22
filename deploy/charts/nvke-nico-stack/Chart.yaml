@@ -15,16 +15,10 @@ home: https://github.com/dsx-ai-factory/nvke
 sources:
   - https://github.com/dsx-ai-factory/nvke
 
-# CAPNICo IS NOT HERE, and cannot be. Its published chart hardcodes
-# .Release.Namespace in every object and creates that namespace
-# unconditionally, with no override — so as a subchart it would put CAPNICo in
-# this umbrella's namespace and then collide with `--create-namespace` over it:
-#
-#   namespaces "nvke-system" already exists
-#   namespaces "capnico-system" not found
-#
-# Install ../capnico as its own release, into capnico-system. See
-# ../capnico/README.md.
+# CAPNICo is not here, and is not a chart in this repository at all. It is a
+# Cluster API provider, so `clusterctl init --infrastructure nico` installs it
+# — the same command that installs Cluster API core and cert-manager, both of
+# which this release needs anyway. See ../README.md.
 
 dependencies:
   # A default StorageClass, for a cluster that has none. Off by default: kind

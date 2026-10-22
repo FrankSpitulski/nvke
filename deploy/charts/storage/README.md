@@ -79,9 +79,7 @@ The default version is `LOCAL_PATH_PROVISIONER_VERSION` from
 The vendored chart takes its namespace from the release namespace, with no
 override. Inside the `nvke-nico-stack` umbrella the provisioner therefore runs
 in the umbrella's namespace. That is harmless: the StorageClass is
-cluster-scoped and the provisioner does not care where it runs. This is why
-this chart can be a subchart and [`../capnico`](../capnico/) cannot — CAPNICo's
-objects have to be in a particular namespace, and these do not.
+cluster-scoped and the provisioner does not care where it runs.
 
 ## Values worth knowing
 

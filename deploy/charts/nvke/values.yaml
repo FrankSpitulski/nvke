@@ -79,9 +79,16 @@ tenantCredentials:
   user: ""
   password: ""
 
-# CAPNICo's credentials Secret is NOT here. It belongs with CAPNICo, which
-# reads it and whose chart creates the namespace it goes in — see
-# ../capnico.
+# CAPNICo's credentials Secret is NOT here. CAPNICo owns it, and
+# `clusterctl init --infrastructure nico` creates the namespace it goes in.
+# Create it after that, with the keys CAPNICo's own getting-started guide
+# lists:
+#
+#   kubectl create secret generic nico-credentials -n capnico-system \
+#     --from-literal=endpoint=<nico-api-base-url> \
+#     --from-literal=orgID=<org> \
+#     --from-literal=apiName=<api> \
+#     --from-literal=token=<token>
 
 # ---------------------------------------------------------------------------
 # PostgreSQL

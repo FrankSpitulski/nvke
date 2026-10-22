@@ -13,9 +13,9 @@
 # `clusterctl init` installs cert-manager. Do not install it separately as
 # well: two releases then claim the same cluster-scoped CRDs.
 #
-# CAPNICo is a separate release, not a subchart here: its published chart
-# hardcodes .Release.Namespace and creates it unconditionally, so it can only
-# be released into the namespace it lives in. See ../capnico.
+# CAPNICo is not a chart here either. It is a Cluster API provider, installed
+# by `clusterctl init --infrastructure nico` along with Cluster API core and
+# cert-manager.
 
 global:
   # Read by nvke-nico, which refuses to install a second Temporal while this is

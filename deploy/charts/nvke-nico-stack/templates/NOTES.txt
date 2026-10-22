@@ -42,12 +42,17 @@ storage, or set nvke-storage.enabled=true for a local-path class.
 {{- end }}
 {{- if not (lookup "apps/v1" "Deployment" "capnico-system" "controller-manager") }}
 
-CAPNICo is not installed. It is a separate release, because its chart can only
-be released into the namespace it lives in:
+CAPNICo is not installed, so nothing reconciles NicoCluster or NicoMachine.
+It is a Cluster API provider, not a chart here:
 
-  helm upgrade --install capnico deploy/charts/capnico --namespace capnico-system
+  clusterctl init --infrastructure nico:<version> --config ./clusterctl.yaml \
+    --wait-providers
 
-Do not pass --create-namespace: CAPNICo's chart creates capnico-system itself.
+Then create the credentials Secret CAPNICo reads:
+
+  kubectl create secret generic nico-credentials -n capnico-system \
+    --from-literal=endpoint=<nico-api-base-url> --from-literal=orgID=<org> \
+    --from-literal=apiName=<api> --from-literal=token=<token>
 {{- end }}
 {{- if not (index .Values "nvke-nico").enabled }}
 

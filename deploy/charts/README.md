@@ -1,6 +1,6 @@
 # Helm charts
 
-Six charts that install NVKE, SPIRE, CAPNICo and NICo with `helm` alone.
+Five charts that install NVKE, SPIRE and NICo with `helm` alone.
 
 | Chart | Installs | In the umbrella |
 |---|---|---|
@@ -8,17 +8,14 @@ Six charts that install NVKE, SPIRE, CAPNICo and NICo with `helm` alone.
 | [`nvke/`](nvke/) | The NVKE controller, with the PostgreSQL and Temporal it runs on | yes |
 | [`spire/`](spire/) | SPIRE, the OIDC upstream CA chain and the two NodePorts | yes |
 | [`nico/`](nico/) | NICo, with the prerequisites its own chart expects to find already in place | yes, off by default |
-| [`capnico/`](capnico/) | CAPNICo, the Cluster API provider **for** NICo, with the credentials Secret it reads | **no** — see below |
-| [`nvke-nico-stack/`](nvke-nico-stack/) | The first three, in one release | — |
+| [`nvke-nico-stack/`](nvke-nico-stack/) | The four above, in one release | — |
 
 Each chart stands on its own. `nvke-nico-stack` is for the common case — one
 release, one namespace, one command.
 
-**CAPNICo is a separate release, and it needs helm 4.** Its published chart
-takes every object's namespace from `{{ .Release.Namespace }}` and declares
-that namespace itself, so it can only be released into the namespace it lives
-in — which rules out being a subchart of an umbrella released elsewhere. See
-[`capnico/README.md`](capnico/README.md). The other four work on helm 3.
+**CAPNICo is not here.** It is a Cluster API infrastructure provider, so
+`clusterctl init --infrastructure nico` installs it — the same command that
+brings Cluster API core and cert-manager. See [below](#cluster-api-cert-manager-and-capnico).
 
 These charts are an alternative to the [deploy path](../nico/), not a
 replacement for it. The deploy path renders per-cluster values and credentials
@@ -33,17 +30,16 @@ Helm.
 | Prerequisite | Why |
 |---|---|
 | cert-manager | Every chart here creates `Certificate` and `Issuer` objects, so their CRDs have to exist first. **`clusterctl init` installs it** — see below |
+| CAPNICo | Only for driving NICo hardware. **`clusterctl init --infrastructure nico` installs it** — see below |
 | A default StorageClass | PostgreSQL and SPIRE both take a PVC. Without a default they sit `Pending` forever. kind ships the rancher local-path provisioner, and a cluster with real storage brings its own CSI driver. For a bare cluster that has neither, [`storage/`](storage/) supplies one — set `nvke-storage.enabled=true` |
-| Cluster API, through `clusterctl init` | For driving real clusters, and for CAPNICo to reconcile anything. The NVKE controller starts and answers without it, and logs that `cluster.x-k8s.io` kinds are missing |
-| helm 4 | Only for the CAPNICo chart. NVKE pins `v4.2.4` in `make/tool-versions.mk`. The other four charts work on helm 3 |
+| Cluster API, through `clusterctl init` | For driving real clusters. The NVKE controller starts and answers without it, and logs that `cluster.x-k8s.io` kinds are missing |
 | A `nico` chart repository | Only for the NICo chart. NICo is published separately from NVKE, so neither `nico/` nor `nvke-nico-stack/` names a registry: `helm repo add nico <your NICo chart repository>` |
 
-### cert-manager comes from `clusterctl init`
+### Cluster API, cert-manager and CAPNICo
 
-Do not install cert-manager separately. `clusterctl init` installs it, NVKE
-requires Cluster API anyway, and a second installation does not give you two
-cert-managers — it gives you two releases claiming the same cluster-scoped
-CRDs. That is the same trap CAPNICo documents for its own install routes.
+One command brings all three. Do not install any of them separately: a second
+installation does not give you two cert-managers or two CAPNICos — it gives
+you two releases claiming the same cluster-scoped objects.
 
 ```bash
 # v1.13.6 is CAPI_VERSION in make/tool-versions.mk. Read it from there rather
@@ -52,8 +48,48 @@ clusterctl init \
   --core cluster-api:v1.13.6 \
   --bootstrap kubeadm:v1.13.6 \
   --control-plane kubeadm:v1.13.6 \
+  --infrastructure nico:<version> \
+  --config ./clusterctl.yaml \
   --wait-providers
 ```
+
+`--infrastructure nico` needs the provider in your `clusterctl` configuration,
+because it is not one of the providers `clusterctl` knows by default. Every
+CAPNICo release publishes the `infrastructure-components.yaml` and
+`metadata.yaml` it points at:
+
+```yaml
+# clusterctl.yaml
+providers:
+  - name: nico
+    url: https://github.com/dsx-ai-factory/cluster-api-provider-nico/releases/download/<version>/infrastructure-components.yaml
+    type: InfrastructureProvider
+```
+
+**Pass `--config` explicitly.** `clusterctl` resolves its default
+configuration path through the OS convention, so
+`~/.config/cluster-api/clusterctl.yaml` is not read on macOS. The failure is
+unhelpful: `failed to get configuration for the InfrastructureProvider with
+name nico`.
+
+Then create the credentials Secret CAPNICo reads. CAPNICo owns it, and no
+chart here writes it:
+
+```bash
+kubectl create secret generic nico-credentials -n capnico-system \
+  --from-literal=endpoint=<nico-api-base-url> \
+  --from-literal=orgID=<org> \
+  --from-literal=apiName=<api> \
+  --from-literal=token=<token>
+```
+
+Leave `--infrastructure nico` off on a cluster that drives no NICo hardware.
+Everything else here still installs; nothing reconciles `NicoCluster` or
+`NicoMachine`.
+
+See [infrastructure-providers.md](../../docs/site-bootstrap/infrastructure-providers.md)
+for the full provider setup, including why `nvkectl get providers` reporting
+`CONFIGURED` is a narrower claim than it looks.
 
 `make/tool-versions.mk` also pins `CERT_MANAGER_VERSION`, which records the
 cert-manager version `clusterctl init` brings at that CAPI version. It moves
@@ -162,33 +198,6 @@ is off.
 does not move, does not replicate, and does not survive the node. See
 [`storage/README.md`](storage/README.md).
 
-## Adding CAPNICo
-
-CAPNICo reconciles `NicoCluster` and `NicoMachine` objects against a NICo API
-that already exists. It is not NICo. Its chart and image are both public, so
-it needs no repository alias — but it does need helm 4 and a release of its
-own:
-
-```bash
-helm dependency build deploy/charts/capnico
-helm upgrade --install capnico deploy/charts/capnico \
-  --namespace capnico-system --create-namespace \
-  --set credentials.create=true \
-  --set credentials.endpoint=<nico-api-base-url> \
-  --set credentials.orgID=<org> \
-  --set credentials.apiName=<api> \
-  --set credentials.token=<token>
-```
-
-Pick **one** way to install CAPNICo and stay with it: this chart, its published
-chart directly, or `clusterctl init --infrastructure nico`. All three create
-the same `capnico-system/controller-manager` Deployment under the same names,
-and two of them do not give two installs — they give two things claiming the
-same objects.
-
-CAPNICo also needs Cluster API, which `clusterctl init` brings. Without it the
-manager runs and reconciles nothing.
-
 ## Adding NICo
 
 NICo needs its chart repository and images, and both are published separately
@@ -271,10 +280,6 @@ run.
   global that sets them all. `nico/templates/validate.yaml` refuses an install
   where one of them disagrees with `namespaces.nico`, so it cannot drift
   silently.
-- **CAPNICo cannot join the umbrella without an upstream change.** Its chart
-  would need a `namespaceOverride` threaded through its 29 direct
-  `{{ .Release.Namespace }}` references, and its `Namespace` object made
-  conditional. Both changes belong to `cluster-api-provider-nico`, not here.
 - **`helm dependency build` does not recurse.** Building `nvke-nico-stack` packages
   `nico/` exactly as it finds it on disk, so `nico/`'s own dependencies have to
   be built FIRST — otherwise the NICo umbrella is absent from the archive and

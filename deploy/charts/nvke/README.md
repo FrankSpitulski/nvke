@@ -59,8 +59,8 @@ reader looks for.
 
 ## What this chart does not install
 
-Cluster API and cert-manager, both of which `clusterctl init` brings; CAPNICo,
-which is [`../capnico`](../capnico/), along with the `nico-credentials` Secret
-it reads; SPIRE, which is [`../spire`](../spire/); and NKTP, so the ServiceMonitor,
+Cluster API, cert-manager and CAPNICo, all three of which `clusterctl init
+--infrastructure nico` brings, along with the `nico-credentials` Secret CAPNICo
+reads; SPIRE, which is [`../spire`](../spire/); and NKTP, so the ServiceMonitor,
 metrics NetworkPolicy and tracing are off by default — they need the Prometheus
 operator CRDs.
