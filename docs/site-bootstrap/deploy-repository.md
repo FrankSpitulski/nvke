@@ -16,6 +16,7 @@ deploy/nico/
 │   ├── 20-nico-credentials.yaml.tmpl
 │   ├── 35-dgxc-tenant-credentials.yaml.tmpl
 │   ├── 40-oidc-upstream-ca.yaml
+│   ├── 41-oidc-upstream-ca-certificate.yaml   # create-if-absent: first install only
 │   └── 45-nktp-cluster.yaml.tmpl
 ├── spire-server-nodeport/        # manifest: a Service
 │   └── spire-server-nodeport.yaml
@@ -110,6 +111,22 @@ artifact: capnico-controller
 ```
 
 `image` is the repository and tag the committed YAML names. `artifact` is the NVKR output that publishes it. A render against a release writes a `kustomization.yaml` that repoints the image to the artifact's repository and digest, and the script applies the kustomization instead of the files. `release.yaml` itself is never applied.
+
+#### `create-if-absent`: a file applied on a first install only
+
+A `.yaml` file may declare that it is applied only when the object it creates is not in the cluster yet, with a comment anywhere in the file:
+
+```yaml
+# nvke-deploy: create-if-absent <kind>:<name>:<namespace>
+```
+
+Before applying that file, the script reads that object. If it exists, the file is skipped and a line says so; if it does not, the file is applied as usual. The probe is a read, so it runs under `--dry-run` too and a dry run describes the install that would happen. A probe that fails for any reason other than `NotFound` stops the install rather than read an unanswered API server as "absent" — under `--dry-run`, where there may be no cluster, it is reported instead.
+
+This is for the few objects whose identity a site persists and cannot re-derive, not for ordinary drift, which still belongs under apply. There is one today: `41-oidc-upstream-ca-certificate.yaml` holds the OIDC upstream CA, whose private key every tenant of the site has embedded as a trust anchor. Any change to its spec would make cert-manager re-issue it under a new key, so a site keeps the CA it was installed with — the launch rename moved its subject to NVKE, and only a site installed after that gets the new one.
+
+A file carrying the directive must be the only place that object is created, and the object named should be the one that holds the state, not the one that declares it: the CA is gated on its `Secret`, which holds the key material, not on the `Certificate`. Split such a file from the rest of its chain, so that the parts carrying no state — the two Issuers in `40-oidc-upstream-ca.yaml` — keep being applied every install.
+
+An item rendered against a release applies through a `kustomization.yaml`, which is one apply of one stream and does not honour the directive. Only an item that binds an image to a release gets one, and none of those carries it.
 
 ### `helm`: one chart as one release
 
