@@ -165,8 +165,11 @@ func execute(ctx context.Context, root *cobra.Command, ver string, stderr io.Wri
 	if cmd != nil {
 		run.SetName(cmd.CommandPath())
 	}
+	// announceTrace logs the command's last record, and Finish shuts the log
+	// exporter down, so the announcement comes first.
+	result := announceTrace(cmd, stderr, run.TraceID(), err)
 	run.Finish(err)
-	return announceTrace(cmd, stderr, run.TraceID(), err)
+	return result
 }
 
 // untracedCommands are the top-level commands that do no work of their own:
