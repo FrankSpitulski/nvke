@@ -32,17 +32,49 @@ Helm.
 
 | Prerequisite | Why |
 |---|---|
-| cert-manager | Every chart here creates `Certificate` and `Issuer` objects, so their CRDs have to exist first. `clusterctl init` installs cert-manager, so a seed that has run it is ready |
+| cert-manager | Every chart here creates `Certificate` and `Issuer` objects, so their CRDs have to exist first. **`clusterctl init` installs it** — see below |
 | A default StorageClass | PostgreSQL and SPIRE both take a PVC. Without a default they sit `Pending` forever. kind ships the rancher local-path provisioner, and a cluster with real storage brings its own CSI driver. For a bare cluster that has neither, [`storage/`](storage/) supplies one — set `nvke-storage.enabled=true` |
 | Cluster API, through `clusterctl init` | For driving real clusters, and for CAPNICo to reconcile anything. The NVKE controller starts and answers without it, and logs that `cluster.x-k8s.io` kinds are missing |
 | helm 4 | Only for the CAPNICo chart. NVKE pins `v4.2.4` in `make/tool-versions.mk`. The other four charts work on helm 3 |
 | A `nico` chart repository | Only for the NICo chart. NICo is published separately from NVKE, so neither `nico/` nor `nvke-nico-stack/` names a registry: `helm repo add nico <your NICo chart repository>` |
 
+### cert-manager comes from `clusterctl init`
+
+Do not install cert-manager separately. `clusterctl init` installs it, NVKE
+requires Cluster API anyway, and a second installation does not give you two
+cert-managers — it gives you two releases claiming the same cluster-scoped
+CRDs. That is the same trap CAPNICo documents for its own install routes.
+
 ```bash
-helm repo add jetstack https://charts.jetstack.io
-helm install cert-manager jetstack/cert-manager \
-  --namespace cert-manager --create-namespace --set crds.enabled=true
+# v1.13.6 is CAPI_VERSION in make/tool-versions.mk. Read it from there rather
+# than from this line, which will go stale.
+clusterctl init \
+  --core cluster-api:v1.13.6 \
+  --bootstrap kubeadm:v1.13.6 \
+  --control-plane kubeadm:v1.13.6 \
+  --wait-providers
 ```
+
+`make/tool-versions.mk` also pins `CERT_MANAGER_VERSION`, which records the
+cert-manager version `clusterctl init` brings at that CAPI version. It moves
+with `CAPI_VERSION`.
+
+Running `clusterctl init` again later is supported and skips what is already
+present, so a cluster that has it needs nothing here.
+
+On a cluster that will never run Cluster API, follow
+[cert-manager's own installation guide](https://cert-manager.io/docs/installation/helm/)
+rather than a command copied from here, so you get the version and flags that
+the project supports at the time you read it.
+
+cert-manager is a prerequisite rather than a chart here, and cannot be made
+one. It renders its six CRDs as ordinary templates, not in a `crds/`
+directory — 12,749 lines of them. Helm validates every manifest in a release
+against the API server before applying any of them, so a `Certificate` and the
+CRD defining it cannot be in the same release. Vendoring those CRDs into a
+`crds/` directory, as [`spire/`](spire/) does for SPIRE's three, would make
+this repository the owner of cert-manager's CRD lifecycle. That is not a trade
+worth making for a prerequisite `clusterctl init` already installs.
 
 ## On a kind cluster
 
