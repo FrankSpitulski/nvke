@@ -1,0 +1,62 @@
+{{- /*
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+
+Rendering-time refusals, so a bad combination fails with a sentence rather than
+with a collision an hour later.
+*/ -}}
+
+{{- /*
+Two Temporals in one release land in one namespace. Temporal's chart has no
+namespaceOverride, so there is no way to separate them from inside the umbrella
+— and both default to Services named temporal-frontend, temporal-history and so
+on, so the second release silently takes the first one's names.
+*/ -}}
+{{- if and .Values.temporal.enabled (dig "nvkeStack" false (.Values.global | default dict)) }}
+{{- fail "temporal.enabled is not supported inside the nvke-stack umbrella: Temporal's chart has no namespaceOverride, so NICo's Temporal and the NVKE controller's would land in the same namespace and collide. Release this chart on its own, into its own namespace, to give NICo a Temporal of its own." }}
+{{- end }}
+
+{{- /*
+`helm dependency build` on the nvke-stack umbrella packages THIS chart as it
+finds it on disk. If charts/ has not been built here first, the NICo umbrella
+is simply absent from the archive — and nico.enabled stays true, so the
+prerequisites install and NICo itself silently does not.
+
+Run `helm dependency build deploy/charts/nico` before building the umbrella.
+*/ -}}
+{{- if and .Values.nico.enabled (not (hasKey .Subcharts "nico")) }}
+{{- fail "nico.enabled is true but the NICo chart is not in charts/. Run `helm repo add nico <your NICo chart repository>` and `helm dependency build deploy/charts/nico` — and, when installing through nvke-stack, build that chart's dependencies again afterwards so it packages this one with its own charts/." }}
+{{- end }}
+
+{{- if .Values.nico.enabled }}
+{{- if not .Values.nico.global.image.repository }}
+{{- fail "nico.global.image.repository is required: the NICo chart names no registry and renders invalid manifests without it." }}
+{{- end }}
+{{- if not .Values.nico.global.image.tag }}
+{{- fail "nico.global.image.tag is required: the NICo chart names no registry and renders invalid manifests without it." }}
+{{- end }}
+{{- end }}
+
+{{- /*
+Each NICo subchart resolves its namespace from its OWN namespaceOverride, and
+there is no global that sets them all. A subchart that disagrees with
+namespaces.nico lands somewhere else, where the Secrets and ConfigMaps this
+chart writes are not — and the only symptom is pods stuck at
+ContainerCreating.
+
+nico-machine-a-tron is left out: it reads global.namespaceOverride instead, and
+a global would reach every other chart in an umbrella too.
+*/ -}}
+{{- if .Values.nico.enabled }}
+{{- $want := .Values.namespaces.nico }}
+{{- range $sub := list "nico-api" "nico-bmc-proxy" "nico-dhcp" "nico-dns" "nico-hardware-health" "nico-pxe" "nico-ssh-console-rs" "nico-dsx-exchange-consumer" "nico-ntp" "unbound" "nico-postgres-exporter" }}
+{{- $got := dig $sub "namespaceOverride" "" $.Values.nico }}
+{{- if ne $got $want }}
+{{- fail (printf "nico.%s.namespaceOverride is %q but namespaces.nico is %q. The two must agree, or %s lands in a namespace without the Secrets and ConfigMaps it mounts." $sub (default "<release namespace>" $got) $want $sub) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- if and .Values.certManager.issuer.create (ne .Values.certManager.issuer.name .Values.nico.global.certificate.issuerRef.name) }}
+{{- fail (printf "certManager.issuer.name (%s) and nico.global.certificate.issuerRef.name (%s) disagree. NICo would ask cert-manager for an issuer this chart never creates, and every service certificate would stay Pending." .Values.certManager.issuer.name .Values.nico.global.certificate.issuerRef.name) }}
+{{- end }}

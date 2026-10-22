@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v2
+name: nvke-stack
+description: NVKE, SPIRE and NICo in one release — the three charts beside this one, installed together
+type: application
+version: 0.1.0
+appVersion: "0.2.0"
+keywords:
+  - nvke
+  - nico
+  - spire
+home: https://github.com/dsx-ai-factory/nvke
+sources:
+  - https://github.com/dsx-ai-factory/nvke
+
+dependencies:
+  # SPIRE first in this list, and first alphabetically among the three, which
+  # is the only ordering helm offers inside one release. It is not enough on
+  # its own — see README.md on what this umbrella does and does not sequence.
+  - name: nvke-spire
+    version: "0.1.0"
+    repository: "file://../spire"
+    condition: nvke-spire.enabled
+
+  - name: nvke
+    version: "0.1.0"
+    repository: "file://../nvke"
+    condition: nvke.enabled
+
+  # Carries the NICo umbrella chart as a dependency of its own, by the local
+  # repository alias `nico`. `helm dependency build` here needs that alias:
+  #
+  #   helm repo add nico <your NICo chart repository>
+  #
+  # Without NICo, install ../nvke and ../spire directly rather than this chart.
+  - name: nvke-nico
+    version: "0.1.0"
+    repository: "file://../nico"
+    condition: nvke-nico.enabled

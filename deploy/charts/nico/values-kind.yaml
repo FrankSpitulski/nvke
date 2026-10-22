@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# What a kind cluster changes. Layer over values.yaml:
+#
+#   ssh-keygen -t ed25519 -f ./ssh_host_ed25519_key -N ""
+#   helm upgrade --install nvke-nico deploy/charts/nico \
+#     --namespace forge-system --create-namespace \
+#     --values deploy/charts/nico/values.yaml \
+#     --values deploy/charts/nico/values-kind.yaml \
+#     --set database.password=<pick one> \
+#     --set-file sshHostKey.privateKey=./ssh_host_ed25519_key \
+#     --set nico.global.image.repository=<repo> \
+#     --set nico.global.image.tag=<tag>
+#
+# The one substantive change is the issuer: a kind cluster has no Vault, so
+# cert-manager signs NICo's service certificates from a self-signed CA under
+# the name NICo expects of its Vault PKI issuer. NICo cannot tell the
+# difference. A real site must not run this way — a self-signed CA has no
+# revocation, no audit trail and no rotation story.
+#
+# NICo's images are not public. Supply a repository and tag that this cluster
+# can pull, and load them into the kind node first if they are not reachable:
+#   kind load docker-image <image> --name <cluster>
+
+certManager:
+  issuer:
+    create: true
+
+database:
+  # The PostgreSQL this chart installs on kind serves no TLS.
+  sslMode: disable
+
+vault:
+  # Create the two Secrets empty. NICo's services mount them whether or not a
+  # Vault exists, so they have to be present; nothing calls Vault on kind.
+  createSecrets: true
+
+postgresql:
+  primary:
+    persistence:
+      # kind's default StorageClass is the rancher local-path provisioner.
+      size: 8Gi
+    resources:
+      limits:
+        memory: 512Mi
+      requests:
+        memory: 128Mi

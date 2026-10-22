@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# This file sets only what belongs to the combination. Everything else stays in
+# the three charts' own values.yaml, which this chart does not restate — a copy
+# here would be a second place to change and a second place to get wrong.
+#
+# cert-manager is a PREREQUISITE, not a dependency. This release creates
+# Certificate and ClusterIssuer objects, so their CRDs have to exist before it
+# is applied:
+#
+#   helm repo add jetstack https://charts.jetstack.io
+#   helm install cert-manager jetstack/cert-manager \
+#     --namespace cert-manager --create-namespace --set crds.enabled=true
+#
+# `clusterctl init` installs cert-manager too, so a seed that has run it
+# already has one.
+
+global:
+  # Read by nvke-nico, which refuses to install a second Temporal while this is
+  # set. Temporal's chart has no namespaceOverride, so two Temporals in one
+  # release land in one namespace and take each other's Service names.
+  nvkeStack: true
+
+# ---------------------------------------------------------------------------
+# The three charts
+# ---------------------------------------------------------------------------
+# Each is configured through its own key, with its own values.yaml as the
+# default. To change one, pass that chart's file prefixed with the key, or set
+# the path directly:
+#
+#   --set nvke.database.password=...
+#   --set nvke-nico.nico.global.image.tag=...
+
+nvke-spire:
+  enabled: true
+
+nvke:
+  enabled: true
+
+  # Temporal has no namespaceOverride, so it lands in THIS release's namespace.
+  # Release this chart into nvke-system, or change this host to match.
+  nvke-controller:
+    temporal:
+      host: temporal-frontend.nvke-system.svc.cluster.local
+
+# Off by default. NICo is published separately from NVKE, so turning it on
+# means the `nico` repository alias is registered and
+# nvke-nico.nico.global.image.repository and .tag name images this cluster can
+# pull.
+nvke-nico:
+  enabled: false

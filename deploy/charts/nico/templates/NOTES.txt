@@ -1,0 +1,36 @@
+NICo is installed in {{ .Values.namespaces.nico }}.
+
+Check it:
+
+  kubectl -n {{ .Values.namespaces.nico }} get pods
+  kubectl -n {{ .Values.namespaces.nico }} rollout status deployment/nico-api
+{{- if .Values.certManager.issuer.create }}
+  kubectl get clusterissuer {{ .Values.certManager.issuer.name }}
+  kubectl -n {{ .Values.namespaces.nico }} get certificates
+{{- end }}
+
+The schema is created and migrated by the migration job in the nico-api
+subchart. Nothing is run by hand:
+
+  kubectl -n {{ .Values.namespaces.nico }} get jobs
+
+{{- if .Values.certManager.issuer.create }}
+
+The ClusterIssuer {{ .Values.certManager.issuer.name }} is a SELF-SIGNED CA
+created by this chart, not Vault PKI. It has no revocation, no audit trail and
+no rotation story, and its private key is a Secret in this cluster. Use it for
+a kind cluster or a test lane only.
+{{- end }}
+{{- if not .Values.vault.createSecrets }}
+{{- if not .Values.vault.service }}
+
+NOTE: vault.createSecrets is off, so the Secrets {{ .Values.vault.approleSecretName }}
+and {{ .Values.vault.tokenSecretName }} must already exist in
+{{ .Values.namespaces.nico }}. NICo's services mount them, so a missing one
+leaves pods stuck at ContainerCreating rather than reporting a Vault error.
+{{- end }}
+{{- end }}
+
+Replace the placeholder resource pools in nico.nico-api.siteConfig with the
+site's real address plan — nico-api exits at startup without pools, and the
+ranges shipped here are examples.

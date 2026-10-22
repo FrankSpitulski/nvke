@@ -1,0 +1,39 @@
+nvke-stack is installed in {{ .Release.Namespace }}.
+
+{{- if (index .Values "nvke-spire").enabled }}
+  SPIRE        {{ (index .Values "nvke-spire").namespaces.server }}, {{ (index .Values "nvke-spire").namespaces.system }}
+{{- end }}
+{{- if .Values.nvke.enabled }}
+  NVKE         {{ .Values.nvke.namespaces.controller }}
+  Temporal     {{ .Release.Namespace }}
+  PostgreSQL   {{ .Values.nvke.namespaces.postgres }}
+{{- end }}
+{{- if (index .Values "nvke-nico").enabled }}
+  NICo         {{ (index .Values "nvke-nico").namespaces.nico }}
+{{- end }}
+
+Check it:
+
+  kubectl get pods -A | grep -E 'spire|nke-controller|temporal|postgres{{ if (index .Values "nvke-nico").enabled }}|nico{{ end }}'
+
+The NVKE controller is last to become Ready: it blocks on "no identity issued"
+until SPIRE has issued its SVID, and its /readyz reports PostgreSQL and
+Temporal, so it will not pass until both are up. A helm --wait that has already
+returned does not mean it got there.
+
+  kubectl -n {{ .Values.nvke.namespaces.controller }} rollout status deployment/nke-controller --timeout=10m
+
+{{- if ne .Release.Namespace "nvke-system" }}
+
+WARNING: this release is in {{ .Release.Namespace }}, not nvke-system. Temporal
+has no namespaceOverride, so it landed here — and
+nvke.nvke-controller.temporal.host still points at
+{{ (index .Values.nvke "nvke-controller").temporal.host }}. The controller will
+not reach Temporal until the two agree.
+{{- end }}
+{{- if not (index .Values "nvke-nico").enabled }}
+
+NICo is not installed: nvke-nico.enabled is false. Turn it on once the `nico`
+repository alias is registered and nvke-nico.nico.global.image.repository and
+.tag name images this cluster can pull.
+{{- end }}
