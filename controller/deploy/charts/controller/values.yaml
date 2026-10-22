@@ -455,6 +455,9 @@ tenantAccess:
   # and remove those Secrets during cluster teardown. Gates both the controller
   # and its cleanup activity, and the Secret grant they depend on.
   enabled: true
+  # -- Additional RBAC objects applied to OIDC tenant clusters through nke-rbac.
+  # Requires spiffe.trustDomain and tenantAccess.enabled. Use unique object names.
+  additionalRBAC: []
 
 # nkeOIDCAuth is the older name for nvkeOIDCAuth. It is absent here on purpose:
 # the guard in _helpers.tpl keys off its presence, so setting it at all fails

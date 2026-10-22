@@ -101,6 +101,46 @@ def main():
         return 1
 
     inner = list(yaml.safe_load_all(config_maps[0]["data"]["manifest.yaml"]))
+    additional_rbac = [
+        {
+            "apiVersion": "rbac.authorization.k8s.io/v1",
+            "kind": "ClusterRole",
+            "metadata": {"name": "node-reader"},
+            "rules": [{"apiGroups": [""], "resources": ["nodes"], "verbs": ["get", "list"]}],
+        },
+        {
+            "apiVersion": "rbac.authorization.k8s.io/v1",
+            "kind": "ClusterRoleBinding",
+            "metadata": {"name": "node-reader"},
+            "subjects": [{"kind": "User", "name": "spiffe://example.test/node-reader", "apiGroup": "rbac.authorization.k8s.io"}],
+            "roleRef": {"kind": "ClusterRole", "name": "node-reader", "apiGroup": "rbac.authorization.k8s.io"},
+        },
+    ]
+    for additional in ([], None, additional_rbac):
+        result = subprocess.run(
+            [*command, "--values", "-"],
+            input=yaml.safe_dump({"tenantAccess": {"additionalRBAC": additional}}),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            sys.stderr.write(result.stderr)
+            return result.returncode
+        actual_documents = [document for document in yaml.safe_load_all(result.stdout) if document]
+        actual_config_map = next(
+            document for document in actual_documents
+            if document.get("kind") == "ConfigMap" and document["metadata"]["name"] == "nke-rbac"
+        )
+        actual_rbac = list(yaml.safe_load_all(actual_config_map["data"]["manifest.yaml"]))
+        if actual_rbac != inner + (additional or []):
+            print("ERROR: additional tenant RBAC must append complete documents without changing existing RBAC", file=sys.stderr)
+            return 1
+        actual_config_map["data"]["manifest.yaml"] = config_maps[0]["data"]["manifest.yaml"]
+        if actual_documents != documents:
+            print("ERROR: additional tenant RBAC must only change the nke-rbac manifest", file=sys.stderr)
+            return 1
+
     roles = {
         (document.get("kind"), document["metadata"]["name"]): document
         for document in inner

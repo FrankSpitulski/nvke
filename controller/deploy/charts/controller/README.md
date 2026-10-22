@@ -4,6 +4,15 @@
 
 A Helm chart to deploy the NVKE controller service
 
+## Additional tenant RBAC
+
+`tenantAccess.additionalRBAC` defaults to `[]`. Set it to a list of Kubernetes
+RBAC objects to append to the `nke-rbac` ConfigMap's `manifest.yaml`. The
+tenant-access controller applies these objects to OIDC tenant clusters, not
+the management cluster. Set `spiffe.trustDomain` and enable `tenantAccess`.
+Use names distinct from the built-in RBAC objects. Removing an entry from the
+list does not delete the previously applied object from tenant clusters.
+
 ## Renamed values
 
 Two keys were renamed to the `nvke` prefix. The old names are no longer read,
