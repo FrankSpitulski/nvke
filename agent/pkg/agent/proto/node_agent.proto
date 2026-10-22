@@ -1240,6 +1240,24 @@ message GetEtcdStatusResponse {
   // NOSPACE, which is deliberate: that is the member a caller can still
   // defragment.
   bool healthy = 8;
+  // The bootstrap-defrag threshold this member is configured with, read from
+  // --bootstrap-defrag-threshold-megabytes in the static-pod manifest and
+  // converted to bytes. etcd evaluates it only at startup, so it is what
+  // decides whether restarting this member defragments anything.
+  //
+  // ZERO MEANS A RESTART WOULD DEFRAGMENT NOTHING, at any size: the flag is
+  // absent, or set to zero or less, which etcd treats as disabled. A caller
+  // must skip such a member rather than restart it, and StartEtcdDefrag
+  // refuses it for the same reason. This is how a node provisioned before the
+  // threshold was configured identifies itself, so a caller can leave it alone
+  // without having to call StartEtcdDefrag to be told no.
+  //
+  // Compare it against reclaimable_bytes to predict the outcome: below the
+  // threshold etcd declines to defragment and the restart is pure downtime.
+  // Note that clearing the threshold only means the restart WOULD defragment,
+  // not that it SHOULD - a member sitting a little over its threshold is the
+  // normal steady state, not a problem to remediate.
+  int64 bootstrap_defrag_threshold_bytes = 9;
 }
 
 message StartEtcdDefragRequest {

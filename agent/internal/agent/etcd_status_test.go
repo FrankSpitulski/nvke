@@ -364,6 +364,42 @@ func TestGetEtcdStatus(t *testing.T) {
 		assert.Equal(t, int32(2), resp.GetVotingMemberCount())
 		assert.Equal(t, "2", resp.GetMemberId())
 		assert.True(t, resp.GetHealthy())
+		assert.Equal(t, int64(2048*1024*1024), resp.GetBootstrapDefragThresholdBytes())
+	})
+
+	t.Run("a member with no threshold reports zero, not an error", func(t *testing.T) {
+		// How a node provisioned before the threshold was configured identifies
+		// itself. A caller skips it on this alone, rather than calling
+		// StartEtcdDefrag to be told no on every poll.
+		s := writeEtcdManifest(t, `apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: etcd
+      command: ["etcd", "--quota-backend-bytes=17179869184"]
+`)
+		s.etcdClient = &fakeEtcdMemberClient{members: testEtcdMembers(), localID: 2, leaderID: 1}
+
+		resp, err := s.GetEtcdStatus(context.Background(), &pb.GetEtcdStatusRequest{})
+		require.NoError(t, err)
+		assert.Zero(t, resp.GetBootstrapDefragThresholdBytes(),
+			"an unconfigured threshold must read as zero so a caller leaves the member alone")
+		assert.True(t, resp.GetHealthy(), "no threshold is a configuration state, not ill health")
+	})
+
+	t.Run("an unparseable threshold fails the call rather than reading as zero", func(t *testing.T) {
+		s := writeEtcdManifest(t, `apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: etcd
+      command: ["etcd", "--bootstrap-defrag-threshold-megabytes=lots"]
+`)
+		s.etcdClient = &fakeEtcdMemberClient{members: testEtcdMembers(), localID: 2, leaderID: 1}
+
+		_, err := s.GetEtcdStatus(context.Background(), &pb.GetEtcdStatusRequest{})
+		require.Error(t, err, "reporting a typo as zero would silently retire the member")
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 	})
 
 	t.Run("a follower is not reported as leader", func(t *testing.T) {

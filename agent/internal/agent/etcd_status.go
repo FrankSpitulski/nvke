@@ -394,6 +394,16 @@ func (s *NodeAgentServer) GetEtcdStatus(
 		return nil, status.Errorf(codes.FailedPrecondition, "get etcd status: %v", err)
 	}
 
+	// A threshold that will not parse is a misconfigured manifest, and it fails
+	// the call rather than being reported as zero. Zero is the documented signal
+	// for "a restart would defragment nothing", which a caller acts on by
+	// skipping the member - so reporting an unreadable value that way would
+	// quietly retire a node from defragmentation for as long as the typo lived.
+	threshold, _, err := etcdBootstrapDefragThresholdBytes(manifestJSON)
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "get etcd status: %v", err)
+	}
+
 	return &pb.GetEtcdStatusResponse{
 		DbTotalSizeBytes:      localStatus.DbSize,
 		DbTotalSizeInUseBytes: localStatus.DbSizeInUse,
@@ -406,6 +416,7 @@ func (s *NodeAgentServer) GetEtcdStatus(
 		// reported every member of an alarmed cluster as unhealthy, which is
 		// the opposite of what a caller polling for a defragmentation
 		// candidate needs to see.
-		Healthy: s.localEtcdHealthError(ctx, client, localStatus, nil) == nil,
+		Healthy:                       s.localEtcdHealthError(ctx, client, localStatus, nil) == nil,
+		BootstrapDefragThresholdBytes: threshold,
 	}, nil
 }
