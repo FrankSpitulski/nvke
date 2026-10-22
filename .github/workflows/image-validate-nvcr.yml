@@ -96,9 +96,12 @@ jobs:
           version="$(git describe --match 'controller/v*' --tags --always 2>/dev/null || git rev-parse --short HEAD)"
           version="${version#controller/}"
 
-          tags=("sha-${GITHUB_SHA}" "${version}")
+          # sha-<commit> and edge record what main built. A tag run rebuilds the
+          # same commit under a different version label, so a different digest,
+          # and must not touch them.
+          tags=("${version}")
           if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
-            tags+=("edge")
+            tags+=("sha-${GITHUB_SHA}" "edge")
           fi
 
           {
@@ -123,17 +126,19 @@ jobs:
           make -C controller/test/e2e validate-image-oci VALIDATE_VERSION="${VERSION}"
           echo "digest=$(cat controller/test/e2e/bin/validate-image-digest.txt)" >> "${GITHUB_OUTPUT}"
 
-      # A version or sha tag that already exists must already hold this digest.
-      # edge is the only tag that moves.
+      # A tag this run pushes that already exists must already hold this
+      # digest. edge is the only tag that moves.
       - name: Check existing tags
         shell: bash
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
-          VERSION: ${{ steps.meta.outputs.version }}
+          PUSH_TAGS: ${{ steps.meta.outputs.push_tags }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
-          for tag in "${VERSION}" "sha-${GITHUB_SHA}"; do
+          read -ra tags <<<"${PUSH_TAGS}"
+          for tag in "${tags[@]}"; do
+            [[ "${tag}" == edge ]] && continue
             if docker buildx imagetools inspect --raw "${IMAGE}:${tag}" > "${RUNNER_TEMP}/existing.json" 2>/dev/null; then
               existing="sha256:$(sha256sum "${RUNNER_TEMP}/existing.json" | cut -d' ' -f1)"
               if [[ "${existing}" != "${DIGEST}" ]]; then
