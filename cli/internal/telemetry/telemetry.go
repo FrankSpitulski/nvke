@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel/codes"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -47,13 +48,19 @@ type Run struct {
 	mismatchOnce   sync.Once // the trace ID mismatch is reported once per run
 	exportWarnOnce sync.Once // an export failure is reported once per run
 
+	// handlerBuilt and logProvider are used only by the goroutine that sets up
+	// logging and calls Finish.
+	handlerBuilt bool                   // LogHandler has run, so EnableOTLP is too late
+	logProvider  *sdklog.LoggerProvider // nil unless EnableOTLP was called
+
+	// warnLogger is where export warnings go, set by LogHandler. The log
+	// exporter's goroutine reads it.
+	warnLogger atomic.Pointer[slog.Logger]
+
 	mu              sync.Mutex
 	tracerProvider  *sdktrace.TracerProvider
 	rootSpan        trace.Span // nil before Start and after Finish
 	rootSpanContext trace.SpanContext
-	handlerBuilt    bool                   // LogHandler has run, so EnableOTLP is too late
-	logProvider     *sdklog.LoggerProvider // nil unless EnableOTLP was called
-	warnLogger      *slog.Logger           // where export warnings go, set by LogHandler
 }
 
 // sanitizeVersion returns version reduced to the characters of an RFC 9110

@@ -100,8 +100,6 @@ func (run *Run) EnableOTLP(cfg OTLPConfig) error {
 	if cfg.Endpoint == "" {
 		return errors.New("OTLP endpoint is empty")
 	}
-	run.mu.Lock()
-	defer run.mu.Unlock()
 	if run.handlerBuilt {
 		return errors.New("OTLP export must be enabled before the log handler is built")
 	}
@@ -154,8 +152,6 @@ func (run *Run) resource() *resource.Resource {
 // otlpHandler returns the handler that sends records to the OTLP endpoint, or
 // nil if EnableOTLP was not called.
 func (run *Run) otlpHandler() slog.Handler {
-	run.mu.Lock()
-	defer run.mu.Unlock()
 	run.handlerBuilt = true
 	if run.logProvider == nil {
 		return nil
@@ -163,20 +159,15 @@ func (run *Run) otlpHandler() slog.Handler {
 	return otelslog.NewHandler(serviceName, otelslog.WithLoggerProvider(run.logProvider))
 }
 
-// flushLogs sends the buffered records, waiting at most flushTimeout, and
-// releases the exporter. A failure is reported as the run's single export
-// warning.
+// flushLogs sends the buffered records, waiting at most flushTimeout, and shuts
+// the exporter down. A failure is reported as the run's single export warning.
 func (run *Run) flushLogs() {
-	run.mu.Lock()
-	provider := run.logProvider
-	run.logProvider = nil
-	run.mu.Unlock()
-	if provider == nil {
+	if run.logProvider == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), flushTimeout)
 	defer cancel()
-	if err := provider.Shutdown(ctx); err != nil {
+	if err := run.logProvider.Shutdown(ctx); err != nil {
 		run.warnExport(err)
 	}
 }
@@ -185,9 +176,7 @@ func (run *Run) flushLogs() {
 // warning goes to the run's own logger and never to the endpoint that failed.
 func (run *Run) warnExport(err error) {
 	run.exportWarnOnce.Do(func() {
-		run.mu.Lock()
-		logger := run.warnLogger
-		run.mu.Unlock()
+		logger := run.warnLogger.Load()
 		if logger == nil {
 			logger = slog.Default()
 		}

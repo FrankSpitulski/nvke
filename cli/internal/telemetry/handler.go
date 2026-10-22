@@ -33,9 +33,7 @@ func (run *Run) LogHandler(inner slog.Handler) slog.Handler {
 	if exported == nil {
 		return local
 	}
-	run.mu.Lock()
-	run.warnLogger = slog.New(inner)
-	run.mu.Unlock()
+	run.warnLogger.Store(slog.New(inner))
 	return &teeHandler{local: local, exported: exported, root: root}
 }
 
