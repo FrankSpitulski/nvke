@@ -1,9 +1,10 @@
 # Helm charts
 
-Five charts that install NVKE, SPIRE, CAPNICo and NICo with `helm` alone.
+Six charts that install NVKE, SPIRE, CAPNICo and NICo with `helm` alone.
 
 | Chart | Installs | In the umbrella |
 |---|---|---|
+| [`storage/`](storage/) | A default StorageClass — Rancher's local-path-provisioner, vendored | yes, off by default |
 | [`nvke/`](nvke/) | The NVKE controller, with the PostgreSQL and Temporal it runs on | yes |
 | [`spire/`](spire/) | SPIRE, the OIDC upstream CA chain and the two NodePorts | yes |
 | [`nico/`](nico/) | NICo, with the prerequisites its own chart expects to find already in place | yes, off by default |
@@ -32,7 +33,7 @@ Helm.
 | Prerequisite | Why |
 |---|---|
 | cert-manager | Every chart here creates `Certificate` and `Issuer` objects, so their CRDs have to exist first. `clusterctl init` installs cert-manager, so a seed that has run it is ready |
-| A default StorageClass | PostgreSQL and SPIRE both take a PVC. Without a default they sit `Pending` forever. kind ships the rancher local-path provisioner |
+| A default StorageClass | PostgreSQL and SPIRE both take a PVC. Without a default they sit `Pending` forever. kind ships the rancher local-path provisioner, and a cluster with real storage brings its own CSI driver. For a bare cluster that has neither, [`storage/`](storage/) supplies one — set `nvke-storage.enabled=true` |
 | Cluster API, through `clusterctl init` | For driving real clusters, and for CAPNICo to reconcile anything. The NVKE controller starts and answers without it, and logs that `cluster.x-k8s.io` kinds are missing |
 | helm 4 | Only for the CAPNICo chart. NVKE pins `v4.2.4` in `make/tool-versions.mk`. The other four charts work on helm 3 |
 | A `nico` chart repository | Only for the NICo chart. NICo is published separately from NVKE, so neither `nico/` nor `nvke-nico-stack/` names a registry: `helm repo add nico <your NICo chart repository>` |
@@ -106,6 +107,28 @@ The profiles image is maintained outside this repository and the chart refuses
 to render without one. `--set nvke.nvke-controller.profiles.image.enabled=false`
 leaves it out, which is enough to bring the controller up; `/api/releases` then
 returns 500 and nothing can be provisioned.
+
+## Adding a StorageClass
+
+A bare cluster ships no StorageClass, so every PostgreSQL PVC sits `Pending`.
+kind already has one and a real site brings the CSI driver for its hardware, so
+the chart is off by default:
+
+```bash
+helm upgrade --install nvke-nico-stack deploy/charts/nvke-nico-stack \
+  --namespace nvke-system --create-namespace \
+  --set nvke-storage.enabled=true \
+  --set nvke.database.password=<pick one>
+```
+
+It refuses to install beside an existing default StorageClass, because
+Kubernetes has no rule for choosing between two. The umbrella's `NOTES.txt`
+warns the other way round too — when the cluster has no default and the chart
+is off.
+
+**Local storage is a lab default.** A volume is a directory on one node: it
+does not move, does not replicate, and does not survive the node. See
+[`storage/README.md`](storage/README.md).
 
 ## Adding CAPNICo
 

@@ -46,6 +46,16 @@ Configure each through its own key:
 `values-kind.yaml` is each chart's own `values-kind.yaml` re-keyed, and nothing
 more.
 
+## Storage is off by default
+
+`nvke-storage.enabled` ships false. kind already has a default StorageClass and
+a real site brings the CSI driver for its hardware. Turn it on for a bare
+cluster that has neither, or every PostgreSQL PVC sits `Pending`.
+
+`NOTES.txt` warns when the cluster has no default StorageClass and the chart is
+off; the chart itself refuses to install beside an existing default. See
+[`../storage/README.md`](../storage/README.md).
+
 ## NICo is off by default
 
 `nvke-nico.enabled` ships false. Turn it on once the `nico` repository alias is

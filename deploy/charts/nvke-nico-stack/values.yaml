@@ -36,6 +36,16 @@ global:
 #   --set nvke.database.password=...
 #   --set nvke-nico.nico.global.image.tag=...
 
+# A default StorageClass. Off by default: kind already has one, and a cluster
+# with real storage brings the CSI driver for it. Turn it on for a bare cluster
+# that has neither — PostgreSQL takes a PVC in both the nvke and nico charts,
+# and without a default class both sit Pending forever.
+#
+# Local storage is a lab default. A volume is a directory on one node: it does
+# not move, does not replicate, and does not survive the node.
+nvke-storage:
+  enabled: false
+
 nvke-spire:
   enabled: true
 

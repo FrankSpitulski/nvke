@@ -3,6 +3,9 @@ nvke-nico-stack is installed in {{ .Release.Namespace }}.
 {{- if (index .Values "nvke-spire").enabled }}
   SPIRE        {{ (index .Values "nvke-spire").namespaces.server }}, {{ (index .Values "nvke-spire").namespaces.system }}
 {{- end }}
+{{- if (index .Values "nvke-storage").enabled }}
+  StorageClass {{ (index (index .Values "nvke-storage") "local-path-provisioner").storageClass.name }}
+{{- end }}
 {{- if .Values.nvke.enabled }}
   NVKE         {{ .Values.nvke.namespaces.controller }}
   Temporal     {{ .Release.Namespace }}
@@ -30,6 +33,12 @@ has no namespaceOverride, so it landed here — and
 nvke.nvke-controller.temporal.host still points at
 {{ (index .Values.nvke "nvke-controller").temporal.host }}. The controller will
 not reach Temporal until the two agree.
+{{- end }}
+{{- if and (not (index .Values "nvke-storage").enabled) (not (include "nvke-nico-stack.hasDefaultStorageClass" .)) }}
+
+WARNING: this cluster has no default StorageClass, and nvke-storage.enabled is
+false. Every PostgreSQL PVC will sit Pending. Install the CSI driver for your
+storage, or set nvke-storage.enabled=true for a local-path class.
 {{- end }}
 {{- if not (lookup "apps/v1" "Deployment" "capnico-system" "controller-manager") }}
 
