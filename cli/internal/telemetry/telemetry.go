@@ -38,7 +38,8 @@ const (
 
 // Run is the trace of one nvkectl invocation. The zero value is not usable;
 // build one with NewRun. The methods that read the trace ID are safe to call
-// on a nil Run, which has no trace.
+// on a nil Run, which has no trace. EnableOTLP, LogHandler and Finish must be
+// called from one goroutine.
 type Run struct {
 	providerOptions []sdktrace.TracerProviderOption
 	userAgent       string
