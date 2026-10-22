@@ -130,15 +130,22 @@ jobs:
               '{path: $path, contents: $contents}'
           done | jq -s '.')"
 
-          # Reset the branch to the commit this job checked out, so a rerun
-          # replaces last week's proposal rather than stacking onto it -- what
-          # `push --force` did before. Moving the ref keeps an open pull request
-          # attached to it; deleting and recreating the ref would close it.
-          if ! gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${BRANCH}" \
-              -f "sha=${BASE_SHA}" -F force=true >/dev/null 2>&1; then
-            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-              -f "ref=refs/heads/${BRANCH}" -f "sha=${BASE_SHA}" >/dev/null
-          fi
+          # The proposal is built on a scratch ref and published only once it
+          # verifies. A rerun has to replace last week's proposal rather than
+          # stack onto it -- what `push --force` did before -- but resetting
+          # ${BRANCH} to ${BASE_SHA} up front means a failure in the mutation
+          # or in the verification below leaves an already-open pull request
+          # pointing at a branch with no proposal on it until a later run
+          # recovers.
+          candidate="${BRANCH}-${GITHUB_RUN_ID}"
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/heads/${candidate}" -f "sha=${BASE_SHA}" >/dev/null
+          cleanup() {
+            gh api -X DELETE \
+              "repos/${GITHUB_REPOSITORY}/git/refs/heads/${candidate}" \
+              >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
 
           # `git commit -s` wrote the trailer before; the mutation takes the
           # whole message, so the sign-off is spelled out here. It has to match
@@ -147,7 +154,7 @@ jobs:
           payload="${RUNNER_TEMP}/commit.json"
           jq -n \
             --arg repo "${GITHUB_REPOSITORY}" \
-            --arg branch "${BRANCH}" \
+            --arg branch "${candidate}" \
             --arg oid "${BASE_SHA}" \
             --argjson additions "${additions}" \
             '{
@@ -171,7 +178,7 @@ jobs:
             echo "::error::createCommitOnBranch returned no commit."
             exit 1
           fi
-          echo "Committed ${oid} on ${BRANCH}."
+          echo "Committed ${oid} on ${candidate}."
 
           # The whole point of the mutation is the signature, so fail loudly
           # rather than open a pull request that cannot be merged.
@@ -183,6 +190,14 @@ jobs:
             echo "::error::Commit ${oid} is not verified (${reason}); main requires" \
                  "verified signatures, so this would not be mergeable."
             exit 1
+          fi
+
+          # Verified, so publish it. Moving the ref keeps an open pull request
+          # attached to it; deleting and recreating the ref would close it.
+          if ! gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${BRANCH}" \
+              -f "sha=${oid}" -F force=true >/dev/null 2>&1; then
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f "ref=refs/heads/${BRANCH}" -f "sha=${oid}" >/dev/null
           fi
 
       - name: Open or update the pull request
