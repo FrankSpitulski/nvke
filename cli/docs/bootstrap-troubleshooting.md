@@ -68,9 +68,6 @@ them.
 - nvkectl sends log records only. It does not send spans.
 - If the endpoint is unreachable, nvkectl prints one warning, the command
   still succeeds, and the command takes up to two seconds longer to exit.
-- nvkectl reads only the three variables above. Variables for a single signal,
-  such as `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, are ignored.
-- Any nvkectl command exports its logs this way, not only `bootstrap site`.
 
 ### The diagnostics directory
 
