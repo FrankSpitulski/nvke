@@ -357,7 +357,7 @@ so the log will undercount them:
 
 ```bash
 kubectl -n "$NS" exec deploy/nke-controller -- \
-  curl -s http://127.0.0.1:9090/metrics | grep '^nvke_auth_requests_total'
+  wget -qO- http://127.0.0.1:9090/metrics | grep '^nvke_auth_requests_total'
 ```
 
 ```
