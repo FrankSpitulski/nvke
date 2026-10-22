@@ -160,6 +160,15 @@ fail() {
   exit 1
 }
 
+# NETCONFPATH outranks the cni_netconfpath bootstrap-e2e-host.sh writes, and
+# this one would put the suite's nerdctl networks where nvkectl's kind commands
+# no longer look and its preflight refuses to start.
+netconfpath="${NETCONFPATH:-}"
+if [ "${netconfpath%/}" = /etc/cni/net.d ]; then
+  fail "NETCONFPATH names /etc/cni/net.d, the directory nvkectl keeps nerdctl's networks out of" \
+    "unset it, or point it at /etc/containerd-nerdctl/net.d"
+fi
+
 # scan_output_for_secrets scans the bootstrap log and the diagnostics bundle for
 # credentials, and returns 1 if it finds one or cannot tell. It prints the
 # scanner's findings with the secret redacted and never the secret itself: this

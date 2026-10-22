@@ -129,6 +129,12 @@ kubectl get deployment nke-controller -n nke-controller -o jsonpath='{.spec.temp
 - **Cause:** An earlier run kept its seed cluster, which can hold the only copy of that cluster's etcd encryption key.
 - **Fix:** Save every `etcd-encryption-key-*` Secret the message lists, then delete the seed cluster as in the retry steps. Keep the `KIND_EXPERIMENTAL_PROVIDER=nerdctl` prefix, or `kind` deletes nothing and the next run stops on the same message.
 
+### The node CNI directory holds nerdctl network configs
+
+- **Symptom:** `/etc/cni/net.d already holds nerdctl network config(s), and this node's own containerd reads that directory for pod networking`, followed by the list of `nerdctl-*.conflist` files.
+- **Cause:** nerdctl ran as root on this host without `cni_netconfpath` set, so it wrote its network configs to `/etc/cni/net.d`. A node's containerd reads that directory for pod networking, and until the cluster's CNI plugin writes its own configuration, the first pods, CoreDNS among them, would get addresses on nerdctl's bridge.
+- **Fix:** List the bridges the files name with `grep -h '"bridge":' /etc/cni/net.d/nerdctl-*.conflist` before you remove them. Remove the files, delete each of those bridges with `ip link delete <BRIDGE>`, and set `cni_netconfpath = "/etc/containerd-nerdctl/net.d"` in `/etc/nerdctl/nerdctl.toml` so nerdctl keeps its networks out of that directory. Then run the bootstrap again.
+
 ### An etcd encryption key file already exists
 
 - **Symptom:** `<CLUSTER_NAME>-etcd-encryption-key.json already exists and holds the etcd encryption key of an earlier bootstrap of this cluster name`.

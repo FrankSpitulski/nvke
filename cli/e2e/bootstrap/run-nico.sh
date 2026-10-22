@@ -156,6 +156,15 @@ fail() {
   exit 1
 }
 
+# NETCONFPATH outranks the cni_netconfpath bootstrap-e2e-host.sh writes, and
+# this one would put the suite's nerdctl networks where nvkectl's kind commands
+# no longer look and its preflight refuses to start.
+netconfpath="${NETCONFPATH:-}"
+if [ "${netconfpath%/}" = /etc/cni/net.d ]; then
+  fail "NETCONFPATH names /etc/cni/net.d, the directory nvkectl keeps nerdctl's networks out of" \
+    "unset it, or point it at /etc/containerd-nerdctl/net.d"
+fi
+
 # defer registers a command for the EXIT trap, which runs registrations in
 # reverse order. Register the teardown *before* the operation it undoes.
 DEFERRED=()
