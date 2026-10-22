@@ -10,7 +10,7 @@ The setup has four parts on your machine:
 
 - A kind cluster named `controller-capi` that serves as the management cluster, with Cluster API installed.
 - The NVKE management plane, deployed into that cluster by Tilt and served on `http://localhost:8080`.
-- CAPNICo, the Cluster API infrastructure provider for NICo, built from source.
+- CAPNICo, the Cluster API infrastructure provider for NICo, installed from its published Helm chart.
 - mock-NICo (the `nico-sim` process), which CAPNICo calls as if it were NICo.
 
 The example passwords, the simulated NICo and the Tilt-managed management plane are for local evaluation only. Do not reuse this setup for a real installation.
@@ -24,7 +24,7 @@ The example passwords, the simulated NICo and the Tilt-managed management plane 
 - These tools on `PATH`: `git`, GNU Make, Go 1.27.3 or later, a C compiler such as `gcc`, `kind` v0.32.0, `kubectl`, Helm 4, `tilt`, `jq`, `curl`, `nc`, `dpkg-deb` and `dpkg-scanpackages`. On Debian and Ubuntu, `dpkg-scanpackages` is in the `dpkg-dev` package. An older Go downloads 1.27.3 automatically unless `GOTOOLCHAIN=local` is set. You do not need `clusterctl`: the setup installs the pinned version into the repository.
 - `fs.inotify.max_user_instances` at 1024 or more. Tilt restarts the management plane with a file watcher, and with a lower limit, such as the common default of 128, the management plane restarts in a loop with `entr: cannot create kqueue: No file descriptors available` in its log. [Prepare the machine](#prepare-the-machine) checks and raises the limit.
 - Nothing else listening on ports 179, 5432, 7233, 8080, 8081, 10350, 18080, 30440 or 30443.
-- Outbound internet access to GitHub, the Go module proxy and public container registries.
+- Outbound internet access to GitHub, `ghcr.io` (the GitHub container registry), the Go module proxy and public container registries.
 
 ## Prepare the machine
 
@@ -78,55 +78,16 @@ The example passwords, the simulated NICo and the Tilt-managed management plane 
 
    This page adds a site named `local`. If `sites` already has a `local` entry, `nvkectl config set-site` replaces it; use another name in its place in every `nvkectl config` command on this page.
 
-## Get the CAPNICo source
-
-CAPNICo is public at [dsx-ai-factory/cluster-api-provider-nico](https://github.com/dsx-ai-factory/cluster-api-provider-nico). Use the version this repository pins, so that CAPNICo matches the management plane you run.
-
-1. Download the pinned version with Go and print where Go stored it.
-
-   ```bash
-   CAPNICO_MODULE_DIR="$(go mod download -json github.com/dsx-ai-factory/cluster-api-provider-nico | jq -r .Dir)"
-   ```
-
-   ```bash
-   echo "$CAPNICO_MODULE_DIR"
-   ```
-
-   The path ends in `cluster-api-provider-nico@` followed by the pinned version.
-
-2. Copy it next to the `nvke` directory, into a new directory named `nvke-quickstart-capnico`, and make the copy writable.
-
-   ```bash
-   mkdir ../nvke-quickstart-capnico
-   ```
-
-   If `mkdir` reports that the directory exists, stop: Clean up deletes this directory, so it must be one this page created. Move the existing directory out of the way first.
-
-   ```bash
-   cp -R "$CAPNICO_MODULE_DIR/." ../nvke-quickstart-capnico/
-   ```
-
-   ```bash
-   chmod -R u+w ../nvke-quickstart-capnico
-   ```
-
-   The copy contains `chart/Chart.yaml`. Tilt checks for that file before it builds CAPNICo.
-
 ## Start the management cluster
 
-1. Write the Tilt configuration. It selects the NICo provider, runs mock-NICo with container nodes, and builds CAPNICo from the copy you made.
+1. Write the Tilt configuration. It selects the NICo provider and runs mock-NICo with container nodes. Tilt installs the latest stable release of the published CAPNICo Helm chart.
 
    ```bash
-   cat > controller/tilt_config.json <<'EOF'
-   {
-     "providers": ["capi_core", "bgp-containers", "nico"],
-     "nico_sim_backends": ["container"],
-     "capnico_source_dir": "../../nvke-quickstart-capnico"
-   }
-   EOF
+   jq -n '{
+     providers: ["capi_core", "bgp-containers", "nico"],
+     nico_sim_backends: ["container"]
+   }' > controller/tilt_config.json
    ```
-
-   Tilt resolves `capnico_source_dir` relative to the `controller` directory.
 
 2. Create the Tilt environment file.
 
@@ -134,7 +95,7 @@ CAPNICo is public at [dsx-ai-factory/cluster-api-provider-nico](https://github.c
    cp controller/.env.tilt.example controller/.env.tilt
    ```
 
-   Open `controller/.env.tilt` and give each of the five empty values at the top a value. Tilt refuses to start while any of them is empty. Any values work for this local stack:
+   Optionally, edit usernames and passwords in `controller/.env.tilt`:
 
    ```text
    DGXC_TENANT_USER=example-user
@@ -146,15 +107,10 @@ CAPNICo is public at [dsx-ai-factory/cluster-api-provider-nico](https://github.c
 
    Leave the rest of the file as it is.
 
-3. Create the kind cluster, install Cluster API, and build the node image the simulated nodes run.
+3. Create the kind cluster, install Cluster API, and build the node image the simulated nodes run. The command also downloads `clusterctl` into `controller/.local/bin` and starts two local registry caches. Near the end, the output includes:
 
-   ```bash
-   make -C controller capd-up
-   ```
-
-   The command also downloads `clusterctl` into `controller/.local/bin` and starts two local registry caches. Near the end, the output includes:
-
-   ```text
+   ```shell
+   $ make -C controller capd-up
    ✅ CAPD management cluster is ready
    Next step: tilt up
    ```
@@ -167,7 +123,7 @@ CAPNICo is public at [dsx-ai-factory/cluster-api-provider-nico](https://github.c
    cd controller && tilt up
    ```
 
-   Tilt prints the address of its web UI. Open it and wait until every resource is green. If `helm`, `docker`, `go` or `kind` is missing, the `check-management-cluster` resource fails and its log names the tool. `nico-sim` is mock-NICo, `capnico-provider` builds and installs CAPNICo, and `nvke-controller` is the management plane.
+   Tilt prints the address of its web UI. Open it and wait until every resource is green. If `helm`, `docker`, `go` or `kind` is missing, the `check-management-cluster` resource fails and its log names the tool. `nico-sim` is mock-NICo, `capnico-provider` installs CAPNICo, and `nvke-controller` is the management plane.
 
 Open a second terminal in the `nvke` directory for the rest of this page, and run `export PATH="$PWD/cli/bin:$PATH"` in it.
 
@@ -176,11 +132,7 @@ Open a second terminal in the `nvke` directory for the rest of this page, and ru
 1. Write the management cluster's kubeconfig to a file.
 
    ```bash
-   kubectl config view --raw --minify --context kind-controller-capi > local-mgmt.kubeconfig
-   ```
-
-   ```bash
-   chmod 600 local-mgmt.kubeconfig
+   kubectl config view --raw --minify --context kind-controller-capi > local-mgmt.kubeconfig && chmod 600 local-mgmt.kubeconfig
    ```
 
    The file holds only the `kind-controller-capi` context, with its admin credentials.
@@ -268,18 +220,8 @@ Open a second terminal in the `nvke` directory for the rest of this page, and ru
 3. Remove the kind cluster, the BGP peer, the registry caches and the `kind` Docker network.
 
    ```bash
-   make -C controller kind-down
-   ```
-
-   ```bash
-   make -C controller bgp-containers-down
-   ```
-
-   ```bash
+   make -C controller kind-down bgp-containers-down
    docker rm -f registry-mirror registry-k8s-mirror
-   ```
-
-   ```bash
    docker network rm kind
    ```
 
@@ -298,21 +240,21 @@ Open a second terminal in the `nvke` directory for the rest of this page, and ru
 
    Then confirm that `nvkectl config view` no longer lists `local`. `nvkectl` also cached API tokens for `http://localhost:8080` in `~/.cache/nvkectl/tokens.json`. Each expires 10 minutes after it was issued and works only against the deleted management cluster, so you can leave them.
 
-6. Delete the repository, the CAPNICo copy and the mock-NICo binary.
+6. Delete the repository and the mock-NICo binary.
 
    ```bash
    cd ..
    ```
 
    ```bash
-   rm -rf nvke nvke-quickstart-capnico
+   rm -rf nvke
    ```
 
    ```bash
    rm -f /tmp/cwe-nico-sim ~/.cache/cwe-nico-sim
    ```
 
-   The `nvke` directory holds the other files this page created, including `local-mgmt.kubeconfig`, `my-cluster.kubeconfig`, `controller/.env.tilt` and the build output in `controller/.local`.
+   The `nvke` directory holds the files this page created, including `local-mgmt.kubeconfig`, `my-cluster.kubeconfig`, `controller/.env.tilt` and the build output in `controller/.local`.
 
 The container images that the setup built or pulled stay in Docker, and `docker image ls` lists them. If `host-up` loaded `tpm_vtpm_proxy`, it also wrote `/etc/modules-load.d/99-capi-vtpm.conf`, which loads the module at boot. Delete that file with `sudo` if you do not want the module loaded after a reboot.
 
